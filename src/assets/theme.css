@@ -1,0 +1,133 @@
+/* ── Casy 主题变量 ────────────────────────────────────────── *
+ *
+ * 5 个核心 CSS 变量 + 字体阶差 + 间距系统
+ * 覆盖 Element Plus 默认值，统一全站视觉风格
+ * ──────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── 核心色彩变量 ───────────────────────────────────────── */
+  --c-primary: #409eff;
+  --c-text: #303133;
+  --c-bg: #ffffff;
+  --c-border: #dcdfe6;
+  --c-radius: 6px;
+
+  /* ── 衍生色彩 ───────────────────────────────────────────── */
+  --c-primary-light: #ecf5ff;
+  --c-primary-dark: #337ecc;
+  --c-text-regular: #606266;
+  --c-text-secondary: #909399;
+  --c-text-placeholder: #c0c4cc;
+  --c-bg-page: #f5f7fa;
+  --c-bg-card: #ffffff;
+  --c-bg-sidebar: #f8f9fa;
+  --c-border-light: #ebeef5;
+  --c-border-lighter: #f2f6fc;
+
+  /* ── 语义色彩 ───────────────────────────────────────────── */
+  --c-success: #67c23a;
+  --c-warning: #e6a23c;
+  --c-danger: #f56c6c;
+  --c-info: #909399;
+
+  /* ── 字体阶差 ───────────────────────────────────────────── */
+  --font-sm: 13px;
+  --font-base: 15px;
+  --font-lg: 18px;
+  --font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* ── 间距系统（16px 基础）────────────────────────────────── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* ── 侧边栏 ─────────────────────────────────────────────── */
+  --sidebar-width: 48px;
+  --sidebar-width-expanded: 180px;
+
+  /* ── Element Plus 变量覆盖 ───────────────────────────────── */
+  --el-color-primary: var(--c-primary);
+  --el-color-primary-light-3: #79bbff;
+  --el-color-primary-light-5: #a0cfff;
+  --el-color-primary-light-7: #c6e2ff;
+  --el-color-primary-light-8: #d9ecff;
+  --el-color-primary-light-9: #ecf5ff;
+  --el-color-primary-dark-2: var(--c-primary-dark);
+
+  --el-color-success: var(--c-success);
+  --el-color-warning: var(--c-warning);
+  --el-color-danger: var(--c-danger);
+  --el-color-info: var(--c-info);
+
+  --el-text-color-primary: var(--c-text);
+  --el-text-color-regular: var(--c-text-regular);
+  --el-text-color-secondary: var(--c-text-secondary);
+  --el-text-color-placeholder: var(--c-text-placeholder);
+
+  --el-bg-color: var(--c-bg);
+  --el-bg-color-page: var(--c-bg-page);
+
+  --el-border-color: var(--c-border);
+  --el-border-color-light: var(--c-border-light);
+  --el-border-color-lighter: var(--c-border-lighter);
+
+  --el-border-radius-base: var(--c-radius);
+  --el-border-radius-small: 4px;
+  --el-border-radius-round: 20px;
+
+  --el-font-size-base: var(--font-base);
+  --el-font-size-small: var(--font-sm);
+  --el-font-size-large: var(--font-lg);
+}
+
+/* ── 全局字体应用 ─────────────────────────────────────────── */
+
+body {
+  font-size: var(--font-base);
+  color: var(--c-text);
+}
+
+/* ── Element Plus 组件样式覆盖 ────────────────────────────── */
+
+/* 卡片统一圆角和阴影 */
+.el-card {
+  border-radius: var(--c-radius);
+  border-color: var(--c-border-light);
+}
+
+/* 对话框圆角 */
+.el-dialog {
+  border-radius: var(--c-radius);
+}
+
+/* 按钮圆角 */
+.el-button {
+  border-radius: var(--c-radius);
+}
+
+/* 输入框圆角 */
+.el-input__wrapper {
+  border-radius: var(--c-radius);
+}
+
+/* 表单标签字号统一 */
+.el-form-item__label {
+  font-size: var(--font-sm);
+}
+
+/* 标签字号统一 */
+.el-tag {
+  font-size: var(--font-sm);
+}
+
+/* 菜单项字号统一 */
+.el-menu-item {
+  font-size: var(--font-sm);
+}
+
+/* Badge 圆角 */
+.el-badge__content {
+  border-radius: 10px;
+}

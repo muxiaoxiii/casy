@@ -1,0 +1,71 @@
+[package]
+name = "casy"
+version = "0.1.0"
+description = "Casy - 跨端案件管理系统"
+authors = ["only"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "casy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio = { version = "1", features = ["full"] }
+regex = "1"
+dirs = "5"
+uuid = { version = "1", features = ["v4"] }
+quick-xml = "0.37"
+calamine = { version = "0.26", features = ["dates"] }
+rust_xlsxwriter = "0.80"
+zip = "0.6"
+base64 = "0.22"
+csv = "1"
+sha2 = "0.10"
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# 文件系统监听
+notify = "7"
+
+# 邮件
+mailparse = "0.15"
+async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
+tokio-native-tls = "0.3"
+native-tls = "0.2"
+futures-util = "0.3"
+
+# AI 后端
+async-trait = "0.1"
+
+# OCR（可选）
+rusty-tesseract = "1.1"
+
+# 系统回收站
+trash = "5"
+
+# OS Keychain
+keyring = "3"
+getrandom = "0.2"
+hex = "0.4"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,38 @@
+{
+  "name": "casy",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tiptap/core": "^3.29",
+    "@tiptap/extension-highlight": "^3.29",
+    "@tiptap/extension-placeholder": "^3.29",
+    "@tiptap/extension-underline": "^3.29",
+    "@tiptap/starter-kit": "^3.29",
+    "@tiptap/suggestion": "^3.29",
+    "@tiptap/vue-3": "^3.29",
+    "element-plus": "^2.14.3",
+    "pinia": "^4.0.2",
+    "vue": "^3.5.40",
+    "vue-draggable-plus": "^0.6.1",
+    "vue-router": "^5.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "vite": "^8.2.0"
+  }
+}
