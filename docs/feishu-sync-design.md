@@ -1,583 +1,571 @@
-# 飞书多维表格通用同步设计文档 v3.0
+# Casy 飞书生态设计文档 v4.0
 
-> 版本: 3.0 | 日期: 2026-08-03
-> 替代: feishu-sync-design.md v1.0（固定 5 表方案）
-> 参考: use-bitable/Excel-Compare-and-Import（飞书表格扩展脚本）
+> 版本: 4.0 | 日期: 2026-08-03
+> 替代: feishu-sync-design.md v3.0
 > 状态: 设计评审中
 
 ---
 
-## v3.0 变更说明
+## 一、核心定位
 
-v1.0 设计是**硬编码 5 张固定表**的同步方案（案件主表、办案日志、庭审信息、任务管理、官方人员）。
+### Casy 是什么
 
-**v3.0 核心转变**：从"固定表同步"变为"通用表格处理"——Casy 能连接**任意**飞书多维表格，自动读取表结构，让用户建立字段映射，然后做比较、导入、双向同步。
+**Casy = 飞书多维表格的"律师专业版"。**
 
-**设计理念**：飞书多维表格的本质是一个"表 → 字段 → 记录"的通用数据容器。Casy 的飞书模块应该理解这个通用结构，而不是只理解某几张特定的表。
+飞书多维表格是通用数据容器，Casy 在它的基础上解决律师的痛点：
 
----
+| 飞书多维表格的局限 | Casy 的解决方案 |
+|-------------------|----------------|
+| 按案件类型筛选字段很麻烦（无效/侵权/行政的字段不同）| **动态字段系统**：按案由/审级自动显示/隐藏字段 |
+| 任务系统弱，只有简单的截止日期 | **四象限任务管理** + **庭审准备任务模板** + **强提醒** |
+| 日历只是日期展示，没有法律期限计算 | **期限引擎**：自动计算答辩期/上诉期/口审准备期 |
+| 提醒只有飞书通知，容易错过 | **多通道提醒**：本地弹窗 + 飞书消息 + 飞书任务 + 系统通知 |
+| 公式只能在表格里看，不能关联到文书 | **公式引擎本地计算** + **Copilot 文书引用** |
+| 没有知识库，法条/判例要另存 | **知识库**：法条/判例/笔记统一存储，写作时自动检索 |
+| 没有收件箱，文件要手动归档 | **大口袋**：文件/邮件/文本丢进来，自动判断+推荐+归档 |
 
-## 一、总体架构
-
-### 1.1 核心概念
-
-```
-飞书多维表格                    Casy 本地
-┌──────────────┐              ┌──────────────┐
-│  Base (app)  │              │  SQLite DB   │
-│  ├─ Table A  │  ←映射→     │  ├─ cases     │
-│  ├─ Table B  │  ←映射→     │  ├─ hearings  │
-│  ├─ Table C  │  ←映射→     │  ├─ tasks     │
-│  └─ Table D  │  ←新建→     │  └─ custom_X  │
-└──────────────┘              └──────────────┘
-
-核心数据结构：
-  Base     = 一个多维表格（app_token）
-  Table    = 一张表（table_id）
-  Field    = 一个字段（field_id + field_name + field_type）
-  Record   = 一行数据（record_id + fields{}）
-```
-
-### 1.2 功能模块
+### Casy 与飞书的关系
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  飞书同步模块                              │
-│                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │  连接管理    │  │  表结构发现  │  │  字段映射    │    │
-│  │             │  │             │  │             │    │
-│  │ App ID/Secret│  │ 列出所有表  │  │ 自动匹配    │    │
-│  │ app_token   │  │ 读取字段定义│  │ 手动映射    │    │
-│  │ 测试连接    │  │ 类型识别    │  │ 类型转换    │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘    │
-│                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │  比较引擎    │  │  导入引擎    │  │  同步引擎    │    │
-│  │             │  │             │  │             │    │
-│  │ Schema diff │  │ 全量导入    │  │ 增量 Pull   │    │
-│  │ Record diff │  │ 增量导入    │  │ 增量 Push   │    │
-│  │ 冲突检测    │  │ 选择性导入  │  │ 冲突解决    │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘    │
-│                                                         │
-│  ┌─────────────┐  ┌─────────────┐                      │
-│  │  公式引擎    │  │  链接引擎    │                      │
-│  │             │  │             │                      │
-│  │ 飞书公式解析│  │ DuplexLink  │                      │
-│  │ 本地计算    │  │ SingleLink  │                      │
-│  │ 结果缓存    │  │ Lookup      │                      │
-│  └─────────────┘  └─────────────┘                      │
-└─────────────────────────────────────────────────────────┘
+Casy 不是飞书的替代品，而是飞书的"上层建筑"：
+
+飞书多维表格 → 通用数据存储 + 团队协作
+    ↑ 同步
+Casy → 专业案件管理 + 期限计算 + 知识库 + 文书生成 + 强提醒
+
+用户可以在飞书中查看/编辑数据（团队协作场景）
+用户在 Casy 中做专业操作（个人工作场景）
+两边数据双向同步，无缝衔接
 ```
 
 ---
 
-## 二、连接管理
+## 二、当前实现状态检查
 
-### 2.1 配置存储
+### 2.1 已实现 ✅
+
+| 模块 | 代码量 | 说明 |
+|------|--------|------|
+| 飞书 API 基础 | sync/feishu.rs (1981行) | Token 管理、限流、Pull/Push |
+| 表结构发现 | commands/sync.rs | list_tables/list_fields/list_records |
+| 字段映射 | commands/sync.rs | compare_table/compare_records/save_mappings |
+| 导入引擎 | commands/sync.rs | import_all/import_selected/import_incremental |
+| 同步引擎 | commands/sync.rs | sync_pull/sync_push |
+| 公式引擎 | formula/ (2600行) | AST/Parser/Evaluator/DependencyGraph |
+| JSON 导入 | import_feishu.rs | 5 张表 JSON dump 导入 |
+| 前端设置 | FeishuSettings.vue | 连接配置 + 表发现 + 映射 + 导入 |
+| 任务管理 | tasks.rs | CRUD + 四象限 + 庭审准备任务 |
+| 日历 | calendar.rs | 月视图 + 法定节假日 |
+| 期限引擎 | formula/engine.rs | DeadlineEngine + HolidayCalendar |
+
+### 2.2 未实现 ❌
+
+| 模块 | 优先级 | 说明 |
+|------|--------|------|
+| **飞书消息推送** | P0 | 通过飞书 Bot 发送提醒消息 |
+| **飞书任务创建** | P0 | 在飞书中创建任务（期限提醒场景）|
+| **多通道提醒系统** | P0 | 统一的提醒调度器（本地/飞书/系统通知）|
+| **动态字段系统** | P1 | 按案由/审级自动显示/隐藏字段 |
+| **跨类型筛选** | P1 | 不同案件类型的统一筛选视图 |
+| **公式缓存列** | P1 | schema 已定义，未写入计算结果 |
+| **链接关系同步** | P2 | DuplexLink/SingleLink 的双向同步 |
+| **附件同步** | P2 | 飞书附件下载 / 本地文件上传 |
+| **冲突解决 UI** | P2 | 字段级冲突的用户选择界面 |
+
+---
+
+## 三、多通道提醒系统（核心新增）
+
+### 3.1 架构
+
+```
+                    ┌─────────────────┐
+                    │   提醒调度器      │
+                    │  ReminderEngine  │
+                    └────────┬────────┘
+                             │
+         ┌───────────┬───────┼───────┬───────────┐
+         ↓           ↓       ↓       ↓           ↓
+   ┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐
+   │ 本地弹窗  ││ 系统通知  ││ 飞书消息  ││ 飞书任务  ││ 邮件提醒  │
+   │ Tauri    ││ macOS   ││ Bot API ││ Task API ││ SMTP    │
+   │ dialog   ││ notify  ││ im/v1   ││ task/v2  ││ (future)│
+   └──────────┘└──────────┘└──────────┘└──────────┘└──────────┘
+```
+
+### 3.2 提醒规则
 
 ```sql
--- 飞书连接配置
-CREATE TABLE IF NOT EXISTS feishu_connections (
+CREATE TABLE IF NOT EXISTS reminder_rules (
     id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,              -- 连接名称（用户自定义）
-    app_id          TEXT NOT NULL,
-    app_secret      TEXT NOT NULL,              -- 加密存储
-    app_token       TEXT,                       -- 多维表格 app_token（可选）
-    base_name       TEXT,                       -- 多维表格名称
-    status          TEXT DEFAULT 'disconnected'
-                    CHECK(status IN ('connected','disconnected','error')),
-    last_sync_at    TEXT,
-    created_at      TEXT DEFAULT (datetime('now','localtime')),
-    updated_at      TEXT DEFAULT (datetime('now','localtime'))
+    name            TEXT NOT NULL,              -- 规则名称
+    trigger_type    TEXT NOT NULL               -- 触发类型
+                    CHECK(trigger_type IN (
+                        'deadline_before',      -- 期限前 N 天
+                        'deadline_on',          -- 期限当天
+                        'deadline_after',       -- 期限后 N 天（逾期）
+                        'hearing_before',       -- 开庭前 N 天
+                        'task_due',             -- 任务到期
+                        'custom'                -- 自定义
+                    )),
+    trigger_value   INTEGER,                    -- N 天
+    channels        TEXT NOT NULL,              -- JSON: ["local","feishu_message","feishu_task","system"]
+    message_template TEXT,                      -- 提醒消息模板
+    case_types      TEXT,                       -- JSON: 适用案件类型（null=全部）
+    enabled         INTEGER DEFAULT 1,
+    created_at      TEXT DEFAULT (datetime('now','localtime'))
 );
+
+-- 默认提醒规则
+INSERT INTO reminder_rules (name, trigger_type, trigger_value, channels) VALUES
+('期限前 7 天提醒', 'deadline_before', 7, '["local","feishu_message"]'),
+('期限前 3 天紧急提醒', 'deadline_before', 3, '["local","feishu_message","feishu_task","system"]'),
+('期限当天强提醒', 'deadline_on', 0, '["local","feishu_message","feishu_task","system"]'),
+('开庭前 7 天准备提醒', 'hearing_before', 7, '["local","feishu_message"]'),
+('开庭前 1 天最终提醒', 'hearing_before', 1, '["local","feishu_message","feishu_task","system"]'),
+('任务到期提醒', 'task_due', 0, '["local","feishu_message"]');
 ```
 
-### 2.2 连接流程
-
-```
-用户输入 App ID + App Secret
-    ↓
-测试连接 → 飞书 API 返回 tenant_access_token
-    ↓
-输入 app_token（多维表格 URL 中提取）
-    ↓
-自动发现所有表 → 列出表名和字段数
-    ↓
-用户选择要同步的表
-    ↓
-保存连接配置
-```
-
----
-
-## 三、表结构发现
-
-### 3.1 API 调用
+### 3.3 飞书消息推送
 
 ```rust
-/// 获取多维表格中所有表的列表
-async fn list_tables(app_token: &str, auth: &FeishuAuth) -> Result<Vec<TableInfo>> {
-    // GET /bitable/v1/apps/{app_token}/tables
-    // 返回: [{table_id, name, revision}]
-}
-
-/// 获取指定表的所有字段定义
-async fn list_fields(app_token: &str, table_id: &str, auth: &FeishuAuth) -> Result<Vec<FieldInfo>> {
-    // GET /bitable/v1/apps/{app_token}/tables/{table_id}/fields
-    // 返回: [{field_id, field_name, type, property, ...}]
-}
-
-/// 获取指定表的所有记录（分页）
-async fn list_records(app_token: &str, table_id: &str, auth: &FeishuAuth) -> Result<Vec<RecordInfo>> {
-    // GET /bitable/v1/apps/{app_token}/tables/{table_id}/records
-    // 分页: page_token + page_size (最大 500)
-    // 返回: [{record_id, fields: {field_name: value}, created_by, last_modified_by, ...}]
+/// 通过飞书 Bot 发送消息
+async fn send_feishu_message(
+    receive_id: &str,           // 用户 open_id 或 chat_id
+    receive_id_type: &str,      // "open_id" / "chat_id" / "union_id"
+    msg_type: &str,             // "text" / "interactive" (卡片消息)
+    content: &str,              // JSON content
+) -> Result<String> {
+    // POST /im/v1/messages?receive_id_type={type}
+    // Headers: Authorization: Bearer {tenant_access_token}
+    // Body: { receive_id, msg_type, content }
 }
 ```
 
-### 3.2 表结构缓存
-
-```sql
--- 飞书表结构缓存
-CREATE TABLE IF NOT EXISTS feishu_tables (
-    id              TEXT PRIMARY KEY,
-    connection_id   TEXT NOT NULL REFERENCES feishu_connections(id) ON DELETE CASCADE,
-    table_id        TEXT NOT NULL,              -- 飞书 table_id
-    table_name      TEXT NOT NULL,              -- 飞书表名
-    field_count     INTEGER,
-    record_count    INTEGER,
-    revision        INTEGER,                    -- 版本号（用于变更检测）
-    synced_at       TEXT,
-    UNIQUE(connection_id, table_id)
-);
-
--- 飞书字段定义缓存
-CREATE TABLE IF NOT EXISTS feishu_fields (
-    id              TEXT PRIMARY KEY,
-    table_id        TEXT NOT NULL,              -- 飞书 table_id
-    field_id        TEXT NOT NULL,              -- 飞书 field_id
-    field_name      TEXT NOT NULL,              -- 飞书字段名
-    field_type      INTEGER NOT NULL,           -- 飞书类型码
-    type_name       TEXT NOT NULL,              -- 类型名称（Text/Number/Select/...）
-    is_primary      INTEGER DEFAULT 0,
-    property_json   TEXT,                       -- 完整 property（选项/公式/链接配置）
-    formula_expr    TEXT,                       -- 公式表达式（仅 Formula 类型）
-    created_at      TEXT DEFAULT (datetime('now','localtime')),
-    UNIQUE(table_id, field_id)
-);
+**消息卡片模板**（期限提醒）：
+```json
+{
+  "msg_type": "interactive",
+  "card": {
+    "header": {
+      "title": { "tag": "plain_text", "content": "⏰ 期限提醒" },
+      "template": "red"
+    },
+    "elements": [
+      {
+        "tag": "div",
+        "text": {
+          "tag": "lark_md",
+          "content": "**案件**: 浦项 v NSC — 专利无效\n**期限**: 提交答辩状\n**截止日期**: 2026-08-15\n**剩余**: 3 天"
+        }
+      },
+      {
+        "tag": "action",
+        "actions": [
+          {
+            "tag": "button",
+            "text": { "tag": "plain_text", "content": "查看案件" },
+            "url": "casy://cases/xxx",
+            "type": "primary"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-### 3.3 飞书字段类型完整映射
+### 3.4 飞书任务创建
 
 ```rust
-/// 飞书字段类型码 → 类型名 → 本地 SQLite 类型
-fn feishu_type_to_sqlite(type_code: i32) -> (&'static str, &'static str) {
-    match type_code {
-        1     => ("Text", "TEXT"),               // 多行文本
-        2     => ("Number", "REAL"),             // 数字
-        3     => ("SingleSelect", "TEXT"),        // 单选
-        4     => ("MultiSelect", "TEXT"),          // 多选（JSON array）
-        5     => ("DateTime", "TEXT"),             // 日期（yyyy-MM-dd HH:mm）
-        7     => ("Checkbox", "INTEGER"),          // 复选框（0/1）
-        11    => ("User", "TEXT"),                 // 人员（JSON）
-        13    => ("Phone", "TEXT"),                // 电话
-        15    => ("Url", "TEXT"),                  // 超链接
-        17    => ("Attachment", "TEXT"),            // 附件（JSON）
-        18    => ("SingleLink", "TEXT"),            // 单向链接（JSON record_ids）
-        19    => ("Lookup", "TEXT"),                // 查找引用（不存储，实时计算）
-        20    => ("Formula", "TEXT"),               // 公式（存计算结果）
-        21    => ("DuplexLink", "TEXT"),             // 双向链接（JSON record_ids）
-        22    => ("Location", "TEXT"),              // 地理位置
-        23    => ("GroupChat", "TEXT"),             // 群聊
-        1001  => ("CreatedTime", "TEXT"),           // 创建时间
-        1002  => ("ModifiedTime", "TEXT"),          // 修改时间
-        1003  => ("CreatedUser", "TEXT"),           // 创建人
-        1004  => ("ModifiedUser", "TEXT"),          // 修改人
-        1005  => ("AutoNumber", "TEXT"),            // 自动编号
-        3001  => ("Button", ""),                    // 按钮（忽略）
-        _     => ("Unknown", "TEXT"),
+/// 在飞书中创建任务
+async fn create_feishu_task(
+    summary: &str,              -- 任务标题
+    description: &str,          -- 任务描述
+    due_date: Option<&str>,     -- 截止日期
+    members: Vec<&str>,         -- 负责人 open_id
+) -> Result<String> {
+    // POST /task/v2/tasks
+    // Headers: Authorization: Bearer {tenant_access_token}
+    // Body: { summary, description, due, members }
+}
+```
+
+**任务模板**（传票 → 飞书任务）：
+```
+传票到达 → 自动创建以下飞书任务：
+
+1. 准备证据材料（截止: 开庭前 7 天）
+   - 负责人: 案件办案人
+   - 描述: 整理并提交证据清单
+
+2. 准备代理词（截止: 开庭前 5 天）
+   - 负责人: 案件办案人
+   - 描述: 撰写代理词/答辩意见
+
+3. 确认出庭人员（截止: 开庭前 3 天）
+   - 负责人: 案件办案人
+   - 描述: 确认出庭律师和当事人
+```
+
+### 3.5 提醒调度器
+
+```rust
+/// 提醒调度器：定期检查并触发提醒
+pub struct ReminderEngine {
+    /// 检查间隔（秒）
+    check_interval: u64,
+    /// 飞书 Bot 配置
+    feishu_bot: Option<FeishuBotConfig>,
+}
+
+impl ReminderEngine {
+    /// 主循环：每分钟检查一次
+    pub async fn run(&self) {
+        loop {
+            let _ = self.check_and_trigger().await;
+            tokio::time::sleep(Duration::from_secs(self.check_interval)).await;
+        }
+    }
+
+    /// 检查所有活跃案件的期限和任务，触发符合条件的提醒
+    async fn check_and_trigger(&self) -> Result<()> {
+        let conn = db::open_db()?;
+
+        // 1. 检查期限提醒
+        let deadlines = self.check_deadlines(&conn)?;
+        for reminder in deadlines {
+            self.trigger_reminder(&reminder).await?;
+        }
+
+        // 2. 检查开庭提醒
+        let hearings = self.check_hearings(&conn)?;
+        for reminder in hearings {
+            self.trigger_reminder(&reminder).await?;
+        }
+
+        // 3. 检查任务到期提醒
+        let tasks = self.check_task_due(&conn)?;
+        for reminder in tasks {
+            self.trigger_reminder(&reminder).await?;
+        }
+
+        Ok(())
+    }
+
+    /// 根据提醒规则的 channels 配置，发送到对应通道
+    async fn trigger_reminder(&self, reminder: &Reminder) -> Result<()> {
+        for channel in &reminder.channels {
+            match channel.as_str() {
+                "local" => self.send_local_notification(reminder),
+                "system" => self.send_system_notification(reminder),
+                "feishu_message" => self.send_feishu_message(reminder).await?,
+                "feishu_task" => self.create_feishu_task(reminder).await?,
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 ```
 
 ---
 
-## 四、字段映射
+## 四、动态字段系统
 
-### 4.1 自动匹配
+### 4.1 问题
 
-```
-飞书字段 → 本地列 自动匹配规则：
+飞书多维表格中，所有案件共用同一套字段。但实际业务中：
+- 专利无效案件需要：请求人补充意见期限、专利权人陈述意见期限
+- 专利侵权案件需要：管辖异议、诉讼程序（简易/普通）
+- 专利行政案件需要：行政复议信息
 
-1. 名称完全匹配（优先级最高）
-   飞书 "案件信息" → 本地 cases.case_title (如果列名是 case_title 但别名匹配)
+在飞书中，这些字段都显示在一张表里，导致很多字段对某些案件是空的，筛选困难。
 
-2. 名称模糊匹配
-   飞书 "案件信息" ↔ 本地 cases.case_info / case_name / title
-   飞书 "案号" ↔ 本地 cases.case_no
-   飞书 "客户名称" ↔ 本地 cases.client_name
-
-3. 类型匹配
-   飞书 DateTime → 本地 TEXT (yyyy-MM-dd)
-   飞书 SingleSelect → 本地 TEXT
-   飞书 Number → 本地 REAL
-
-4. 已有映射记忆
-   feishu_field_mappings 表记录历史映射，下次自动应用
-```
-
-### 4.2 映射配置
+### 4.2 Casy 的解决方案
 
 ```sql
--- 字段映射表（核心！连接飞书和本地的桥梁）
-CREATE TABLE IF NOT EXISTS feishu_field_mappings (
+-- 字段分组定义
+CREATE TABLE IF NOT EXISTS field_groups (
     id              TEXT PRIMARY KEY,
-    connection_id   TEXT NOT NULL REFERENCES feishu_connections(id) ON DELETE CASCADE,
-    feishu_table_id TEXT NOT NULL,
-    feishu_field_id TEXT NOT NULL,
-    feishu_field_name TEXT NOT NULL,
-    feishu_field_type INTEGER NOT NULL,
-    local_table     TEXT NOT NULL,               -- 本地表名
-    local_column    TEXT NOT NULL,               -- 本地列名
-    transform_rule  TEXT,                        -- 转换规则 JSON（可选）
-    sync_direction  TEXT DEFAULT 'bidirectional'
-                    CHECK(sync_direction IN ('pull_only','push_only','bidirectional','none')),
-    is_formula      INTEGER DEFAULT 0,           -- 是否公式字段（Push 时不推送）
-    is_link         INTEGER DEFAULT 0,           -- 是否链接字段
-    is_lookup       INTEGER DEFAULT 0,           -- 是否 Lookup 字段
-    created_at      TEXT DEFAULT (datetime('now','localtime')),
-    updated_at      TEXT DEFAULT (datetime('now','localtime')),
-    UNIQUE(connection_id, feishu_table_id, feishu_field_id)
+    name            TEXT NOT NULL,              -- 分组名称
+    description     TEXT,                       -- 分组描述
+    case_types      TEXT,                       -- JSON: 适用案件类型
+    court_levels    TEXT,                       -- JSON: 适用审级
+    sort_order      INTEGER DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now','localtime'))
 );
 
--- 转换规则示例：
--- {"type": "date_format", "from": "timestamp_ms", "to": "yyyy-MM-dd"}
--- {"type": "select_map", "map": {"选项A": "value_a", "选项B": "value_b"}}
--- {"type": "link_resolve", "target_table": "cases", "match_field": "case_no"}
+-- 字段与分组的关联
+CREATE TABLE IF NOT EXISTS field_group_items (
+    id              TEXT PRIMARY KEY,
+    group_id        TEXT NOT NULL REFERENCES field_groups(id) ON DELETE CASCADE,
+    column_name     TEXT NOT NULL,              -- 本地列名
+    label           TEXT NOT NULL,              -- 显示标签
+    field_type      TEXT NOT NULL,              -- text/number/date/select/textarea
+    options         TEXT,                       -- JSON: 选项列表（select 类型）
+    required        INTEGER DEFAULT 0,
+    sort_order      INTEGER DEFAULT 0,
+    UNIQUE(group_id, column_name)
+);
 ```
 
-### 4.3 映射 UI
+### 4.3 预设字段分组
 
+```
+通用字段（所有案件类型）：
+  - 案件信息、案号、客户名称、对方名称
+  - 我方诉讼地位、对方诉讼地位
+  - 审理机关、审级、办案人
+  - 立案时间、备注
+
+专利无效专用：
+  - 请求人首次无效时间
+  - 请求人补充意见期限
+  - 请求人收到专利权人意见时间
+  - 请求人答复意见期限
+  - 专利权人收到受通时间
+  - 专利权人陈述意见期限
+  - 专利权人补充意见时间
+
+专利侵权专用：
+  - 管辖异议
+  - 诉讼程序（简易/普通）
+  - 收到起诉状时间
+  - 提交答辩状期间
+  - 预估审限
+
+行政诉讼专用：
+  - 行政决定类型
+  - 复议信息
+```
+
+### 4.4 UI 效果
+
+```
+案件详情页 → 根据"案由"自动切换字段分组：
+
+选择"专利无效" → 显示：通用字段 + 专利无效专用字段
+选择"专利侵权" → 显示：通用字段 + 专利侵权专用字段
+选择"专利行政" → 显示：通用字段 + 行政诉讼专用字段
+
+用户也可以手动添加/隐藏字段
+```
+
+---
+
+## 五、跨类型筛选
+
+### 5.1 问题
+
+飞书多维表格中，不同类型的案件在同一张表里，但筛选时：
+- 想看"所有案件的开庭日期"→ 有的案件没有开庭日期字段
+- 想看"所有案件的期限"→ 不同类型的期限计算规则不同
+
+### 5.2 Casy 的解决方案
+
+**统一筛选视图**：跨案件类型的通用筛选字段
+
+```sql
+-- 虚拟筛选字段：将不同类型的字段映射到统一的筛选维度
+CREATE VIEW IF NOT EXISTS v_case_unified_fields AS
+SELECT
+    c.id,
+    c.case_title,
+    c.case_no,
+    c.client_name,
+    c.case_status,
+    c.case_type,
+
+    -- 统一期限字段：从公式缓存列获取
+    COALESCE(
+        c.formula_defense_deadline,          -- 侵权：答辩期
+        c.formula_petitioner_supp,           -- 无效：请求人补充意见期限
+        c.relief_deadline                    -- 行政：救济期限
+    ) AS next_deadline,
+
+    -- 统一开庭日期
+    c.trial_date,
+
+    -- 统一案件状态
+    c.formula_case_status,
+
+    -- 统一审理机关
+    c.court
+
+FROM cases c;
+```
+
+**筛选 UI**：
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  字段映射: 案件主表 (tbl4fMNw2UJfXBgy) → cases          │
+│  筛选: [全部类型 ▼] [全部状态 ▼] [全部审理机关 ▼]       │
+│  期限: [未来 7 天 ▼]  开庭: [未来 30 天 ▼]              │
 ├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  飞书字段              本地列              同步方向      │
-│  ─────────────────    ────────────────    ──────────    │
-│  案件信息 (Text)  →   case_title (TEXT)   ↔ 双向   ✅  │
-│  案号 (Text)      →   case_no (TEXT)      ↔ 双向   ✅  │
-│  案件状态 (Formula)→   case_status (TEXT)  ← 仅拉取 ✅  │
-│  客户名称 (Text)  →   client_name (TEXT)  ↔ 双向   ✅  │
-│  事件记录 (DupLink)→   [跳过 - 链接字段]  — 不同步 ⬜  │
-│  开庭时间 (Date)  →   trial_date (TEXT)   ↔ 双向   ✅  │
-│  (新增字段)       →   [创建新列...]       ← 仅拉取 ✅  │
-│                                                         │
-│  [自动匹配]  [全部拉取]  [全部双向]  [保存映射]         │
+│  统一视图:                                               │
+│  案件        类型    状态    下一期限    开庭日期         │
+│  浦项 v NSC  无效    进行中  8/15       8/20            │
+│  钛金 v 高德  侵权    进行中  8/10       —               │
+│  隆基 v XX   行政    进行中  8/25       9/01            │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 五、比较引擎（核心！）
+## 六、飞书同步完善
 
-### 5.1 Schema 比较
+### 6.1 当前缺失项
 
-```
-比较飞书表结构 vs 本地表结构：
+| 缺失 | 说明 | 实现方案 |
+|------|------|----------|
+| 飞书消息推送 | Bot 发送提醒消息 | POST /im/v1/messages |
+| 飞书任务创建 | 在飞书中创建任务 | POST /task/v2/tasks |
+| 公式缓存写入 | 计算结果写入 formula_ 列 | 公式引擎 → UPDATE |
+| 链接关系同步 | DuplexLink 双向同步 | 解析 record_ids → 本地关联 |
+| 附件同步 | 飞书附件下载 | GET /drive/v1/medias/{file_token} |
+| 冲突解决 UI | 字段级冲突选择 | 前端弹窗 |
 
-1. 飞书有、本地没有的字段 → "新增"（可选创建本地列或跳过）
-2. 本地有、飞书没有的字段 → "仅本地"（不同步到飞书）
-3. 双方都有但类型不同   → "类型冲突"（需要转换规则）
-4. 双方都有且类型兼容   → "可映射"（自动建立映射）
-```
-
-### 5.2 记录比较
-
-```
-比较飞书记录 vs 本地记录：
-
-匹配策略（用户可选）：
-  - 按主键匹配（飞书主键字段 ↔ 本地指定列）
-  - 按 record_id 匹配（已同步过的记录）
-  - 按模糊匹配（案号/名称等）
-
-比较结果分类：
-  ┌───────────────────────────────────────────────┐
-  │  类型        数量    操作                      │
-  │  ──────────  ────    ──────────────────        │
-  │  相同        42      无需操作                  │
-  │  仅飞书更新  5       可拉取（飞书 → 本地）     │
-  │  仅本地更新  3       可推送（本地 → 飞书）     │
-  │  双方都改    2       冲突，需用户选择          │
-  │  仅飞书有    8       新记录，可导入            │
-  │  仅本地有    1       本地独有，可推送到飞书     │
-  └───────────────────────────────────────────────┘
-```
-
-### 5.3 比较 UI
+### 6.2 飞书 API 清单（完整）
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  表比较: 案件主表 ↔ cases                                │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  📊 比较摘要                                             │
-│  相同: 42 | 飞书更新: 5 | 本地更新: 3 | 冲突: 2        │
-│  仅飞书: 8 | 仅本地: 1                                  │
-│                                                         │
-│  [拉取飞书更新(5)] [推送本地更新(3)] [处理冲突(2)]      │
-│  [导入仅飞书记录(8)] [推送仅本地记录(1)]                │
-│                                                         │
-│  ─── 详细差异 ───                                       │
-│                                                         │
-│  📄 浦项 v NSC (案件信息)                                │
-│     飞书: 案件进展="结案"  本地: 案件进展="进行中"       │
-│     飞书更新时间: 2026-08-02  本地更新时间: 2026-08-01  │
-│     [用飞书] [用本地] [手动编辑]                         │
-│                                                         │
-│  📄 钛金 v 高德 (案件信息)                               │
-│     飞书: 备注="已提交补充意见"  本地: 备注=""           │
-│     [用飞书] [用本地] [合并]                             │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+已使用：
+  ✅ POST /auth/v3/tenant_access_token/internal  — Token
+  ✅ GET  /bitable/v1/apps/{app}/tables          — 列出表
+  ✅ GET  /bitable/v1/apps/{app}/tables/{t}/fields — 列出字段
+  ✅ GET  /bitable/v1/apps/{app}/tables/{t}/records — 列出记录
+  ✅ POST /bitable/v1/apps/{app}/tables/{t}/records — 创建记录
+  ✅ PUT  /bitable/v1/apps/{app}/tables/{t}/records/{r} — 更新记录
+
+需要新增：
+  ❌ POST /im/v1/messages?receive_id_type=...    — 发送消息
+  ❌ POST /task/v2/tasks                         — 创建任务
+  ❌ GET  /drive/v1/medias/{file_token}/download — 下载附件
+  ❌ POST /drive/v1/medias/upload_all            — 上传附件
+  ❌ GET  /bitable/v1/apps/{app}/tables/{t}/records/{r} — 获取单条记录
+```
+
+### 6.3 飞书 Bot 配置
+
+```sql
+-- 飞书 Bot 配置（在 feishu_connections 表扩展）
+ALTER TABLE feishu_connections ADD COLUMN bot_webhook TEXT;    -- Webhook URL（简单模式）
+ALTER TABLE feishu_connections ADD COLUMN bot_app_id TEXT;     -- Bot App ID（高级模式）
+ALTER TABLE feishu_connections ADD COLUMN bot_app_secret TEXT; -- Bot App Secret
+ALTER TABLE feishu_connections ADD COLUMN notify_chat_id TEXT; -- 默认通知群 ID
+ALTER TABLE feishu_connections ADD COLUMN notify_user_id TEXT; -- 默认通知用户 open_id
 ```
 
 ---
 
-## 六、导入引擎
+## 七、与各模块的完整集成
 
-### 6.1 全量导入
+### 7.1 Inbox → 飞书
 
 ```
-用户选择飞书表 + 映射配置
+Inbox 收到传票
     ↓
-1. 拉取所有记录（分页，每页 500 条）
-2. 按映射规则转换字段值
-3. 按主键/record_id 判断：新增 or 更新
-4. 批量写入本地 SQLite
-5. 记录 record_id 映射到 sync_map
-6. 报告导入结果
-```
-
-### 6.2 增量导入
-
-```
-基于 sync_map 中的 last_sync_at
+归档到案件 + 创建本地任务
     ↓
-1. 拉取 last_modified_time > 上次同步时间的记录
-2. 按映射规则转换
-3. 本地有 → 更新；本地无 → 新增
-4. 记录同步状态
+如果启用了飞书同步：
+  ├─ 创建飞书任务（准备证据/代理词/出庭确认）
+  └─ 发送飞书消息提醒（"收到传票，开庭日期 8/15"）
 ```
 
-### 6.3 选择性导入
+### 7.2 期限引擎 → 飞书
 
 ```
-用户在比较结果中勾选要导入的记录
+期限引擎计算出答辩期限
     ↓
-仅导入勾选的记录
+写入 cases.formula_defense_deadline
+    ↓
+提醒调度器检查：
+  ├─ 期限前 7 天 → 飞书消息："答辩期限临近，剩余 7 天"
+  ├─ 期限前 3 天 → 飞书消息 + 飞书任务："紧急：答辩期限 3 天后"
+  └─ 期限当天   → 飞书消息 + 飞书任务 + 系统通知："今天是答辩截止日！"
+```
+
+### 7.3 任务管理 → 飞书
+
+```
+本地创建/更新任务
+    ↓
+如果启用了飞书同步：
+  ├─ 新任务 → 飞书创建对应任务
+  ├─ 任务完成 → 飞书更新任务状态
+  └─ 任务删除 → 飞书归档任务
+```
+
+### 7.4 日历 → 飞书
+
+```
+开庭日期变更
+    ↓
+更新 cases.trial_date
+    ↓
+提醒调度器：
+  ├─ 开庭前 7 天 → 飞书消息 + 创建准备任务
+  └─ 开庭前 1 天 → 飞书消息 + 系统通知
+```
+
+### 7.5 知识库 → 飞书
+
+```
+新法条入库
+    ↓
+如果有相关活跃案件：
+  └─ 飞书消息："新入库：专利法实施细则第 X 条，与案件 XX 相关"
 ```
 
 ---
 
-## 七、同步引擎
+## 八、实施计划
 
-### 7.1 双向同步流程
-
-```
-同步触发（手动/定时/自动）
-    ↓
-Phase 1: Pull（飞书 → 本地）
-  - 拉取变更记录（增量）
-  - 按映射转换
-  - 写入本地
-  - 更新 sync_map
-
-Phase 2: Push（本地 → 飞书）
-  - 检查本地变更（sync_queue）
-  - 按映射转换
-  - 推送到飞书（注意：跳过 Formula/Lookup/Button 字段）
-  - 更新 sync_map
-
-Phase 3: 冲突处理
-  - 双方都改过的记录 → 字段级合并
-  - 非重叠字段自动合并
-  - 重叠字段按策略处理（飞书优先/本地优先/弹窗让用户选）
-```
-
-### 7.2 字段同步规则
-
-```
-同步方向控制（每个字段独立配置）：
-
-双向 (bidirectional):
-  Pull: 飞书值 → 本地
-  Push: 本地值 → 飞书
-  适用: Text, Number, SingleSelect, DateTime, Checkbox
-
-仅拉取 (pull_only):
-  Pull: 飞书值 → 本地
-  Push: 不推送
-  适用: Formula, Lookup, CreatedTime, ModifiedTime, AutoNumber
-
-仅推送 (push_only):
-  Pull: 不拉取
-  Push: 本地值 → 飞书
-  适用: 本地独有字段
-
-不同步 (none):
-  跳过
-  适用: Button, 未映射字段
-```
-
-### 7.3 公式字段处理
-
-```
-Pull 方向:
-  飞书 Formula 字段的计算结果 → 本地缓存列
-  同时存储飞书的 formula_expression 到 feishu_fields.formula_expr
-  本地公式引擎可选择使用飞书公式本地重算
-
-Push 方向:
-  Formula 字段不推送（飞书有自己的公式引擎）
-  但 Push 前确保依赖的输入字段已推送
-  Push 完成后，可重新 Pull Formula 结果
-```
-
-### 7.4 链接字段处理
-
-```
-DuplexLink / SingleLink:
-  Pull: 解析 record_ids → 通过 sync_map 查找本地 ID → 建立本地关联
-  Push: 本地关联变更 → 查找飞书 record_id → 通过 API 更新链接
-
-Lookup:
-  不存储，通过本地 SQL VIEW 实时查询
-  或通过公式引擎本地计算
-```
-
----
-
-## 八、通用本地表管理
-
-### 8.1 动态创建本地表
-
-当飞书表没有对应的本地表时，Casy 可以自动创建：
-
-```
-用户选择导入飞书表"合同管理"（Casy 中不存在）
-    ↓
-Casy 自动创建本地表:
-  CREATE TABLE IF NOT EXISTS feishu_contract_mgmt (
-    id TEXT PRIMARY KEY,
-    feishu_record_id TEXT UNIQUE,
-    合同名称 TEXT,
-    合同金额 REAL,
-    签约日期 TEXT,
-    ...
-    created_at TEXT,
-    updated_at TEXT
-  );
-    ↓
-自动建立字段映射
-    ↓
-导入数据
-```
-
-### 8.2 通用表命名
-
-```
-本地表名规则:
-  - 如果映射到已有表（如 cases） → 使用已有表
-  - 如果是新表 → feishu_{表名拼音/英文}
-  - 用户可自定义表名
-```
-
----
-
-## 九、与 Inbox 的集成
-
-```
-飞书多维表格新增记录
-    ↓
-Casy 定时拉取（或手动触发）
-    ↓
-新记录 → inbox_item（source_type='feishu'）
-    ↓
-进入 Inbox 推荐流程
-    ↓
-用户确认 → 归档到本地表
-```
-
----
-
-## 十、实施计划
-
-| 序号 | 任务 | 工作量 | 优先级 |
-|------|------|--------|--------|
-| 1 | 连接管理（feishu_connections 表 + 测试连接） | 1d | P0 |
-| 2 | 表结构发现（list_tables + list_fields + 缓存） | 1d | P0 |
-| 3 | 字段映射（自动匹配 + 手动映射 + feishu_field_mappings） | 2d | P0 |
-| 4 | 比较引擎（schema diff + record diff + 冲突检测） | 3d | P0 |
-| 5 | 导入引擎（全量/增量/选择性导入） | 2d | P0 |
-| 6 | 同步引擎（双向 Pull/Push + 冲突解决） | 3d | P1 |
-| 7 | 公式引擎（飞书公式本地解析 + 计算） | 5d | P1 |
-| 8 | 链接引擎（DuplexLink/SingleLink/Lookup） | 3d | P2 |
-| 9 | 前端 UI（连接管理 + 映射配置 + 比较视图 + 同步状态） | 5d | P1 |
-| 10 | 通用表管理（动态创建本地表） | 2d | P2 |
-| 11 | 测试 + 文档 | 2d | P0 |
-| **总计** | | **~29d** | |
+| 序号 | 任务 | 工作量 | 优先级 | 依赖 |
+|------|------|--------|--------|------|
+| 1 | 多通道提醒系统（ReminderEngine + 规则引擎） | 3d | P0 | 无 |
+| 2 | 飞书消息推送（Bot API + 消息卡片模板） | 2d | P0 | 1 |
+| 3 | 飞书任务创建（Task API + 任务模板） | 2d | P0 | 1 |
+| 4 | 公式缓存写入（公式引擎 → formula_ 列） | 1d | P1 | 无 |
+| 5 | 动态字段系统（field_groups + 自动显示/隐藏） | 3d | P1 | 无 |
+| 6 | 跨类型筛选视图（v_case_unified_fields） | 1d | P1 | 5 |
+| 7 | 链接关系同步（DuplexLink 双向） | 2d | P2 | 无 |
+| 8 | 附件同步（下载/上传） | 2d | P2 | 无 |
+| 9 | 冲突解决 UI | 2d | P2 | 无 |
+| 10 | 飞书 Bot 配置 UI | 1d | P0 | 2 |
+| 11 | 提醒规则配置 UI | 1d | P0 | 1 |
+| 12 | 测试 + 文档 | 2d | P0 | 1-11 |
+| **总计** | | **~22d** | | |
 
 ### 优先级说明
 
-**P0（必须先做）**：连接管理 + 表结构发现 + 字段映射 + 比较引擎 + 导入引擎
-→ 这 5 项做完就能实现"连接任意飞书表 → 比较差异 → 选择性导入"
+**P0（核心差异）**：提醒系统 + 飞书消息 + 飞书任务
+→ 这是 Casy 区别于飞书多维表格的核心能力
 
-**P1（第二阶段）**：同步引擎 + 公式引擎 + 前端 UI
-→ 实现双向同步和飞书公式本地计算
+**P1（增强体验）**：公式缓存 + 动态字段 + 跨类型筛选
+→ 让 Casy 比飞书更好用
 
-**P2（第三阶段）**：链接引擎 + 通用表管理
-→ 完善链接关系同步和动态建表
-
----
-
-## 附录 A: 飞书 Bitable API 清单
-
-| API | 用途 | 频率限制 |
-|-----|------|----------|
-| `GET /bitable/v1/apps/{app_token}/tables` | 列出所有表 | 100/min |
-| `GET /bitable/v1/apps/{app_token}/tables/{table_id}/fields` | 列出所有字段 | 100/min |
-| `GET /bitable/v1/apps/{app_token}/tables/{table_id}/records` | 列出记录（分页） | 100/min |
-| `POST /bitable/v1/apps/{app_token}/tables/{table_id}/records` | 创建记录 | 100/min |
-| `PUT /bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}` | 更新记录 | 100/min |
-| `DELETE /bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}` | 删除记录 | 100/min |
-| `POST /bitable/v1/apps/{app_token}/tables/{table_id}/records/batch_create` | 批量创建 | 100/min |
-| `POST /bitable/v1/apps/{app_token}/tables/{table_id}/records/batch_update` | 批量更新 | 100/min |
-
-## 附录 B: 飞书字段类型码
-
-| 类型码 | 类型名 | 说明 | 可同步 |
-|--------|--------|------|--------|
-| 1 | Text | 多行文本 | ✅ 双向 |
-| 2 | Number | 数字 | ✅ 双向 |
-| 3 | SingleSelect | 单选 | ✅ 双向 |
-| 4 | MultiSelect | 多选 | ✅ 双向 |
-| 5 | DateTime | 日期时间 | ✅ 双向 |
-| 7 | Checkbox | 复选框 | ✅ 双向 |
-| 11 | User | 人员 | ⚠️ 仅拉取 |
-| 13 | Phone | 电话 | ✅ 双向 |
-| 15 | Url | 超链接 | ✅ 双向 |
-| 17 | Attachment | 附件 | ⚠️ 需下载/上传 |
-| 18 | SingleLink | 单向链接 | ⚠️ 需解析 |
-| 19 | Lookup | 查找引用 | ❌ 不存储 |
-| 20 | Formula | 公式 | ⚠️ 仅拉取结果 |
-| 21 | DuplexLink | 双向链接 | ⚠️ 需解析 |
-| 1001 | CreatedTime | 创建时间 | ❌ 自动生成 |
-| 1002 | ModifiedTime | 修改时间 | ❌ 自动生成 |
-| 3001 | Button | 按钮 | ❌ 忽略 |
+**P2（完善功能）**：链接同步 + 附件 + 冲突解决
+→ 完善飞书同步的完整性
 
 ---
 
-> 最后更新: 2026-08-03 (v3.0: 从固定 5 表方案改为通用表格处理)
+## 九、技术栈总结
+
+```
+Casy 技术栈：
+├── 前端: Vue 3 + Element Plus + Vite
+├── 后端: Tauri 2 + Rust
+├── 数据库: SQLite
+├── 飞书集成:
+│   ├── Bitable API（表格 CRUD）
+│   ├── IM API（消息推送）
+│   ├── Task API（任务创建）
+│   └── Drive API（附件下载/上传）
+├── AI: Ollama / OpenAI 兼容 API
+├── 公式引擎: Rust nom 解析器
+└── 提醒系统: 本地调度器 + 多通道推送
+```
+
+---
+
+> 最后更新: 2026-08-03 (v4.0: 从"飞书同步"升级为"比飞书更好用的案件管理系统")
