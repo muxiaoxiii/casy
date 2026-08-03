@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -626,6 +626,7 @@ CREATE TABLE IF NOT EXISTS settings (
 pub const MIGRATIONS: &[(&str, &str)] = &[
     ("1", SCHEMA_SQL),
     ("2", MIGRATION_V2_SQL),
+    ("3", MIGRATION_V3_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -732,6 +733,95 @@ CREATE TABLE IF NOT EXISTS file_naming_rules (
 
 INSERT OR IGNORE INTO file_naming_rules (id, name, template, pattern, is_default)
 VALUES ('rule-default', '四段式', 'four_segment', '{case_no}_{client}_{user}_{date}', 1);
+"#;
+
+/// 版本 3: 飞书同步增强 — 字段元数据、链接缓存、公式缓存列、配置表
+pub const MIGRATION_V3_SQL: &str = r#"
+-- ============================================================
+-- 飞书字段元数据表 (§5.1)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS feishu_field_meta (
+  id              TEXT PRIMARY KEY,
+  table_id        TEXT NOT NULL,
+  table_name      TEXT NOT NULL,
+  field_id        TEXT NOT NULL,
+  field_name      TEXT NOT NULL,
+  field_type      INTEGER NOT NULL,
+  ui_type         TEXT NOT NULL,
+  is_primary      INTEGER DEFAULT 0,
+  formula_expression TEXT,
+  property_json   TEXT,
+  local_table     TEXT,
+  local_column    TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(table_id, field_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_feishu_meta_table ON feishu_field_meta(table_id);
+
+CREATE TRIGGER IF NOT EXISTS trg_feishu_meta_updated
+AFTER UPDATE ON feishu_field_meta FOR EACH ROW
+BEGIN
+  UPDATE feishu_field_meta SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- 飞书链接缓存 (§5.2)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS feishu_link_cache (
+  id              TEXT PRIMARY KEY,
+  source_table    TEXT NOT NULL,
+  source_field    TEXT NOT NULL,
+  source_record   TEXT NOT NULL,
+  target_table    TEXT NOT NULL,
+  target_record   TEXT NOT NULL,
+  link_type       TEXT NOT NULL DEFAULT 'duplex'
+                  CHECK(link_type IN ('duplex','single')),
+  synced_at       TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(source_table, source_field, source_record, target_record)
+);
+
+-- ============================================================
+-- 飞书配置表 (§5.6)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS feishu_base_config (
+  id              TEXT PRIMARY KEY,
+  app_token       TEXT NOT NULL,
+  base_name       TEXT,
+  table_mappings  TEXT NOT NULL,
+  sync_direction  TEXT DEFAULT 'bidirectional'
+                  CHECK(sync_direction IN ('pull_only','push_only','bidirectional')),
+  last_full_sync  TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- ============================================================
+-- cases 表新增公式缓存列 (§5.3)
+-- ============================================================
+ALTER TABLE cases ADD COLUMN formula_case_status TEXT;
+ALTER TABLE cases ADD COLUMN formula_defense_deadline TEXT;
+ALTER TABLE cases ADD COLUMN formula_estimated_trial_limit TEXT;
+ALTER TABLE cases ADD COLUMN formula_petitioner_first TEXT;
+ALTER TABLE cases ADD COLUMN formula_petitioner_supp TEXT;
+ALTER TABLE cases ADD COLUMN formula_petitioner_reply TEXT;
+ALTER TABLE cases ADD COLUMN formula_patentee_statement TEXT;
+ALTER TABLE cases ADD COLUMN formula_patentee_supp TEXT;
+
+-- ============================================================
+-- hearings 表新增公式缓存列 (§5.3)
+-- ============================================================
+ALTER TABLE hearings ADD COLUMN formula_status TEXT;
+
+-- ============================================================
+-- tasks 表新增公式缓存列 (§5.3)
+-- ============================================================
+ALTER TABLE tasks ADD COLUMN formula_days_until_deadline TEXT;
+
+-- ============================================================
+-- cases 表新增关联案件 ID (§5.5)
+-- ============================================================
+ALTER TABLE cases ADD COLUMN related_case_ids TEXT;
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用

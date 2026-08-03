@@ -41,6 +41,7 @@ sha2 = "0.10"
 log = "0.4"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+nom = "7"
 
 # 文件系统监听
 notify = "7"
