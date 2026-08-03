@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -627,6 +627,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("1", SCHEMA_SQL),
     ("2", MIGRATION_V2_SQL),
     ("3", MIGRATION_V3_SQL),
+    ("4", MIGRATION_V4_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -822,6 +823,85 @@ ALTER TABLE tasks ADD COLUMN formula_days_until_deadline TEXT;
 -- cases 表新增关联案件 ID (§5.5)
 -- ============================================================
 ALTER TABLE cases ADD COLUMN related_case_ids TEXT;
+"#;
+
+/// 版本 4: 飞书通用同步 v3.0 — 连接管理、表结构缓存、字段映射
+pub const MIGRATION_V4_SQL: &str = r#"
+-- 飞书连接配置
+CREATE TABLE IF NOT EXISTS feishu_connections (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    app_id          TEXT NOT NULL,
+    app_secret      TEXT NOT NULL,
+    app_token       TEXT,
+    base_name       TEXT,
+    status          TEXT DEFAULT 'disconnected'
+                    CHECK(status IN ('connected','disconnected','error')),
+    last_sync_at    TEXT,
+    created_at      TEXT DEFAULT (datetime('now','localtime')),
+    updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_feishu_connections_updated
+AFTER UPDATE ON feishu_connections FOR EACH ROW
+BEGIN
+    UPDATE feishu_connections SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- 飞书表结构缓存
+CREATE TABLE IF NOT EXISTS feishu_tables (
+    id              TEXT PRIMARY KEY,
+    connection_id   TEXT NOT NULL REFERENCES feishu_connections(id) ON DELETE CASCADE,
+    table_id        TEXT NOT NULL,
+    table_name      TEXT NOT NULL,
+    field_count     INTEGER,
+    record_count    INTEGER,
+    revision        INTEGER,
+    synced_at       TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(connection_id, table_id)
+);
+
+-- 飞书字段定义缓存
+CREATE TABLE IF NOT EXISTS feishu_fields (
+    id              TEXT PRIMARY KEY,
+    table_id        TEXT NOT NULL,
+    field_id        TEXT NOT NULL,
+    field_name      TEXT NOT NULL,
+    field_type      INTEGER NOT NULL,
+    type_name       TEXT NOT NULL,
+    is_primary      INTEGER DEFAULT 0,
+    property_json   TEXT,
+    formula_expr    TEXT,
+    created_at      TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(table_id, field_id)
+);
+
+-- 字段映射表（连接飞书和本地的桥梁）
+CREATE TABLE IF NOT EXISTS feishu_field_mappings (
+    id              TEXT PRIMARY KEY,
+    connection_id   TEXT NOT NULL REFERENCES feishu_connections(id) ON DELETE CASCADE,
+    feishu_table_id TEXT NOT NULL,
+    feishu_field_id TEXT NOT NULL,
+    feishu_field_name TEXT NOT NULL,
+    feishu_field_type INTEGER NOT NULL,
+    local_table     TEXT NOT NULL,
+    local_column    TEXT NOT NULL,
+    transform_rule  TEXT,
+    sync_direction  TEXT DEFAULT 'bidirectional'
+                    CHECK(sync_direction IN ('pull_only','push_only','bidirectional','none')),
+    is_formula      INTEGER DEFAULT 0,
+    is_link         INTEGER DEFAULT 0,
+    is_lookup       INTEGER DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now','localtime')),
+    updated_at      TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(connection_id, feishu_table_id, feishu_field_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_feishu_field_mappings_updated
+AFTER UPDATE ON feishu_field_mappings FOR EACH ROW
+BEGIN
+    UPDATE feishu_field_mappings SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用
