@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -630,6 +630,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("4", MIGRATION_V4_SQL),
     ("5", MIGRATION_V5_SQL),
     ("6", MIGRATION_V6_SQL),
+    ("7", MIGRATION_V7_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1086,6 +1087,37 @@ SELECT
     c.trial_date AS next_hearing,
     c.updated_at
 FROM cases c;
+"#;
+
+/// 版本 7: 案件文件夹模板系统
+pub const MIGRATION_V7_SQL: &str = r#"
+-- ============================================================
+-- 案件文件夹模板
+-- ============================================================
+CREATE TABLE IF NOT EXISTS case_folder_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    case_type TEXT NOT NULL,
+    is_builtin INTEGER DEFAULT 0,
+    directories_json TEXT NOT NULL,
+    file_naming_json TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
+ALTER TABLE cases ADD COLUMN folder_template_id TEXT;
+
+-- 内置模板
+INSERT INTO case_folder_templates (id, name, case_type, is_builtin, directories_json) VALUES
+('tpl-litigation', '诉讼案件（默认）', 'litigation', 1, '[{"id":"01","name":"委托材料","desc":"委托合同、授权书、身份证明"},{"id":"02","name":"案件分析","desc":"案件分析、争议焦点、诉讼策略"},{"id":"03","name":"法律研究","desc":"法条检索、判例研究"},{"id":"04","name":"客户提供","desc":"客户提供的所有材料"},{"id":"05","name":"证据材料","desc":"证据清单、质证意见"},{"id":"06","name":"法律文书","desc":"起诉状、答辩状、代理词"},{"id":"07","name":"对方提交","desc":"对方当事人提交的材料"},{"id":"08","name":"法院文书","desc":"传票、判决书、裁定书、送达文书"},{"id":"09","name":"庭审材料","desc":"庭审笔录、庭后分析"},{"id":"10","name":"综合报告","desc":"进展报告、客户汇报"},{"id":"11","name":"其他","desc":"辅助性参考材料"}]'),
+('tpl-patent', '专利案件（默认）', 'patent', 1, '[{"id":"01","name":"委托材料","desc":"代理委托书、合同、工作记录"},{"id":"02","name":"申请清单","desc":"拟申请专利清单"},{"id":"03","name":"客户提供","desc":"技术交底书、现有技术资料"},{"id":"04","name":"律师工作","desc":"检索报告、分析、申请规划"},{"id":"05","name":"申请文件","desc":"请求书、说明书、权利要求书"},{"id":"06","name":"国知局文件","desc":"受理通知书、审查意见、授权通知"},{"id":"07","name":"对方提交","desc":"对方意见、无效请求"},{"id":"08","name":"证据材料","desc":"证据清单、对比文件"},{"id":"09","name":"财务","desc":"代理费发票、官费凭证"}]'),
+('tpl-trademark', '商标案件（默认）', 'trademark', 1, '[{"id":"01","name":"委托材料","desc":"委托书、合同、工作记录"},{"id":"02","name":"商标图样","desc":"商标图样、设计稿"},{"id":"03","name":"申请文件","desc":"申请书、商品清单"},{"id":"04","name":"律师工作","desc":"检索报告、分析、策略"},{"id":"05","name":"官方文书","desc":"受理通知书、驳回决定"},{"id":"06","name":"商标注册证","desc":"注册证、续展证明"},{"id":"07","name":"证据材料","desc":"异议/无效证据"},{"id":"08","name":"对方提交","desc":"对方意见、答辩"},{"id":"09","name":"财务","desc":"代理费发票、官费凭证"}]'),
+('tpl-consultation', '咨询/其他（默认）', 'consultation', 1, '[{"id":"01","name":"客户材料","desc":"客户提供的所有材料"},{"id":"02","name":"工作文件","desc":"律师工作产出"},{"id":"03","name":"其他","desc":"辅助性材料"}]');
+
+-- 文件命名默认设置
+INSERT OR IGNORE INTO settings (key, value) VALUES
+('folder_naming_date_format', '"YYYY-MM-DD"'),
+('folder_naming_case_no_format', '"{case_no}_{short_id}"'),
+('folder_naming_file_format', '"{date}_{category}_{case_no}_{hash}.{ext}"');
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用

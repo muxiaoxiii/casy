@@ -6,6 +6,7 @@ import WebDAVSettings from './components/WebDAVSettings.vue'
 import AISettings from './components/AISettings.vue'
 import ImapSettings from './components/ImapSettings.vue'
 import GeneralSettings from './components/GeneralSettings.vue'
+import FolderTemplateSettings from './components/FolderTemplateSettings.vue'
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('feishu')
@@ -33,6 +34,9 @@ onMounted(async () => {
       </el-tab-pane>
       <el-tab-pane label="通用设置" name="general">
         <GeneralSettings />
+      </el-tab-pane>
+      <el-tab-pane label="文件夹模板" name="folder-template">
+        <FolderTemplateSettings />
       </el-tab-pane>
     </el-tabs>
   </div>

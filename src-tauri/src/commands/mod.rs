@@ -160,6 +160,12 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         settings::save_settings,
         settings::import_holidays_json,
         settings::get_holidays_summary,
+        settings::list_folder_templates,
+        settings::get_folder_template,
+        settings::save_folder_template,
+        settings::delete_folder_template,
+        settings::get_folder_naming_settings,
+        settings::save_folder_naming_settings,
         // 文件管理命令
         files::list_case_files,
         files::add_case_file,

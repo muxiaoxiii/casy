@@ -48,6 +48,47 @@ const selectedRelationType = ref('cross_reference')
 const relationLabel = ref('')
 const selectedRelationTarget = ref(null)
 
+// 文件夹模板相关
+const folderTemplates = ref([])
+const folderTemplateId = ref(null)
+const selectedFolderTemplate = ref(null)
+const templatePreviewDirs = ref([])
+
+async function loadFolderTemplates() {
+  const result = await tauriCallSafe('list_folder_templates')
+  if (result.ok) {
+    folderTemplates.value = result.data || []
+    // 设置默认选中
+    if (form.value.folderTemplateId) {
+      folderTemplateId.value = form.value.folderTemplateId
+      updateTemplatePreview()
+    } else {
+      // 按案件类型选默认
+      const causeAction = form.value.causeAction || ''
+      let defaultId = 'tpl-consultation'
+      if (/侵权|民事|刑事|行政|合同|纠纷/.test(causeAction)) defaultId = 'tpl-litigation'
+      else if (/专利|发明|实用新型|外观|无效/.test(causeAction)) defaultId = 'tpl-patent'
+      else if (/商标/.test(causeAction)) defaultId = 'tpl-trademark'
+      folderTemplateId.value = defaultId
+      updateTemplatePreview()
+    }
+  }
+}
+
+function updateTemplatePreview() {
+  const tpl = folderTemplates.value.find(t => t.id === folderTemplateId.value)
+  selectedFolderTemplate.value = tpl
+  templatePreviewDirs.value = tpl?.directories || []
+}
+
+function onTemplateChange(val) {
+  folderTemplateId.value = val
+  updateTemplatePreview()
+  // 保存到案件
+  form.value.folderTemplateId = val
+  scheduleSave()
+}
+
 const relationTypeOptions = [
   { value: 'same_patent', label: '同专利号' },
   { value: 'same_party', label: '同客户' },
@@ -118,6 +159,7 @@ onMounted(async () => {
     await loadTimeline()
     await loadRelations()
     await loadFieldGroups()
+    await loadFolderTemplates()
   }
 })
 
@@ -437,6 +479,37 @@ async function openCaseFolder() {
         </el-card>
 
         <el-card style="margin-top: 12px">
+          <template #header><strong>文件夹模板</strong></template>
+          <el-select
+            :model-value="folderTemplateId"
+            size="small"
+            style="width: 100%"
+            @change="onTemplateChange"
+          >
+            <el-option
+              v-for="tpl in folderTemplates"
+              :key="tpl.id"
+              :label="tpl.name"
+              :value="tpl.id"
+            />
+          </el-select>
+          <div v-if="templatePreviewDirs.length" class="template-preview-dirs">
+            <div
+              v-for="dir in templatePreviewDirs"
+              :key="dir.id"
+              class="preview-dir-item"
+            >
+              <span class="dir-id">{{ dir.id }}</span>
+              <span>{{ dir.name }}</span>
+            </div>
+          </div>
+          <div v-if="selectedFolderTemplate" class="template-meta">
+            <el-tag v-if="selectedFolderTemplate.isBuiltin" size="small" type="info">内置</el-tag>
+            <el-tag v-else size="small" type="success">自定义</el-tag>
+          </div>
+        </el-card>
+
+        <el-card style="margin-top: 12px">
           <template #header>
             <div class="card-header-row">
               <strong>关联案件</strong>
@@ -727,5 +800,37 @@ async function openCaseFolder() {
   .detail-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 文件夹模板预览 */
+.template-preview-dirs {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.preview-dir-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  font-size: 12px;
+  color: #606266;
+  background: #f9f9f9;
+  border-radius: 3px;
+}
+
+.preview-dir-item .dir-id {
+  color: #909399;
+  font-family: monospace;
+  min-width: 20px;
+  font-size: 11px;
+}
+
+.template-meta {
+  margin-top: 6px;
 }
 </style>

@@ -51,6 +51,7 @@ pub struct Case {
     pub patentee_supp_deadline: Option<String>,
     pub patentee_submit_supp_date: Option<String>,
     pub folder_path: Option<String>,
+    pub folder_template_id: Option<String>,
     pub last_doc_path: Option<String>,
     pub last_doc_at: Option<String>,
     pub completed_text: Option<String>,
@@ -278,6 +279,7 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
         ("patenteeReceivedSuppDate", "patentee_received_supp_date"),
         ("patenteeSuppDeadline", "patentee_supp_deadline"),
         ("patenteeSubmitSuppDate", "patentee_submit_supp_date"),
+        ("folderTemplateId", "folder_template_id"),
     ];
 
     let mut param_idx = 1;
@@ -462,6 +464,7 @@ fn row_to_case(row: &rusqlite::Row) -> rusqlite::Result<Case> {
         patentee_supp_deadline: row_get_string(row, "patentee_supp_deadline")?,
         patentee_submit_supp_date: row_get_string(row, "patentee_submit_supp_date")?,
         folder_path: row_get_string(row, "folder_path")?,
+        folder_template_id: row_get_string(row, "folder_template_id")?,
         last_doc_path: row_get_string(row, "last_doc_path")?,
         last_doc_at: row_get_string(row, "last_doc_at")?,
         completed_text: row_get_string(row, "completed_text")?,
