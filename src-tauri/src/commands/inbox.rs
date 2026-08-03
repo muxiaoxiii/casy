@@ -1467,59 +1467,104 @@ pub struct ServiceUrlParams {
 
 /// 尝试通过送达平台 API 下载文书
 /// 
-/// 送达平台是 SPA，PDF 通过 JS 渲染。直接 HTTP 请求可能拿不到 PDF。
-/// 策略：
-/// 1. 先尝试直接 GET URL，看是否有 PDF 重定向
-/// 2. 如果不行，提示用户手动下载后通过 inbox 拖入
+/// 通过送达平台 API 获取文书列表并下载
+/// 
+/// API: POST https://zxfw.court.gov.cn/yzw/yzw-zxfw-sdfw/api/v1/sdfw/getWsListBySdbhNew
+/// 请求体: {"qdbh":"xxx","sdbh":"xxx","sdsin":"xxx"}
+/// 返回: data[].c_wsmc（文书名称）、data[].wjlj（OSS 签名下载链接）、data[].c_fymc（法院名称）
+/// OSS URL 有效期约 1 小时，获取后应尽快下载
 #[tauri::command]
 pub async fn download_service_delivery(url: String, case_id: String) -> Result<serde_json::Value, String> {
+    // 1. 从 URL 提取参数
+    let params = parse_service_url(&url)
+        .ok_or("无法从 URL 提取送达参数（qdbh/sdbh/sdsin）")?;
+
+    // 2. 调用 API 获取文书列表
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::limited(5))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
-    let resp = client.get(&url)
-        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+    let api_resp = client.post("https://zxfw.court.gov.cn/yzw/yzw-zxfw-sdfw/api/v1/sdfw/getWsListBySdbhNew")
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "qdbh": params.qdbh,
+            "sdbh": params.sdbh,
+            "sdsin": params.sdsin,
+        }))
         .send()
         .await
-        .map_err(|e| format!("请求送达平台失败: {}", e))?;
+        .map_err(|e| format!("请求送达平台 API 失败: {}", e))?;
 
-    let content_type = resp.headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+    let resp_json: serde_json::Value = api_resp.json().await
+        .map_err(|e| format!("解析 API 响应失败: {}", e))?;
 
-    if content_type.contains("pdf") {
-        let bytes = resp.bytes().await
-            .map_err(|e| format!("下载 PDF 失败: {}", e))?;
+    let data = resp_json.get("data")
+        .and_then(|d| d.as_array())
+        .ok_or("API 响应格式异常：缺少 data 字段")?;
 
-        let inbox_dir = crate::files::case_folder_base().join("inbox");
-        std::fs::create_dir_all(&inbox_dir)
-            .map_err(|e| format!("创建收件箱目录失败: {}", e))?;
-
-        let filename = format!("送达文书_{}.pdf", chrono::Local::now().format("%Y%m%d_%H%M%S"));
-        let file_path = inbox_dir.join(&filename);
-        std::fs::write(&file_path, &bytes)
-            .map_err(|e| format!("保存 PDF 失败: {}", e))?;
-
-        Ok(serde_json::json!({
-            "success": true,
-            "filePath": file_path.to_string_lossy(),
-            "fileName": filename,
-            "fileSize": bytes.len(),
-            "message": "送达文书已下载"
-        }))
-    } else {
-        Ok(serde_json::json!({
+    if data.is_empty() {
+        return Ok(serde_json::json!({
             "success": false,
-            "needManualDownload": true,
-            "message": "送达平台是动态页面，请在浏览器中打开链接下载 PDF，然后拖入收件箱",
-            "url": url,
-            "suggestion": "打开链接后点击「下载」按钮，保存 PDF 后拖入 Casy 收件箱"
-        }))
+            "message": "送达平台返回空文书列表（可能链接已过期）",
+            "documents": [],
+        }));
     }
+
+    // 3. 逐个下载 PDF
+    let inbox_dir = crate::files::case_folder_base().join("inbox");
+    std::fs::create_dir_all(&inbox_dir)
+        .map_err(|e| format!("创建收件箱目录失败: {}", e))?;
+
+    let mut downloaded = Vec::new();
+    let court_name = data.first()
+        .and_then(|d| d.get("c_fymc"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("未知法院");
+
+    for doc in data {
+        let doc_name = doc.get("c_wsmc").and_then(|v| v.as_str()).unwrap_or("未知文书");
+        let oss_url = doc.get("wjlj").and_then(|v| v.as_str()).unwrap_or("");
+        if oss_url.is_empty() { continue; }
+
+        let safe_name = format!("{}_{}.pdf", doc_name, chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let file_path = inbox_dir.join(&safe_name);
+
+        match client.get(oss_url)
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .header("Referer", "https://zxfw.court.gov.cn/")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                if let Ok(bytes) = resp.bytes().await {
+                    if bytes.len() > 1000 {  // 有效 PDF 至少 1KB
+                        let _ = std::fs::write(&file_path, &bytes);
+                        downloaded.push(serde_json::json!({
+                            "name": doc_name,
+                            "fileName": safe_name,
+                            "filePath": file_path.to_string_lossy(),
+                            "fileSize": bytes.len(),
+                        }));
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    Ok(serde_json::json!({
+        "success": !downloaded.is_empty(),
+        "courtName": court_name,
+        "totalCount": data.len(),
+        "downloadedCount": downloaded.len(),
+        "documents": downloaded,
+        "message": if downloaded.is_empty() {
+            "文书下载失败（OSS 链接可能已过期）".to_string()
+        } else {
+            format!("已从{}下载 {} 份文书", court_name, downloaded.len())
+        },
+    }))
 }
 
 /// 处理送达短信：识别 → 匹配案件 → 推荐操作
