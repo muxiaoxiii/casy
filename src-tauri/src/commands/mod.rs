@@ -179,5 +179,95 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         // 送达文书命令
         inbox::download_service_delivery,
         inbox::process_service_delivery,
+        // 日志调试命令
+        get_log_dir,
+        get_recent_logs,
+        search_logs,
     ]
+}
+
+// ═══════════════════════════════════════════════════════════
+// 日志调试命令
+// ═══════════════════════════════════════════════════════════
+
+/// 获取日志目录路径
+#[tauri::command]
+pub fn get_log_dir() -> String {
+    crate::app_log::log_dir_path()
+}
+
+/// 读取最近 N 行日志（默认 200 行）
+#[tauri::command]
+pub async fn get_recent_logs(lines: Option<usize>) -> Result<Vec<String>, String> {
+    let log_dir = crate::app_log::log_dir_path();
+    let dir_path = std::path::PathBuf::from(&log_dir);
+
+    // 找最新的日志文件
+    let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
+        .map_err(|e| format!("读取日志目录失败: {}", e))?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("casy.")
+                && e.file_name().to_string_lossy().ends_with(".log")
+        })
+        .collect();
+
+    entries.sort_by(|a, b| {
+        b.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+    });
+
+    let latest = entries.first()
+        .ok_or("没有找到日志文件")?
+        .path();
+
+    let content = std::fs::read_to_string(&latest)
+        .map_err(|e| format!("读取日志文件失败: {}", e))?;
+
+    let max_lines = lines.unwrap_or(200);
+    let all_lines: Vec<&str> = content.lines().collect();
+    let start = all_lines.len().saturating_sub(max_lines);
+
+    Ok(all_lines[start..].iter().map(|s| s.to_string()).collect())
+}
+
+/// 按关键词搜索日志
+#[tauri::command]
+pub async fn search_logs(keyword: String, limit: Option<usize>) -> Result<Vec<String>, String> {
+    let log_dir = crate::app_log::log_dir_path();
+    let dir_path = std::path::PathBuf::from(&log_dir);
+    let max_results = limit.unwrap_or(100);
+
+    let mut results = Vec::new();
+    let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
+        .map_err(|e| format!("读取日志目录失败: {}", e))?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("casy.")
+                && e.file_name().to_string_lossy().ends_with(".log")
+        })
+        .collect();
+
+    entries.sort_by(|a, b| {
+        b.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+    });
+
+    for entry in &entries {
+        if results.len() >= max_results { break; }
+        if let Ok(content) = std::fs::read_to_string(entry.path()) {
+            for line in content.lines() {
+                if line.to_lowercase().contains(&keyword.to_lowercase()) {
+                    results.push(line.to_string());
+                    if results.len() >= max_results { break; }
+                }
+            }
+        }
+    }
+
+    Ok(results)
 }

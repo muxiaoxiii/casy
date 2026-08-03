@@ -40,7 +40,8 @@ csv = "1"
 sha2 = "0.10"
 log = "0.4"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 nom = "7"
 
 # 文件系统监听
