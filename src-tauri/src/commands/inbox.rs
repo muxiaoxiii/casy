@@ -759,6 +759,37 @@ pub async fn file_inbox_item(
     run_blocking(move || {
         let conn = db::open_db()?;
 
+        // 获取收件项信息
+        let (title, source_path): (String, Option<String>) = conn
+            .query_row(
+                "SELECT COALESCE(title, ''), source_path FROM inbox_items WHERE id = ?1",
+                rusqlite::params![item_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| anyhow::anyhow!("收件项不存在: {}", e))?;
+
+        // 获取案件信息
+        let case = db::cases::get_case(&conn, &case_id)
+            .map_err(|e| anyhow::anyhow!("案件不存在: {}", e))?;
+
+        // 如果有源文件，归档到案件目录
+        let filed_path = if let Some(ref path_str) = source_path {
+            let source = std::path::Path::new(path_str);
+            if source.exists() {
+                match crate::files::file_to_case(source, &case, &category) {
+                    Ok(target) => Some(target.to_string_lossy().to_string()),
+                    Err(e) => {
+                        log::warn!("文件归档失败（不影响状态更新）: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // 更新收件项状态
         conn.execute(
             "UPDATE inbox_items SET status = 'filed', linked_case_id = ?1,
@@ -766,25 +797,15 @@ pub async fn file_inbox_item(
             rusqlite::params![case_id, category, db::now_local(), item_id],
         )?;
 
-        // 获取收件项信息
-        let title: String = conn
-            .query_row(
-                "SELECT COALESCE(title, '') FROM inbox_items WHERE id = ?1",
-                rusqlite::params![item_id],
-                |r| r.get(0),
-            )
-            .unwrap_or_default();
-
         // 记录办案日志
+        let log_detail = match &filed_path {
+            Some(path) => format!("归档收件: {} → {}", title, path),
+            None => format!("归档收件: {}", title),
+        };
         let _ = conn.execute(
             "INSERT INTO case_logs (id, case_id, event_summary, event_type, event_date, created_at)
              VALUES (?1, ?2, ?3, 'record', ?4, ?4)",
-            rusqlite::params![
-                db::new_id(),
-                case_id,
-                format!("归档收件: {}", title),
-                db::today(),
-            ],
+            rusqlite::params![db::new_id(), case_id, log_detail, db::today()],
         );
 
         Ok(())
