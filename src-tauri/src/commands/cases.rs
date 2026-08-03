@@ -3,7 +3,7 @@ use serde::Serialize;
 use super::run_blocking;
 use crate::db;
 use crate::db::cases::CaseFilter;
-use crate::formula::engine::DeadlineResult;
+use crate::deadline::engine::DeadlineResult;
 
 #[tauri::command]
 pub async fn list_cases(
@@ -197,7 +197,7 @@ pub async fn get_dashboard_stats() -> Result<DashboardStats, String> {
         let by_track = db::cases::case_counts_by_track(&conn)?;
 
         // 期限预警（取最近 10 个最紧急的）
-        let engine = crate::formula::engine::DeadlineEngine::new(&conn)?;
+        let engine = crate::deadline::engine::DeadlineEngine::new(&conn)?;
         let all_warnings = engine.generate_all_warnings(&conn)?;
         let deadline_warnings: Vec<DeadlineResult> = all_warnings.into_iter().take(10).collect();
 

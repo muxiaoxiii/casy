@@ -5,6 +5,7 @@ mod docsy_engine;
 mod email;
 mod files;
 mod formula;
+mod deadline;
 mod parse;
 mod sync;
 mod tray;
@@ -149,7 +150,7 @@ async fn deadline_recalc_scheduler() {
 /// 重算所有活跃案件的期限
 fn recalc_all_deadlines() -> anyhow::Result<usize> {
     let conn = db::open_db()?;
-    let engine = formula::engine::DeadlineEngine::new(&conn)?;
+    let engine = deadline::engine::DeadlineEngine::new(&conn)?;
 
     // 计算所有活跃案件的期限预警
     let warnings = engine.generate_all_warnings(&conn)?;

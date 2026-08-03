@@ -7,7 +7,7 @@ use anyhow::Result;
 use chrono::{Local, NaiveDate};
 
 use super::ast::{CmpOp, Expr, LogicOp, Value};
-use super::holidays::HolidayCalendar;
+use crate::deadline::holidays::HolidayCalendar;
 
 /// Record context: provides field values by field_id (or local column name).
 pub trait RecordContext {

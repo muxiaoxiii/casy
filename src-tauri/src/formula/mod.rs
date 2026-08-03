@@ -1,8 +1,8 @@
 pub mod ast;
 pub mod dependency;
-pub mod engine;
+
 pub mod eval;
-pub mod holidays;
+
 pub mod parser;
 
 use anyhow::Result;
@@ -242,7 +242,7 @@ pub fn recalculate_case_formulas(conn: &Connection, case_id: &str) -> Result<usi
                         .unwrap_or(Value::Null);
                     if let Value::Date(ed) = edate {
                         // Check if ed is a workday, if so use it; otherwise use WORKDAY(ed, -1)
-                        let cal = holidays::HolidayCalendar::builtin();
+                        let cal = crate::deadline::holidays::HolidayCalendar::builtin();
                         let result = if cal.is_workday(ed) {
                             ed
                         } else {

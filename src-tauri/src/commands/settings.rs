@@ -54,7 +54,7 @@ pub async fn save_settings(settings: HashMap<String, serde_json::Value>) -> Resu
 pub async fn import_holidays_json(json_path: String) -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let path = std::path::PathBuf::from(&json_path);
-        let cal = crate::formula::holidays::HolidayCalendar::from_json(&path)
+        let cal = crate::deadline::holidays::HolidayCalendar::from_json(&path)
             .map_err(|e| anyhow::anyhow!(e))?;
         let json_str = cal.to_json();
         let conn = db::open_db()?;
@@ -72,7 +72,7 @@ pub async fn import_holidays_json(json_path: String) -> Result<serde_json::Value
 #[tauri::command]
 pub async fn get_holidays_summary() -> Result<serde_json::Value, String> {
     run_blocking(move || {
-        let cal = crate::formula::holidays::HolidayCalendar::builtin();
+        let cal = crate::deadline::holidays::HolidayCalendar::builtin();
         Ok(serde_json::json!({
             "holidaysCount": cal.holidays_count(),
             "workdaysCount": cal.workdays_count(),

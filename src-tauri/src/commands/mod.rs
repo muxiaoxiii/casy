@@ -37,10 +37,10 @@ pub async fn import_feishu_data(json_path: String) -> Result<import_feishu::Impo
 }
 
 #[tauri::command]
-pub async fn get_deadline_warnings() -> Result<Vec<crate::formula::engine::DeadlineResult>, String> {
+pub async fn get_deadline_warnings() -> Result<Vec<crate::deadline::engine::DeadlineResult>, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
-        let engine = crate::formula::engine::DeadlineEngine::new(&conn)?;
+        let engine = crate::deadline::engine::DeadlineEngine::new(&conn)?;
         engine.generate_all_warnings(&conn)
     })
     .await
