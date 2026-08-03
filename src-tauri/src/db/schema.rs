@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -625,8 +625,114 @@ CREATE TABLE IF NOT EXISTS settings (
 #[allow(dead_code)]
 pub const MIGRATIONS: &[(&str, &str)] = &[
     ("1", SCHEMA_SQL),
-    // ("2", "ALTER TABLE cases ADD COLUMN new_field TEXT;"),  -- 未来迁移
+    ("2", MIGRATION_V2_SQL),
 ];
+
+/// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
+pub const MIGRATION_V2_SQL: &str = r#"
+-- ============================================================
+-- inbox_items 重建（扩展 status CHECK + 新增字段）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS inbox_items_new (
+  id              TEXT PRIMARY KEY,
+  source_type     TEXT NOT NULL CHECK(source_type IN ('file','email','sms','note','paste','imap')),
+  source_path     TEXT,
+  source_url      TEXT,
+  source_time     TEXT,
+  title           TEXT,
+  content_text    TEXT,
+  content_html    TEXT,
+  ai_category     TEXT,
+  ai_confidence   REAL,
+  ai_extracted    TEXT,
+  ai_suggested_case_id TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending','processed','filed','archived','ignored')),
+  user_category   TEXT,
+  linked_case_id  TEXT REFERENCES cases(id) ON DELETE SET NULL,
+  filed_to        TEXT,
+  filed_as        TEXT,
+  knowledge_mark  INTEGER DEFAULT 0 CHECK(knowledge_mark IN (0,1,2)),
+  parent_id       TEXT REFERENCES inbox_items(id),
+  quick_category  TEXT,
+  quick_confidence REAL,
+  ai_analyzed     INTEGER DEFAULT 0,
+  copy_progress   INTEGER,
+  file_hash       TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  processed_at    TEXT
+);
+
+INSERT INTO inbox_items_new (
+  id, source_type, source_path, source_url, title,
+  content_text, content_html, ai_category, ai_confidence, ai_extracted,
+  ai_suggested_case_id, status, user_category, linked_case_id,
+  filed_to, filed_as, knowledge_mark, created_at, processed_at
+)
+SELECT
+  id, source_type, source_path, source_url, title,
+  content_text, content_html, ai_category, ai_confidence, ai_extracted,
+  ai_suggested_case_id,
+  CASE status
+    WHEN 'processing' THEN 'pending'
+    WHEN 'dismissed'  THEN 'ignored'
+    ELSE status
+  END,
+  user_category, linked_case_id,
+  filed_to, filed_as, knowledge_mark, created_at, processed_at
+FROM inbox_items;
+
+DROP TABLE inbox_items;
+ALTER TABLE inbox_items_new RENAME TO inbox_items;
+
+CREATE INDEX IF NOT EXISTS idx_inbox_status ON inbox_items(status);
+CREATE INDEX IF NOT EXISTS idx_inbox_category ON inbox_items(ai_category);
+CREATE INDEX IF NOT EXISTS idx_inbox_case ON inbox_items(linked_case_id);
+
+-- ============================================================
+-- cases 表新增 folder_name / display_name
+-- ============================================================
+ALTER TABLE cases ADD COLUMN folder_name TEXT;
+ALTER TABLE cases ADD COLUMN display_name TEXT;
+
+-- ============================================================
+-- tasks 表新增 inbox_source_id
+-- ============================================================
+ALTER TABLE tasks ADD COLUMN inbox_source_id TEXT REFERENCES inbox_items(id);
+
+-- ============================================================
+-- inbox_recommendations 表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS inbox_recommendations (
+  id              TEXT PRIMARY KEY,
+  inbox_item_id   TEXT NOT NULL REFERENCES inbox_items(id) ON DELETE CASCADE,
+  action          TEXT NOT NULL,
+  target_case_id  TEXT,
+  target_folder   TEXT,
+  reason          TEXT,
+  confidence      REAL,
+  accepted        INTEGER,
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_rec_item ON inbox_recommendations(inbox_item_id);
+
+-- ============================================================
+-- file_naming_rules 表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS file_naming_rules (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  template    TEXT NOT NULL,
+  pattern     TEXT NOT NULL,
+  is_default  INTEGER DEFAULT 0,
+  created_at  TEXT DEFAULT (datetime('now','localtime')),
+  updated_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+
+INSERT OR IGNORE INTO file_naming_rules (id, name, template, pattern, is_default)
+VALUES ('rule-default', '四段式', 'four_segment', '{case_no}_{client}_{user}_{date}', 1);
+"#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用
 #[allow(dead_code)]

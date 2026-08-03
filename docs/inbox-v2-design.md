@@ -1,8 +1,19 @@
-# Casy 收件箱 + 卷宗管理 设计文档 v2.0
+# Casy 收件箱 + 卷宗管理 设计文档 v2.1
 
-> 版本: 2.0 | 日期: 2026-08-01
+> 版本: 2.1 | 日期: 2026-08-01
 > 替代: docs/inbox-system-design.md（v1.0）
 > 状态: 设计评审中
+
+---
+
+## v2.1 变更记录
+
+- **文件夹名与显示名分离**：新增 `cases.folder_name`（物理目录，不可变）+ `cases.display_name`（UI 显示，可编辑），见 §3.2、§5.4
+- **安全拷贝按大小分流**：<10MB 直接 OS 拷贝 + 大小校验（零哈希等待），>=10MB 流式拷贝 + 后台异步校验，UI 永不阻塞，见 §3.5
+- **Schema 自洽修复**：补齐 `parent_id` / `linked_case_id` / `filed_to` / `filed_as` / `ai_extracted` / `tasks.inbox_source_id`；`status` CHECK 约束需重建表扩展，见 §5.3-5.5
+- **置信度分级**：≥0.7 默认选中 / 0.3-0.7 候选平铺 / <0.3 兜底；匹配去重合并理由，见 §2.2
+- **AI 结果缓存**：重复分析直接复用，不重复调用 API；补充 11 种文书类型枚举，见 §2.3、§8.9
+- **文件已存在策略**：同名加序号 / 同 hash 跳过 / 手动覆盖备份，见 §3.5
 
 ---
 
@@ -80,53 +91,61 @@ v1.0 设计的收件箱是"自动处理"模式：文件丢进来 → AI 自动�
 
 ```rust
 fn quick_judge(file_name: &str, file_size: u64, mime_type: &str) -> QuickJudgeResult {
-    let mut recommendations = Vec::new();
-    let mut confidence = 0.0;
-    
-    // 1. 文件名关键词匹配
     let category = auto_classify(file_name);
-    if category != "other" {
-        confidence += 0.6;
-    }
-    
-    // 2. 案号提取（正则）
-    let case_no = extract_case_no_from_filename(file_name);
-    if let Some(ref cn) = case_no {
-        confidence += 0.3;
-        // 查数据库匹配案件
-        if let Some(case) = find_case_by_no(cn) {
-            recommendations.push(Recommendation {
-                action: "file_to_case",
-                target_case: Some(case),
-                target_folder: Some(category_to_folder(category)),
-                reason: format!("文件名包含案号 {}", cn),
-            });
+
+    // 匹配到的案件按 case_id 去重，多个匹配信号合并为一条推荐
+    let mut matches: HashMap<String, (Case, Vec<String>)> = HashMap::new();
+
+    // 1. 案号提取（最高权重信号）
+    if let Some(cn) = extract_case_no_from_filename(file_name) {
+        if let Some(case) = find_case_by_no(&cn) {
+            matches.entry(case.id.clone())
+                .or_insert_with(|| (case, vec![]))
+                .1.push(format!("文件名包含案号 {cn}"));
         }
     }
-    
-    // 3. 当事人名提取
-    let parties = extract_parties_from_filename(file_name);
-    for party in &parties {
-        if let Some(cases) = find_cases_by_party(party) {
-            for case in cases {
-                recommendations.push(Recommendation {
-                    action: "file_to_case",
-                    target_case: Some(case),
-                    target_folder: Some(category_to_folder(category)),
-                    reason: format!("文件名包含当事人 {}", party),
-                });
-            }
+
+    // 2. 当事人匹配
+    for party in extract_parties_from_filename(file_name) {
+        for case in find_cases_by_party(&party) {
+            matches.entry(case.id.clone())
+                .or_insert_with(|| (case, vec![]))
+                .1.push(format!("文件名包含当事人 {party}"));
         }
     }
-    
-    // 4. 文件大小判断
+
+    // 3. 置信度 = 信号加权，封顶 0.95
+    let mut confidence = 0.0_f32;
+    if category != "other" { confidence += 0.3; }
+    if matches.values().any(|(_, r)| r.iter().any(|s| s.contains("案号")))    { confidence += 0.4; }
+    if matches.values().any(|(_, r)| r.iter().any(|s| s.contains("当事人")))  { confidence += 0.2; }
+    confidence = confidence.min(0.95);
+
+    // 4. 推荐强度分级（前端据此决定交互形态，见下方对照表）
+    let strength = match confidence {
+        c if c >= 0.7 => RecommendStrength::Strong,    // 默认选中该推荐
+        c if c >= 0.3 => RecommendStrength::Candidate,  // 平铺为候选，用户点选
+        _             => RecommendStrength::Fallback,   // 走兜底面板
+    };
+
+    let recommendations: Vec<Recommendation> = matches
+        .into_iter()
+        .map(|(_, (case, reasons))| Recommendation {
+            action: "file_to_case",
+            target_case: Some(case),
+            target_folder: category_to_folder(&category),
+            reason: reasons.join("；"),
+        })
+        .collect();
+
+    // 5. 文件大小 → 分析策略
     let size_strategy = match file_size {
         0..=5_242_880 => SizeStrategy::FullAnalysis,      // < 5MB: 可调 AI
         5_242_881..=52_428_800 => SizeStrategy::QuickOnly, // 5-50MB: 仅本地判断
         _ => SizeStrategy::ManualOnly,                     // > 50MB: 手动处理
     };
-    
-    // 5. 特殊文件类型
+
+    // 6. 特殊文件类型
     if mime_type == "message/rfc822" || file_name.ends_with(".eml") {
         recommendations.push(Recommendation {
             action: "parse_email",
@@ -135,16 +154,25 @@ fn quick_judge(file_name: &str, file_size: u64, mime_type: &str) -> QuickJudgeRe
             reason: "邮件文件，建议解析后归档".into(),
         });
     }
-    
+
     QuickJudgeResult {
         category,
         confidence,
+        strength,
         recommendations,
         size_strategy,
         ai_available: size_strategy == SizeStrategy::FullAnalysis,
     }
 }
 ```
+
+**置信度 → 交互形态对照**（前端推荐面板据此决定 UI）：
+
+| 置信度 | 强度 | 交互形态 |
+|--------|------|---------|
+| ≥ 0.7 | Strong | 推荐项默认选中，用户只需点 [确认归档]，一键完成 |
+| 0.3 - 0.7 | Candidate | 平铺多个候选案件，用户点选后确认 |
+| < 0.3 | Fallback | 不展示具体推荐，走兜底面板（选择案件 / 存知识库 / 忽略） |
 
 ### 2.3 AI 增强逻辑（第二层）
 
@@ -166,6 +194,24 @@ AI 分析结果：
 - 提取字段（案号/当事人/法院/日期/专利号）
 - 案件匹配建议
 - 附加操作建议（创建任务/更新期限/入库知识库）
+```
+
+**结果缓存**：分析结果存入 `inbox_items.ai_extracted` + `ai_analyzed=1`。用户再次点击 [AI 分析] 时直接复用缓存（弹提示"已分析过，结果如下"），不重复调用 API。
+
+**11 种文书类型枚举**：
+
+```
+summons          传票
+hearing_notice   口审通知
+verdict          判决书
+ruling           裁定书
+complaint        起诉状
+defence          答辩状/代理词
+official_notice  审查意见通知书（国知局）
+evidence         证据材料
+correspondence   往来函件
+legal_provision  法条/法规文本
+other            其他
 ```
 
 ### 2.4 推荐操作面板（第三层）
@@ -253,10 +299,15 @@ AI 分析结果：
 
 ### 3.2 文件夹结构
 
+**核心原则：物理目录名 ≠ UI 显示名。**
+
+- **物理目录名（folder_name）**：文件系统实际路径，自动生成、不可变、只用安全字符，用于排序和引用
+- **UI 显示名（display_name）**：用户可编辑的展示名称，出现在案件列表、看板卡片、文件树、文书标题中
+
 ```
 ~/Documents/Casy/cases/
-├── 001_浦项_NSC/                    ← 案件文件夹（自动编号）
-│   ├── 01_传票/                     ← 7 个标准子目录
+├── 001_浦项_NSC/                    ← 物理目录名（folder_name）
+│   ├── 01_传票/                     ← 7 个标准子目录（物理名）
 │   ├── 02_证据/
 │   ├── 03_交文/                     ← 我方提交的文书
 │   ├── 04_收文/                     ← 收到的文书（判决/裁定等）
@@ -268,13 +319,30 @@ AI 分析结果：
 └── inbox/                           ← 收件箱暂存目录
 ```
 
-**编号规则**：
+**物理目录名（folder_name）规则**：
 - 格式：`{序号}_{客户简称}_{对方简称}`
-- 序号：三位数，按创建时间递增（001, 002, 003...）
-- 客户/对方简称：取前 4 个字符，去除特殊字符
+- 序号：三位数，按创建时间递增（001, 002, 003...），**创建后不可变**（保证文件路径稳定，历史引用不失效）
+- 客户/对方简称：取前 4 个字符，去除特殊字符（空格、`/ \ : * ? " < > |` 等替换为 `_`）
 - 示例：`001_浦项_NSC`、`002_钛金_高德`、`003_隆基_某公司`
 
+**UI 显示名（display_name）规则**：
+- 用户创建案件时填写，可随时修改
+- 默认建议：`客户 v 对方 — 案由`（如 `浦项 v NSC — 专利无效`）
+- 存储于 `cases.display_name` 字段，**与物理目录名完全解耦**
+
+**映射示例**：
+
+| 物理目录 | UI 显示名 |
+|---------|----------|
+| `001_浦项_NSC` | 浦项 v NSC — 专利无效行政诉讼 |
+| `002_钛金_高德` | 钛金 v 高德 — 侵害发明专利权 |
+| `003_隆基_某公司` | 隆基 v 某公司 — 侵害实用新型专利权 |
+
+> 改名只改 display_name，不动 folder_name。文件路径永远不变，避免破坏外部引用（邮件、链接、飞书同步）。
+
 ### 3.3 文件命名规则（可配置）
+
+**同样区分物理文件名与显示名**：物理文件名按模板生成（安全字符、唯一性保证），UI 中展示时优先显示模板生成的规范名，用户可随时覆盖。
 
 在设置页提供三种命名模板选择：
 
@@ -358,40 +426,40 @@ INSERT INTO settings (key, value) VALUES ('file_naming_user_name', '张鑫');
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 3.5 安全拷贝（大文件 + 进度条）
+### 3.5 安全拷贝（按文件大小分流，小文件零等待）
+
+**核心原则：小文件拷贝绝不等哈希。** 本地磁盘拷贝的损坏概率可忽略，SHA-256 校验只用于大文件，且校验在后台异步进行，UI 永不阻塞。
 
 ```
-拷贝流程：
+拷贝流程（按文件大小分流）：
 
-1. 获取源文件元数据
-   - 文件大小
-   - 修改时间
-   - MIME 类型
+① 快速路径：文件 < 10MB（覆盖绝大多数日常文件）
+   1. 直接 std::fs::copy 到目标（OS 级拷贝，速度最快）
+   2. 校验：仅比对文件大小一致
+   3. 原子重命名 .tmp → 正式名
+   4. 完成 —— 全程 < 100ms，不计算任何哈希
 
-2. 创建目标路径
-   - 目标目录：{案件文件夹}/{子目录}/
-   - 目标文件名：按命名规则生成
-   - 临时文件：{目标文件名}.tmp
+② 标准路径：文件 >= 10MB
+   1. 流式分块拷贝（1MB 块），边写边计算目标文件 SHA-256
+   2. 进度事件节流：每 1% 或每 200ms 发一次（取先到者），避免事件洪泛
+   3. 拷贝 + 目标哈希完成 → 原子重命名 → UI 立即显示成功
+   4. 后台线程计算源文件 SHA-256，与第 1 步的目标哈希比对
+      - 一致 → 静默完成
+      - 不一致 → 通知栏警告 + 文件标记"校验失败"，一键重拷
+   （UI 不等后台校验：显示"已归档"后校验在后台跑，不阻塞后续操作）
 
-3. 分块拷贝（带进度）
-   - 块大小：64KB（小文件）/ 1MB（大文件）
-   - 每块写入后更新进度
-   - 进度通过 Tauri event 发送到前端
-
-4. 完整性校验
-   - 计算源文件 SHA-256
-   - 计算目标文件 SHA-256
-   - 比对校验和
-
-5. 原子重命名
-   - .tmp → 正式文件名
-   - 写入 case_files 表记录
-
-6. 错误处理
-   - 拷贝中断 → 删除 .tmp 文件
-   - 校验失败 → 删除 .tmp 文件，提示重试
-   - 磁盘空间不足 → 提前检查，不足则提示
+③ 超大文件：>= 200MB（可选策略）
+   跳过哈希，仅大小校验（哈希 200MB 也要数秒，且文件已本地存在，
+   损坏风险与②一致，收益低）
 ```
+
+**目标文件已存在策略**（②③共用，①走简单逻辑）：
+
+| 场景 | 处理 |
+|------|------|
+| 同名不同内容 | 自动追加序号：`xxx_1.pdf`、`xxx_2.pdf`，并在推荐面板提示 |
+| 同 hash（内容相同）| 跳过拷贝，仅写库，提示"收件箱中已存在相同文件" |
+| 用户手动选择覆盖 | 允许，但先备份原文件到 `_overwritten/` 目录 |
 
 **进度条 UI**：
 
@@ -410,6 +478,7 @@ INSERT INTO settings (key, value) VALUES ('file_naming_user_name', '张鑫');
 **后端实现**：
 
 ```rust
+/// 安全拷贝：< 10MB 走快速路径（零哈希等待），>= 10MB 走流式 + 后台校验
 #[tauri::command]
 pub async fn copy_file_with_progress(
     source_path: String,
@@ -422,69 +491,87 @@ pub async fn copy_file_with_progress(
     let file_size = std::fs::metadata(source)
         .map_err(|e| format!("无法读取文件: {}", e))?
         .len();
-    
-    // 检查磁盘空间
+
     let target_dir = get_case_folder(&target_case_id, &target_category)?;
     if !has_enough_space(&target_dir, file_size) {
         return Err("磁盘空间不足".into());
     }
-    
-    // 生成目标文件名
-    let case = db::cases::get_case(&conn, &target_case_id)?;
-    let new_name = generate_filename(&source, &case, &target_category, naming_template);
-    let target = target_dir.join(&new_name);
-    let tmp_target = target.with_extension(format!("{}.tmp", 
-        target.extension().and_then(|e| e.to_str()).unwrap_or("")));
-    
-    // 分块拷贝（带进度）
+
+    // 目标文件已存在策略（同名 → 序号追加；同 hash → 跳过）
+    let target = resolve_target_path(source, &target_dir, naming_template)?;
+
+    // ── 快速路径：< 10MB，直接 OS 拷贝 + 大小校验，不算哈希 ──
+    if file_size < 10 * 1024 * 1024 {
+        std::fs::copy(source, &target)
+            .map_err(|e| format!("拷贝失败: {}", e))?;
+        if std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0) != file_size {
+            let _ = std::fs::remove_file(&target);
+            return Err("文件校验失败（大小不一致）".into());
+        }
+        let file_id = record_file(&target_case_id, &target, &target_category, source)?;
+        return Ok(file_id);
+    }
+
+    // ── 标准路径：>= 10MB，流式拷贝 + 目标哈希 + 后台源校验 ──
+    let tmp_target = target.with_extension(format!(
+        "{}.tmp",
+        target.extension().and_then(|e| e.to_str()).unwrap_or("")
+    ));
+
     let mut src_file = std::fs::File::open(source)?;
     let mut dst_file = std::fs::File::create(&tmp_target)?;
-    let mut hasher = Sha256::new();
+    let mut hasher = Sha256::new();          // 边写边算【目标】哈希（单遍，零额外读）
     let mut copied: u64 = 0;
-    let block_size = if file_size > 10_000_000 { 1_048_576 } else { 65_536 };
+    let mut last_emit = Instant::now();
+    let block_size = 1_048_576;              // 1MB 块
     let mut buffer = vec![0u8; block_size];
-    
+
     loop {
         let bytes_read = src_file.read(&mut buffer)?;
         if bytes_read == 0 { break; }
-        
         dst_file.write_all(&buffer[..bytes_read])?;
         hasher.update(&buffer[..bytes_read]);
         copied += bytes_read as u64;
-        
-        // 发送进度事件
-        let _ = app.emit("file-copy-progress", serde_json::json!({
-            "copied": copied,
-            "total": file_size,
-            "percent": (copied * 100 / file_size) as u32,
-        }));
+
+        // 进度节流：每 1% 或每 200ms 发一次（取先到者）
+        if copied * 100 / file_size > (copied - bytes_read as u64) * 100 / file_size
+            || last_emit.elapsed() > Duration::from_millis(200) {
+            let _ = app.emit("file-copy-progress", serde_json::json!({
+                "copied": copied,
+                "total": file_size,
+                "percent": (copied * 100 / file_size) as u32,
+            }));
+            last_emit = Instant::now();
+        }
     }
-    
     dst_file.flush()?;
     drop(dst_file);
-    
-    // SHA-256 校验
-    let src_hash = compute_sha256(source)?;
-    let dst_hash = compute_sha256(&tmp_target)?;
-    if src_hash != dst_hash {
-        std::fs::remove_file(&tmp_target)?;
-        return Err("文件校验失败，请重试".into());
-    }
-    
-    // 原子重命名
+
+    // 拷贝完成 → 立即原子重命名 → UI 报成功（不阻塞）
     std::fs::rename(&tmp_target, &target)?;
-    
-    // 写入数据库
-    let file_id = db::new_id();
-    conn.execute(
-        "INSERT INTO case_files (id, case_id, file_name, file_path, category, source_type, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'manual', ?6)",
-        params![file_id, target_case_id, new_name, target.display(), target_category, db::now_local()],
-    )?;
-    
+    let file_id = record_file(&target_case_id, &target, &target_category, source)?;
+
+    // 后台异步校验：算源哈希 vs 拷贝时的目标哈希，不阻塞返回
+    let dst_hash = hasher.finalize();
+    let (src_path, case_id, file_id2) = (source.to_path_buf(), target_case_id.clone(), file_id.clone());
+    tauri::async_runtime::spawn(async move {
+        match compute_sha256(&src_path) {
+            Ok(src_hash) if src_hash == dst_hash => { /* 校验通过，静默 */ }
+            Ok(_) => {
+                let _ = app.emit("file-verify-failed", serde_json::json!({
+                    "file_id": file_id2, "case_id": case_id,
+                    "msg": "文件校验失败，建议重新归档"
+                }));
+            }
+            Err(_) => { /* 读源文件失败，同样告警 */ }
+        }
+    });
+
     Ok(file_id)
 }
 ```
+
+> 说明：`resolve_target_path` 内部处理"已存在"策略（同名加序号 / 同 hash 跳过）。快速路径对 <10MB 文件不哈希，因为本地磁盘拷贝损坏概率可忽略，而哈希反而让 99% 的日常操作变慢。
 
 ---
 
@@ -588,12 +675,43 @@ CREATE TABLE IF NOT EXISTS inbox_recommendations (
 
 ### 5.3 inbox_items 表新增字段
 
+> ⚠️ **CHECK 约束冲突警告**：现有 `inbox_items.status` 有 CHECK 约束（v1 定义 `'pending'/'processed'` 等），新状态 `'filed'`（已归档）/`'archived'` 不在合法值内，直接 UPDATE 会报错。SQLite 的 `ALTER TABLE ADD COLUMN` 无法修改 CHECK 约束，**必须重建表**（12 步迁移法：建新表 → 拷贝数据 → 改名），并扩展合法状态集为：`pending / processed / filed / archived / ignored`。
+
 ```sql
-ALTER TABLE inbox_items ADD COLUMN quick_category TEXT;      -- 即时判断的分类
-ALTER TABLE inbox_items ADD COLUMN quick_confidence REAL;    -- 即时判断的置信度
-ALTER TABLE inbox_items ADD COLUMN ai_analyzed INTEGER DEFAULT 0; -- 是否已调 AI 分析
-ALTER TABLE inbox_items ADD COLUMN copy_progress INTEGER;    -- 拷贝进度 0-100
-ALTER TABLE inbox_items ADD COLUMN file_hash TEXT;           -- SHA-256 校验和
+-- 迁移：重建 inbox_items（12 步法），扩展 status CHECK
+CREATE TABLE inbox_items_new (
+    -- ...原有字段保持不变...
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','processed','filed','archived','ignored')),
+    -- 新增字段：
+    quick_category  TEXT,           -- 即时判断的分类
+    quick_confidence REAL,          -- 即时判断的置信度
+    ai_analyzed     INTEGER DEFAULT 0, -- 是否已调 AI 分析
+    copy_progress   INTEGER,        -- 拷贝进度 0-100
+    file_hash       TEXT,           -- SHA-256 校验和
+    -- v2.0 补全（此前遗漏，8.x 多处引用）：
+    parent_id       TEXT REFERENCES inbox_items(id), -- 附件 → 邮件正文
+    linked_case_id  TEXT REFERENCES cases(id),       -- 关联案件
+    filed_to        TEXT,           -- 归档目标目录（物理路径）
+    filed_as        TEXT,           -- 归档后的文件名
+    ai_extracted    TEXT            -- AI 提取结果 JSON（案号/当事人/法院/日期/专利号）
+);
+INSERT INTO inbox_items_new SELECT * FROM inbox_items;  -- 字段一一对应
+DROP TABLE inbox_items;
+ALTER TABLE inbox_items_new RENAME TO inbox_items;
+```
+
+### 5.4 cases 表新增字段（卷宗文件夹名 / 显示名分离）
+
+```sql
+ALTER TABLE cases ADD COLUMN folder_name TEXT;    -- 物理目录名: 001_浦项_NSC（不可变）
+ALTER TABLE cases ADD COLUMN display_name TEXT;   -- UI 显示名: 浦项 v NSC — 专利无效（可编辑）
+```
+
+### 5.5 tasks 表新增字段
+
+```sql
+ALTER TABLE tasks ADD COLUMN inbox_source_id TEXT REFERENCES inbox_items(id); -- 来源收件箱项
 ```
 
 ---
@@ -801,10 +919,10 @@ IMAP 服务器 (IDLE 长连接)
 ```
 用户确认"归档到案件"
     ↓
-1. 安全拷贝文件到案件文件夹
+1. 安全拷贝文件到案件文件夹（使用 cases.folder_name 物理目录）
    源: /inbox/xxx.pdf
    目标: ~/Documents/Casy/cases/001_浦项_NSC/01_传票/(2024)xxx_浦项_张鑫_20260815.pdf
-   流程: 分块拷贝 → SHA-256 校验 → 原子重命名
+   流程: 小文件直接拷贝 / 大文件流式拷贝 + 后台校验（见 §3.5）
 
 2. 写入 case_files 表
    INSERT INTO case_files (id, case_id, file_name, file_path, category, source_type, source_inbox_id)
@@ -1020,6 +1138,10 @@ Token 预算保护：
 - 每日 AI 调用有上限（TokenBudget）
 - 超限后提示"今日 AI 额度已用完，明天再试"
 - 优先级：分类 > 提取 > OCR
+
+结果缓存：
+- 已分析的文件（ai_analyzed=1）再次点击 [AI 分析] → 直接返回 ai_extracted 缓存，不重复调用
+- 大文件（>= 5MB）永远不触发 AI，避免超时和 token 浪费
 ```
 
 ### 8.10 Inbox ↔ 卷宗管理
@@ -1029,26 +1151,27 @@ Token 预算保护：
 ```
 卷宗管理是 Inbox 的"最后一公里"——文件从收件箱到案件文件夹的物理移动。
 
-安全拷贝流程：
+安全拷贝流程（按大小分流，见 §3.5）：
 1. 读取源文件元数据（大小、MIME 类型）
 2. 检查磁盘空间
-3. 按命名规则生成目标文件名
-4. 分块拷贝（64KB/1MB 块）
-5. 每块写入后通过 Tauri event 更新进度条
-6. SHA-256 校验源文件和目标文件
-7. 原子重命名 .tmp → 正式文件名
-8. 写入 case_files 表
-9. 写入 case_logs 表
+3. 按命名规则生成目标文件名（含已存在策略）
+4. < 10MB：直接 OS 拷贝 + 大小校验（零哈希等待）
+5. >= 10MB：流式分块拷贝（1MB 块），边写边算目标哈希
+6. 进度事件节流（每 1% 或 200ms）
+7. 原子重命名 .tmp → 正式文件名，UI 立即报成功
+8. 后台线程异步校验源哈希（不阻塞）
+9. 写入 case_files + case_logs 表
 
 非 Inbox 来源的文件：
 - 用户直接拖入案件文件夹 → 提供智能重命名
 - 右键文件 → "智能重命名" → AI 提取信息 → 生成新文件名
 - 批量重命名：选中多个文件 → 逐个 AI 分析 → 预览 → 确认
 
-文件夹编号：
+文件夹编号（folder_name）：
 - 新建案件时自动分配编号（001, 002, 003...）
 - 编号格式：{序号}_{客户简称}_{对方简称}
 - 编号不可重复，不可修改（稳定性优先）
+- UI 显示名（display_name）与物理目录名完全分离，改名不影响路径
 ```
 
 ---
@@ -1105,16 +1228,17 @@ Token 预算保护：
 
 | 序号 | 任务 | 工作量 | 依赖 |
 |------|------|--------|------|
-| 1 | 即时判断逻辑（auto_classify + 案号/当事人匹配）| 1 天 | 无 |
-| 2 | 推荐操作面板前端 | 1 天 | 1 |
-| 3 | 安全拷贝 + 进度条 + SHA-256 | 1 天 | 无 |
-| 4 | 文件命名规则配置 | 0.5 天 | 无 |
+| 1 | 即时判断逻辑（auto_classify + 案号/当事人匹配 + 置信度分级 + 去重）| 1 天 | 无 |
+| 2 | 推荐操作面板前端（含置信度→交互分级）| 1 天 | 1 |
+| 3 | 安全拷贝（大小分流 + 快速路径 + 后台校验 + 已存在策略）| 1.5 天 | 无 |
+| 4 | 文件命名规则配置（folder_name / display_name 分离）| 1 天 | 无 |
 | 5 | 智能重命名（非 inbox）| 0.5 天 | 4 |
-| 6 | 大文件策略 | 0.5 天 | 3 |
-| 7 | 数据库变更 + 迁移 | 0.5 天 | 无 |
-| 8 | 集成测试 + 文档更新 | 0.5 天 | 1-7 |
-| **总计** | | **5.5 天** | |
+| 6 | 大文件策略 + 进度节流 | 0.5 天 | 3 |
+| 7 | 数据库迁移（inbox_items 重建扩展 CHECK + 新字段 + cases/tasks 加列）| 1 天 | 无 |
+| 8 | AI 分析缓存 + 11 种文书类型枚举 | 0.5 天 | 1 |
+| 9 | 集成测试 + 文档更新 | 1 天 | 1-8 |
+| **总计** | | **8 天** | |
 
 ---
 
-> 最后更新：2026-08-01
+> 最后更新：2026-08-01（v2.1：文件夹/显示名分离、拷贝分流、schema 修复、置信度分级）

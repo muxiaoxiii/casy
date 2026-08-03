@@ -141,14 +141,21 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// 初始化数据库（建表 + 种子数据）
+/// 初始化数据库（建表 + 种子数据 + 迁移）
 pub fn init_db(conn: &Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version == 0 {
+        // 全新数据库：建表 + 种子
         conn.execute_batch(schema::SCHEMA_SQL)?;
         schema::seed_deadline_rules(conn)?;
         conn.execute_batch("PRAGMA user_version = 1;")?;
         log::info!("Database initialized (v1)");
+    }
+    // 对已有数据库运行增量迁移
+    let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if current < schema::CURRENT_SCHEMA_VERSION {
+        schema::run_migrations(conn, current)?;
+        log::info!("Database migrated from v{} to v{}", current, schema::CURRENT_SCHEMA_VERSION);
     }
     Ok(())
 }

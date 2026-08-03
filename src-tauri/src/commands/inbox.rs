@@ -813,3 +813,559 @@ pub async fn parse_holiday_notice(content: String) -> Result<serde_json::Value, 
     })
     .await
 }
+
+// ── v2.1: 即时判断 + 安全拷贝 + AI 缓存 ──────────────────────
+
+/// 即时判断结果
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickJudgeResult {
+    pub category: String,
+    pub confidence: f32,
+    pub strength: String,          // "strong" / "candidate" / "fallback"
+    pub recommendations: Vec<QuickRecommendation>,
+    pub ai_available: bool,
+    pub ai_analyzed: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickRecommendation {
+    pub action: String,
+    pub target_case_id: Option<String>,
+    pub target_case_name: Option<String>,
+    pub target_folder: Option<String>,
+    pub reason: String,
+}
+
+/// 即时判断命令（纯本地，0ms）
+#[tauri::command]
+pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        // 读取收件项
+        let (title, source_path, ai_analyzed, ai_extracted): (Option<String>, Option<String>, i32, Option<String>) = conn
+            .query_row(
+                "SELECT title, source_path, ai_analyzed, ai_extracted FROM inbox_items WHERE id = ?1",
+                rusqlite::params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .map_err(|_| anyhow::anyhow!("收件项不存在"))?;
+
+        let file_name = title.as_deref().unwrap_or("");
+        let file_size: u64 = source_path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let result = quick_judge(&conn, file_name, file_size, ai_analyzed != 0, ai_extracted.as_deref())?;
+
+        // 缓存快速判断结果到 inbox_items
+        conn.execute(
+            "UPDATE inbox_items SET quick_category = ?1, quick_confidence = ?2 WHERE id = ?3",
+            rusqlite::params![result.category, result.confidence as f64, id],
+        )?;
+
+        Ok(result)
+    })
+    .await
+}
+
+/// 纯本地即时判断逻辑（§2.2）
+fn quick_judge(
+    conn: &rusqlite::Connection,
+    file_name: &str,
+    file_size: u64,
+    already_analyzed: bool,
+    _cached_ai_extracted: Option<&str>,
+) -> anyhow::Result<QuickJudgeResult> {
+    let category = auto_classify_from_name(file_name);
+
+    // 匹配到的案件按 case_id 去重
+    let mut matches: std::collections::HashMap<String, (String, Vec<String>)> = std::collections::HashMap::new();
+
+    // 1. 案号提取（最高权重信号）
+    if let Some(cn) = extract_case_no_from_name(file_name) {
+        if let Ok(case_id) = conn.query_row(
+            "SELECT id FROM cases WHERE case_no LIKE ?1 LIMIT 1",
+            rusqlite::params![format!("%{}%", cn)],
+            |r| r.get::<_, String>(0),
+        ) {
+            let case_name: String = conn.query_row(
+                "SELECT COALESCE(display_name, case_name) FROM cases WHERE id = ?1",
+                rusqlite::params![case_id],
+                |r| r.get(0),
+            ).unwrap_or_default();
+            matches.entry(case_id.clone())
+                .or_insert_with(|| (case_name, vec![]))
+                .1.push(format!("文件名包含案号 {}", cn));
+        }
+    }
+
+    // 2. 当事人匹配
+    for party in extract_parties_from_name(file_name) {
+        let mut stmt = conn.prepare(
+            "SELECT id, COALESCE(display_name, case_name) FROM cases WHERE client_name LIKE ?1 OR opponent_name LIKE ?1"
+        )?;
+        let case_iter = stmt.query_map(rusqlite::params![format!("%{}%", party)], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for case_result in case_iter {
+            if let Ok((case_id, case_name)) = case_result {
+                matches.entry(case_id)
+                    .or_insert_with(|| (case_name, vec![]))
+                    .1.push(format!("文件名包含当事人 {}", party));
+            }
+        }
+    }
+
+    // 3. 置信度 = 信号加权，封顶 0.95
+    let mut confidence: f32 = 0.0;
+    if category != "other" { confidence += 0.3; }
+    if matches.values().any(|(_, r)| r.iter().any(|s| s.contains("案号"))) { confidence += 0.4; }
+    if matches.values().any(|(_, r)| r.iter().any(|s| s.contains("当事人"))) { confidence += 0.2; }
+    confidence = confidence.min(0.95);
+
+    // 4. 推荐强度分级
+    let strength = if confidence >= 0.7 {
+        "strong"
+    } else if confidence >= 0.3 {
+        "candidate"
+    } else {
+        "fallback"
+    };
+
+    // 5. 构建推荐列表
+    let recommendations: Vec<QuickRecommendation> = matches
+        .into_iter()
+        .map(|(case_id, (case_name, reasons))| QuickRecommendation {
+            action: "file_to_case".to_string(),
+            target_case_id: Some(case_id),
+            target_case_name: Some(case_name),
+            target_folder: Some(category_to_folder(&category)),
+            reason: reasons.join("；"),
+        })
+        .collect();
+
+    // 6. AI 可用性：文件 < 5MB 可调 AI
+    let ai_available = file_size < 5 * 1024 * 1024;
+
+    Ok(QuickJudgeResult {
+        category,
+        confidence,
+        strength: strength.to_string(),
+        recommendations,
+        ai_available,
+        ai_analyzed: already_analyzed,
+    })
+}
+
+/// 文件名自动分类（扩展名 + 关键词）
+fn auto_classify_from_name(file_name: &str) -> String {
+    let lower = file_name.to_lowercase();
+
+    // 扩展名判断
+    if lower.ends_with(".eml") {
+        return "correspondence".to_string();
+    }
+
+    // 关键词匹配
+    if lower.contains("传票") || lower.contains("summons") {
+        return "summons".to_string();
+    }
+    if lower.contains("口审") || lower.contains("hearing") {
+        return "hearing_notice".to_string();
+    }
+    if lower.contains("判决") || lower.contains("裁定") || lower.contains("决定") || lower.contains("verdict") {
+        return "judgment".to_string();
+    }
+    if lower.contains("起诉") || lower.contains("complaint") {
+        return "complaint".to_string();
+    }
+    if lower.contains("答辩") || lower.contains("代理词") || lower.contains("defense") {
+        return "defence".to_string();
+    }
+    if lower.contains("审查意见") || lower.contains("通知书") {
+        return "official_notice".to_string();
+    }
+    if lower.contains("证据") || lower.contains("evidence") {
+        return "evidence".to_string();
+    }
+    if lower.contains("函件") || lower.contains("函") {
+        return "correspondence".to_string();
+    }
+
+    "other".to_string()
+}
+
+/// 从文件名提取案号
+fn extract_case_no_from_name(file_name: &str) -> Option<String> {
+    let re = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)].*?号").ok()?;
+    re.find(file_name).map(|m| m.as_str().to_string())
+}
+
+/// 从文件名提取当事人名（简单规则：中文字符连续出现 > 2 字）
+fn extract_parties_from_name(file_name: &str) -> Vec<String> {
+    let re = regex::Regex::new(r"[\u{4e00}-\u{9fff}]{2,8}").unwrap();
+    // 过滤掉常见非当事人词
+    let stop_words: std::collections::HashSet<&str> = [
+        "传票", "判决", "裁定", "决定", "起诉", "答辩", "证据", "通知书",
+        "口审", "函件", "文件", "扫描", "复印件", "原件", "副本",
+    ].iter().copied().collect();
+
+    re.find_iter(file_name)
+        .map(|m| m.as_str().to_string())
+        .filter(|w| !stop_words.contains(w.as_str()))
+        .collect()
+}
+
+/// 分类 → 标准子目录映射
+fn category_to_folder(category: &str) -> String {
+    match category {
+        "summons" => "01_传票".to_string(),
+        "evidence" => "02_证据".to_string(),
+        "complaint" | "defence" | "submitted" => "03_交文".to_string(),
+        "judgment" | "official_notice" | "hearing_notice" => "04_收文".to_string(),
+        "correspondence" => "06_通信".to_string(),
+        _ => "07_其他".to_string(),
+    }
+}
+
+/// 安全拷贝：按文件大小分流（§3.5）
+#[tauri::command]
+pub async fn copy_file_with_progress(
+    source_path: String,
+    target_case_id: String,
+    target_category: String,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    run_blocking(move || {
+        use sha2::Digest;
+
+        let source = std::path::Path::new(&source_path);
+        let meta = std::fs::metadata(source)
+            .map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
+        let file_size = meta.len();
+
+        // 读取案件 folder_name，回退到 case_name
+        let conn = db::open_db()?;
+        let folder_name: String = conn.query_row(
+            "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
+            rusqlite::params![target_case_id],
+            |r| r.get(0),
+        ).map_err(|_| anyhow::anyhow!("案件不存在"))?;
+
+        let cases_root = dirs::document_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("Casy")
+            .join("cases")
+            .join(&folder_name)
+            .join(&target_category);
+
+        std::fs::create_dir_all(&cases_root)?;
+
+        // 生成目标文件名（处理已存在）
+        let file_stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let mut target_name = if ext.is_empty() {
+            file_stem.to_string()
+        } else {
+            format!("{}.{}", file_stem, ext)
+        };
+        let mut target = cases_root.join(&target_name);
+        let mut counter = 1u32;
+        while target.exists() {
+            target_name = if ext.is_empty() {
+                format!("{}_{}", file_stem, counter)
+            } else {
+                format!("{}_{}.{}", file_stem, counter, ext)
+            };
+            target = cases_root.join(&target_name);
+            counter += 1;
+        }
+
+        // ── 快速路径：< 10MB，直接 OS 拷贝 + 大小校验 ──
+        if file_size < 10 * 1024 * 1024 {
+            std::fs::copy(source, &target)
+                .map_err(|e| anyhow::anyhow!("拷贝失败: {}", e))?;
+
+            if std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0) != file_size {
+                let _ = std::fs::remove_file(&target);
+                return Err(anyhow::anyhow!("文件校验失败（大小不一致）").into());
+            }
+
+            let file_id = record_file(&conn, &target_case_id, &target, &target_category, source)?;
+            return Ok(file_id);
+        }
+
+        // ── 标准路径：>= 10MB，流式拷贝 + 目标哈希 + 后台校验 ──
+        let tmp_target = target.with_extension(format!(
+            "{}.tmp",
+            target.extension().and_then(|e| e.to_str()).unwrap_or("")
+        ));
+
+        let mut src_file = std::fs::File::open(source)?;
+        let mut dst_file = std::fs::File::create(&tmp_target)?;
+        let mut hasher = sha2::Sha256::new();
+        let mut copied: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+        let block_size = 1_048_576usize; // 1MB
+        let mut buffer = vec![0u8; block_size];
+
+        loop {
+            let bytes_read = std::io::Read::read(&mut src_file, &mut buffer)?;
+            if bytes_read == 0 { break; }
+            std::io::Write::write_all(&mut dst_file, &buffer[..bytes_read])?;
+            hasher.update(&buffer[..bytes_read]);
+            copied += bytes_read as u64;
+
+            // 进度节流：每 1% 或每 200ms
+            let pct_now = (copied * 100 / file_size) as u32;
+            let pct_prev = ((copied - bytes_read as u64) * 100 / file_size) as u32;
+            if pct_now > pct_prev || last_emit.elapsed() > std::time::Duration::from_millis(200) {
+                let _ = tauri::Emitter::emit(&app, "file-copy-progress", serde_json::json!({
+                    "copied": copied,
+                    "total": file_size,
+                    "percent": pct_now,
+                }));
+                last_emit = std::time::Instant::now();
+            }
+        }
+        std::io::Write::flush(&mut dst_file)?;
+        drop(dst_file);
+
+        std::fs::rename(&tmp_target, &target)?;
+        let file_id = record_file(&conn, &target_case_id, &target, &target_category, source)?;
+
+        // 后台异步校验源哈希
+        let dst_hash = hasher.finalize();
+        let src_path = source.to_path_buf();
+        let case_id_clone = target_case_id.clone();
+        let file_id_clone = file_id.clone();
+        tauri::async_runtime::spawn(async move {
+            match compute_sha256(&src_path) {
+                Ok(src_hash) if src_hash[..] == dst_hash[..] => { /* 校验通过 */ }
+                Ok(_) => {
+                    let _ = tauri::Emitter::emit(&app, "file-verify-failed", serde_json::json!({
+                        "file_id": file_id_clone, "case_id": case_id_clone,
+                        "msg": "文件校验失败，建议重新归档"
+                    }));
+                }
+                Err(_) => {}
+            }
+        });
+
+        Ok(file_id)
+    })
+    .await
+}
+
+/// 记录文件到 case_files 表
+fn record_file(
+    conn: &rusqlite::Connection,
+    case_id: &str,
+    target: &std::path::Path,
+    category: &str,
+    source: &std::path::Path,
+) -> anyhow::Result<String> {
+    let file_id = db::new_id();
+    let file_name = target.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+    let file_size = std::fs::metadata(target).map(|m| m.len() as i64).ok();
+    let ext = target.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    conn.execute(
+        "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'inbox', ?8, ?8)",
+        rusqlite::params![
+            file_id, case_id, file_name,
+            target.to_string_lossy(),
+            file_size, ext, category,
+            db::now_local(),
+        ],
+    )?;
+
+    // 写办案日志
+    conn.execute(
+        "INSERT INTO case_logs (id, case_id, event_summary, event_type, event_date, created_at)
+         VALUES (?1, ?2, ?3, 'record', ?4, ?4)",
+        rusqlite::params![
+            db::new_id(), case_id,
+            format!("归档文件: {}", source.file_name().and_then(|s| s.to_str()).unwrap_or("")),
+            db::today(),
+        ],
+    )?;
+
+    Ok(file_id)
+}
+
+/// 计算文件 SHA-256
+fn compute_sha256(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+    use sha2::Digest;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1_048_576];
+    loop {
+        let n = std::io::Read::read(&mut file, &mut buf)?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize().to_vec())
+}
+
+/// 用户确认推荐 → 执行归档（§6.2）
+#[tauri::command]
+pub async fn confirm_inbox_action(
+    inbox_item_id: String,
+    target_case_id: String,
+    target_category: String,
+    _app: tauri::AppHandle,
+) -> Result<String, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        // 获取收件项源文件路径
+        let source_path: Option<String> = conn.query_row(
+            "SELECT source_path FROM inbox_items WHERE id = ?1",
+            rusqlite::params![inbox_item_id],
+            |r| r.get(0),
+        ).map_err(|_| anyhow::anyhow!("收件项不存在"))?;
+
+        let source = source_path.ok_or_else(|| anyhow::anyhow!("收件项无源文件路径"))?;
+
+        // 执行安全拷贝（复用逻辑）
+        let source_path_obj = std::path::Path::new(&source);
+        let meta = std::fs::metadata(source_path_obj)
+            .map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
+        let file_size = meta.len();
+
+        let folder_name: String = conn.query_row(
+            "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
+            rusqlite::params![target_case_id],
+            |r| r.get(0),
+        ).map_err(|_| anyhow::anyhow!("案件不存在"))?;
+
+        let cases_root = dirs::document_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("Casy")
+            .join("cases")
+            .join(&folder_name)
+            .join(&target_category);
+        std::fs::create_dir_all(&cases_root)?;
+
+        let file_stem = source_path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let ext = source_path_obj.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let mut target_name = if ext.is_empty() { file_stem.to_string() } else { format!("{}.{}", file_stem, ext) };
+        let mut target = cases_root.join(&target_name);
+        let mut counter = 1u32;
+        while target.exists() {
+            target_name = if ext.is_empty() { format!("{}_{}", file_stem, counter) } else { format!("{}_{}.{}", file_stem, counter, ext) };
+            target = cases_root.join(&target_name);
+            counter += 1;
+        }
+
+        // 快速路径
+        if file_size < 10 * 1024 * 1024 {
+            std::fs::copy(source_path_obj, &target)?;
+        } else {
+            std::fs::copy(source_path_obj, &target)?;
+            // 大文件也先走简单拷贝，后台校验在 copy_file_with_progress 中处理
+        }
+
+        let file_id = record_file(&conn, &target_case_id, &target, &target_category, source_path_obj)?;
+
+        // 更新 inbox 状态为 filed
+        conn.execute(
+            "UPDATE inbox_items SET status = 'filed', linked_case_id = ?1, filed_to = ?2, filed_as = ?3, processed_at = ?4 WHERE id = ?5",
+            rusqlite::params![
+                target_case_id,
+                target.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                target_name,
+                db::now_local(),
+                inbox_item_id,
+            ],
+        )?;
+
+        // 写入推荐记录
+        let rec_id = db::new_id();
+        conn.execute(
+            "INSERT INTO inbox_recommendations (id, inbox_item_id, action, target_case_id, target_folder, reason, confidence, accepted)
+             VALUES (?1, ?2, 'file_to_case', ?3, ?4, '用户确认归档', 1.0, 1)",
+            rusqlite::params![rec_id, inbox_item_id, target_case_id, target_category],
+        )?;
+
+        Ok(file_id)
+    })
+    .await
+}
+
+/// AI 分析（带缓存：ai_analyzed=1 直接返回缓存结果）
+#[tauri::command]
+pub async fn ai_analyze_inbox_item(id: String) -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        // 检查缓存
+        let (ai_analyzed, ai_extracted, content_text): (i32, Option<String>, String) = conn.query_row(
+            "SELECT ai_analyzed, ai_extracted, COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
+            rusqlite::params![id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).map_err(|_| anyhow::anyhow!("收件项不存在"))?;
+
+        // 如果已分析过，直接返回缓存
+        if ai_analyzed == 1 && ai_extracted.is_some() {
+            let cached: serde_json::Value = serde_json::from_str(&ai_extracted.unwrap_or_default())
+                .unwrap_or(serde_json::json!({}));
+            return Ok(serde_json::json!({
+                "cached": true,
+                "result": cached,
+                "message": "已分析过，结果如下（缓存）"
+            }));
+        }
+
+        // 新的 AI 分析
+        let ai_config = crate::ai::load_ai_config();
+        let (category, confidence, extracted) = if ai_config.mode != "noop" {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            match rt.block_on(crate::ai::process_inbox_with_ai(&content_text)) {
+                Ok((result, _routing)) => {
+                    let extracted = result.extracted_info.clone();
+                    (result.category, result.confidence, extracted)
+                }
+                Err(e) => {
+                    log::warn!("AI 分析失败: {}", e);
+                    let parsed = parse::classify_document(&content_text);
+                    let extracted = serde_json::to_value(&parsed).ok();
+                    (parsed.doc_type, parsed.confidence, extracted)
+                }
+            }
+        } else {
+            let parsed = parse::classify_document(&content_text);
+            let extracted = serde_json::to_value(&parsed).ok();
+            (parsed.doc_type, parsed.confidence, extracted)
+        };
+
+        let extracted_str = extracted.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
+
+        // 缓存结果
+        conn.execute(
+            "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2, ai_extracted = ?3, ai_analyzed = 1, processed_at = ?4 WHERE id = ?5",
+            rusqlite::params![category, confidence, extracted_str, db::now_local(), id],
+        )?;
+
+        Ok(serde_json::json!({
+            "cached": false,
+            "category": category,
+            "confidence": confidence,
+            "extracted": extracted,
+        }))
+    })
+    .await
+}

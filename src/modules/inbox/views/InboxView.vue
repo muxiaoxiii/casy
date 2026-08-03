@@ -15,19 +15,40 @@ const processing = ref(false)
 const isDragging = ref(false)
 let dragCounter = 0
 
+// v2.1: 推荐确认弹窗状态
+const showConfirmDialog = ref(false)
+const confirmItem = ref(null)
+const confirmCaseId = ref('')
+const confirmFolder = ref('')
+const confirmFileName = ref('')
+const casesList = ref([])
+
+// v2.1: 快速判断结果缓存
+const quickJudgeResults = ref({})
+
+// v2.1: AI 分析结果缓存
+const aiResults = ref({})
+
+// v2.1: 拷贝进度
+const copyProgress = ref(null)
+
 const categoryLabels = {
   summons: '传票',
   hearing_notice: '口审通知书',
   judgment: '判决/裁定',
-  evidence: '证据',
-  legal_provision: '法条',
+  verdict: '判决书',
+  ruling: '裁定书',
+  complaint: '起诉状',
+  defence: '答辩状/代理词',
+  official_notice: '审查意见通知书',
+  evidence: '证据材料',
+  correspondence: '往来函件',
+  legal_provision: '法条/法规',
   holiday_notice: '节假日通知',
   cause_action_update: '案由更新',
-  complaint: '起诉状',
   defense: '答辩状',
   examination_opinion: '审查意见通知书',
   opposing_counsel: '对方律师函',
-  correspondence: '函件',
   client_instruction: '委托/指示',
   note: '笔记',
   email: '邮件',
@@ -38,6 +59,11 @@ const categoryColors = {
   summons: '#f56c6c',
   hearing_notice: '#e6a23c',
   judgment: '#409eff',
+  verdict: '#409eff',
+  ruling: '#409eff',
+  complaint: '#e6a23c',
+  defence: '#909399',
+  official_notice: '#409eff',
   evidence: '#67c23a',
   legal_provision: '#909399',
   holiday_notice: '#67c23a',
@@ -48,11 +74,23 @@ const categoryColors = {
   other: '#c0c4cc',
 }
 
+const folderOptions = [
+  { value: '01_传票', label: '01_传票' },
+  { value: '02_证据', label: '02_证据' },
+  { value: '03_交文', label: '03_交文' },
+  { value: '04_收文', label: '04_收文' },
+  { value: '05_内部', label: '05_内部' },
+  { value: '06_通信', label: '06_通信' },
+  { value: '07_其他', label: '07_其他' },
+]
+
 const pendingItems = computed(() => items.value.filter((i) => i.status === 'pending'))
 const filedItems = computed(() => items.value.filter((i) => i.status === 'filed'))
+const archivedItems = computed(() => items.value.filter((i) => i.status === 'archived' || i.status === 'ignored'))
 
 onMounted(() => {
   loadItems()
+  loadCases()
 })
 
 async function loadItems() {
@@ -60,8 +98,96 @@ async function loadItems() {
   const result = await tauriCallSafe('list_inbox_items', { status: null })
   if (result.ok) {
     items.value = result.data || []
+    // 对每个 pending 项运行快速判断
+    for (const item of items.value) {
+      if (item.status === 'pending' && !quickJudgeResults.value[item.id]) {
+        runQuickJudge(item.id)
+      }
+    }
   }
   loading.value = false
+}
+
+async function loadCases() {
+  const result = await tauriCallSafe('list_cases', {})
+  if (result.ok) {
+    casesList.value = result.data || []
+  }
+}
+
+// v2.1: 即时判断
+async function runQuickJudge(itemId) {
+  const result = await tauriCallSafe('quick_judge_inbox_item', { id: itemId })
+  if (result.ok) {
+    quickJudgeResults.value[itemId] = result.data
+  }
+}
+
+// v2.1: AI 分析（带缓存）
+async function runAiAnalysis(item) {
+  processing.value = true
+  const result = await tauriCallSafe('ai_analyze_inbox_item', { id: item.id })
+  processing.value = false
+  if (result.ok) {
+    aiResults.value[item.id] = result.data
+    if (result.data.cached) {
+      ElMessage.info('已分析过，结果如下（缓存）')
+    } else {
+      ElMessage.success('AI 分析完成')
+    }
+  }
+}
+
+// v2.1: 打开确认弹窗
+function openConfirmDialog(item) {
+  const judge = quickJudgeResults.value[item.id]
+  confirmItem.value = item
+  confirmCaseId.value = judge?.recommendations?.[0]?.targetCaseId || item.aiSuggestedCaseId || ''
+  confirmFolder.value = judge?.recommendations?.[0]?.targetFolder || '07_其他'
+  confirmFileName.value = item.title || ''
+  showConfirmDialog.value = true
+}
+
+// v2.1: 确认归档
+async function doConfirmArchive() {
+  if (!confirmCaseId.value) {
+    ElMessage.warning('请选择案件')
+    return
+  }
+  showConfirmDialog.value = false
+  processing.value = true
+
+  const result = await tauriCallSafe('confirm_inbox_action', {
+    inboxItemId: confirmItem.value.id,
+    targetCaseId: confirmCaseId.value,
+    targetCategory: confirmFolder.value,
+  })
+  processing.value = false
+  if (result.ok) {
+    ElMessage.success('已归档')
+    await loadItems()
+  }
+}
+
+// v2.1: 一键确认（strong 推荐直接执行）
+async function quickConfirm(item) {
+  const judge = quickJudgeResults.value[item.id]
+  if (!judge?.recommendations?.length) {
+    openConfirmDialog(item)
+    return
+  }
+  const rec = judge.recommendations[0]
+  processing.value = true
+  const result = await tauriCallSafe('confirm_inbox_action', {
+    inboxItemId: item.id,
+    targetCaseId: rec.targetCaseId,
+    targetCategory: rec.targetFolder || '07_其他',
+  })
+  processing.value = false
+  if (result.ok) {
+    ElMessage.success('已归档')
+    await loadItems()
+  }
 }
 
 async function addNote() {
@@ -76,31 +202,6 @@ async function addNote() {
     ElMessage.success('已添加到收件箱')
     showAddNoteDialog.value = false
     newNote.value = ''
-    await loadItems()
-  }
-}
-
-async function processItem(item) {
-  processing.value = true
-  const result = await tauriCallSafe('process_inbox_item', { id: item.id })
-  processing.value = false
-  if (result.ok) {
-    ElMessage.success(`已分类：${categoryLabels[result.data.category] || result.data.category}`)
-    await loadItems()
-  }
-}
-
-async function acceptSuggestedCase(item) {
-  if (!item.aiSuggestedCaseId) return
-  processing.value = true
-  const result = await tauriCallSafe('file_inbox_item', {
-    itemId: item.id,
-    caseId: item.aiSuggestedCaseId,
-    category: item.aiCategory || 'other',
-  })
-  processing.value = false
-  if (result.ok) {
-    ElMessage.success('已关联到案件')
     await loadItems()
   }
 }
@@ -138,9 +239,28 @@ async function importFile() {
   await loadItems()
 }
 
+// v2.1: 置信度 → 强度等级
+function getStrength(confidence) {
+  if (confidence >= 0.7) return 'strong'
+  if (confidence >= 0.3) return 'candidate'
+  return 'fallback'
+}
+
+function strengthLabel(strength) {
+  if (strength === 'strong') return '⚡ 推荐'
+  if (strength === 'candidate') return '📋 候选'
+  return '⚠️ 需手动选择'
+}
+
+function strengthColor(strength) {
+  if (strength === 'strong') return '#67c23a'
+  if (strength === 'candidate') return '#e6a23c'
+  return '#f56c6c'
+}
+
 function confidenceColor(confidence) {
-  if (confidence >= 0.8) return '#67c23a'
-  if (confidence >= 0.5) return '#e6a23c'
+  if (confidence >= 0.7) return '#67c23a'
+  if (confidence >= 0.3) return '#e6a23c'
   return '#f56c6c'
 }
 
@@ -157,6 +277,13 @@ function formatExtractedField(value) {
   }
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
 // ===== 拖拽上传 =====
@@ -187,7 +314,6 @@ async function onDrop(e) {
   processing.value = true
   let count = 0
   for (const file of files) {
-    // 获取文件路径（Tauri 环境）
     const filePath = file.path || file.name
     const result = await tauriCallSafe('add_inbox_item', {
       sourceType: 'file',
@@ -203,15 +329,26 @@ async function onDrop(e) {
   }
 }
 
-// ===== 系统托盘事件监听 =====
+// ===== 拷贝进度事件监听 =====
 let unlistenFns = []
 
 onMounted(async () => {
   await loadItems()
 
-  // 监听托盘事件
   try {
     const { listen } = await import('@tauri-apps/api/event')
+
+    unlistenFns.push(
+      await listen('file-copy-progress', (event) => {
+        copyProgress.value = event.payload
+      })
+    )
+
+    unlistenFns.push(
+      await listen('file-verify-failed', (event) => {
+        ElMessage.warning(`文件校验失败: ${event.payload.msg}`)
+      })
+    )
 
     unlistenFns.push(
       await listen('tray:add_file', () => {
@@ -274,6 +411,16 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- 拷贝进度条 -->
+    <el-dialog v-model="copyProgress" title="正在拷贝文件..." width="400" :close-on-click-modal="false" :show-close="false">
+      <div class="copy-progress-dialog">
+        <el-progress :percentage="copyProgress?.percent || 0" :stroke-width="12" />
+        <div class="copy-progress-info">
+          {{ formatFileSize(copyProgress?.copied) }} / {{ formatFileSize(copyProgress?.total) }}
+        </div>
+      </div>
+    </el-dialog>
+
     <!-- 拖拽上传区 -->
     <div
       class="drop-zone"
@@ -305,10 +452,6 @@ onUnmounted(() => {
                   <el-skeleton-item variant="text" style="width: 15%; height: 20px;" />
                 </div>
                 <el-skeleton-item variant="rect" style="width: 100%; height: 40px; margin: 8px 0;" />
-                <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                  <el-skeleton-item variant="button" style="width: 60px; height: 28px;" />
-                  <el-skeleton-item variant="button" style="width: 60px; height: 28px;" />
-                </div>
               </div>
             </template>
           </el-skeleton>
@@ -319,35 +462,70 @@ onUnmounted(() => {
           </el-empty>
         </div>
         <div v-else class="inbox-list">
-          <div v-for="item in pendingItems" :key="item.id" class="inbox-card">
-            <div v-if="item.aiConfidence != null" class="confidence-bar" :style="{ background: confidenceColor(item.aiConfidence) }" />
+          <div v-for="item in pendingItems" :key="item.id" class="inbox-card" :class="'strength-' + (getStrength(quickJudgeResults[item.id]?.confidence ?? item.aiConfidence ?? 0))">
+            <!-- 置信度指示条 -->
+            <div
+              class="confidence-bar"
+              :style="{ background: confidenceColor(quickJudgeResults[item.id]?.confidence ?? item.aiConfidence ?? 0) }"
+            />
+
+            <!-- 头部：图标 + 标题 + 快速判断标签 -->
             <div class="inbox-card-header">
               <span class="inbox-icon">
                 {{ item.sourceType === 'file' ? '📄' : item.sourceType === 'email' ? '📧' : '📝' }}
               </span>
               <span class="inbox-title">{{ item.title || '无标题' }}</span>
               <el-tag
-                v-if="item.aiCategory"
+                v-if="quickJudgeResults[item.id]?.category || item.aiCategory"
                 size="small"
-                :style="{ background: categoryColors[item.aiCategory], color: 'white' }"
+                :style="{ background: categoryColors[quickJudgeResults[item.id]?.category || item.aiCategory], color: 'white' }"
               >
-                {{ categoryLabels[item.aiCategory] || item.aiCategory }}
+                {{ categoryLabels[quickJudgeResults[item.id]?.category || item.aiCategory] || '其他' }}
               </el-tag>
-              <span v-if="item.aiConfidence != null" class="confidence" :style="{ color: confidenceColor(item.aiConfidence) }">
-                {{ Math.round(item.aiConfidence * 100) }}%
+              <span
+                class="strength-badge"
+                :style="{ color: strengthColor(getStrength(quickJudgeResults[item.id]?.confidence ?? item.aiConfidence ?? 0)) }"
+              >
+                {{ strengthLabel(getStrength(quickJudgeResults[item.id]?.confidence ?? item.aiConfidence ?? 0)) }}
               </span>
             </div>
-            <!-- AI 提取结果详情 -->
-            <div v-if="item.aiCategory" class="ai-details">
-              <span class="ai-detail-label">AI 分类：</span>
-              <el-tag size="small" :style="{ background: categoryColors[item.aiCategory], color: 'white' }">
-                {{ categoryLabels[item.aiCategory] || item.aiCategory }}
-              </el-tag>
-              <span v-if="item.aiConfidence != null" class="ai-confidence-text" :style="{ color: confidenceColor(item.aiConfidence) }">
-                置信度 {{ Math.round(item.aiConfidence * 100) }}%
-              </span>
+
+            <!-- 快速判断结果 -->
+            <div v-if="quickJudgeResults[item.id]" class="quick-judge-panel">
+              <div class="confidence-display">
+                <span class="confidence-label">置信度：</span>
+                <el-progress
+                  :percentage="Math.round((quickJudgeResults[item.id].confidence || 0) * 100)"
+                  :stroke-width="6"
+                  :color="confidenceColor(quickJudgeResults[item.id].confidence || 0)"
+                  style="flex: 1; max-width: 120px;"
+                />
+                <span class="confidence-value" :style="{ color: confidenceColor(quickJudgeResults[item.id].confidence || 0) }">
+                  {{ Math.round((quickJudgeResults[item.id].confidence || 0) * 100) }}%
+                </span>
+              </div>
+
+              <!-- 推荐列表 -->
+              <div v-if="quickJudgeResults[item.id].recommendations?.length" class="recommendations">
+                <div
+                  v-for="(rec, idx) in quickJudgeResults[item.id].recommendations"
+                  :key="idx"
+                  class="recommendation-item"
+                  :class="{ 'recommendation-default': idx === 0 && quickJudgeResults[item.id].strength === 'strong' }"
+                >
+                  <span class="rec-icon">{{ idx === 0 && quickJudgeResults[item.id].strength === 'strong' ? '●' : '○' }}</span>
+                  <span class="rec-text">
+                    归档到「{{ rec.targetCaseName || rec.targetCaseId }}」的 {{ rec.targetFolder || '07_其他' }} 目录
+                  </span>
+                  <span class="rec-reason">{{ rec.reason }}</span>
+                </div>
+              </div>
+              <div v-else class="no-recommendation">
+                ⚠️ 未匹配到案件，请手动选择操作
+              </div>
             </div>
-            <!-- AI 提取的结构化信息 -->
+
+            <!-- AI 提取结果（如果已分析） -->
             <div v-if="item.aiExtracted" class="ai-extracted-info">
               <div v-if="item.aiExtracted.case_no" class="extracted-field">
                 <span class="field-label">案号：</span>
@@ -361,7 +539,7 @@ onUnmounted(() => {
                 <span class="field-label">专利号：</span>
                 <span class="field-value">{{ item.aiExtracted.patent_no }}</span>
               </div>
-              <div v-if="item.aiExtracted.parties && item.aiExtracted.parties.length > 0" class="extracted-field">
+              <div v-if="item.aiExtracted.parties?.length" class="extracted-field">
                 <span class="field-label">当事人：</span>
                 <span class="field-value">{{ formatExtractedField(item.aiExtracted.parties) }}</span>
               </div>
@@ -369,24 +547,48 @@ onUnmounted(() => {
                 <span class="field-label">庭审日期：</span>
                 <span class="field-value">{{ item.aiExtracted.hearing_date }}</span>
               </div>
-              <div v-if="item.aiExtracted.deadline" class="extracted-field">
-                <span class="field-label">期限：</span>
-                <span class="field-value deadline-warn">{{ item.aiExtracted.deadline }}</span>
-              </div>
             </div>
-            <!-- AI 建议关联的案件 -->
-            <div v-if="item.aiSuggestedCaseId" class="ai-suggestion">
-              <el-icon><Connection /></el-icon>
-              <span>AI 建议关联案件</span>
-              <el-button size="small" type="success" @click="acceptSuggestedCase(item)">
-                接受关联
-              </el-button>
+
+            <!-- AI 分析结果缓存提示 -->
+            <div v-if="aiResults[item.id]?.cached" class="ai-cached-notice">
+              ℹ️ {{ aiResults[item.id].message }}
             </div>
+
+            <!-- 内容预览 -->
             <div v-if="item.contentText" class="inbox-preview">
               {{ item.contentText.slice(0, 200) }}{{ item.contentText.length > 200 ? '...' : '' }}
             </div>
+
+            <!-- 操作按钮 -->
             <div class="inbox-actions">
-              <el-button size="small" type="primary" @click="processItem(item)">重新分析</el-button>
+              <!-- Strong 推荐：一键确认 -->
+              <el-button
+                v-if="getStrength(quickJudgeResults[item.id]?.confidence ?? 0) === 'strong'"
+                size="small"
+                type="success"
+                @click="quickConfirm(item)"
+              >
+                ✅ 确认归档
+              </el-button>
+              <!-- Candidate/Fallback：打开确认弹窗 -->
+              <el-button
+                v-else
+                size="small"
+                type="primary"
+                @click="openConfirmDialog(item)"
+              >
+                📁 选择归档
+              </el-button>
+              <!-- AI 分析按钮 -->
+              <el-button
+                v-if="quickJudgeResults[item.id]?.aiAvailable !== false"
+                size="small"
+                type="info"
+                :loading="processing"
+                @click="runAiAnalysis(item)"
+              >
+                🤖 {{ item.aiAnalyzed ? '查看AI分析' : 'AI 分析' }}
+              </el-button>
               <el-button size="small" @click="dismissItem(item)">忽略</el-button>
             </div>
           </div>
@@ -404,6 +606,23 @@ onUnmounted(() => {
               <span class="inbox-title">{{ item.title || '无标题' }}</span>
               <el-tag size="small" type="info">{{ categoryLabels[item.aiCategory] || '已归档' }}</el-tag>
             </div>
+            <div v-if="item.filedTo" class="filed-info">
+              归档到：{{ item.filedTo }} / {{ item.filedAs }}
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="已忽略" name="archived">
+        <div v-if="!archivedItems.length" class="empty-state">
+          <el-empty description="暂无忽略记录" :image-size="60" />
+        </div>
+        <div v-else class="inbox-list">
+          <div v-for="item in archivedItems" :key="item.id" class="inbox-card filed">
+            <div class="inbox-card-header">
+              <span class="inbox-icon">🚫</span>
+              <span class="inbox-title">{{ item.title || '无标题' }}</span>
+            </div>
           </div>
         </div>
       </el-tab-pane>
@@ -415,6 +634,41 @@ onUnmounted(() => {
       <template #footer>
         <el-button @click="showAddNoteDialog = false">取消</el-button>
         <el-button type="primary" :loading="processing" @click="addNote">添加</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- v2.1: 推荐确认弹窗 -->
+    <el-dialog v-model="showConfirmDialog" title="确认归档" width="560">
+      <div v-if="confirmItem" class="confirm-dialog-content">
+        <div class="confirm-file-info">
+          <span class="confirm-icon">📄</span>
+          <span class="confirm-filename">{{ confirmItem.title || '无标题' }}</span>
+        </div>
+
+        <el-form label-width="60px" class="confirm-form">
+          <el-form-item label="案件">
+            <el-select v-model="confirmCaseId" filterable placeholder="选择案件" style="width: 100%;">
+              <el-option
+                v-for="c in casesList"
+                :key="c.id"
+                :label="c.displayName || c.display_name || c.caseName || c.case_name"
+                :value="c.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="目录">
+            <el-select v-model="confirmFolder" style="width: 100%;">
+              <el-option v-for="f in folderOptions" :key="f.value" :label="f.label" :value="f.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="文件名">
+            <el-input v-model="confirmFileName" placeholder="文件名" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="showConfirmDialog = false">取消</el-button>
+        <el-button type="primary" :loading="processing" @click="doConfirmArchive">确认归档</el-button>
       </template>
     </el-dialog>
   </div>
@@ -512,6 +766,19 @@ onUnmounted(() => {
   opacity: 0.7;
 }
 
+/* v2.1: 强度边框 */
+.inbox-card.strength-strong {
+  border-left: 3px solid #67c23a;
+}
+
+.inbox-card.strength-candidate {
+  border-left: 3px solid #e6a23c;
+}
+
+.inbox-card.strength-fallback {
+  border-left: 3px solid #f56c6c;
+}
+
 .confidence-bar {
   position: absolute;
   left: 0;
@@ -520,28 +787,82 @@ onUnmounted(() => {
   width: 4px;
 }
 
-.ai-details {
+/* v2.1: 快速判断面板 */
+.quick-judge-panel {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.confidence-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.confidence-label {
+  color: #909399;
+  white-space: nowrap;
+}
+
+.confidence-value {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* v2.1: 推荐列表 */
+.recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recommendation-item {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+}
+
+.recommendation-default {
+  border-color: #67c23a;
+  background: #f0f9eb;
+}
+
+.rec-icon {
+  flex-shrink: 0;
+  color: #67c23a;
+}
+
+.rec-text {
+  flex: 1;
+  color: #303133;
+}
+
+.rec-reason {
+  color: #909399;
   font-size: 12px;
-  color: #909399;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
 }
 
-.ai-detail-label {
-  color: #909399;
+.no-recommendation {
+  color: #e6a23c;
+  font-size: 13px;
 }
 
-.ai-confidence-text {
+/* v2.1: 强度标签 */
+.strength-badge {
+  font-size: 12px;
   font-weight: 500;
-  font-size: 12px;
-}
-
-.ai-summary {
-  color: #606266;
-  font-size: 12px;
+  white-space: nowrap;
 }
 
 .ai-extracted-info {
@@ -571,25 +892,19 @@ onUnmounted(() => {
   color: #303133;
 }
 
-.deadline-warn {
-  color: #e6a23c;
-  font-weight: 500;
-}
-
-.ai-suggestion {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.ai-cached-notice {
   background: #ecf5ff;
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 4px;
+  padding: 6px 10px;
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: 12px;
   color: #409eff;
 }
 
-.ai-suggestion .el-icon {
-  font-size: 16px;
+.filed-info {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 
 .inbox-card-header {
@@ -642,5 +957,44 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 确认弹窗 */
+.confirm-dialog-content {
+  padding: 0 8px;
+}
+
+.confirm-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.confirm-icon {
+  font-size: 20px;
+}
+
+.confirm-filename {
+  font-weight: 500;
+}
+
+.confirm-form {
+  margin-top: 12px;
+}
+
+/* 拷贝进度 */
+.copy-progress-dialog {
+  text-align: center;
+  padding: 12px 0;
+}
+
+.copy-progress-info {
+  margin-top: 12px;
+  color: #909399;
+  font-size: 13px;
 }
 </style>
