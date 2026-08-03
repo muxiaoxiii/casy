@@ -328,6 +328,9 @@ initSavedFilters()
         <el-select :model-value="filter.sortBy" style="width: 120px" @change="updateSortBy">
           <el-option v-for="opt in sortOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
+        <el-button @click="showAdvancedFilter = !showAdvancedFilter" :type="showAdvancedFilter ? 'primary' : ''" text>
+          {{ showAdvancedFilter ? '收起筛选 ▴' : '跨类型筛选 ▾' }}
+        </el-button>
         <el-button @click="clearFilters" :icon="Filter">清除筛选</el-button>
         <el-dropdown v-if="savedFilters.length > 0" trigger="click">
           <el-button :icon="FolderChecked">
@@ -354,6 +357,50 @@ initSavedFilters()
           <el-icon><Download /></el-icon> 导出 CSV
         </el-button>
         <el-button type="primary" @click="emit('create')">➕ 新建案件</el-button>
+      </div>
+    </div>
+
+    <!-- 第三行：跨类型筛选（展开/收起） -->
+    <div v-if="showAdvancedFilter" class="filter-row advanced-filter-row">
+      <div class="filter-left">
+        <el-select
+          v-model="deadlineQuick"
+          placeholder="期限快捷"
+          style="width: 130px"
+          clearable
+          @change="onDeadlineQuickChange"
+        >
+          <el-option v-for="opt in deadlineQuickOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+        <el-date-picker
+          v-model="deadlineRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="期限起"
+          end-placeholder="期限止"
+          style="width: 240px"
+          format="YYYY-MM-DD"
+          value-format="YYYY-MM-DD"
+          @change="onDeadlineRangeChange"
+        />
+        <el-date-picker
+          v-model="hearingRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开庭起"
+          end-placeholder="开庭止"
+          style="width: 240px"
+          format="YYYY-MM-DD"
+          value-format="YYYY-MM-DD"
+          @change="onHearingRangeChange"
+        />
+        <el-input
+          v-model="operatorFilter"
+          placeholder="办案人"
+          clearable
+          style="width: 120px"
+          @input="onOperatorChange"
+        />
       </div>
     </div>
 
@@ -417,5 +464,11 @@ initSavedFilters()
   align-items: center;
   gap: 12px;
   min-width: 160px;
+}
+
+.advanced-filter-row {
+  padding-top: 8px;
+  border-top: 1px dashed #e0e0e0;
+  margin-top: 4px;
 }
 </style>

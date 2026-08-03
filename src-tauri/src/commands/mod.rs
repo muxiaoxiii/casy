@@ -59,6 +59,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         cases::get_dashboard_stats,
         cases::list_field_groups,
         cases::get_case_unified_view,
+        cases::recalculate_case_formulas,
+        cases::recalculate_all_formulas,
         cases::export_cases,
         import_feishu_data,
         get_deadline_warnings,

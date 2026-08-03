@@ -586,3 +586,25 @@ pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result
     })
     .await
 }
+
+/// 重新计算单个案件的公式缓存列
+#[tauri::command]
+pub async fn recalculate_case_formulas(case_id: String) -> Result<usize, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let count = crate::formula::recalculate_case_formulas(&conn, &case_id)
+            .map_err(|e| e.to_string())?;
+        Ok(count)
+    }).await
+}
+
+/// 重新计算所有案件的公式缓存列
+#[tauri::command]
+pub async fn recalculate_all_formulas() -> Result<usize, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let count = crate::formula::recalculate_all_formulas(&conn)
+            .map_err(|e| e.to_string())?;
+        Ok(count)
+    }).await
+}

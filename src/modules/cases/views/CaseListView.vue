@@ -43,6 +43,11 @@ watch(
     casesStore.filter.sortBy,
     casesStore.filter.dateFrom,
     casesStore.filter.dateTo,
+    casesStore.filter.deadlineFrom,
+    casesStore.filter.deadlineTo,
+    casesStore.filter.hearingFrom,
+    casesStore.filter.hearingTo,
+    casesStore.filter.operator,
   ],
   () => {
     casesStore.page = 1
