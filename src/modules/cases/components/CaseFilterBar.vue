@@ -46,6 +46,23 @@ const clientLoading = ref(false)
 // 日期范围
 const dateRange = ref([])
 
+// 跨类型筛选
+const showAdvancedFilter = ref(false)
+const deadlineRange = ref([])
+const hearingRange = ref([])
+const operatorFilter = ref('')
+
+// 期限快捷选项
+const deadlineQuickOptions = [
+  { label: '不限', value: '' },
+  { label: '今天到期', value: 'today' },
+  { label: '3天内到期', value: '3d' },
+  { label: '7天内到期', value: '7d' },
+  { label: '30天内到期', value: '30d' },
+  { label: '已逾期', value: 'overdue' },
+]
+const deadlineQuick = ref('')
+
 // 保存的筛选方案
 const showSaveFilterDialog = ref(false)
 const savedFilterName = ref('')
@@ -93,6 +110,67 @@ function onDateRangeChange(val) {
       dateTo: null,
     })
   }
+}
+
+// 期限快捷选择
+function onDeadlineQuickChange(val) {
+  const today = new Date()
+  const fmt = (d) => d.toISOString().split('T')[0]
+
+  if (!val) {
+    deadlineRange.value = []
+    emit('update:filter', { ...props.filter, deadlineFrom: null, deadlineTo: null })
+    return
+  }
+
+  if (val === 'overdue') {
+    emit('update:filter', {
+      ...props.filter,
+      deadlineFrom: null,
+      deadlineTo: fmt(today),
+    })
+    deadlineRange.value = []
+    return
+  }
+
+  let days = 0
+  if (val === 'today') days = 0
+  else if (val === '3d') days = 3
+  else if (val === '7d') days = 7
+  else if (val === '30d') days = 30
+
+  const to = new Date(today)
+  to.setDate(to.getDate() + days)
+  emit('update:filter', {
+    ...props.filter,
+    deadlineFrom: fmt(today),
+    deadlineTo: fmt(to),
+  })
+  deadlineRange.value = [fmt(today), fmt(to)]
+}
+
+// 期限范围变化
+function onDeadlineRangeChange(val) {
+  deadlineQuick.value = ''
+  if (val && val.length === 2) {
+    emit('update:filter', { ...props.filter, deadlineFrom: val[0], deadlineTo: val[1] })
+  } else {
+    emit('update:filter', { ...props.filter, deadlineFrom: null, deadlineTo: null })
+  }
+}
+
+// 开庭日期范围变化
+function onHearingRangeChange(val) {
+  if (val && val.length === 2) {
+    emit('update:filter', { ...props.filter, hearingFrom: val[0], hearingTo: val[1] })
+  } else {
+    emit('update:filter', { ...props.filter, hearingFrom: null, hearingTo: null })
+  }
+}
+
+// 办案人变化
+function onOperatorChange(val) {
+  emit('update:filter', { ...props.filter, operator: val || null })
 }
 
 // 远程搜索客户
@@ -151,8 +229,17 @@ function clearFilters() {
     sortBy: 'filing_date',
     dateFrom: null,
     dateTo: null,
+    deadlineFrom: null,
+    deadlineTo: null,
+    hearingFrom: null,
+    hearingTo: null,
+    operator: null,
   })
   dateRange.value = []
+  deadlineRange.value = []
+  hearingRange.value = []
+  deadlineQuick.value = ''
+  operatorFilter.value = ''
   emit('search')
 }
 

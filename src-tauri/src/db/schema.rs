@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -629,6 +629,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("3", MIGRATION_V3_SQL),
     ("4", MIGRATION_V4_SQL),
     ("5", MIGRATION_V5_SQL),
+    ("6", MIGRATION_V6_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -976,6 +977,115 @@ INSERT INTO reminder_rules (id, name, trigger_type, trigger_value, channels) VAL
 ('rule-4', '开庭前7天准备提醒', 'hearing_before', 7, '["feishu_message"]'),
 ('rule-5', '开庭前1天最终提醒', 'hearing_before', 1, '["local","system","feishu_message","feishu_task"]'),
 ('rule-6', '任务到期提醒', 'task_due', 0, '["local","feishu_message"]');
+"#;
+
+/// 版本 6: 动态字段系统 + 跨类型筛选视图
+pub const MIGRATION_V6_SQL: &str = r#"
+-- ============================================================
+-- 动态字段分组
+-- ============================================================
+CREATE TABLE IF NOT EXISTS field_groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    case_types TEXT,   -- JSON: ["专利无效"] or null for all
+    court_levels TEXT, -- JSON: ["国知局"] or null for all
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS field_group_items (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES field_groups(id) ON DELETE CASCADE,
+    column_name TEXT NOT NULL,
+    label TEXT NOT NULL,
+    field_type TEXT NOT NULL DEFAULT 'text',
+    options TEXT,  -- JSON: for select type
+    required INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    UNIQUE(group_id, column_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_field_group_items_group ON field_group_items(group_id);
+
+-- 预置字段分组（中国专利法）
+INSERT INTO field_groups (id, name, description, case_types, sort_order) VALUES
+('fg-common', '通用字段', '所有案件类型通用', NULL, 0),
+('fg-invalidation', '专利无效专用', '无效宣告案件专用字段', '["专利无效"]', 1),
+('fg-infringement', '专利侵权专用', '侵权诉讼案件专用字段', '["专利侵权","侵害发明专利权","侵害实用新型专利权"]', 2),
+('fg-administrative', '行政诉讼专用', '行政诉讼案件专用字段', '["专利行政","行政诉讼"]', 3);
+
+-- 通用字段
+INSERT INTO field_group_items (id, group_id, column_name, label, field_type, sort_order) VALUES
+('fgi-c1', 'fg-common', 'case_name', '案件名称', 'text', 0),
+('fgi-c2', 'fg-common', 'case_no', '案号', 'text', 1),
+('fgi-c3', 'fg-common', 'client_name', '客户名称', 'text', 2),
+('fgi-c4', 'fg-common', 'opponent_name', '对方名称', 'text', 3),
+('fgi-c5', 'fg-common', 'our_role', '我方诉讼地位', 'select', 4),
+('fgi-c6', 'fg-common', 'opponent_role', '对方诉讼地位', 'select', 5),
+('fgi-c7', 'fg-common', 'court', '审理机关', 'select', 6),
+('fgi-c8', 'fg-common', 'case_level', '审级', 'select', 7),
+('fgi-c9', 'fg-common', 'attorneys', '办案人', 'text', 8),
+('fgi-c10', 'fg-common', 'filing_date', '立案时间', 'date', 9),
+('fgi-c11', 'fg-common', 'trial_date', '开庭/口审', 'date', 10),
+('fgi-c12', 'fg-common', 'notes', '备注', 'textarea', 11);
+
+-- 专利无效专用字段
+INSERT INTO field_group_items (id, group_id, column_name, label, field_type, sort_order) VALUES
+('fgi-i1', 'fg-invalidation', 'petitioner_first_invalid', '请求人首次无效时间', 'date', 0),
+('fgi-i2', 'fg-invalidation', 'petitioner_received_date', '请求人收到专利权人意见时间', 'date', 1),
+('fgi-i3', 'fg-invalidation', 'patentee_received_date', '专利权人收到受通时间', 'date', 2),
+('fgi-i4', 'fg-invalidation', 'patentee_received_supp_date', '专利权人收到补充意见时间', 'date', 3),
+('fgi-i5', 'fg-invalidation', 'formula_petitioner_first', '请求人首次无效（公式）', 'date', 4),
+('fgi-i6', 'fg-invalidation', 'formula_petitioner_supp', '请求人补充意见期限（公式）', 'date', 5),
+('fgi-i7', 'fg-invalidation', 'formula_petitioner_reply', '请求人答复意见期限（公式）', 'date', 6),
+('fgi-i8', 'fg-invalidation', 'formula_patentee_statement', '专利权人陈述意见期限（公式）', 'date', 7),
+('fgi-i9', 'fg-invalidation', 'formula_patentee_supp', '专利权人补充意见时间（公式）', 'date', 8);
+
+-- 专利侵权专用字段
+INSERT INTO field_group_items (id, group_id, column_name, label, field_type, sort_order) VALUES
+('fgi-n1', 'fg-infringement', 'complaint_received_date', '收到起诉状时间', 'date', 0),
+('fgi-n2', 'fg-infringement', 'formula_defense_deadline', '提交答辩状期间（公式）', 'date', 1),
+('fgi-n3', 'fg-infringement', 'procedure_type', '诉讼程序', 'select', 2),
+('fgi-n4', 'fg-infringement', 'stay_date', '裁定中止日', 'date', 3),
+('fgi-n5', 'fg-infringement', 'formula_estimated_trial_limit', '预估审限（公式）', 'date', 4),
+('fgi-n6', 'fg-infringement', 'patent_name', '专利名称', 'text', 5),
+('fgi-n7', 'fg-infringement', 'patent_app_no', '专利申请号', 'text', 6);
+
+-- 行政诉讼专用字段
+INSERT INTO field_group_items (id, group_id, column_name, label, field_type, sort_order) VALUES
+('fgi-a1', 'fg-administrative', 'relief_deadline', '救济期限', 'date', 0),
+('fgi-a2', 'fg-administrative', 'verdict_type', '判决/裁定', 'select', 1),
+('fgi-a3', 'fg-administrative', 'verdict_date', '判决日期', 'date', 2);
+
+-- ============================================================
+-- 跨类型统一筛选视图
+-- ============================================================
+CREATE VIEW IF NOT EXISTS v_case_unified AS
+SELECT
+    c.id,
+    c.case_name,
+    c.case_no,
+    c.client_name,
+    c.cause_action,
+    c.track,
+    c.case_status AS status,
+    c.court,
+    c.case_level,
+    c.attorneys AS operator,
+    c.trial_date,
+    c.filing_date,
+    -- 统一期限：取每种类型对应的期限字段
+    COALESCE(
+        CASE WHEN c.cause_action LIKE '%无效%' THEN c.formula_petitioner_supp END,
+        CASE WHEN c.cause_action LIKE '%侵权%' OR c.cause_action LIKE '%侵害%' THEN c.formula_defense_deadline END,
+        CASE WHEN c.cause_action LIKE '%行政%' THEN c.relief_deadline END,
+        c.formula_estimated_trial_limit
+    ) AS next_deadline,
+    -- 统一庭审日期
+    c.trial_date AS next_hearing,
+    c.updated_at
+FROM cases c;
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用

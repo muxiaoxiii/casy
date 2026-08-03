@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases.js'
 import { tauriCallSafe } from '../../../core/tauriBridge.js'
@@ -69,6 +69,45 @@ const logTypeOptions = [
   { value: 'task', label: '任务' },
 ]
 
+// ===== 动态字段分组 =====
+const fieldGroups = ref([])
+const fieldGroupsLoading = ref(false)
+const collapsedGroups = reactive({})
+
+async function loadFieldGroups() {
+  const causeAction = form.value.causeAction || ''
+  fieldGroupsLoading.value = true
+  const result = await tauriCallSafe('list_field_groups', {
+    caseType: causeAction || null,
+  })
+  if (result.ok) {
+    fieldGroups.value = result.data || []
+  }
+  fieldGroupsLoading.value = false
+}
+
+function toggleGroup(groupId) {
+  collapsedGroups[groupId] = !collapsedGroups[groupId]
+}
+
+function isGroupCollapsed(groupId) {
+  return collapsedGroups[groupId] === true
+}
+
+// 从 form 中读取字段值
+function getFieldValue(columnName) {
+  // 转换 snake_case 到 camelCase
+  const camel = columnName.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+  return form.value[camel] ?? ''
+}
+
+// 更新字段值到 form
+function setFieldValue(columnName, value) {
+  const camel = columnName.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+  form.value[camel] = value
+  scheduleSave()
+}
+
 onMounted(async () => {
   const id = route.params.id
   if (id) {
@@ -78,6 +117,7 @@ onMounted(async () => {
     }
     await loadTimeline()
     await loadRelations()
+    await loadFieldGroups()
   }
 })
 
@@ -294,6 +334,79 @@ async function openCaseFolder() {
       <!-- 左栏：案件信息面板 -->
       <div class="detail-left">
         <CaseInfoPanel :form="form" @update="scheduleSave" />
+
+        <!-- 动态字段分组 -->
+        <div v-if="fieldGroupsLoading" style="margin-top: 12px; color: #999; font-size: 13px;">
+          加载字段组...
+        </div>
+        <template v-for="group in fieldGroups" :key="group.id">
+          <!-- 跳过通用字段组（已在 CaseInfoPanel 中展示） -->
+          <el-card v-if="group.id !== 'fg-common'" style="margin-top: 12px">
+            <template #header>
+              <div class="card-header-row" @click="toggleGroup(group.id)" style="cursor: pointer;">
+                <strong>{{ group.name }}</strong>
+                <span style="color: #999; font-size: 12px;">
+                  {{ group.description }}
+                  <span style="margin-left: 4px;">{{ isGroupCollapsed(group.id) ? '▸' : '▾' }}</span>
+                </span>
+              </div>
+            </template>
+            <div v-show="!isGroupCollapsed(group.id)">
+              <el-form label-width="100px" size="small">
+                <el-form-item
+                  v-for="item in group.items"
+                  :key="item.id"
+                  :label="item.label"
+                >
+                  <!-- text 类型 -->
+                  <el-input
+                    v-if="item.fieldType === 'text'"
+                    :model-value="getFieldValue(item.columnName)"
+                    @input="(v) => setFieldValue(item.columnName, v)"
+                  />
+                  <!-- date 类型 -->
+                  <el-date-picker
+                    v-else-if="item.fieldType === 'date'"
+                    :model-value="getFieldValue(item.columnName)"
+                    type="date"
+                    value-format="YYYY-MM-DD"
+                    style="width: 100%"
+                    @change="(v) => setFieldValue(item.columnName, v)"
+                  />
+                  <!-- select 类型 -->
+                  <el-select
+                    v-else-if="item.fieldType === 'select'"
+                    :model-value="getFieldValue(item.columnName)"
+                    clearable
+                    style="width: 100%"
+                    @change="(v) => setFieldValue(item.columnName, v)"
+                  >
+                    <el-option
+                      v-for="opt in (item.options || [])"
+                      :key="opt"
+                      :label="opt"
+                      :value="opt"
+                    />
+                  </el-select>
+                  <!-- textarea 类型 -->
+                  <el-input
+                    v-else-if="item.fieldType === 'textarea'"
+                    :model-value="getFieldValue(item.columnName)"
+                    type="textarea"
+                    :rows="2"
+                    @input="(v) => setFieldValue(item.columnName, v)"
+                  />
+                  <!-- 默认 text -->
+                  <el-input
+                    v-else
+                    :model-value="getFieldValue(item.columnName)"
+                    @input="(v) => setFieldValue(item.columnName, v)"
+                  />
+                </el-form-item>
+              </el-form>
+            </div>
+          </el-card>
+        </template>
       </div>
 
       <!-- 中栏：时间线面板 -->

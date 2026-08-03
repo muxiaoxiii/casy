@@ -373,3 +373,216 @@ fn cases_to_csv(cases: &[db::cases::Case]) -> anyhow::Result<String> {
     let data = wtr.into_inner()?;
     String::from_utf8(data).map_err(|e| anyhow::anyhow!(e))
 }
+
+/// 动态字段分组查询命令
+#[tauri::command]
+pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        // 查询所有字段分组
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, description, case_types, court_levels, sort_order
+                 FROM field_groups ORDER BY sort_order",
+            )
+            ?;
+
+        let groups: Vec<serde_json::Value> = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let description: Option<String> = row.get(2)?;
+                let case_types_json: Option<String> = row.get(3)?;
+                let court_levels_json: Option<String> = row.get(4)?;
+                let sort_order: i32 = row.get(5)?;
+                Ok((id, name, description, case_types_json, court_levels_json, sort_order))
+            })
+            ?
+            .filter_map(|r| r.ok())
+            .filter(|(_, _, _, case_types_json, _, _)| {
+                // 如果指定了 case_type，过滤掉不适用的分组
+                if let Some(ref ct) = case_type {
+                    if let Some(ref json_str) = case_types_json {
+                        // case_types 不为 null 表示仅适用于特定类型
+                        if let Ok(types) = serde_json::from_str::<Vec<String>>(json_str) {
+                            return types.iter().any(|t| ct.contains(t.as_str()));
+                        }
+                    }
+                    // case_types 为 null 表示通用，始终包含
+                    true
+                } else {
+                    true
+                }
+            })
+            .map(|(id, name, description, case_types_json, court_levels_json, sort_order)| {
+                // 查询该分组下的字段项
+                let items = query_field_group_items(&conn, &id).unwrap_or_default();
+
+                serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "description": description,
+                    "caseTypes": case_types_json.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                    "courtLevels": court_levels_json.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                    "sortOrder": sort_order,
+                    "items": items,
+                })
+            })
+            .collect();
+
+        Ok(groups)
+    })
+    .await
+}
+
+fn query_field_group_items(conn: &rusqlite::Connection, group_id: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, column_name, label, field_type, options, required, sort_order
+         FROM field_group_items WHERE group_id = ?1 ORDER BY sort_order"
+    )?;
+
+    let items = stmt.query_map([group_id], |row| {
+        let id: String = row.get(0)?;
+        let column_name: String = row.get(1)?;
+        let label: String = row.get(2)?;
+        let field_type: String = row.get(3)?;
+        let options: Option<String> = row.get(4)?;
+        let required: i32 = row.get(5)?;
+        let sort_order: i32 = row.get(6)?;
+        Ok(serde_json::json!({
+            "id": id,
+            "columnName": column_name,
+            "label": label,
+            "fieldType": field_type,
+            "options": options.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+            "required": required != 0,
+            "sortOrder": sort_order,
+        }))
+    })?.filter_map(|r| r.ok()).collect();
+
+    Ok(items)
+}
+
+/// 跨类型统一视图查询命令
+#[tauri::command]
+pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        let mut sql = String::from(
+            "SELECT id, case_name, case_no, client_name, cause_action, track,
+                    status, court, case_level, operator, trial_date, filing_date,
+                    next_deadline, next_hearing, updated_at
+             FROM v_case_unified WHERE 1=1"
+        );
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        if let Some(ref f) = filters {
+            // 案件类型过滤
+            if let Some(case_type) = f.get("caseType").and_then(|v| v.as_str()) {
+                if !case_type.is_empty() {
+                    sql.push_str(&format!(" AND cause_action LIKE '%{}%'", case_type));
+                }
+            }
+
+            // 轨道过滤
+            if let Some(track) = f.get("track").and_then(|v| v.as_str()) {
+                if !track.is_empty() {
+                    sql.push_str(&format!(" AND track = ?{}", param_idx));
+                    params.push(Box::new(track.to_string()));
+                    param_idx += 1;
+                }
+            }
+
+            // 状态过滤
+            if let Some(status) = f.get("status").and_then(|v| v.as_str()) {
+                if !status.is_empty() {
+                    sql.push_str(&format!(" AND status = ?{}", param_idx));
+                    params.push(Box::new(status.to_string()));
+                    param_idx += 1;
+                }
+            }
+
+            // 审理机关过滤
+            if let Some(court) = f.get("court").and_then(|v| v.as_str()) {
+                if !court.is_empty() {
+                    sql.push_str(&format!(" AND court LIKE ?{}", param_idx));
+                    params.push(Box::new(format!("%{}%", court)));
+                    param_idx += 1;
+                }
+            }
+
+            // 办案人过滤
+            if let Some(operator) = f.get("operator").and_then(|v| v.as_str()) {
+                if !operator.is_empty() {
+                    sql.push_str(&format!(" AND operator LIKE ?{}", param_idx));
+                    params.push(Box::new(format!("%{}%", operator)));
+                    param_idx += 1;
+                }
+            }
+
+            // 期限范围过滤
+            if let Some(deadline_from) = f.get("deadlineFrom").and_then(|v| v.as_str()) {
+                if !deadline_from.is_empty() {
+                    sql.push_str(&format!(" AND next_deadline >= ?{}", param_idx));
+                    params.push(Box::new(deadline_from.to_string()));
+                    param_idx += 1;
+                }
+            }
+            if let Some(deadline_to) = f.get("deadlineTo").and_then(|v| v.as_str()) {
+                if !deadline_to.is_empty() {
+                    sql.push_str(&format!(" AND next_deadline <= ?{}", param_idx));
+                    params.push(Box::new(deadline_to.to_string()));
+                    param_idx += 1;
+                }
+            }
+
+            // 开庭日期范围过滤
+            if let Some(hearing_from) = f.get("hearingFrom").and_then(|v| v.as_str()) {
+                if !hearing_from.is_empty() {
+                    sql.push_str(&format!(" AND next_hearing >= ?{}", param_idx));
+                    params.push(Box::new(hearing_from.to_string()));
+                    param_idx += 1;
+                }
+            }
+            if let Some(hearing_to) = f.get("hearingTo").and_then(|v| v.as_str()) {
+                if !hearing_to.is_empty() {
+                    sql.push_str(&format!(" AND next_hearing <= ?{}", param_idx));
+                    params.push(Box::new(hearing_to.to_string()));
+                    param_idx += 1;
+                }
+            }
+        }
+
+        sql.push_str(" ORDER BY next_deadline ASC NULLS LAST, updated_at DESC");
+
+        let mut stmt = conn.prepare(&sql)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "caseName": row.get::<_, Option<String>>(1)?,
+                "caseNo": row.get::<_, Option<String>>(2)?,
+                "clientName": row.get::<_, Option<String>>(3)?,
+                "causeAction": row.get::<_, Option<String>>(4)?,
+                "track": row.get::<_, Option<String>>(5)?,
+                "status": row.get::<_, Option<String>>(6)?,
+                "court": row.get::<_, Option<String>>(7)?,
+                "caseLevel": row.get::<_, Option<String>>(8)?,
+                "operator": row.get::<_, Option<String>>(9)?,
+                "trialDate": row.get::<_, Option<String>>(10)?,
+                "filingDate": row.get::<_, Option<String>>(11)?,
+                "nextDeadline": row.get::<_, Option<String>>(12)?,
+                "nextHearing": row.get::<_, Option<String>>(13)?,
+                "updatedAt": row.get::<_, Option<String>>(14)?,
+            }))
+        })?;
+
+        let results: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+        Ok(results)
+    })
+    .await
+}
