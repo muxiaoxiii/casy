@@ -592,8 +592,7 @@ pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result
 pub async fn recalculate_case_formulas(case_id: String) -> Result<usize, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let count = crate::formula::recalculate_case_formulas(&conn, &case_id)
-            .map_err(|e| e.to_string())?;
+        let count = crate::formula::recalculate_case_formulas(&conn, &case_id)?;
         Ok(count)
     }).await
 }
@@ -603,8 +602,7 @@ pub async fn recalculate_case_formulas(case_id: String) -> Result<usize, String>
 pub async fn recalculate_all_formulas() -> Result<usize, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let count = crate::formula::recalculate_all_formulas(&conn)
-            .map_err(|e| e.to_string())?;
+        let count = crate::formula::recalculate_all_formulas(&conn)?;
         Ok(count)
     }).await
 }

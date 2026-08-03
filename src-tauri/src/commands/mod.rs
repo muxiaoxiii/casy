@@ -176,5 +176,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::list_task_templates,
         tasks::create_task_template,
         tasks::apply_task_template,
+        // 送达文书命令
+        inbox::download_service_delivery,
+        inbox::process_service_delivery,
     ]
 }

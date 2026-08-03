@@ -1369,3 +1369,198 @@ pub async fn ai_analyze_inbox_item(id: String) -> Result<serde_json::Value, Stri
     })
     .await
 }
+
+// ═══════════════════════════════════════════════════════════
+// 法院送达文书特性
+// ═══════════════════════════════════════════════════════════
+
+use regex::Regex;
+
+/// 送达短信检测结果
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ServiceDeliveryInfo {
+    /// 从短信中提取的案号
+    pub case_no: String,
+    /// 送达平台 URL
+    pub service_url: String,
+    /// 收件人姓名
+    pub recipient_name: String,
+    /// 匹配到的本地案件 ID
+    pub matched_case_id: Option<String>,
+    /// 匹配到的案件名称
+    pub matched_case_name: Option<String>,
+}
+
+/// 检测文本是否为法院送达短信
+/// 
+/// 典型格式：
+/// "吕晗你好，请查收（2026）京73行初6803号案件中你的送达文书
+///  点击链接查阅：https://zxfw.court.gov.cn/zxfw/..."
+pub fn detect_service_delivery(text: &str) -> Option<ServiceDeliveryInfo> {
+    // 检测送达平台链接
+    let url_re = Regex::new(r"https?://zxfw\.court\.gov\.cn/zxfw/[^\s]+").ok()?;
+    let url_match = url_re.find(text)?;
+
+    // 检测案号（多种格式）
+    let case_no_re = Regex::new(r"[（(]\d{4}[）)][\u4e00-\u9fff]+\d+号").ok()?;
+    let case_no = case_no_re.find(text)?.as_str().to_string();
+
+    // 检测收件人姓名（"XX你好" 模式）
+    let name_re = Regex::new(r"([\u4e00-\u9fff]{2,4})你好").ok()?;
+    let recipient_name = name_re
+        .captures(text)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_default();
+
+    // 检测是否包含送达关键词
+    let has_delivery_keyword = text.contains("送达") || text.contains("查收") || text.contains("文书");
+
+    if has_delivery_keyword {
+        Some(ServiceDeliveryInfo {
+            case_no,
+            service_url: url_match.as_str().to_string(),
+            recipient_name,
+            matched_case_id: None,
+            matched_case_name: None,
+        })
+    } else {
+        None
+    }
+}
+
+/// 在数据库中匹配案号，填充 matched_case_id
+pub fn match_service_delivery_case(
+    conn: &rusqlite::Connection,
+    info: &mut ServiceDeliveryInfo,
+) {
+    // 精确匹配案号
+    if let Ok(case_id) = conn.query_row(
+        "SELECT id, COALESCE(display_name, case_name) FROM cases WHERE case_no LIKE ?1 LIMIT 1",
+        rusqlite::params![format!("%{}%", info.case_no)],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    ) {
+        info.matched_case_id = Some(case_id.0);
+        info.matched_case_name = Some(case_id.1);
+    }
+}
+
+/// 从送达平台 URL 提取参数
+pub fn parse_service_url(url: &str) -> Option<ServiceUrlParams> {
+    let qdbh_re = Regex::new(r"qdbh=([a-f0-9]+)").ok()?;
+    let sdbh_re = Regex::new(r"sdbh=([a-f0-9]+)").ok()?;
+    let sdsin_re = Regex::new(r"sdsin=([a-f0-9]+)").ok()?;
+
+    Some(ServiceUrlParams {
+        qdbh: qdbh_re.captures(url)?.get(1)?.as_str().to_string(),
+        sdbh: sdbh_re.captures(url)?.get(1)?.as_str().to_string(),
+        sdsin: sdsin_re.captures(url)?.get(1)?.as_str().to_string(),
+    })
+}
+
+#[derive(Debug)]
+pub struct ServiceUrlParams {
+    pub qdbh: String,
+    pub sdbh: String,
+    pub sdsin: String,
+}
+
+/// 尝试通过送达平台 API 下载文书
+/// 
+/// 送达平台是 SPA，PDF 通过 JS 渲染。直接 HTTP 请求可能拿不到 PDF。
+/// 策略：
+/// 1. 先尝试直接 GET URL，看是否有 PDF 重定向
+/// 2. 如果不行，提示用户手动下载后通过 inbox 拖入
+#[tauri::command]
+pub async fn download_service_delivery(url: String, case_id: String) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let resp = client.get(&url)
+        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+        .send()
+        .await
+        .map_err(|e| format!("请求送达平台失败: {}", e))?;
+
+    let content_type = resp.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    if content_type.contains("pdf") {
+        let bytes = resp.bytes().await
+            .map_err(|e| format!("下载 PDF 失败: {}", e))?;
+
+        let inbox_dir = crate::files::case_folder_base().join("inbox");
+        std::fs::create_dir_all(&inbox_dir)
+            .map_err(|e| format!("创建收件箱目录失败: {}", e))?;
+
+        let filename = format!("送达文书_{}.pdf", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let file_path = inbox_dir.join(&filename);
+        std::fs::write(&file_path, &bytes)
+            .map_err(|e| format!("保存 PDF 失败: {}", e))?;
+
+        Ok(serde_json::json!({
+            "success": true,
+            "filePath": file_path.to_string_lossy(),
+            "fileName": filename,
+            "fileSize": bytes.len(),
+            "message": "送达文书已下载"
+        }))
+    } else {
+        Ok(serde_json::json!({
+            "success": false,
+            "needManualDownload": true,
+            "message": "送达平台是动态页面，请在浏览器中打开链接下载 PDF，然后拖入收件箱",
+            "url": url,
+            "suggestion": "打开链接后点击「下载」按钮，保存 PDF 后拖入 Casy 收件箱"
+        }))
+    }
+}
+
+/// 处理送达短信：识别 → 匹配案件 → 推荐操作
+#[tauri::command]
+pub async fn process_service_delivery(text: String) -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        let mut info = detect_service_delivery(&text)
+            .ok_or_else(|| anyhow::anyhow!("未检测到送达文书信息"))?;
+
+        match_service_delivery_case(&conn, &mut info);
+
+        let params = parse_service_url(&info.service_url);
+
+        Ok(serde_json::json!({
+            "detected": true,
+            "caseNo": info.case_no,
+            "recipientName": info.recipient_name,
+            "serviceUrl": info.service_url,
+            "urlParams": params.as_ref().map(|p| serde_json::json!({
+                "qdbh": p.qdbh,
+                "sdbh": p.sdbh,
+                "sdsin": p.sdsin,
+            })),
+            "matchedCaseId": info.matched_case_id,
+            "matchedCaseName": info.matched_case_name,
+            "recommendation": if info.matched_case_id.is_some() {
+                serde_json::json!({
+                    "action": "download_and_file",
+                    "message": format!("检测到送达文书（{}），匹配案件：{}。是否下载并归档？",
+                        info.case_no, info.matched_case_name.as_deref().unwrap_or("未知")),
+                    "targetCaseId": info.matched_case_id,
+                    "targetFolder": "04_收文",
+                })
+            } else {
+                serde_json::json!({
+                    "action": "select_case",
+                    "message": format!("检测到送达文书（{}），未匹配到本地案件。请手动选择案件。", info.case_no),
+                })
+            }
+        }))
+    }).await
+}
