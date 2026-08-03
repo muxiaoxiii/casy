@@ -44,6 +44,7 @@ pub struct ReminderLogEntry {
 
 /// ReminderEngine — 全局提醒调度器
 pub struct ReminderEngine {
+    #[allow(dead_code)]
     pub check_interval_secs: u64,
     pub running: Arc<AtomicBool>,
 }
@@ -701,6 +702,7 @@ pub async fn get_reminder_log(limit: Option<i64>) -> Result<Vec<ReminderLogEntry
 // ============================================================
 
 /// 异步发送飞书消息提醒（由后台 task 调用）
+#[allow(dead_code)]
 pub async fn send_feishu_reminder_async(
     receive_id: &str,
     receive_id_type: &str,
@@ -714,6 +716,7 @@ pub async fn send_feishu_reminder_async(
 }
 
 /// 异步创建飞书任务提醒
+#[allow(dead_code)]
 pub async fn create_feishu_task_reminder_async(
     summary: &str,
     description: &str,

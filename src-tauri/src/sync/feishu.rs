@@ -545,6 +545,7 @@ pub fn feishu_type_to_sqlite(type_code: i32) -> &'static str {
 }
 
 /// 飞书字段是否可推送（Formula/Lookup/Button/CreatedTime/ModifiedTime 不可推送）
+#[allow(dead_code)]
 pub fn feishu_type_pushable(type_code: i32) -> bool {
     !matches!(type_code, 19 | 20 | 3001 | 1001 | 1002 | 1003 | 1004 | 1005)
 }
@@ -1986,6 +1987,8 @@ async fn execute_auto_push() -> Result<FeishuSyncReport> {
 
 /// 发送飞书消息（Bot 消息卡片）
 /// receive_id_type: "open_id" | "user_id" | "union_id" | "email" | "chat_id"
+#[allow(dead_code)]
+#[allow(dead_code)]
 pub async fn send_feishu_message(
     receive_id: &str,
     receive_id_type: &str,
@@ -2023,6 +2026,7 @@ pub async fn send_feishu_message(
 
 /// 创建飞书任务
 /// members: 飞书用户 open_id 列表
+#[allow(dead_code)]
 pub async fn create_feishu_task(
     summary: &str,
     description: &str,

@@ -40,6 +40,7 @@ impl DependencyGraph {
     /// in topological order (dependencies first).
     ///
     /// Returns `None` if no formula depends on this field.
+    #[allow(dead_code)]
     pub fn get_recalc_order(&self, changed_field: &str) -> Option<Vec<String>> {
         let mut to_recalc = HashSet::new();
         let mut queue = VecDeque::new();
@@ -73,17 +74,20 @@ impl DependencyGraph {
     }
 
     /// Get all formula fields that are registered.
+    #[allow(dead_code)]
     pub fn all_formula_fields(&self) -> Vec<&str> {
         self.dependents.keys().map(|s| s.as_str()).collect()
     }
 
     /// Get dependencies of a specific formula field.
+    #[allow(dead_code)]
     pub fn get_dependencies(&self, formula_field: &str) -> Option<&Vec<String>> {
         self.dependents.get(formula_field)
     }
 
     /// Topological sort of a subset of formula fields.
     /// Fields with fewer formula-level dependencies come first.
+    #[allow(dead_code)]
     fn topo_sort(&self, fields: &HashSet<String>) -> Vec<String> {
         let mut in_degree: HashMap<String, usize> = HashMap::new();
         let field_set: HashSet<&str> = fields.iter().map(|s| s.as_str()).collect();

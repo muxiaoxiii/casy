@@ -1130,7 +1130,7 @@ fn import_record(
 
         // 确保有 id 和 created_at/updated_at
         let all_cols: Vec<String> = col_values.iter().map(|(c, _)| c.clone()).collect();
-        let mut all_vals: Vec<String> = col_values.iter().map(|(_, v)| v.clone()).collect();
+        let all_vals: Vec<String> = col_values.iter().map(|(_, v)| v.clone()).collect();
 
         // Add id, created_at, updated_at, feishu_record_id
         let all_col_str = format!(

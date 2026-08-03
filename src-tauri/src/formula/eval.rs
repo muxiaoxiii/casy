@@ -20,6 +20,7 @@ pub trait RecordContext {
 
     /// Execute a lookup: query a foreign table with a filter, extract a column, return array.
     /// Used for FILTER + LISTCOMBINE patterns.
+#[allow(dead_code)]
     fn execute_lookup(
         &self,
         table_id: &str,
@@ -58,6 +59,7 @@ impl RecordContext for SimpleRecordContext {
         None
     }
 
+#[allow(dead_code)]
     fn execute_lookup(
         &self,
         _table_id: &str,
@@ -131,9 +133,9 @@ impl FormulaEvaluator {
             }
 
             Expr::Lookup {
-                table_id,
+                table_id: _,
                 filter,
-                column_field_id,
+                column_field_id: _,
             } => {
                 // Evaluate the filter expression to extract filter criteria
                 // The filter is typically: CurrentValue.$column[fldX]=bitable::$table[tblY].$field[fldZ]

@@ -21,6 +21,7 @@ use tokio::sync::Mutex;
 const CLASSIFY_PROMPT_TEMPLATE: &str = include_str!("prompts/classify_document.md");
 
 /// 信息提取 prompt 模板
+#[allow(dead_code)]
 const EXTRACT_INFO_PROMPT_TEMPLATE: &str = include_str!("prompts/extract_info.md");
 
 /// 构建活跃案件列表上下文
@@ -696,6 +697,7 @@ pub async fn classify_document_with_prompt(
 }
 
 /// 使用 prompt 模板进行信息提取
+#[allow(dead_code)]
 pub async fn extract_info_with_prompt(
     backend: &dyn AiBackend,
     text: &str,
@@ -796,7 +798,7 @@ pub async fn generate_writing_with_ai(
     style: &str,
 ) -> Result<String> {
     let config = load_ai_config();
-    let backend = create_backend(&config);
+    let _backend = create_backend(&config);
 
     let style_desc = style_description(style);
 

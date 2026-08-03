@@ -84,6 +84,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Date(NaiveDate),
+#[allow(dead_code)]
     DateTime(NaiveDateTime),
     Array(Vec<Value>),
 }
@@ -187,6 +188,7 @@ impl Value {
     }
 
     /// Date arithmetic: add days
+#[allow(dead_code)]
     pub fn add_days(&self, days: i64) -> Value {
         use chrono::Duration;
         match self {

@@ -18,6 +18,7 @@ pub fn parse_formula(input: &str) -> Result<ast::Expr, String> {
 }
 
 /// Evaluate a parsed formula AST against a record context.
+#[allow(dead_code)]
 pub fn evaluate_formula(expr: &ast::Expr, ctx: &dyn RecordContext) -> Result<Value> {
     let evaluator = FormulaEvaluator::new();
     evaluator.evaluate(expr, ctx)

@@ -902,7 +902,7 @@ fn quick_judge(
     already_analyzed: bool,
     _cached_ai_extracted: Option<&str>,
 ) -> anyhow::Result<QuickJudgeResult> {
-    let category = auto_classify_from_name(file_name);
+    let category = crate::files::auto_classify(file_name).to_string();
 
     // 匹配到的案件按 case_id 去重
     let mut matches: std::collections::HashMap<String, (String, Vec<String>)> = std::collections::HashMap::new();
@@ -982,45 +982,6 @@ fn quick_judge(
         ai_analyzed: already_analyzed,
     })
 }
-
-/// 文件名自动分类（扩展名 + 关键词）
-fn auto_classify_from_name(file_name: &str) -> String {
-    let lower = file_name.to_lowercase();
-
-    // 扩展名判断
-    if lower.ends_with(".eml") {
-        return "correspondence".to_string();
-    }
-
-    // 关键词匹配
-    if lower.contains("传票") || lower.contains("summons") {
-        return "summons".to_string();
-    }
-    if lower.contains("口审") || lower.contains("hearing") {
-        return "hearing_notice".to_string();
-    }
-    if lower.contains("判决") || lower.contains("裁定") || lower.contains("决定") || lower.contains("verdict") {
-        return "judgment".to_string();
-    }
-    if lower.contains("起诉") || lower.contains("complaint") {
-        return "complaint".to_string();
-    }
-    if lower.contains("答辩") || lower.contains("代理词") || lower.contains("defense") {
-        return "defence".to_string();
-    }
-    if lower.contains("审查意见") || lower.contains("通知书") {
-        return "official_notice".to_string();
-    }
-    if lower.contains("证据") || lower.contains("evidence") {
-        return "evidence".to_string();
-    }
-    if lower.contains("函件") || lower.contains("函") {
-        return "correspondence".to_string();
-    }
-
-    "other".to_string()
-}
-
 /// 从文件名提取案号
 fn extract_case_no_from_name(file_name: &str) -> Option<String> {
     let re = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)].*?号").ok()?;
@@ -1495,7 +1456,7 @@ pub struct ServiceUrlParams {
 /// 返回: data[].c_wsmc（文书名称）、data[].wjlj（OSS 签名下载链接）、data[].c_fymc（法院名称）
 /// OSS URL 有效期约 1 小时，获取后应尽快下载
 #[tauri::command]
-pub async fn download_service_delivery(url: String, case_id: String) -> Result<serde_json::Value, String> {
+pub async fn download_service_delivery(url: String, _case_id: String) -> Result<serde_json::Value, String> {
     // 1. 从 URL 提取参数
     let params = parse_service_url(&url)
         .ok_or("无法从 URL 提取送达参数（qdbh/sdbh/sdsin）")?;
