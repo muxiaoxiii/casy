@@ -7,6 +7,7 @@ pub mod import_feishu;
 pub mod inbox;
 pub mod knowledge;
 pub mod relations;
+pub mod reminder;
 pub mod settings;
 pub mod sync;
 pub mod tasks;
@@ -159,5 +160,17 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         files::list_case_files,
         files::add_case_file,
         files::delete_case_file,
+        // 提醒规则命令
+        reminder::list_reminder_rules,
+        reminder::create_reminder_rule,
+        reminder::update_reminder_rule,
+        reminder::delete_reminder_rule,
+        reminder::test_reminder,
+        reminder::start_reminder_engine,
+        reminder::get_reminder_log,
+        // 任务模板命令
+        tasks::list_task_templates,
+        tasks::create_task_template,
+        tasks::apply_task_template,
     ]
 }

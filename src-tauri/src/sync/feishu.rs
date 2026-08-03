@@ -1979,3 +1979,107 @@ async fn execute_auto_push() -> Result<FeishuSyncReport> {
 
     sync_feishu_push_inner(&app_token, &table_id).await
 }
+
+// ============================================================
+// 飞书消息 & 任务 API（提醒通道）
+// ============================================================
+
+/// 发送飞书消息（Bot 消息卡片）
+/// receive_id_type: "open_id" | "user_id" | "union_id" | "email" | "chat_id"
+pub async fn send_feishu_message(
+    receive_id: &str,
+    receive_id_type: &str,
+    content: &serde_json::Value,
+) -> Result<()> {
+    let mut auth = FeishuAuth::new();
+    let mut limiter = RateLimiter::new(5.0);
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let token = auth.get_token().await?;
+
+    let url = format!(
+        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={}",
+        receive_id_type
+    );
+
+    let body = serde_json::json!({
+        "receive_id": receive_id,
+        "msg_type": content["msg_type"].as_str().unwrap_or("interactive"),
+        "content": content["card"].to_string(),
+    });
+
+    let resp = call_feishu_api(&client, &mut limiter, HttpMethod::Post, &url, &token, Some(&body)).await?;
+
+    if resp["code"].as_i64().unwrap_or(-1) != 0 {
+        let msg = resp["msg"].as_str().unwrap_or("未知错误");
+        anyhow::bail!("发送飞书消息失败: {}", msg);
+    }
+
+    log::info!("飞书消息发送成功: receive_id={}", receive_id);
+    Ok(())
+}
+
+/// 创建飞书任务
+/// members: 飞书用户 open_id 列表
+pub async fn create_feishu_task(
+    summary: &str,
+    description: &str,
+    due_date: &str,
+    members: &[String],
+) -> Result<String> {
+    let mut auth = FeishuAuth::new();
+    let mut limiter = RateLimiter::new(5.0);
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let token = auth.get_token().await?;
+
+    let url = "https://open.feishu.cn/open-apis/task/v2/tasks";
+
+    // 解析截止日期为 Unix 时间戳（秒）
+    let due_timestamp = if !due_date.is_empty() {
+        chrono::NaiveDate::parse_from_str(due_date, "%Y-%m-%d")
+            .ok()
+            .map(|d| d.and_hms_opt(23, 59, 59).unwrap().and_utc().timestamp())
+    } else {
+        None
+    };
+
+    let mut task_body = serde_json::json!({
+        "summary": summary,
+        "description": description,
+    });
+
+    if let Some(ts) = due_timestamp {
+        task_body["due"] = serde_json::json!({
+            "timestamp": ts.to_string(),
+            "is_all_day": true,
+        });
+    }
+
+    if !members.is_empty() {
+        let members_arr: Vec<serde_json::Value> = members
+            .iter()
+            .map(|m| serde_json::json!({"id": m, "type": "user"}))
+            .collect();
+        task_body["members"] = serde_json::json!(members_arr);
+    }
+
+    let resp = call_feishu_api(&client, &mut limiter, HttpMethod::Post, url, &token, Some(&task_body)).await?;
+
+    if resp["code"].as_i64().unwrap_or(-1) != 0 {
+        let msg = resp["msg"].as_str().unwrap_or("未知错误");
+        anyhow::bail!("创建飞书任务失败: {}", msg);
+    }
+
+    let task_id = resp["data"]["task"]["id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    log::info!("飞书任务创建成功: id={}", task_id);
+    Ok(task_id)
+}

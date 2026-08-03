@@ -152,7 +152,7 @@ pub async fn generate_hearing_prep_tasks(
 
         // 解析庭审日期，计算截止日期（庭审前 3 天、1 天等）
         let hearing_dt = chrono::NaiveDate::parse_from_str(&hearing_date, "%Y-%m-%d")
-            .map_err(|e| anyhow::anyhow!("Invalid hearing date: {}", e))?;
+            ?;
 
         let mut created_tasks = Vec::new();
 
@@ -205,6 +205,154 @@ pub async fn generate_hearing_prep_tasks(
         }
 
         Ok(created_tasks)
+    })
+    .await
+}
+
+// ============================================================
+// 任务模板系统
+// ============================================================
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTemplate {
+    pub id: String,
+    pub name: String,
+    pub trigger_type: Option<String>,
+    pub tasks_json: String,
+    pub case_types: Option<String>,
+    pub enabled: bool,
+    pub created_at: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTemplateItem {
+    pub title: String,
+    pub description: String,
+    pub days_before: i64,
+}
+
+#[tauri::command]
+pub async fn list_task_templates() -> Result<Vec<TaskTemplate>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, trigger_type, tasks_json, case_types, enabled, created_at
+             FROM task_templates ORDER BY created_at",
+        )?;
+
+        let templates = stmt
+            .query_map([], |row| {
+                Ok(TaskTemplate {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    trigger_type: row.get(2)?,
+                    tasks_json: row.get(3)?,
+                    case_types: row.get(4)?,
+                    enabled: row.get::<_, i32>(5)? != 0,
+                    created_at: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(templates)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_task_template(data: serde_json::Value) -> Result<TaskTemplate, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let id = db::new_id();
+
+        let tasks_json = data["tasksJson"].to_string();
+
+        conn.execute(
+            "INSERT INTO task_templates (id, name, trigger_type, tasks_json, case_types, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                id,
+                data["name"].as_str().unwrap_or(""),
+                data["triggerType"].as_str(),
+                tasks_json,
+                data["caseTypes"].as_str(),
+                data["enabled"].as_i64().unwrap_or(1) as i32,
+            ],
+        )?;
+
+        Ok(TaskTemplate {
+            id,
+            name: data["name"].as_str().unwrap_or("").to_string(),
+            trigger_type: data["triggerType"].as_str().map(|s| s.to_string()),
+            tasks_json,
+            case_types: data["caseTypes"].as_str().map(|s| s.to_string()),
+            enabled: data["enabled"].as_i64().unwrap_or(1) != 0,
+            created_at: Some(db::now_local()),
+        })
+    })
+    .await
+}
+
+/// 从模板生成任务
+/// template_id: 模板 ID
+/// case_id: 关联案件 ID
+/// trigger_date: 触发日期 (YYYY-MM-DD)，任务截止日期 = trigger_date - days_before
+#[tauri::command]
+pub async fn apply_task_template(
+    template_id: String,
+    case_id: String,
+    trigger_date: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let now = db::now_local();
+
+        // 读取模板
+        let tasks_json: String = conn.query_row(
+            "SELECT tasks_json FROM task_templates WHERE id = ?1 AND enabled = 1",
+            rusqlite::params![template_id],
+            |row| row.get(0),
+        )?;
+
+        let items: Vec<TaskTemplateItem> =
+            serde_json::from_str(&tasks_json)?;
+
+        let trigger_dt = chrono::NaiveDate::parse_from_str(&trigger_date, "%Y-%m-%d")
+            ?;
+
+        let mut created = Vec::new();
+
+        for item in &items {
+            let id = db::new_id();
+            let deadline_dt = trigger_dt - chrono::Duration::days(item.days_before);
+            let deadline = deadline_dt.format("%Y-%m-%d").to_string();
+
+            conn.execute(
+                "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'normal', 0, ?7)",
+                rusqlite::params![
+                    id,
+                    case_id,
+                    item.title,
+                    item.description,
+                    now,
+                    deadline,
+                    now,
+                ],
+            )?;
+
+            created.push(serde_json::json!({
+                "id": id,
+                "taskName": item.title,
+                "description": item.description,
+                "deadline": deadline,
+                "caseId": case_id,
+            }));
+        }
+
+        Ok(created)
     })
     .await
 }

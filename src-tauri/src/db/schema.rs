@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -628,6 +628,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("2", MIGRATION_V2_SQL),
     ("3", MIGRATION_V3_SQL),
     ("4", MIGRATION_V4_SQL),
+    ("5", MIGRATION_V5_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -902,6 +903,79 @@ AFTER UPDATE ON feishu_field_mappings FOR EACH ROW
 BEGIN
     UPDATE feishu_field_mappings SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
 END;
+"#;
+
+/// 版本 5: 多通道提醒系统 + 任务模板
+pub const MIGRATION_V5_SQL: &str = r#"
+-- ============================================================
+-- 提醒规则
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reminder_rules (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    trigger_type    TEXT NOT NULL
+                    CHECK(trigger_type IN (
+                        'deadline_before',
+                        'deadline_on',
+                        'deadline_after',
+                        'hearing_before',
+                        'task_due',
+                        'task_overdue'
+                    )),
+    trigger_value   INTEGER,
+    channels        TEXT NOT NULL,
+    message_template TEXT,
+    case_types      TEXT,
+    enabled         INTEGER DEFAULT 1,
+    created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- ============================================================
+-- 提醒日志
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reminder_log (
+    id              TEXT PRIMARY KEY,
+    rule_id         TEXT NOT NULL REFERENCES reminder_rules(id),
+    case_id         TEXT,
+    task_id         TEXT,
+    channel         TEXT NOT NULL,
+    message         TEXT NOT NULL,
+    status          TEXT DEFAULT 'sent'
+                    CHECK(status IN ('sent','failed','snoozed')),
+    sent_at         TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_log_rule ON reminder_log(rule_id);
+CREATE INDEX IF NOT EXISTS idx_reminder_log_sent ON reminder_log(sent_at);
+
+-- ============================================================
+-- 任务模板
+-- ============================================================
+CREATE TABLE IF NOT EXISTS task_templates (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    trigger_type    TEXT,
+    tasks_json      TEXT NOT NULL,
+    case_types      TEXT,
+    enabled         INTEGER DEFAULT 1,
+    created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- ============================================================
+-- tasks 表新增 feishu_task_id 列
+-- ============================================================
+ALTER TABLE tasks ADD COLUMN feishu_task_id TEXT;
+
+-- ============================================================
+-- 默认提醒规则
+-- ============================================================
+INSERT INTO reminder_rules (id, name, trigger_type, trigger_value, channels) VALUES
+('rule-1', '期限前7天提醒', 'deadline_before', 7, '["feishu_message"]'),
+('rule-2', '期限前3天紧急提醒', 'deadline_before', 3, '["local","feishu_message","feishu_task"]'),
+('rule-3', '期限当天强提醒', 'deadline_on', 0, '["local","system","feishu_message","feishu_task"]'),
+('rule-4', '开庭前7天准备提醒', 'hearing_before', 7, '["feishu_message"]'),
+('rule-5', '开庭前1天最终提醒', 'hearing_before', 1, '["local","system","feishu_message","feishu_task"]'),
+('rule-6', '任务到期提醒', 'task_due', 0, '["local","feishu_message"]');
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用
