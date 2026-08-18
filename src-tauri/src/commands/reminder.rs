@@ -10,6 +10,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tauri::Emitter;
 
 // ============================================================
 // 数据结构
@@ -336,12 +337,28 @@ fn dispatch_reminder(
         "local" => send_local_notification(message),
         "system" => send_system_notification(message),
         "feishu_message" => {
-            // Feishu 异步调用 — 在此标记 pending，由后台 tokio task 执行
-            // 为了同步记录，先写入日志
+            // 异步发送飞书消息（不阻塞引擎循环）
+            let msg = message.to_string();
+            let rule_id = rule_id.to_string();
+            let log_rule_id = rule_id.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = send_feishu_reminder_async_generic(&msg).await {
+                    log::error!("飞书提醒发送失败 (rule {}): {}", rule_id, e);
+                }
+            });
+            log::info!("[提醒-飞书消息] 已入队: {}", log_rule_id);
             Ok(())
         }
         "feishu_task" => {
-            // 同上
+            // 异步创建飞书任务
+            let msg = message.to_string();
+            let rule_id = rule_id.to_string();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = send_feishu_task_async_generic(&msg).await {
+                    log::error!("飞书任务提醒创建失败 (rule {}): {}", rule_id, e);
+                }
+            });
+            log::info!("[提醒-飞书任务] 已入队");
             Ok(())
         }
         _ => Ok(()),
@@ -407,15 +424,22 @@ fn already_sent(
 // ============================================================
 
 fn send_local_notification(message: &str) -> Result<()> {
-    // Tauri dialog 在 command 层处理，这里仅标记
-    // 实际弹窗通过 Tauri event 发送到前端
+    // 向前端 emit 事件（弹提醒面板），并记录日志
     log::info!("[提醒-本地弹窗] {}", message.replace('\n', " | "));
-    Ok(())
+
+    if let Some(handle) = crate::get_app_handle() {
+        let _ = handle.emit("reminder:triggered", serde_json::json!({
+            "message": message,
+            "at": crate::db::now_local(),
+        }));
+    }
+
+    // macOS 系统通知（无论前端是否打开都可见）
+    send_system_notification(message)
 }
 
 fn send_system_notification(message: &str) -> Result<()> {
-    // macOS: 使用 tauri-plugin-notification 或 osascript
-    // 在 Tauri 外部运行时使用 osascript 回退
+    // macOS: 使用 osascript 发系统通知（Tauri 外部运行时回退方案）
     log::info!("[提醒-系统通知] {}", message.replace('\n', " | "));
 
     #[cfg(target_os = "macos")]
@@ -632,11 +656,23 @@ pub async fn test_reminder(
 
 #[tauri::command]
 pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), String> {
+    use std::sync::OnceLock;
+    static ENGINE_RUNNING: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
     let interval = interval_secs.unwrap_or(300); // 默认 5 分钟
+
+    // 防重复启动：已有运行中的引擎则直接返回
+    if let Some(running) = ENGINE_RUNNING.get() {
+        if running.load(Ordering::SeqCst) {
+            log::info!("提醒引擎已在运行中，跳过重复启动");
+            return Ok(());
+        }
+    }
 
     tokio::spawn(async move {
         let engine = ReminderEngine::new(interval);
         let running = engine.start_loop();
+        let _ = ENGINE_RUNNING.set(running.clone());
 
         log::info!("提醒引擎启动，检查间隔: {}秒", interval);
 
@@ -700,6 +736,58 @@ pub async fn get_reminder_log(limit: Option<i64>) -> Result<Vec<ReminderLogEntry
 // ============================================================
 // 异步飞书提醒发送（供 engine 调用）
 // ============================================================
+
+/// 从提醒消息文本构造飞书卡片并发送（通用入口）
+async fn send_feishu_reminder_async_generic(message: &str) -> Result<()> {
+    // 使用默认接收人（settings 中配置的 owner 或空则跳过）
+    let conn = db::open_db()?;
+    let receive_id = db::get_setting(&conn, "feishu_reminder_receive_id")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    if receive_id.is_empty() {
+        log::warn!("飞书提醒未配置 receive_id，跳过发送");
+        return Ok(());
+    }
+
+    let card = serde_json::json!({
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": { "tag": "plain_text", "content": "Casy 期限提醒" },
+                "template": "red"
+            },
+            "elements": [
+                { "tag": "div", "text": { "tag": "lark_md", "content": message } }
+            ]
+        }
+    });
+
+    crate::sync::feishu::send_feishu_message(&receive_id, "open_id", &card).await
+}
+
+/// 从提醒消息创建飞书任务（通用入口）
+async fn send_feishu_task_async_generic(message: &str) -> Result<()> {
+    let conn = db::open_db()?;
+    let receive_id = db::get_setting(&conn, "feishu_reminder_receive_id")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    if receive_id.is_empty() {
+        log::warn!("飞书任务提醒未配置 receive_id，跳过创建");
+        return Ok(());
+    }
+
+    let summary = message.lines().next().unwrap_or("Casy 提醒").to_string();
+    let members = vec![receive_id.clone()];
+    let due = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    crate::sync::feishu::create_feishu_task(&summary, message, &due, &members)
+        .await
+        .map(|_| ())
+}
 
 /// 异步发送飞书消息提醒（由后台 task 调用）
 #[allow(dead_code)]
