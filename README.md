@@ -82,12 +82,10 @@ Casy/
 │   ├── shared/             # 共享组件
 │   └── router/             # 路由
 ├── docs/                   # 设计文档
+│   ├── casy-design-philosophy.md # ★ 设计哲学（唯一总纲：原则/模块蓝图/UI 规范/路线图）
 │   ├── architecture.md     # ★ 顶层架构设计（统领全局）
-│   ├── ui-design.md        # UI 设计方案 + AI 提示词模板
-│   ├── inbox-v2-design.md  # 收件箱 v2 设计
-│   ├── feishu-sync-design.md # 飞书同步设计
-│   ├── todo-features.md    # 待实现功能清单
-│   └── archive/            # 归档文档
+│   ├── modules/            # 各模块细节设计文档（00-README.md 索引）
+│   └── archive/            # 归档文档（调研/旧版设计）
 ├── Casy-SPEC.md            # 综合技术规格
 ├── Casy-STATUS.md          # 项目状态与进度
 └── README.md               # 本文件
@@ -99,11 +97,26 @@ Casy/
 
 ```
 README.md（你在这里）
-  └─ docs/architecture.md        ← 顶层架构：模块全景、全局能力、实施路线图
-       ├─ docs/ui-design.md      ← UI 设计：设计系统、页面原型、AI 提示词
-       ├─ docs/inbox-v2-design.md ← 收件箱：三层判断、安全拷贝、推荐面板
-       ├─ docs/feishu-sync-design.md ← 飞书：通用表格同步、消息、任务
-       └─ docs/todo-features.md  ← 待实现功能清单
+  ├─ docs/casy-design-philosophy.md ← 设计哲学：八大原则、模块蓝图、UI 规范、路线图
+  └─ docs/architecture.md           ← 顶层架构：模块全景、数据模型、离线提醒决策
+       └─ docs/modules/             ← 各模块细节设计
+            ├─ 00-README.md         ← 模块索引与依赖关系
+            ├─ 01-cases.md          ← 案件管理
+            ├─ 02-status-machine.md ← 三轨状态机
+            ├─ 03-tasks.md          ← 任务系统（GTD）
+            ├─ 04-inbox.md          ← 收件箱（大口袋）
+            ├─ 05-inbox-batch.md    ← 收件箱批处理
+            ├─ 06-calendar-deadline.md ← 日历与期限引擎
+            ├─ 07-knowledge.md      ← 知识库
+            ├─ 08-docsy.md          ← 文书工坊
+            ├─ 09-files.md          ← 文件管理
+            ├─ 10-sync.md           ← 同步（WebDAV/飞书）
+            ├─ 11-email.md          ← 邮件（IMAP）
+            ├─ 12-reminder.md       ← 提醒系统
+            ├─ 13-ai-companion.md   ← AI 智伴
+            ├─ 14-data-layer.md     ← 数据层
+            ├─ 15-observability-settings.md ← 可观测性与设置
+            └─ 16-openness.md       ← 双向开放（MCP/Skill）
 ```
 
 ---
