@@ -6,6 +6,9 @@ use crate::db;
 pub struct TaskFilter {
     pub completed: Option<bool>,
     pub case_id: Option<String>,
+    pub area_id: Option<String>,
+    pub task_type: Option<String>,
+    pub start_bucket: Option<String>,
 }
 
 #[tauri::command]
@@ -26,6 +29,28 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Va
                 if !case_id.is_empty() {
                     sql.push_str(&format!(" AND case_id = ?{}", idx));
                     params.push(Box::new(case_id.clone()));
+                    idx += 1;
+                }
+            }
+            if let Some(area_id) = &f.area_id {
+                if !area_id.is_empty() {
+                    sql.push_str(&format!(" AND area_id = ?{}", idx));
+                    params.push(Box::new(area_id.clone()));
+                    idx += 1;
+                }
+            }
+            if let Some(task_type) = &f.task_type {
+                if !task_type.is_empty() {
+                    sql.push_str(&format!(" AND task_type = ?{}", idx));
+                    params.push(Box::new(task_type.clone()));
+                    idx += 1;
+                }
+            }
+            if let Some(start_bucket) = &f.start_bucket {
+                if !start_bucket.is_empty() {
+                    sql.push_str(&format!(" AND start_bucket = ?{}", idx));
+                    params.push(Box::new(start_bucket.clone()));
+                    idx += 1;
                 }
             }
         }
@@ -47,6 +72,27 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Va
                     "completed": row.get::<_, i32>("completed")?,
                     "assignee": row.get::<_, Option<String>>("assignee")?,
                     "finishNote": row.get::<_, Option<String>>("finish_note")?,
+                    // GTD 字段
+                    "taskType": row.get::<_, Option<String>>("task_type")?.unwrap_or_else(|| "action".to_string()),
+                    "startDate": row.get::<_, Option<String>>("start_date")?,
+                    "dueDate": row.get::<_, Option<String>>("due_date")?,
+                    "waitingFor": row.get::<_, Option<String>>("waiting_for")?,
+                    "followUpDate": row.get::<_, Option<String>>("follow_up_date")?,
+                    "context": row.get::<_, Option<String>>("context")?,
+                    "flagged": row.get::<_, Option<i32>>("flagged")?.unwrap_or(0),
+                    "sequential": row.get::<_, Option<i32>>("sequential")?.unwrap_or(0),
+                    "blocked": row.get::<_, Option<i32>>("blocked")?.unwrap_or(0),
+                    "sequenceOrder": row.get::<_, Option<i32>>("sequence_order")?.unwrap_or(0),
+                    "startBucket": row.get::<_, Option<String>>("start_bucket")?.unwrap_or_else(|| "anytime".to_string()),
+                    "todayIndex": row.get::<_, Option<i32>>("today_index")?.unwrap_or(0),
+                    "estimatedMinutes": row.get::<_, Option<i32>>("estimated_minutes")?,
+                    "actualMinutes": row.get::<_, Option<i32>>("actual_minutes")?,
+                    "isOverdue": row.get::<_, Option<i32>>("is_overdue")?.unwrap_or(0),
+                    "dueSoon": row.get::<_, Option<i32>>("due_soon")?.unwrap_or(0),
+                    "lastReviewDate": row.get::<_, Option<String>>("last_review_date")?,
+                    "nextReviewDate": row.get::<_, Option<String>>("next_review_date")?,
+                    "areaId": row.get::<_, Option<String>>("area_id")?,
+                    "knowledgeId": row.get::<_, Option<String>>("knowledge_id")?,
                 }))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -64,20 +110,43 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         let now = db::now_local();
 
         conn.execute(
-            "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10)",
+            "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note, 
+             task_type, start_date, due_date, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
+             start_bucket, today_index, estimated_minutes, area_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 id,
                 data["caseId"].as_str(),
                 data["taskName"].as_str().unwrap_or(""),
                 data["description"].as_str().unwrap_or(""),
                 data["createdDate"].as_str().unwrap_or(&now),
-                data["deadline"].as_str(),
+                data["deadline"].as_str().or(data["dueDate"].as_str()),
                 data["priority"].as_str().unwrap_or("normal"),
                 data["assignee"].as_str().unwrap_or(""),
                 data["finishNote"].as_str().unwrap_or(""),
+                // GTD 字段
+                data["taskType"].as_str().unwrap_or("action"),
+                data["startDate"].as_str(),
+                data["dueDate"].as_str().or(data["deadline"].as_str()),
+                data["waitingFor"].as_str(),
+                data["followUpDate"].as_str(),
+                data["context"].as_str(),
+                data["flagged"].as_i64().unwrap_or(0),
+                data["sequential"].as_i64().unwrap_or(0),
+                data["blocked"].as_i64().unwrap_or(0),
+                data["sequenceOrder"].as_i64().unwrap_or(0),
+                data["startBucket"].as_str().unwrap_or("anytime"),
+                data["todayIndex"].as_i64().unwrap_or(0),
+                data["estimatedMinutes"].as_i64(),
+                data["areaId"].as_str(),
                 now,
             ],
+        )?;
+
+        // 记录 task_event
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, 'user')",
+            rusqlite::params![db::new_id(), id, now],
         )?;
 
         Ok(serde_json::json!({ "id": id }))
@@ -89,10 +158,29 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
 pub async fn toggle_task(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        conn.execute(
-            "UPDATE tasks SET completed = CASE WHEN completed = 0 THEN 1 ELSE 0 END WHERE id = ?1",
+        let now = db::now_local();
+        
+        // 获取当前状态
+        let current: i32 = conn.query_row(
+            "SELECT completed FROM tasks WHERE id = ?1",
             rusqlite::params![id],
+            |row| row.get(0),
         )?;
+        
+        let new_status = if current == 0 { 1 } else { 0 };
+        
+        conn.execute(
+            "UPDATE tasks SET completed = ?1 WHERE id = ?2",
+            rusqlite::params![new_status, id],
+        )?;
+        
+        // 记录 task_event
+        let event_type = if new_status == 1 { "completed" } else { "created" };
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, ?3, ?4, 'user')",
+            rusqlite::params![db::new_id(), id, event_type, now],
+        )?;
+        
         Ok(())
     })
     .await
@@ -109,20 +197,60 @@ pub async fn delete_task(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn update_task(id: String, data: serde_json::Value) -> Result<(), String> {
+pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
+        let id = data["id"].as_str().ok_or_else(|| anyhow::anyhow!("Missing task id"))?;
+        let now = db::now_local();
+
         conn.execute(
-            "UPDATE tasks SET task_name = ?1, description = ?2, deadline = ?3, priority = ?4, case_id = ?5 WHERE id = ?6",
+            "UPDATE tasks SET 
+                task_name = COALESCE(?1, task_name),
+                description = COALESCE(?2, description),
+                deadline = ?3,
+                due_date = ?4,
+                priority = COALESCE(?5, priority),
+                case_id = ?6,
+                task_type = COALESCE(?7, task_type),
+                start_date = ?8,
+                waiting_for = ?9,
+                follow_up_date = ?10,
+                context = ?11,
+                flagged = COALESCE(?12, flagged),
+                start_bucket = COALESCE(?13, start_bucket),
+                today_index = COALESCE(?14, today_index),
+                estimated_minutes = ?15,
+                area_id = ?16,
+                updated_at = ?17
+             WHERE id = ?18",
             rusqlite::params![
-                data["taskName"].as_str().unwrap_or(""),
-                data["description"].as_str().unwrap_or(""),
+                data["taskName"].as_str(),
+                data["description"].as_str(),
                 data["deadline"].as_str(),
-                data["priority"].as_str().unwrap_or("normal"),
+                data["dueDate"].as_str().or(data["deadline"].as_str()),
+                data["priority"].as_str(),
                 data["caseId"].as_str(),
+                data["taskType"].as_str(),
+                data["startDate"].as_str(),
+                data["waitingFor"].as_str(),
+                data["followUpDate"].as_str(),
+                data["context"].as_str(),
+                data["flagged"].as_i64(),
+                data["startBucket"].as_str(),
+                data["todayIndex"].as_i64(),
+                data["estimatedMinutes"].as_i64(),
+                data["areaId"].as_str(),
+                now,
                 id,
             ],
         )?;
+
+        // 记录 task_event
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'moved', ?3, ?4, 'user')",
+            rusqlite::params![db::new_id(), id, now, serde_json::to_string(&data).unwrap_or_default()],
+        )?;
+
         Ok(())
     })
     .await

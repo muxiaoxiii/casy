@@ -1591,3 +1591,344 @@ pub async fn process_service_delivery(text: String) -> Result<serde_json::Value,
         }))
     }).await
 }
+
+// ═══════════════════════════════════════════════════════════
+// 批量处理队列
+// ═══════════════════════════════════════════════════════════
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use tokio::sync::{broadcast, Semaphore};
+
+/// 处理进度
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessingProgress {
+    pub total: usize,
+    pub processed: usize,
+    pub failed: usize,
+    pub active: usize,
+    pub current_item: Option<String>,
+    pub running: bool,
+}
+
+/// 队列项
+struct QueueItem {
+    id: String,
+    title: Option<String>,
+    source_type: String,
+    content_text: Option<String>,
+    source_path: Option<String>,
+    retry_count: i32,
+}
+
+/// 全局处理器实例
+static PROCESSOR: std::sync::OnceLock<InboxProcessor> = std::sync::OnceLock::new();
+
+fn get_processor() -> &'static InboxProcessor {
+    PROCESSOR.get_or_init(|| InboxProcessor::new())
+}
+
+struct InboxProcessor {
+    max_concurrency: Arc<AtomicUsize>,
+    active_count: Arc<AtomicUsize>,
+    processed_count: Arc<AtomicUsize>,
+    failed_count: Arc<AtomicUsize>,
+    total_count: Arc<AtomicUsize>,
+    running: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
+    progress_tx: broadcast::Sender<ProcessingProgress>,
+}
+
+impl InboxProcessor {
+    fn new() -> Self {
+        let (progress_tx, _) = broadcast::channel(16);
+        Self {
+            max_concurrency: Arc::new(AtomicUsize::new(8)),
+            active_count: Arc::new(AtomicUsize::new(0)),
+            processed_count: Arc::new(AtomicUsize::new(0)),
+            failed_count: Arc::new(AtomicUsize::new(0)),
+            total_count: Arc::new(AtomicUsize::new(0)),
+            running: Arc::new(AtomicBool::new(false)),
+            paused: Arc::new(AtomicBool::new(false)),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress_tx,
+        }
+    }
+
+    fn get_progress(&self) -> ProcessingProgress {
+        ProcessingProgress {
+            total: self.total_count.load(Ordering::Relaxed),
+            processed: self.processed_count.load(Ordering::Relaxed),
+            failed: self.failed_count.load(Ordering::Relaxed),
+            active: self.active_count.load(Ordering::Relaxed),
+            current_item: None,
+            running: self.running.load(Ordering::Relaxed),
+        }
+    }
+
+    fn load_queue(&self) -> anyhow::Result<Vec<QueueItem>> {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, title, source_type, content_text, source_path, retry_count
+             FROM inbox_items
+             WHERE status IN ('pending', 'failed')
+             ORDER BY
+               CASE source_type
+                 WHEN 'manual' THEN 1 WHEN 'paste' THEN 2 WHEN 'file' THEN 3
+                 WHEN 'email' THEN 4 WHEN 'imap' THEN 5 ELSE 6
+               END, created_at ASC"
+        )?;
+        let items = stmt.query_map([], |row| {
+            Ok(QueueItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                source_type: row.get(2)?,
+                content_text: row.get(3)?,
+                source_path: row.get(4)?,
+                retry_count: row.get(5)?,
+            })
+        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(items)
+    }
+
+    async fn start_batch(&self) -> anyhow::Result<usize> {
+        if self.running.load(Ordering::Relaxed) {
+            return Ok(0);
+        }
+        self.running.store(true, Ordering::Relaxed);
+        self.cancel.store(false, Ordering::Relaxed);
+        self.paused.store(false, Ordering::Relaxed);
+        self.processed_count.store(0, Ordering::Relaxed);
+        self.failed_count.store(0, Ordering::Relaxed);
+
+        let queue = self.load_queue()?;
+        let total = queue.len();
+        self.total_count.store(total, Ordering::Relaxed);
+
+        if total == 0 {
+            self.running.store(false, Ordering::Relaxed);
+            return Ok(0);
+        }
+
+        let semaphore = Arc::new(Semaphore::new(self.max_concurrency.load(Ordering::Relaxed)));
+        let mut handles = Vec::new();
+
+        for item in queue {
+            if self.cancel.load(Ordering::Relaxed) { break; }
+            while self.paused.load(Ordering::Relaxed) {
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                if self.cancel.load(Ordering::Relaxed) { break; }
+            }
+
+            let sem = semaphore.clone();
+            let active = Arc::new(AtomicBool::new(false)); // placeholder
+            let proc_count = self.processed_count.clone();
+            let fail_count = self.failed_count.clone();
+            let act_count = self.active_count.clone();
+            let max_conc = self.max_concurrency.clone();
+            let progress_tx = self.progress_tx.clone();
+            let total_c = self.total_count.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                act_count.fetch_add(1, Ordering::Relaxed);
+
+                // 标记为处理中
+                if let Ok(conn) = db::open_db() {
+                    let _ = conn.execute(
+                        "UPDATE inbox_items SET status = 'processing', processing_started_at = datetime('now','localtime') WHERE id = ?1",
+                        rusqlite::params![item.id],
+                    );
+                }
+
+                let start = tokio::time::Instant::now();
+                let result = process_queue_item(&item).await;
+                let elapsed = start.elapsed().as_millis() as u64;
+
+                act_count.fetch_sub(1, Ordering::Relaxed);
+
+                match result {
+                    Ok(_) => {
+                        proc_count.fetch_add(1, Ordering::Relaxed);
+                        if let Ok(conn) = db::open_db() {
+                            let _ = conn.execute(
+                                "UPDATE inbox_items SET status = 'processed', processed_at = datetime('now','localtime') WHERE id = ?1",
+                                rusqlite::params![item.id],
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        let retryable = is_retryable(&err_str);
+                        if retryable {
+                            if let Ok(conn) = db::open_db() {
+                                let _ = conn.execute(
+                                    "UPDATE inbox_items SET retry_count = retry_count + 1, last_error = ?1, status = 'pending' WHERE id = ?2",
+                                    rusqlite::params![err_str, item.id],
+                                );
+                            }
+                        } else {
+                            fail_count.fetch_add(1, Ordering::Relaxed);
+                            if let Ok(conn) = db::open_db() {
+                                let _ = conn.execute(
+                                    "UPDATE inbox_items SET status = 'failed', last_error = ?1 WHERE id = ?2",
+                                    rusqlite::params![err_str, item.id],
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // 动态调节并发
+                adjust_concurrency(&max_conc, elapsed, false);
+
+                let _ = progress_tx.send(ProcessingProgress {
+                    total: total_c.load(Ordering::Relaxed),
+                    processed: proc_count.load(Ordering::Relaxed),
+                    failed: fail_count.load(Ordering::Relaxed),
+                    active: act_count.load(Ordering::Relaxed),
+                    current_item: None,
+                    running: true,
+                });
+            });
+
+            handles.push(handle);
+        }
+
+        // 后台等待完成
+        let running = self.running.clone();
+        let progress_tx = self.progress_tx.clone();
+        let proc = self.processed_count.clone();
+        let fail = self.failed_count.clone();
+        let tot = self.total_count.clone();
+        let act = self.active_count.clone();
+
+        tokio::spawn(async move {
+            for h in handles { let _ = h.await; }
+            running.store(false, Ordering::Relaxed);
+            let _ = progress_tx.send(ProcessingProgress {
+                total: tot.load(Ordering::Relaxed),
+                processed: proc.load(Ordering::Relaxed),
+                failed: fail.load(Ordering::Relaxed),
+                active: act.load(Ordering::Relaxed),
+                current_item: None,
+                running: false,
+            });
+        });
+
+        Ok(total)
+    }
+}
+
+/// 处理单个队列项
+async fn process_queue_item(item: &QueueItem) -> anyhow::Result<()> {
+    let content = item.content_text.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("内容为空"))?;
+
+    let ai_config = crate::ai::load_ai_config();
+    if ai_config.mode != "noop" {
+        let result = crate::ai::process_inbox_with_ai(content).await;
+        match result {
+            Ok((ai_result, _)) => {
+                let conn = db::open_db()?;
+                let extracted = serde_json::to_string(&ai_result.extracted_info).ok();
+                conn.execute(
+                    "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2, ai_extracted = ?3 WHERE id = ?4",
+                    rusqlite::params![ai_result.category, ai_result.confidence, extracted, item.id],
+                )?;
+                Ok(())
+            }
+            Err(e) => Err(anyhow::anyhow!("AI 处理失败: {}", e)),
+        }
+    } else {
+        let parsed = parse::classify_document(content);
+        let conn = db::open_db()?;
+        let extracted = serde_json::to_string(&parsed).ok();
+        conn.execute(
+            "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2, ai_extracted = ?3 WHERE id = ?4",
+            rusqlite::params![parsed.doc_type, parsed.confidence, extracted, item.id],
+        )?;
+        Ok(())
+    }
+}
+
+fn is_retryable(err: &str) -> bool {
+    err.contains("timeout") || err.contains("429") || err.contains("rate")
+        || err.contains("network") || err.contains("connection")
+        || err.contains("500") || err.contains("502") || err.contains("503")
+}
+
+fn adjust_concurrency(max: &AtomicUsize, response_time_ms: u64, is_rate_limited: bool) {
+    let current = max.load(Ordering::Relaxed);
+    let new_val = if is_rate_limited {
+        (current / 2).max(1)
+    } else if response_time_ms > 5000 {
+        current.saturating_sub(1).max(1)
+    } else if response_time_ms < 1000 && current < 8 {
+        (current + 1).min(8)
+    } else {
+        current
+    };
+    max.store(new_val, Ordering::Relaxed);
+}
+
+/// 启动批量处理
+#[tauri::command]
+pub async fn start_inbox_batch() -> Result<ProcessingProgress, String> {
+    let processor = get_processor();
+    processor.start_batch().await.map_err(|e| e.to_string())?;
+    Ok(processor.get_progress())
+}
+
+/// 暂停批量处理
+#[tauri::command]
+pub async fn pause_inbox_batch() -> Result<(), String> {
+    get_processor().paused.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+/// 恢复批量处理
+#[tauri::command]
+pub async fn resume_inbox_batch() -> Result<(), String> {
+    get_processor().paused.store(false, Ordering::Relaxed);
+    Ok(())
+}
+
+/// 取消批量处理
+#[tauri::command]
+pub async fn cancel_inbox_batch() -> Result<(), String> {
+    let p = get_processor();
+    p.cancel.store(true, Ordering::Relaxed);
+    p.paused.store(false, Ordering::Relaxed);
+    Ok(())
+}
+
+/// 获取处理进度
+#[tauri::command]
+pub async fn get_inbox_progress() -> Result<ProcessingProgress, String> {
+    Ok(get_processor().get_progress())
+}
+
+/// 重试单个失败项
+#[tauri::command]
+pub async fn retry_inbox_item(id: String) -> Result<(), String> {
+    let conn = db::open_db().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE inbox_items SET status = 'pending', last_error = NULL WHERE id = ?1 AND status = 'failed'",
+        rusqlite::params![id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 重试某案件的所有失败项
+#[tauri::command]
+pub async fn retry_inbox_case(case_id: String) -> Result<usize, String> {
+    let conn = db::open_db().map_err(|e| e.to_string())?;
+    let count = conn.execute(
+        "UPDATE inbox_items SET status = 'pending', last_error = NULL WHERE linked_case_id = ?1 AND status = 'failed'",
+        rusqlite::params![case_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(count)
+}

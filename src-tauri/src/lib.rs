@@ -95,8 +95,17 @@ pub fn run() {
             }
 
             // 启动每日期限重算定时器（每天 00:01）
-            tokio::spawn(async {
+            tauri::async_runtime::spawn(async {
                 deadline_recalc_scheduler().await;
+            });
+
+            // 启动提醒引擎（每 5 分钟检查期限/开庭/任务规则）
+            // 幂等：引擎内部 running 标志保证单实例
+            tauri::async_runtime::spawn(async move {
+                match commands::reminder::start_reminder_engine(Some(300)).await {
+                    Ok(_) => log::info!("提醒引擎已在启动时拉起"),
+                    Err(e) => log::warn!("提醒引擎启动失败: {}", e),
+                }
             });
 
             Ok(())

@@ -50,6 +50,18 @@ pub struct Case {
     pub patentee_received_supp_date: Option<String>,
     pub patentee_supp_deadline: Option<String>,
     pub patentee_submit_supp_date: Option<String>,
+    // 双轨状态机
+    pub case_route: Option<String>,
+    pub civil_status: Option<String>,
+    pub invalidation_status: Option<String>,
+    pub admin_status: Option<String>,
+    // 无效程序新增日期
+    pub invalidation_decision_date: Option<String>,
+    pub invalidation_decision_type: Option<String>,
+    // 行政诉讼新增日期
+    pub admin_filing_date: Option<String>,
+    pub admin_verdict_date: Option<String>,
+    pub admin_trial2_date: Option<String>,
     pub folder_path: Option<String>,
     pub folder_template_id: Option<String>,
     pub last_doc_path: Option<String>,
@@ -78,6 +90,11 @@ pub struct CaseFilter {
     pub sort_by: Option<String>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
+    // 新状态机筛选
+    pub case_route: Option<String>,
+    pub civil_status: Option<String>,
+    pub invalidation_status: Option<String>,
+    pub admin_status: Option<String>,
 }
 
 /// 列表查询结果
@@ -140,6 +157,40 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
             sql.push_str(&cond);
             count_sql.push_str(&cond);
             params_vec.push(Box::new(like));
+            param_idx += 1;
+        }
+    }
+
+    // 新状态机筛选
+    if let Some(case_route) = &filter.case_route {
+        if !case_route.is_empty() {
+            sql.push_str(&format!(" AND case_route = ?{}", param_idx));
+            count_sql.push_str(&format!(" AND case_route = ?{}", param_idx));
+            params_vec.push(Box::new(case_route.clone()));
+            param_idx += 1;
+        }
+    }
+    if let Some(civil_status) = &filter.civil_status {
+        if !civil_status.is_empty() {
+            sql.push_str(&format!(" AND civil_status = ?{}", param_idx));
+            count_sql.push_str(&format!(" AND civil_status = ?{}", param_idx));
+            params_vec.push(Box::new(civil_status.clone()));
+            param_idx += 1;
+        }
+    }
+    if let Some(invalidation_status) = &filter.invalidation_status {
+        if !invalidation_status.is_empty() {
+            sql.push_str(&format!(" AND invalidation_status = ?{}", param_idx));
+            count_sql.push_str(&format!(" AND invalidation_status = ?{}", param_idx));
+            params_vec.push(Box::new(invalidation_status.clone()));
+            param_idx += 1;
+        }
+    }
+    if let Some(admin_status) = &filter.admin_status {
+        if !admin_status.is_empty() {
+            sql.push_str(&format!(" AND admin_status = ?{}", param_idx));
+            count_sql.push_str(&format!(" AND admin_status = ?{}", param_idx));
+            params_vec.push(Box::new(admin_status.clone()));
             param_idx += 1;
         }
     }
@@ -227,10 +278,13 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
          petitioner_received_date, petitioner_reply_deadline,
          patentee_received_date, patentee_statement_deadline, patentee_received_supp_date,
          patentee_supp_deadline, patentee_submit_supp_date,
+         case_route, civil_status, invalidation_status, admin_status,
+         invalidation_decision_date, invalidation_decision_type,
+         admin_filing_date, admin_verdict_date, admin_trial2_date,
          folder_path, notes, created_at, updated_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
                  ?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,
-                 ?36,?37,?38,?39,?40,?41,?42,?43,?44,?45)",
+                 ?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,?53,?54)",
         params![
             case.id, case.track, case.case_name, case.case_no, case.internal_no, case.cause_action,
             case.client_name, case.our_role, case.opponent_name, case.opponent_role,
@@ -243,6 +297,9 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
             case.petitioner_received_date, case.petitioner_reply_deadline,
             case.patentee_received_date, case.patentee_statement_deadline, case.patentee_received_supp_date,
             case.patentee_supp_deadline, case.patentee_submit_supp_date,
+            case.case_route, case.civil_status, case.invalidation_status, case.admin_status,
+            case.invalidation_decision_date, case.invalidation_decision_type,
+            case.admin_filing_date, case.admin_verdict_date, case.admin_trial2_date,
             case.folder_path, case.notes, case.created_at, case.updated_at,
         ],
     )?;
@@ -280,6 +337,16 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
         ("patenteeSuppDeadline", "patentee_supp_deadline"),
         ("patenteeSubmitSuppDate", "patentee_submit_supp_date"),
         ("folderTemplateId", "folder_template_id"),
+        // 双轨状态机
+        ("caseRoute", "case_route"),
+        ("civilStatus", "civil_status"),
+        ("invalidationStatus", "invalidation_status"),
+        ("adminStatus", "admin_status"),
+        ("invalidationDecisionDate", "invalidation_decision_date"),
+        ("invalidationDecisionType", "invalidation_decision_type"),
+        ("adminFilingDate", "admin_filing_date"),
+        ("adminVerdictDate", "admin_verdict_date"),
+        ("adminTrial2Date", "admin_trial2_date"),
     ];
 
     let mut param_idx = 1;
@@ -463,6 +530,15 @@ fn row_to_case(row: &rusqlite::Row) -> rusqlite::Result<Case> {
         patentee_received_supp_date: row_get_string(row, "patentee_received_supp_date")?,
         patentee_supp_deadline: row_get_string(row, "patentee_supp_deadline")?,
         patentee_submit_supp_date: row_get_string(row, "patentee_submit_supp_date")?,
+        case_route: row_get_string(row, "case_route")?,
+        civil_status: row_get_string(row, "civil_status")?,
+        invalidation_status: row_get_string(row, "invalidation_status")?,
+        admin_status: row_get_string(row, "admin_status")?,
+        invalidation_decision_date: row_get_string(row, "invalidation_decision_date")?,
+        invalidation_decision_type: row_get_string(row, "invalidation_decision_type")?,
+        admin_filing_date: row_get_string(row, "admin_filing_date")?,
+        admin_verdict_date: row_get_string(row, "admin_verdict_date")?,
+        admin_trial2_date: row_get_string(row, "admin_trial2_date")?,
         folder_path: row_get_string(row, "folder_path")?,
         folder_template_id: row_get_string(row, "folder_template_id")?,
         last_doc_path: row_get_string(row, "last_doc_path")?,

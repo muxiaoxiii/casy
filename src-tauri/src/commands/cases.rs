@@ -606,3 +606,145 @@ pub async fn recalculate_all_formulas() -> Result<usize, String> {
         Ok(count)
     }).await
 }
+
+/// 手动切换案件状态（双轨状态机）
+///
+/// 更新指定轨道的状态，并自动记录到 case_track_history。
+/// track: "civil_status" | "invalidation_status" | "admin_status"
+/// new_status: 目标状态值
+#[tauri::command]
+pub async fn update_case_status(
+    case_id: String,
+    track: String,
+    new_status: String,
+    note: Option<String>,
+) -> Result<db::cases::Case, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+
+        // 1. 获取当前状态
+        let old_status: Option<String> = conn.query_row(
+            &format!("SELECT {} FROM cases WHERE id = ?1", track),
+            rusqlite::params![case_id],
+            |r| r.get(0),
+        ).ok().flatten();
+
+        // 2. 更新状态
+        conn.execute(
+            &format!("UPDATE cases SET {} = ?1, updated_at = ?2 WHERE id = ?3", track),
+            rusqlite::params![new_status, db::now_local(), case_id],
+        )?;
+
+        // 3. 同步更新聚合状态 case_status
+        let civil: Option<String> = conn.query_row(
+            "SELECT civil_status FROM cases WHERE id = ?1",
+            rusqlite::params![case_id],
+            |r| r.get(0),
+        ).unwrap_or(None);
+        let invalidation: Option<String> = conn.query_row(
+            "SELECT invalidation_status FROM cases WHERE id = ?1",
+            rusqlite::params![case_id],
+            |r| r.get(0),
+        ).unwrap_or(None);
+        let admin: Option<String> = conn.query_row(
+            "SELECT admin_status FROM cases WHERE id = ?1",
+            rusqlite::params![case_id],
+            |r| r.get(0),
+        ).unwrap_or(None);
+
+        let aggregate = compute_aggregate_status(civil.as_deref(), invalidation.as_deref(), admin.as_deref());
+        conn.execute(
+            "UPDATE cases SET case_status = ?1 WHERE id = ?2",
+            rusqlite::params![aggregate, case_id],
+        )?;
+
+        // 4. 记录到 case_track_history
+        let track_name = match track.as_str() {
+            "civil_status" => "民事诉讼",
+            "invalidation_status" => "专利无效",
+            "admin_status" => "行政诉讼",
+            _ => "其他",
+        };
+        conn.execute(
+            "INSERT INTO case_track_history (id, case_id, track, from_status, to_status, changed_at, source, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'manual', ?7)",
+            rusqlite::params![
+                db::new_id(),
+                case_id,
+                track_name,
+                old_status,
+                new_status,
+                db::now_local(),
+                note,
+            ],
+        )?;
+
+        // 5. 返回更新后的案件
+        db::cases::get_case(&conn, &case_id)
+    })
+    .await
+}
+
+/// 从三轨状态推导聚合 case_status
+fn compute_aggregate_status(
+    civil: Option<&str>,
+    invalidation: Option<&str>,
+    admin: Option<&str>,
+) -> &'static str {
+    let civil_closed = civil == Some("closed");
+    let inv_done = invalidation.is_none() || invalidation == Some("decision_issued");
+    let admin_closed = admin.is_none() || admin == Some("closed");
+
+    if civil_closed && inv_done && admin_closed {
+        "已完结"
+    } else if civil.is_some() || invalidation.is_some() || admin.is_some() {
+        "进行中"
+    } else {
+        "未知"
+    }
+}
+
+/// 获取今日概览统计
+#[tauri::command]
+pub async fn get_today_stats() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        // 硬性日程（开庭/口审）
+        let hard_schedule: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM hearings WHERE hearing_date = ?1",
+            rusqlite::params![today],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        // 今日到期任务
+        let due_today: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE (deadline = ?1 OR due_date = ?1) AND completed = 0",
+            rusqlite::params![today],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        // 等待超3天
+        let waiting_overdue: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE task_type = 'waiting' AND follow_up_date < date(?1, '-3 days') AND completed = 0",
+            rusqlite::params![today],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        // 需回顾案件
+        let need_review: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM cases WHERE next_review_date <= ?1",
+            rusqlite::params![today],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        Ok(serde_json::json!({
+            "hardSchedule": hard_schedule,
+            "dueToday": due_today,
+            "waitingOverdue": waiting_overdue,
+            "needReview": need_review,
+        }))
+    })
+    .await
+}

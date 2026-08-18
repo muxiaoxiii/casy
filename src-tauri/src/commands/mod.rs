@@ -1,3 +1,4 @@
+pub mod areas;
 pub mod calendar;
 pub mod cases;
 pub mod docs;
@@ -12,6 +13,7 @@ pub mod settings;
 pub mod sync;
 pub mod tasks;
 pub mod timeline;
+pub mod ai_routes;
 
 // AI 和邮件命令直接在对应模块中定义
 
@@ -62,6 +64,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         cases::recalculate_case_formulas,
         cases::recalculate_all_formulas,
         cases::export_cases,
+        cases::update_case_status,
+        cases::get_today_stats,
         import_feishu_data,
         get_deadline_warnings,
         tasks::list_tasks,
@@ -182,13 +186,33 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::list_task_templates,
         tasks::create_task_template,
         tasks::apply_task_template,
+        // 领域命令
+        areas::list_areas,
+        areas::get_area,
+        areas::create_area,
+        areas::update_area,
+        areas::delete_area,
+        areas::get_area_stats,
         // 送达文书命令
         inbox::download_service_delivery,
         inbox::process_service_delivery,
+        // 批量处理队列
+        inbox::start_inbox_batch,
+        inbox::pause_inbox_batch,
+        inbox::resume_inbox_batch,
+        inbox::cancel_inbox_batch,
+        inbox::get_inbox_progress,
+        inbox::retry_inbox_item,
+        inbox::retry_inbox_case,
         // 日志调试命令
         get_log_dir,
         get_recent_logs,
         search_logs,
+        // AI 路由与确认命令
+        ai_routes::get_command_route_info,
+        ai_routes::get_ai_run_history,
+        ai_routes::check_confirmation_required,
+        ai_routes::calculate_effective_policy_cmd,
     ]
 }
 

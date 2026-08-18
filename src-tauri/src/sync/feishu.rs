@@ -1905,7 +1905,7 @@ pub fn start_auto_push_watcher() {
     let mut rx = manager.tx.subscribe();
     let enabled = manager.enabled.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         log::info!("飞书自动推送 watcher 已启动");
 
         loop {

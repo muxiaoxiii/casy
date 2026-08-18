@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -481,7 +481,7 @@ CREATE TABLE IF NOT EXISTS knowledge_relations (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_items(category);
 CREATE INDEX IF NOT EXISTS idx_knowledge_case ON knowledge_items(linked_case_id);
-CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);
+-- idx_knowledge_law moved to migration (old DBs may not have law_name column)
 
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
   title, content, tags,
@@ -631,6 +631,8 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("5", MIGRATION_V5_SQL),
     ("6", MIGRATION_V6_SQL),
     ("7", MIGRATION_V7_SQL),
+    ("8", MIGRATION_V8_SQL),
+    ("9", MIGRATION_V9_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1120,6 +1122,582 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
 ('folder_naming_file_format', '"{date}_{category}_{case_no}_{hash}.{ext}"');
 "#;
 
+/// 版本 8: 双轨状态机 + 审级历程 + 批量处理队列
+pub const MIGRATION_V8_SQL: &str = r#"
+-- ============================================================
+-- cases 表：双轨状态机字段
+-- ============================================================
+ALTER TABLE cases ADD COLUMN case_route TEXT NOT NULL DEFAULT '民事诉讼'
+  CHECK(case_route IN ('民事诉讼','专利无效','行政诉讼','民事诉讼+专利无效','专利无效+行政诉讼','三轨并行'));
+
+ALTER TABLE cases ADD COLUMN civil_status TEXT DEFAULT 'intake'
+  CHECK(civil_status IN ('intake','filed','pre_hearing','in_trial','settled','awaiting_verdict','verdict_issued','appeal_period','second_instance','second_verdict','retrial','enforcement','suspended','closed'));
+
+ALTER TABLE cases ADD COLUMN invalidation_status TEXT
+  CHECK(invalidation_status IN ('preparing','filed','pre_oral','oral_done','awaiting_decision','decision_issued'));
+
+ALTER TABLE cases ADD COLUMN admin_status TEXT
+  CHECK(admin_status IN ('filed','pre_hearing','in_trial','awaiting_verdict','verdict_issued','second_instance','closed'));
+
+-- 无效程序新增日期
+ALTER TABLE cases ADD COLUMN invalidation_decision_date TEXT;
+ALTER TABLE cases ADD COLUMN invalidation_decision_type TEXT;
+
+-- 行政诉讼新增日期
+ALTER TABLE cases ADD COLUMN admin_filing_date TEXT;
+ALTER TABLE cases ADD COLUMN admin_verdict_date TEXT;
+ALTER TABLE cases ADD COLUMN admin_trial2_date TEXT;
+
+-- 新增索引
+CREATE INDEX IF NOT EXISTS idx_cases_route ON cases(case_route);
+CREATE INDEX IF NOT EXISTS idx_cases_civil_status ON cases(civil_status);
+CREATE INDEX IF NOT EXISTS idx_cases_invalidation_status ON cases(invalidation_status);
+CREATE INDEX IF NOT EXISTS idx_cases_admin_status ON cases(admin_status);
+
+-- ============================================================
+-- 审级历程表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS case_track_history (
+  id          TEXT PRIMARY KEY,
+  case_id     TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  track       TEXT NOT NULL CHECK(track IN ('民事诉讼','专利无效','行政诉讼')),
+  from_status TEXT,
+  to_status   TEXT NOT NULL,
+  changed_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  source      TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','auto','ai')),
+  note        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_history_case ON case_track_history(case_id, track);
+
+-- ============================================================
+-- 收件箱批量处理字段
+-- ============================================================
+ALTER TABLE inbox_items ADD COLUMN retry_count INTEGER DEFAULT 0;
+ALTER TABLE inbox_items ADD COLUMN last_error TEXT;
+ALTER TABLE inbox_items ADD COLUMN processing_started_at TEXT;
+
+-- 扩展 status CHECK（保留现有值，新增 processing/failed）
+-- 注意：SQLite 不支持 ALTER CHECK，需要重建表
+CREATE TABLE IF NOT EXISTS inbox_items_v8 (
+  id              TEXT PRIMARY KEY,
+  source_type     TEXT NOT NULL CHECK(source_type IN ('file','email','sms','note','paste','imap')),
+  source_path     TEXT,
+  source_url      TEXT,
+  source_time     TEXT,
+  title           TEXT,
+  content_text    TEXT,
+  content_html    TEXT,
+  ai_category     TEXT,
+  ai_confidence   REAL,
+  ai_extracted    TEXT,
+  ai_suggested_case_id TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending','processing','processed','filed','archived','ignored','failed')),
+  user_category   TEXT,
+  linked_case_id  TEXT REFERENCES cases(id) ON DELETE SET NULL,
+  filed_to        TEXT,
+  filed_as        TEXT,
+  knowledge_mark  INTEGER DEFAULT 0 CHECK(knowledge_mark IN (0,1,2)),
+  parent_id       TEXT REFERENCES inbox_items(id),
+  quick_category  TEXT,
+  quick_confidence REAL,
+  ai_analyzed     INTEGER DEFAULT 0,
+  copy_progress   INTEGER,
+  file_hash       TEXT,
+  retry_count     INTEGER DEFAULT 0,
+  last_error      TEXT,
+  processing_started_at TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  processed_at    TEXT
+);
+
+INSERT INTO inbox_items_v8 (
+  id, source_type, source_path, source_url, title,
+  content_text, content_html, ai_category, ai_confidence, ai_extracted,
+  ai_suggested_case_id, status, user_category, linked_case_id,
+  filed_to, filed_as, knowledge_mark, parent_id, quick_category,
+  quick_confidence, ai_analyzed, copy_progress, file_hash,
+  created_at, processed_at
+)
+SELECT
+  id, source_type, source_path, source_url, title,
+  content_text, content_html, ai_category, ai_confidence, ai_extracted,
+  ai_suggested_case_id, status, user_category, linked_case_id,
+  filed_to, filed_as, knowledge_mark, parent_id, quick_category,
+  quick_confidence, ai_analyzed, copy_progress, file_hash,
+  created_at, processed_at
+FROM inbox_items;
+
+DROP TABLE inbox_items;
+ALTER TABLE inbox_items_v8 RENAME TO inbox_items;
+
+CREATE INDEX IF NOT EXISTS idx_inbox_status ON inbox_items(status);
+CREATE INDEX IF NOT EXISTS idx_inbox_category ON inbox_items(ai_category);
+CREATE INDEX IF NOT EXISTS idx_inbox_case ON inbox_items(linked_case_id);
+
+-- 知识库 law_name 索引在 run_migrations 中条件创建（旧 DB 可能缺少该列）
+
+-- 处理队列视图
+CREATE VIEW IF NOT EXISTS v_inbox_queue AS
+SELECT id, title, source_type, content_text, source_path, retry_count
+FROM inbox_items
+WHERE status IN ('pending', 'failed')
+ORDER BY
+  CASE source_type
+    WHEN 'manual' THEN 1
+    WHEN 'paste' THEN 2
+    WHEN 'file' THEN 3
+    WHEN 'email' THEN 4
+    WHEN 'imap' THEN 5
+    WHEN 'sms' THEN 6
+    WHEN 'note' THEN 7
+    ELSE 8
+  END,
+  created_at ASC;
+"#;
+
+/// 版本 9: GTD 化改造 — 任务/案件 GTD 字段 + 领域 + 智伴/审计新表
+pub const MIGRATION_V9_SQL: &str = r#"
+-- ============================================================
+-- 领域表（areas）—— 长期业务方向
+-- ============================================================
+CREATE TABLE IF NOT EXISTS areas (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL UNIQUE,
+  description     TEXT,
+  icon            TEXT,
+  sort_order      INTEGER DEFAULT 0,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_areas_updated
+AFTER UPDATE ON areas FOR EACH ROW
+BEGIN
+  UPDATE areas SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- 种子数据：默认领域
+INSERT OR IGNORE INTO areas (id, name, description, sort_order) VALUES
+  ('area-patent-litigation', '专利诉讼', '专利侵权、无效等诉讼业务', 1),
+  ('area-patent-invalidation', '专利无效', '专利无效宣告程序', 2),
+  ('area-admin-litigation', '行政诉讼', '行政诉讼业务', 3),
+  ('area-advisory', '顾问咨询', '常年顾问、法律咨询', 4);
+
+-- ============================================================
+-- tasks 表：GTD 化字段
+-- ============================================================
+-- 任务类型
+ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'action'
+  CHECK(task_type IN ('action','waiting','delegated','someday'));
+
+-- 时间双轨
+ALTER TABLE tasks ADD COLUMN start_date TEXT;
+ALTER TABLE tasks ADD COLUMN due_date TEXT;
+
+-- 等待/委派
+ALTER TABLE tasks ADD COLUMN waiting_for TEXT;
+ALTER TABLE tasks ADD COLUMN follow_up_date TEXT;
+
+-- 上下文
+ALTER TABLE tasks ADD COLUMN context TEXT;
+
+-- 旗标
+ALTER TABLE tasks ADD COLUMN flagged INTEGER DEFAULT 0 CHECK(flagged IN (0,1));
+
+-- 顺序项目
+ALTER TABLE tasks ADD COLUMN sequential INTEGER DEFAULT 0 CHECK(sequential IN (0,1));
+ALTER TABLE tasks ADD COLUMN blocked INTEGER DEFAULT 0 CHECK(blocked IN (0,1));
+ALTER TABLE tasks ADD COLUMN sequence_order INTEGER DEFAULT 0;
+
+-- 时间桶
+ALTER TABLE tasks ADD COLUMN start_bucket TEXT DEFAULT 'anytime'
+  CHECK(start_bucket IN ('inbox','anytime','someday','today'));
+
+-- Today 排序
+ALTER TABLE tasks ADD COLUMN today_index INTEGER DEFAULT 0;
+
+-- 时间预估/实际
+ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER;
+ALTER TABLE tasks ADD COLUMN actual_minutes INTEGER;
+
+-- 缓存标志
+ALTER TABLE tasks ADD COLUMN is_overdue INTEGER DEFAULT 0 CHECK(is_overdue IN (0,1));
+ALTER TABLE tasks ADD COLUMN due_soon INTEGER DEFAULT 0 CHECK(due_soon IN (0,1));
+
+-- 回顾
+ALTER TABLE tasks ADD COLUMN last_review_date TEXT;
+ALTER TABLE tasks ADD COLUMN next_review_date TEXT;
+
+-- 关联
+ALTER TABLE tasks ADD COLUMN area_id TEXT REFERENCES areas(id);
+ALTER TABLE tasks ADD COLUMN knowledge_id TEXT REFERENCES knowledge_items(id);
+
+-- 更新时间
+ALTER TABLE tasks ADD COLUMN updated_at TEXT DEFAULT (datetime('now','localtime'));
+
+-- 新增索引
+CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(task_type);
+CREATE INDEX IF NOT EXISTS idx_tasks_start_date ON tasks(start_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_bucket ON tasks(start_bucket);
+CREATE INDEX IF NOT EXISTS idx_tasks_flagged ON tasks(flagged);
+CREATE INDEX IF NOT EXISTS idx_tasks_blocked ON tasks(blocked);
+CREATE INDEX IF NOT EXISTS idx_tasks_overdue ON tasks(is_overdue);
+CREATE INDEX IF NOT EXISTS idx_tasks_area ON tasks(area_id);
+
+-- tasks updated_at 触发器
+CREATE TRIGGER IF NOT EXISTS trg_tasks_updated
+AFTER UPDATE ON tasks FOR EACH ROW
+BEGIN
+  UPDATE tasks SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- cases 表：GTD 化字段
+-- ============================================================
+-- 顺序项目
+ALTER TABLE cases ADD COLUMN sequential INTEGER DEFAULT 1 CHECK(sequential IN (0,1));
+ALTER TABLE cases ADD COLUMN next_action_id TEXT REFERENCES tasks(id);
+
+-- 统计缓存
+ALTER TABLE cases ADD COLUMN overdue_task_count INTEGER DEFAULT 0;
+ALTER TABLE cases ADD COLUMN remaining_task_count INTEGER DEFAULT 0;
+
+-- 回顾
+ALTER TABLE cases ADD COLUMN next_review_date TEXT;
+
+-- 客户/领域关联
+ALTER TABLE cases ADD COLUMN client_id TEXT REFERENCES clients(id);
+ALTER TABLE cases ADD COLUMN area_id TEXT REFERENCES areas(id);
+
+-- 案件类型（计算/探索/成长）
+ALTER TABLE cases ADD COLUMN case_type TEXT DEFAULT 'exploratory'
+  CHECK(case_type IN ('computational','exploratory','growth'));
+
+-- 案件目标（30字内）
+ALTER TABLE cases ADD COLUMN case_goal TEXT;
+
+-- 新增索引
+CREATE INDEX IF NOT EXISTS idx_cases_sequential ON cases(sequential);
+CREATE INDEX IF NOT EXISTS idx_cases_next_action ON cases(next_action_id);
+CREATE INDEX IF NOT EXISTS idx_cases_review_date ON cases(next_review_date);
+CREATE INDEX IF NOT EXISTS idx_cases_client_id ON cases(client_id);
+CREATE INDEX IF NOT EXISTS idx_cases_area_id ON cases(area_id);
+CREATE INDEX IF NOT EXISTS idx_cases_case_type ON cases(case_type);
+
+-- ============================================================
+-- 行为事件表（task_events）—— 学习数据
+-- ============================================================
+CREATE TABLE IF NOT EXISTS task_events (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_type      TEXT NOT NULL CHECK(event_type IN (
+    'created','completed','deferred','snoozed','reminded',
+    'overdue','escalated','cancelled','moved'
+  )),
+  occurred_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  payload         TEXT,  -- JSON
+  actor           TEXT DEFAULT 'user' CHECK(actor IN ('user','ai','system'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_task_events_time ON task_events(occurred_at);
+
+-- ============================================================
+-- 决策记录表（decisions）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS decisions (
+  id              TEXT PRIMARY KEY,
+  entity_type     TEXT NOT NULL CHECK(entity_type IN ('case','client','task','knowledge')),
+  entity_id       TEXT NOT NULL,
+  decision_type   TEXT NOT NULL CHECK(decision_type IN (
+    'appeal','settle','accept','refuse','other',
+    'recommend_today','recommend_priority','recommend_estimate',
+    'recommend_schedule','recommend_action','recommend_followup'
+  )),
+  decision        TEXT NOT NULL,
+  basis           TEXT,  -- JSON: 决策依据
+  ai_advice       TEXT,  -- AI 建议留档
+  ai_model        TEXT,
+  source_ref      TEXT,  -- JSON: 依据来源
+  status          TEXT DEFAULT 'proposed' CHECK(status IN ('proposed','confirmed','rejected','voided')),
+  recursive_checked INTEGER DEFAULT 0 CHECK(recursive_checked IN (0,1)),
+  confirmed_at    TEXT,
+  review_due      TEXT,
+  reviewed_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_decisions_entity ON decisions(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_type ON decisions(decision_type);
+CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status);
+
+CREATE TRIGGER IF NOT EXISTS trg_decisions_updated
+AFTER UPDATE ON decisions FOR EACH ROW
+BEGIN
+  UPDATE decisions SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- AI 审计表（ai_runs + ai_context_items）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_runs (
+  id              TEXT PRIMARY KEY,
+  provider        TEXT NOT NULL,
+  model           TEXT NOT NULL,
+  purpose         TEXT NOT NULL,
+  prompt_version  TEXT,
+  status          TEXT DEFAULT 'pending' CHECK(status IN ('pending','running','completed','failed')),
+  input_hash      TEXT,
+  output_hash     TEXT,
+  job_id          TEXT,
+  error_message   TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  completed_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_runs_purpose ON ai_runs(purpose);
+CREATE INDEX IF NOT EXISTS idx_ai_runs_model ON ai_runs(model);
+CREATE INDEX IF NOT EXISTS idx_ai_runs_status ON ai_runs(status);
+
+CREATE TABLE IF NOT EXISTS ai_context_items (
+  id              TEXT PRIMARY KEY,
+  run_id          TEXT NOT NULL REFERENCES ai_runs(id) ON DELETE CASCADE,
+  source_type     TEXT NOT NULL,
+  source_id       TEXT NOT NULL,
+  source_field    TEXT,
+  content_hash    TEXT,
+  snapshot_version TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_context_run ON ai_context_items(run_id);
+
+-- ============================================================
+-- 领域事件表（audit_events）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS audit_events (
+  id              TEXT PRIMARY KEY,
+  aggregate_type  TEXT NOT NULL,
+  aggregate_id    TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  payload         TEXT,  -- JSON
+  actor           TEXT DEFAULT 'user' CHECK(actor IN ('user','ai','system','mcp','skill')),
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_aggregate ON audit_events(aggregate_type, aggregate_id);
+CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(created_at);
+
+-- ============================================================
+-- 报表/总结表（smart_summaries）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS smart_summaries (
+  id              TEXT PRIMARY KEY,
+  summary_type    TEXT NOT NULL CHECK(summary_type IN ('daily','weekly','monthly','project','client')),
+  entity_type     TEXT,  -- case/client/null
+  entity_id       TEXT,
+  title           TEXT NOT NULL,
+  content         TEXT,  -- Markdown/JSON
+  structured_data TEXT,  -- JSON: 结构化数据
+  ai_model        TEXT,
+  status          TEXT DEFAULT 'draft' CHECK(status IN ('draft','confirmed','archived')),
+  period_start    TEXT,
+  period_end      TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_summaries_type ON smart_summaries(summary_type);
+CREATE INDEX IF NOT EXISTS idx_summaries_entity ON smart_summaries(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_period ON smart_summaries(period_start, period_end);
+
+CREATE TRIGGER IF NOT EXISTS trg_summaries_updated
+AFTER UPDATE ON smart_summaries FOR EACH ROW
+BEGIN
+  UPDATE smart_summaries SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- 每日统计表（daily_stats）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS daily_stats (
+  id              TEXT PRIMARY KEY,
+  date            TEXT NOT NULL UNIQUE,
+  task_done       INTEGER DEFAULT 0,
+  task_total      INTEGER DEFAULT 0,
+  overdue_count   INTEGER DEFAULT 0,
+  overdue_days    INTEGER DEFAULT 0,
+  hearing_count   INTEGER DEFAULT 0,
+  deadline_count  INTEGER DEFAULT 0,
+  waiting_overdue_3d INTEGER DEFAULT 0,
+  case_transitions TEXT,  -- JSON
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_stats_date ON daily_stats(date);
+
+-- ============================================================
+-- 外置记忆表（memory_entries）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS memory_entries (
+  id              TEXT PRIMARY KEY,
+  layer           TEXT NOT NULL CHECK(layer IN ('l1','l2','l3')),
+  content         TEXT NOT NULL,
+  source_ref      TEXT,  -- JSON: 单一来源
+  status          TEXT DEFAULT 'active' CHECK(status IN ('active','stale','archived')),
+  confidence      REAL DEFAULT 0.5,
+  ai_model        TEXT,
+  last_used_at    TEXT,
+  merged_from     TEXT,  -- JSON: 合并来源 ID 列表
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_layer ON memory_entries(layer);
+CREATE INDEX IF NOT EXISTS idx_memory_status ON memory_entries(status);
+CREATE INDEX IF NOT EXISTS idx_memory_last_used ON memory_entries(last_used_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_memory_updated
+AFTER UPDATE ON memory_entries FOR EACH ROW
+BEGIN
+  UPDATE memory_entries SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- 多来源引用表（provenance）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS provenance (
+  id              TEXT PRIMARY KEY,
+  entity_type     TEXT NOT NULL,
+  entity_id       TEXT NOT NULL,
+  source_type     TEXT NOT NULL,
+  source_id       TEXT NOT NULL,
+  source_field    TEXT,
+  relation        TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_provenance_entity ON provenance(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_provenance_source ON provenance(source_type, source_id);
+
+-- ============================================================
+-- 提醒作业表（reminder_jobs）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reminder_jobs (
+  id                TEXT PRIMARY KEY,
+  rule_id           TEXT REFERENCES reminder_rules(id),
+  entity_type       TEXT NOT NULL CHECK(entity_type IN ('case','task','hearing','deadline')),
+  entity_id         TEXT NOT NULL,
+  channel           TEXT NOT NULL CHECK(channel IN ('local','system','calendar','email_ics','feishu_message','feishu_task')),
+  executor          TEXT DEFAULT 'local' CHECK(executor IN ('local','calendar')),
+  scheduled_at      TEXT NOT NULL,
+  timezone          TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+  offset_snapshot   TEXT,
+  calendar_account  TEXT,
+  calendar_event_id TEXT,
+  calendar_etag     TEXT,
+  content           TEXT,
+  masked_content    TEXT,
+  due_snapshot      TEXT,
+  status            TEXT DEFAULT 'pending' CHECK(status IN (
+    'pending','synced','sent','delivered','read',
+    'sync_failed','delivery_unknown','cancelled','dead_lettered'
+  )),
+  attempts          INTEGER DEFAULT 0,
+  last_error        TEXT,
+  next_attempt_at   TEXT,
+  supersedes_id     TEXT,
+  version           INTEGER DEFAULT 1,
+  server_msg_id     TEXT,
+  created_at        TEXT DEFAULT (datetime('now','localtime')),
+  updated_at        TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_jobs_entity ON reminder_jobs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_reminder_jobs_status ON reminder_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_reminder_jobs_scheduled ON reminder_jobs(scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_reminder_jobs_executor ON reminder_jobs(executor);
+
+CREATE TRIGGER IF NOT EXISTS trg_reminder_jobs_updated
+AFTER UPDATE ON reminder_jobs FOR EACH ROW
+BEGIN
+  UPDATE reminder_jobs SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- AI 洞察表（ai_insights）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_insights (
+  id              TEXT PRIMARY KEY,
+  insight_type    TEXT NOT NULL CHECK(insight_type IN ('pattern','recommendation','warning','correlation')),
+  entity_type     TEXT,
+  entity_id       TEXT,
+  title           TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  confidence      REAL DEFAULT 0.5,
+  source_ref      TEXT,  -- JSON
+  status          TEXT DEFAULT 'pending' CHECK(status IN ('pending','confirmed','rejected','archived')),
+  ai_model        TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_insights_type ON ai_insights(insight_type);
+CREATE INDEX IF NOT EXISTS idx_insights_entity ON ai_insights(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_insights_status ON ai_insights(status);
+
+CREATE TRIGGER IF NOT EXISTS trg_insights_updated
+AFTER UPDATE ON ai_insights FOR EACH ROW
+BEGIN
+  UPDATE ai_insights SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- 更新 clients 表：添加别名归一支持
+-- ============================================================
+ALTER TABLE clients ADD COLUMN aliases TEXT;  -- JSON: 别名列表
+ALTER TABLE clients ADD COLUMN normalized_name TEXT;
+CREATE INDEX IF NOT EXISTS idx_clients_normalized ON clients(normalized_name);
+
+-- ============================================================
+-- 更新 cases 表：添加 deadline 字段别名
+-- ============================================================
+-- due_date 是 deadline 的别名，保持兼容
+ALTER TABLE cases ADD COLUMN due_date TEXT;
+
+-- ============================================================
+-- 双路径路由表（Rule/AI 路径标记）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS command_routes (
+  command_name    TEXT PRIMARY KEY,
+  route_type      TEXT NOT NULL CHECK(route_type IN ('rule','ai','hybrid')),
+  description     TEXT,
+  requires_confirmation INTEGER DEFAULT 0,
+  min_confirm_level TEXT DEFAULT 'L1' CHECK(min_confirm_level IN ('L1','L2','L3')),
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- 种子数据：核心命令路由
+INSERT OR IGNORE INTO command_routes (command_name, route_type, description, requires_confirmation, min_confirm_level) VALUES
+  ('create_case', 'rule', '创建案件', 0, 'L1'),
+  ('update_case', 'rule', '更新案件', 0, 'L1'),
+  ('delete_case', 'rule', '删除案件', 1, 'L3'),
+  ('create_task', 'rule', '创建任务', 0, 'L1'),
+  ('update_task', 'rule', '更新任务', 0, 'L1'),
+  ('toggle_task', 'rule', '完成任务', 0, 'L1'),
+  ('delete_task', 'rule', '删除任务', 1, 'L3'),
+  ('process_inbox_item', 'ai', '处理收件箱', 1, 'L2'),
+  ('generate_writing_suggestion', 'ai', '生成写作建议', 1, 'L2'),
+  ('classify_document_with_prompt', 'ai', 'AI 文档分类', 1, 'L2'),
+  ('extract_info_with_prompt', 'ai', 'AI 信息提取', 1, 'L2');
+"#;
+
 /// 执行迁移：从 from_version 之后的版本逐条应用
 #[allow(dead_code)]
 pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow::Error> {
@@ -1131,6 +1709,22 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
             log::info!("Migration v{} applied", v);
         }
     }
+
+    // 条件补列 + 索引：knowledge_items.law_name（旧 DB 可能缺少该列）
+    let has_law_name: bool = conn
+        .prepare("PRAGMA table_info(knowledge_items)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|col| col == "law_name");
+    if !has_law_name {
+        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN law_name TEXT;")?;
+        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN article_no TEXT;")?;
+        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN effective_date TEXT;")?;
+        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN status TEXT DEFAULT 'current';")?;
+        log::info!("Added law_name/article_no/effective_date/status columns to knowledge_items");
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);")?;
+
     Ok(())
 }
 

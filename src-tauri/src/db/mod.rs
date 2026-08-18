@@ -5,31 +5,104 @@ pub mod search;
 use anyhow::Result;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 const KEYRING_SERVICE: &str = "com.casy.db";
 const KEYRING_ACCOUNT: &str = "encryption-key";
+/// 密钥文件（与应用数据同目录，权限 0600）
+const KEY_FILE_NAME: &str = "casy.db.key";
+
+/// 全局加密密钥（进程内只读取/生成一次）
+static ENCRYPTION_KEY: OnceLock<String> = OnceLock::new();
 
 /// 打开数据库连接（自动加密，兼容旧版明文 DB 迁移）
 pub fn open_db() -> Result<Connection> {
     open_db_encrypted()
 }
 
-/// 获取或生成数据库加密密钥（存储在 OS Keychain）
+/// 获取或生成数据库加密密钥
+///
+/// 优先尝试 OS Keychain（正式发布环境），失败则回退到本地密钥文件。
+/// 本地密钥文件与数据库同目录（`~/Library/Application Support/Casy/casy.db.key`），权限 0600。
 fn get_or_create_encryption_key() -> Result<String> {
+    if let Some(key) = ENCRYPTION_KEY.get() {
+        return Ok(key.clone());
+    }
+
+    // 1. 尝试 keychain（发布环境优先）
+    if let Ok(key) = keychain_get() {
+        let _ = ENCRYPTION_KEY.set(key.clone());
+        return Ok(key);
+    }
+
+    // 2. 回退：本地密钥文件
+    let key = if let Some(k) = read_key_file()? {
+        k
+    } else {
+        let mut buf = [0u8; 32];
+        let _ = getrandom::getrandom(&mut buf);
+        let key = hex::encode(buf);
+        write_key_file(&key)?;
+        log::info!("Generated new database encryption key (file storage)");
+        key
+    };
+
+    // 3. 尝试把新密钥同步到 keychain（尽力而为，失败不阻塞）
+    if let Err(e) = keychain_set(&key) {
+        log::warn!("Keychain save failed, using file storage: {}", e);
+    }
+
+    let _ = ENCRYPTION_KEY.set(key.clone());
+    Ok(key)
+}
+
+/// 从 keychain 读取密钥
+fn keychain_get() -> Result<String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|e| anyhow::anyhow!("keyring entry: {:?}", e))?;
-    match entry.get_password() {
-        Ok(key) => Ok(key),
-        Err(_) => {
-            let mut buf = [0u8; 32];
-            let _ = getrandom::getrandom(&mut buf);
-            let key = hex::encode(buf);
-            entry.set_password(&key)
-                .map_err(|e| anyhow::anyhow!("keyring save: {:?}", e))?;
-            log::info!("Generated new database encryption key and stored in keychain");
-            Ok(key)
-        }
+    entry.get_password().map_err(|e| anyhow::anyhow!("keychain get: {:?}", e))
+}
+
+/// 写入 keychain
+fn keychain_set(key: &str) -> Result<()> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+        .map_err(|e| anyhow::anyhow!("keyring entry: {:?}", e))?;
+    entry.set_password(key).map_err(|e| anyhow::anyhow!("keychain set: {:?}", e))
+}
+
+/// 密钥文件路径
+fn key_file_path() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Casy")
+        .join(KEY_FILE_NAME)
+}
+
+/// 读取本地密钥文件
+fn read_key_file() -> Result<Option<String>> {
+    let path = key_file_path();
+    if !path.exists() {
+        return Ok(None);
     }
+    let key = std::fs::read_to_string(&path)?
+        .trim()
+        .to_string();
+    if key.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(key))
+}
+
+/// 写入本地密钥文件（权限 0600）
+fn write_key_file(key: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = key_file_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, key)?;
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    Ok(())
 }
 
 /// 打开加密数据库连接
@@ -60,23 +133,33 @@ pub fn open_db_encrypted() -> Result<Connection> {
     let test: Result<i64, _> = conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
     match test {
         Ok(_) => {
-            // 密钥正确，数据库已加密
+            // 密钥正确（或数据库是明文但可读），直接使用
             conn.execute_batch("PRAGMA journal_mode=WAL;")?;
             conn.execute_batch("PRAGMA foreign_keys=ON;")?;
             Ok(conn)
         }
         Err(_) => {
-            // 密钥不匹配 → 数据库是明文，需要迁移
-            log::info!("Database is plaintext, migrating to encrypted...");
+            // 密钥不匹配 → 尝试不带密钥打开，确认是明文 DB
             drop(conn);
-            migrate_to_encrypted(&key)?;
-            // 重新打开加密后的数据库
-            let conn = Connection::open(&path)?;
-            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key))?;
-            conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-            conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-            conn.execute_batch("PRAGMA busy_timeout=5000;")?;
-            Ok(conn)
+            let test_conn = Connection::open(&path)?;
+            let is_plaintext = test_conn
+                .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
+                .is_ok();
+            drop(test_conn);
+
+            if is_plaintext {
+                log::info!("Database is plaintext, migrating to encrypted...");
+                migrate_to_encrypted(&key)?;
+                let conn = Connection::open(&path)?;
+                conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key))?;
+                conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+                conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+                conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+                Ok(conn)
+            } else {
+                // 数据库已加密但密钥不对——可能是 keychain 里的密钥过期
+                anyhow::bail!("数据库已加密但密钥不匹配，请检查 keychain 或删除数据库文件: {:?}", path);
+            }
         }
     }
 }
