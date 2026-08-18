@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage } from 'element-plus'
 
 const emailMonitoring = ref(false)

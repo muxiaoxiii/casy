@@ -1,12 +1,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useSettingsStore } from '../../stores/settings.js'
+import { useSettingsStore } from '../../stores/settings'
 import FeishuSettings from './components/FeishuSettings.vue'
 import WebDAVSettings from './components/WebDAVSettings.vue'
 import AISettings from './components/AISettings.vue'
 import ImapSettings from './components/ImapSettings.vue'
 import GeneralSettings from './components/GeneralSettings.vue'
 import FolderTemplateSettings from './components/FolderTemplateSettings.vue'
+import ReminderSettings from './components/ReminderSettings.vue'
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('feishu')
@@ -37,6 +38,9 @@ onMounted(async () => {
       </el-tab-pane>
       <el-tab-pane label="文件夹模板" name="folder-template">
         <FolderTemplateSettings />
+      </el-tab-pane>
+      <el-tab-pane label="提醒" name="reminder">
+        <ReminderSettings />
       </el-tab-pane>
     </el-tabs>
   </div>

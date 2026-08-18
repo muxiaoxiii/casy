@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
-import { useInboxStore } from '../../../stores/inbox.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
+import { useInboxStore } from '../../../stores/inbox'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection } from '@element-plus/icons-vue'
 

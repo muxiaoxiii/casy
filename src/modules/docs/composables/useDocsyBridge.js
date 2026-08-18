@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 
 /**
  * Docsy 桥接 composable

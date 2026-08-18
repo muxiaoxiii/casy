@@ -6,8 +6,8 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import Highlight from '@tiptap/extension-highlight'
-import { useCasesStore } from '../../../stores/cases.js'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { useCasesStore } from '../../../stores/cases'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage } from 'element-plus'
 import CopilotSidebar from '../components/CopilotSidebar.vue'
 import { useCopilot } from '../composables/useCopilot.js'
@@ -35,7 +35,7 @@ const captureDialog = reactive({
   capturing: false,
   text: '',
   title: '',
-  category: 'other',
+  category: 'reference',
   tags: '',
   lawName: '',
   articleNo: '',
@@ -472,30 +472,23 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <div class="ctx-menu-header">📚 知识入库</div>
-        <div class="ctx-menu-item" @click="captureAs('common_paragraph')">
-          <span class="ctx-icon">📌</span> 标记为常用段落
+        <div class="ctx-menu-item" @click="captureAs('inspiration')">
+          <span class="ctx-icon">💡</span> 灵感记录
         </div>
-        <div class="ctx-menu-item" @click="captureAs('law_reference')">
-          <span class="ctx-icon">📖</span> 提取法条引用
+        <div class="ctx-menu-item" @click="captureAs('method')">
+          <span class="ctx-icon">📐</span> 工作方法
         </div>
-        <div class="ctx-menu-item" @click="captureAs('case_note')">
-          <span class="ctx-icon">⚖️</span> 记录判例要点
+        <div class="ctx-menu-item" @click="captureAs('reference')">
+          <span class="ctx-icon">📖</span> 参考资料
         </div>
-        <div class="ctx-menu-divider" />
-        <div class="ctx-menu-item" @click="captureAs('complaint')">
-          <span class="ctx-icon">📜</span> 标注：起诉状风格
+        <div class="ctx-menu-item" @click="captureAs('question')">
+          <span class="ctx-icon">❓</span> 待研究问题
         </div>
-        <div class="ctx-menu-item" @click="captureAs('defense_brief')">
-          <span class="ctx-icon">⚖️</span> 标注：代理词风格
+        <div class="ctx-menu-item" @click="captureAs('experience')">
+          <span class="ctx-icon">⭐</span> 经验总结
         </div>
-        <div class="ctx-menu-item" @click="captureAs('legal_opinion')">
-          <span class="ctx-icon">📋</span> 标注：法律意见风格
-        </div>
-        <div class="ctx-menu-item" @click="captureAs('lawyer_letter')">
-          <span class="ctx-icon">✉️</span> 标注：律师函风格
-        </div>
-        <div class="ctx-menu-item" @click="captureAs('reply_brief')">
-          <span class="ctx-icon">🛡️</span> 标注：答辩状风格
+        <div class="ctx-menu-item" @click="captureAs('log')">
+          <span class="ctx-icon">📝</span> 工作日志
         </div>
       </div>
     </Teleport>
@@ -509,17 +502,14 @@ onBeforeUnmount(() => {
         <el-form-item label="内容预览">
           <div class="capture-preview">{{ captureDialog.text }}</div>
         </el-form-item>
-        <el-form-item label="分类">
+        <el-form-item label="职能分类">
           <el-select v-model="captureDialog.category" style="width: 100%">
-            <el-option label="常用段落" value="common_paragraph" />
-            <el-option label="法条引用" value="law_reference" />
-            <el-option label="判例要点" value="case_note" />
-            <el-option label="起诉状" value="complaint" />
-            <el-option label="代理词" value="defense_brief" />
-            <el-option label="法律意见" value="legal_opinion" />
-            <el-option label="律师函" value="lawyer_letter" />
-            <el-option label="答辩状" value="reply_brief" />
-            <el-option label="其他" value="other" />
+            <el-option label="灵感" value="inspiration" />
+            <el-option label="方法" value="method" />
+            <el-option label="参考" value="reference" />
+            <el-option label="问题" value="question" />
+            <el-option label="经验" value="experience" />
+            <el-option label="日志" value="log" />
           </el-select>
         </el-form-item>
         <el-form-item label="标签">

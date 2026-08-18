@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Lock, Edit, Delete, Top, Bottom } from '@element-plus/icons-vue'
 

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
@@ -19,13 +19,45 @@ const filter = ref({
   lawName: '',
 })
 
+// 6 职能分类
 const categories = [
-  { value: 'law', label: '法律法规' },
-  { value: 'case_precedent', label: '案例precedent' },
-  { value: 'legal_opinion', label: '法律意见' },
-  { value: 'template', label: '模板' },
-  { value: 'other', label: '其他' },
+  { value: 'inspiration', label: '灵感', color: '#8B5CF6' },
+  { value: 'method', label: '方法', color: '#409EFF' },
+  { value: 'reference', label: '参考', color: '#67C23A' },
+  { value: 'question', label: '问题', color: '#F56C6C' },
+  { value: 'experience', label: '经验', color: '#E6A23C' },
+  { value: 'log', label: '日志', color: '#909399' },
 ]
+
+// 职能颜色映射
+const categoryColorMap = {
+  inspiration: '#8B5CF6',
+  method: '#409EFF',
+  reference: '#67C23A',
+  question: '#F56C6C',
+  experience: '#E6A23C',
+  log: '#909399',
+}
+
+// 职能标签映射
+const categoryLabelMap = {
+  inspiration: '灵感',
+  method: '方法',
+  reference: '参考',
+  question: '问题',
+  experience: '经验',
+  log: '日志',
+}
+
+// 获取职能颜色
+function getCategoryColor(category) {
+  return categoryColorMap[category] || '#909399'
+}
+
+// 获取职能标签
+function getCategoryLabel(category) {
+  return categoryLabelMap[category] || category
+}
 
 async function loadKnowledge() {
   loading.value = true
@@ -130,10 +162,21 @@ onMounted(() => {
           style="width: 200px"
           @keyup.enter="loadKnowledge"
         />
-        <el-select v-model="filter.category" placeholder="分类筛选" clearable style="width: 120px">
-          <el-option v-for="cat in categories" :key="cat.value" :label="cat.label" :value="cat.value" />
-        </el-select>
         <el-button type="primary" @click="loadKnowledge">搜索</el-button>
+      </div>
+    </div>
+
+    <!-- 职能标签页 -->
+    <div class="category-tabs">
+      <div
+        v-for="cat in categories"
+        :key="cat.value"
+        :class="['category-tab', { active: filter.category === cat.value }]"
+        :style="{ '--tab-color': cat.color }"
+        @click="filter.category = filter.category === cat.value ? '' : cat.value; loadKnowledge()"
+      >
+        <span class="tab-dot" :style="{ backgroundColor: cat.color }"></span>
+        <span class="tab-label">{{ cat.label }}</span>
       </div>
     </div>
 
@@ -149,9 +192,15 @@ onMounted(() => {
           style="width: 100%"
         >
           <el-table-column prop="title" label="标题" min-width="200" />
-          <el-table-column prop="category" label="分类" width="100">
+          <el-table-column prop="category" label="职能" width="100">
             <template #default="{ row }">
-              <el-tag size="small">{{ row.category }}</el-tag>
+              <el-tag
+                size="small"
+                :color="getCategoryColor(row.category)"
+                style="color: #fff; border: none;"
+              >
+                {{ getCategoryLabel(row.category) }}
+              </el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="lawName" label="法律名称" width="150" />
@@ -176,7 +225,15 @@ onMounted(() => {
           </template>
 
           <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="分类">{{ selectedItem.category }}</el-descriptions-item>
+            <el-descriptions-item label="职能">
+              <el-tag
+                size="small"
+                :color="getCategoryColor(selectedItem.category)"
+                style="color: #fff; border: none;"
+              >
+                {{ getCategoryLabel(selectedItem.category) }}
+              </el-tag>
+            </el-descriptions-item>
             <el-descriptions-item label="状态">{{ selectedItem.status }}</el-descriptions-item>
             <el-descriptions-item label="法律名称">{{ selectedItem.lawName || '-' }}</el-descriptions-item>
             <el-descriptions-item label="条款号">{{ selectedItem.articleNo || '-' }}</el-descriptions-item>
@@ -288,7 +345,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .knowledge-header h2 {
@@ -298,6 +355,54 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 12px;
+}
+
+/* 职能标签页 */
+.category-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.category-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #fff;
+  border: 1px solid #e4e7ed;
+}
+
+.category-tab:hover {
+  border-color: var(--tab-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.category-tab.active {
+  background: var(--tab-color);
+  border-color: var(--tab-color);
+  color: #fff;
+}
+
+.category-tab.active .tab-label {
+  color: #fff;
+}
+
+.tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.tab-label {
+  font-size: 14px;
+  color: #606266;
 }
 
 .knowledge-content {

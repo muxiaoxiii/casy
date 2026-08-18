@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
-import { useSettingsStore } from '../../../stores/settings.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
+import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
 
 const settingsStore = useSettingsStore()

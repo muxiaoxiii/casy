@@ -1,13 +1,26 @@
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { Download, Search, Filter, FolderChecked } from '@element-plus/icons-vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
+import type { CaseFilter, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus, TrackType, CaseStatus } from '../../../types'
+import {
+  CIVIL_STATUS_LABELS,
+  INVALIDATION_STATUS_LABELS,
+  ADMIN_STATUS_LABELS,
+  CASE_ROUTE_LABELS,
+} from '../../../types'
 
-const props = defineProps({
-  filter: { type: Object, required: true },
-  groupBy: { type: String, default: 'none' },
-  total: { type: Number, default: 0 },
-  exporting: { type: Boolean, default: false },
+interface Props {
+  filter: CaseFilter
+  groupBy?: string
+  total?: number
+  exporting?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  groupBy: 'none',
+  total: 0,
+  exporting: false,
 })
 
 const emit = defineEmits([
@@ -31,6 +44,14 @@ const statusOptions = [
   { value: '已完结', label: '已完结' },
 ]
 
+// 新状态机：轨道路由选项
+const routeOptions = Object.entries(CASE_ROUTE_LABELS).map(([value, label]) => ({ value, label }))
+
+// 新状态机：各轨状态选项
+const civilStatusOptions = Object.entries(CIVIL_STATUS_LABELS).map(([value, label]) => ({ value, label }))
+const invalidationStatusOptions = Object.entries(INVALIDATION_STATUS_LABELS).map(([value, label]) => ({ value, label }))
+const adminStatusOptions = Object.entries(ADMIN_STATUS_LABELS).map(([value, label]) => ({ value, label }))
+
 const sortOptions = [
   { value: 'filing_date', label: '立案日期' },
   { value: 'updated_at', label: '最近更新' },
@@ -40,16 +61,16 @@ const sortOptions = [
 
 // 客户搜索
 const clientSearchQuery = ref('')
-const clientOptions = ref([])
+const clientOptions = ref<Array<{ value: string; label: string }>>([])
 const clientLoading = ref(false)
 
 // 日期范围
-const dateRange = ref([])
+const dateRange = ref<string[]>([])
 
 // 跨类型筛选
 const showAdvancedFilter = ref(false)
-const deadlineRange = ref([])
-const hearingRange = ref([])
+const deadlineRange = ref<string[]>([])
+const hearingRange = ref<string[]>([])
 const operatorFilter = ref('')
 
 // 期限快捷选项
@@ -66,37 +87,53 @@ const deadlineQuick = ref('')
 // 保存的筛选方案
 const showSaveFilterDialog = ref(false)
 const savedFilterName = ref('')
-const savedFilters = ref([])
+const savedFilters = ref<Array<{ name: string; filter: CaseFilter; groupBy: string; createdAt: string }>>([])
 
 // 搜索防抖
-let searchTimer = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 function onSearchInput() {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => emit('search'), 300)
 }
 
-function updateTrack(val) {
+function updateTrack(val: TrackType | null) {
   emit('update:filter', { ...props.filter, track: val || null })
 }
 
-function updateStatus(val) {
+function updateStatus(val: CaseStatus | null) {
   emit('update:filter', { ...props.filter, status: val || null })
 }
 
-function updateSortBy(val) {
+function updateRoute(val: CaseRoute | null) {
+  emit('update:filter', { ...props.filter, caseRoute: val || null })
+}
+
+function updateCivilStatus(val: CivilStatus | null) {
+  emit('update:filter', { ...props.filter, civilStatus: val || null })
+}
+
+function updateInvalidationStatus(val: InvalidationStatus | null) {
+  emit('update:filter', { ...props.filter, invalidationStatus: val || null })
+}
+
+function updateAdminStatus(val: AdminStatus | null) {
+  emit('update:filter', { ...props.filter, adminStatus: val || null })
+}
+
+function updateSortBy(val: string) {
   emit('update:filter', { ...props.filter, sortBy: val })
 }
 
-function updateSearch(val) {
+function updateSearch(val: string) {
   emit('update:filter', { ...props.filter, search: val })
 }
 
-function updateClient(val) {
+function updateClient(val: string | null) {
   emit('update:filter', { ...props.filter, client: val || null })
 }
 
 // 日期范围变化
-function onDateRangeChange(val) {
+function onDateRangeChange(val: string[] | null) {
   if (val && val.length === 2) {
     emit('update:filter', {
       ...props.filter,
@@ -113,9 +150,9 @@ function onDateRangeChange(val) {
 }
 
 // 期限快捷选择
-function onDeadlineQuickChange(val) {
+function onDeadlineQuickChange(val: string) {
   const today = new Date()
-  const fmt = (d) => d.toISOString().split('T')[0]
+  const fmt = (d: Date) => d.toISOString().split('T')[0]
 
   if (!val) {
     deadlineRange.value = []
@@ -150,7 +187,7 @@ function onDeadlineQuickChange(val) {
 }
 
 // 期限范围变化
-function onDeadlineRangeChange(val) {
+function onDeadlineRangeChange(val: string[] | null) {
   deadlineQuick.value = ''
   if (val && val.length === 2) {
     emit('update:filter', { ...props.filter, deadlineFrom: val[0], deadlineTo: val[1] })
@@ -160,7 +197,7 @@ function onDeadlineRangeChange(val) {
 }
 
 // 开庭日期范围变化
-function onHearingRangeChange(val) {
+function onHearingRangeChange(val: string[] | null) {
   if (val && val.length === 2) {
     emit('update:filter', { ...props.filter, hearingFrom: val[0], hearingTo: val[1] })
   } else {
@@ -169,21 +206,21 @@ function onHearingRangeChange(val) {
 }
 
 // 办案人变化
-function onOperatorChange(val) {
+function onOperatorChange(val: string) {
   emit('update:filter', { ...props.filter, operator: val || null })
 }
 
 // 远程搜索客户
-async function remoteClientSearch(query) {
+async function remoteClientSearch(query: string) {
   if (!query) {
     clientOptions.value = []
     return
   }
   clientLoading.value = true
-  const result = await tauriCallSafe('search_cases', { query })
-  if (result.ok) {
+  const result = await tauriCallSafe<Array<{ clientName: string }>>('search_cases', { query })
+  if (result.ok && result.data) {
     // 从搜索结果中提取唯一的客户名
-    const clients = [...new Set((result.data || []).map((c) => c.clientName).filter(Boolean))]
+    const clients = [...new Set(result.data.map((c) => c.clientName).filter(Boolean))]
     clientOptions.value = clients.map((name) => ({ value: name, label: name }))
   }
   clientLoading.value = false
@@ -206,14 +243,14 @@ function saveFilter() {
 }
 
 // 加载已保存的筛选方案
-function loadFilter(filterConfig) {
+function loadFilter(filterConfig: { filter: CaseFilter; groupBy: string }) {
   emit('update:filter', { ...filterConfig.filter })
   emit('update:groupBy', filterConfig.groupBy)
   emit('search')
 }
 
 // 删除已保存的筛选方案
-function deleteFilter(index) {
+function deleteFilter(index: number) {
   savedFilters.value.splice(index, 1)
   localStorage.setItem('casy_saved_filters', JSON.stringify(savedFilters.value))
 }
@@ -234,6 +271,11 @@ function clearFilters() {
     hearingFrom: null,
     hearingTo: null,
     operator: null,
+    // 新状态机筛选
+    civilStatus: null,
+    invalidationStatus: null,
+    adminStatus: null,
+    caseRoute: null,
   })
   dateRange.value = []
   deadlineRange.value = []
@@ -268,7 +310,7 @@ initSavedFilters()
         clearable
         style="width: 280px"
         :prefix-icon="Search"
-        @input="(v) => { updateSearch(v); onSearchInput() }"
+        @input="(v: string) => { updateSearch(v); onSearchInput() }"
         @clear="() => { updateSearch(''); onSearchInput() }"
       />
       <el-select
@@ -316,13 +358,56 @@ initSavedFilters()
       />
     </div>
 
-    <!-- 第二行：分组、排序、操作 -->
+    <!-- 第二行：新状态机筛选 -->
     <div class="filter-row">
       <div class="filter-left">
-        <el-select :model-value="groupBy" style="width: 120px" @change="(v) => emit('update:groupBy', v)">
+        <el-select
+          :model-value="filter.caseRoute || ''"
+          clearable
+          placeholder="全部路由"
+          style="width: 160px"
+          @change="updateRoute"
+        >
+          <el-option v-for="opt in routeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+        <el-select
+          :model-value="filter.civilStatus || ''"
+          clearable
+          placeholder="诉讼状态"
+          style="width: 130px"
+          @change="updateCivilStatus"
+        >
+          <el-option v-for="opt in civilStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+        <el-select
+          :model-value="filter.invalidationStatus || ''"
+          clearable
+          placeholder="无效状态"
+          style="width: 130px"
+          @change="updateInvalidationStatus"
+        >
+          <el-option v-for="opt in invalidationStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+        <el-select
+          :model-value="filter.adminStatus || ''"
+          clearable
+          placeholder="行政诉讼状态"
+          style="width: 150px"
+          @change="updateAdminStatus"
+        >
+          <el-option v-for="opt in adminStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+      </div>
+    </div>
+
+    <!-- 第三行：分组、排序、操作 -->
+    <div class="filter-row">
+      <div class="filter-left">
+        <el-select :model-value="groupBy" style="width: 120px" @change="(v: string) => emit('update:groupBy', v)">
           <el-option label="不分组" value="none" />
           <el-option label="按客户" value="client" />
           <el-option label="按轨道" value="track" />
+          <el-option label="按路由" value="route" />
           <el-option label="按法院" value="court" />
         </el-select>
         <el-select :model-value="filter.sortBy" style="width: 120px" @change="updateSortBy">

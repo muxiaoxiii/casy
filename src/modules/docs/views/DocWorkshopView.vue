@@ -140,7 +140,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import LegalEditor from '../components/LegalEditor.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
 

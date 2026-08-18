@@ -6,7 +6,7 @@
  */
 
 import { ref, shallowRef } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 
 /**
  * Copilot composable
@@ -75,13 +75,16 @@ export function useCopilot(editorRef, options = {}) {
           expanded: false,
         }
 
-        // 分类到不同区域
-        if (item.category === 'law_reference' || item.category === 'legal_provision') {
-          laws.push(entry)
-        } else if (item.category === 'case_note') {
-          cases.push(entry)
+        // 分类到不同区域（基于职能分类）
+        if (item.category === 'reference') {
+          // 参考类：法条、案例、文献
+          if (item.lawName || item.articleNo) {
+            laws.push(entry)
+          } else {
+            cases.push(entry)
+          }
         } else {
-          // common_paragraph, complaint, defense_brief, legal_opinion, lawyer_letter, reply_brief, other
+          // 灵感、方法、问题、经验、日志
           paragraphs.push(entry)
         }
       }
@@ -131,39 +134,53 @@ export function useCopilot(editorRef, options = {}) {
   }
 
   /**
-   * 根据风格分类名称获取中文标签
+   * 根据职能分类名称获取中文标签
    */
   function getCategoryLabel(category) {
     const labels = {
-      common_paragraph: '常用段落',
-      law_reference: '法条引用',
-      legal_provision: '法条引用',
-      case_note: '判例要点',
-      complaint: '起诉状',
-      defense_brief: '代理词',
-      legal_opinion: '法律意见',
-      lawyer_letter: '律师函',
-      reply_brief: '答辩状',
-      other: '其他',
+      inspiration: '灵感',
+      method: '方法',
+      reference: '参考',
+      question: '问题',
+      experience: '经验',
+      log: '日志',
+      // 兼容旧分类
+      common_paragraph: '参考',
+      law_reference: '参考',
+      legal_provision: '参考',
+      case_note: '参考',
+      complaint: '方法',
+      defense_brief: '方法',
+      legal_opinion: '方法',
+      lawyer_letter: '方法',
+      reply_brief: '方法',
+      other: '参考',
     }
     return labels[category] || category
   }
 
   /**
-   * 获取风格标签对应的 emoji
+   * 获取职能标签对应的 emoji
    */
   function getCategoryIcon(category) {
     const icons = {
-      common_paragraph: '📌',
+      inspiration: '💡',
+      method: '📐',
+      reference: '📖',
+      question: '❓',
+      experience: '⭐',
+      log: '📝',
+      // 兼容旧分类
+      common_paragraph: '📖',
       law_reference: '📖',
       legal_provision: '📖',
-      case_note: '⚖️',
-      complaint: '📜',
-      defense_brief: '⚖️',
-      legal_opinion: '📋',
-      lawyer_letter: '✉️',
-      reply_brief: '🛡️',
-      other: '📝',
+      case_note: '📖',
+      complaint: '📐',
+      defense_brief: '📐',
+      legal_opinion: '📐',
+      lawyer_letter: '📐',
+      reply_brief: '📐',
+      other: '📖',
     }
     return icons[category] || '📝'
   }

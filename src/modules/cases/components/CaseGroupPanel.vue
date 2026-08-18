@@ -17,6 +17,15 @@ const trackLabels = {
   other: '其他',
 }
 
+const routeLabels = {
+  '民事诉讼': '民事诉讼',
+  '专利无效': '专利无效',
+  '行政诉讼': '行政诉讼',
+  '民事诉讼+专利无效': '诉讼+无效',
+  '专利无效+行政诉讼': '无效+行政',
+  '三轨并行': '三轨并行',
+}
+
 // 分组后的案件列表
 const groupedCases = computed(() => {
   const cases = props.cases
@@ -34,6 +43,12 @@ const groupedCases = computed(() => {
   }
   if (props.groupBy === 'court') {
     return groupByField(cases, 'court', '未知法院')
+  }
+  if (props.groupBy === 'route') {
+    return groupByField(cases, 'caseRoute', '民事诉讼').map((g) => ({
+      ...g,
+      label: routeLabels[g.key] || g.key,
+    }))
   }
   return [{ key: 'all', label: '', cases, collapsed: false }]
 })
@@ -117,6 +132,14 @@ function deadlineIcon(row) {
               <el-tag size="small" :type="row.track === 'patent_invalidation' ? 'primary' : row.track === 'admin_litigation' ? 'warning' : 'success'">
                 {{ trackLabels[row.track] || row.track }}
               </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="caseRoute" label="路由" width="120">
+            <template #default="{ row }">
+              <el-tag v-if="row.caseRoute" size="small" effect="plain">
+                {{ routeLabels[row.caseRoute] || row.caseRoute }}
+              </el-tag>
+              <span v-else>—</span>
             </template>
           </el-table-column>
           <el-table-column prop="court" label="法院" width="150" show-overflow-tooltip>

@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useCasesStore } from '../../../stores/cases.js'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { useCasesStore } from '../../../stores/cases'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CaseFilterBar from '../components/CaseFilterBar.vue'
 import CaseGroupPanel from '../components/CaseGroupPanel.vue'

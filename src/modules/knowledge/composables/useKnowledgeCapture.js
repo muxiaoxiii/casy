@@ -4,7 +4,7 @@
  * 从 TipTap 编辑器选中文本创建知识条目，支持关联法条和案件。
  */
 import { ref } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage } from 'element-plus'
 
 /**
@@ -19,28 +19,20 @@ export function useKnowledgeCapture(options = {}) {
   const captureForm = ref({
     text: '',
     title: '',
-    category: 'other',
+    category: 'reference',
     tags: '',
     lawName: '',
     articleNo: '',
   })
 
-  // 风格/分类选项
-  const styleCategories = [
-    { value: 'complaint', label: '起诉状', icon: '📜' },
-    { value: 'defense_brief', label: '代理词', icon: '⚖️' },
-    { value: 'legal_opinion', label: '法律意见', icon: '📋' },
-    { value: 'lawyer_letter', label: '律师函', icon: '✉️' },
-    { value: 'reply_brief', label: '答辩状', icon: '🛡️' },
-  ]
-
+  // 6 职能分类
   const captureCategories = [
-    { value: 'common_paragraph', label: '常用段落' },
-    { value: 'law_reference', label: '法条引用' },
-    { value: 'case_note', label: '判例要点' },
-    { value: 'legal_provision', label: '法律条文' },
-    { value: 'other', label: '其他' },
-    ...styleCategories,
+    { value: 'inspiration', label: '灵感', color: '#8B5CF6' },
+    { value: 'method', label: '方法', color: '#409EFF' },
+    { value: 'reference', label: '参考', color: '#67C23A' },
+    { value: 'question', label: '问题', color: '#F56C6C' },
+    { value: 'experience', label: '经验', color: '#E6A23C' },
+    { value: 'log', label: '日志', color: '#909399' },
   ]
 
   /**
@@ -56,7 +48,7 @@ export function useKnowledgeCapture(options = {}) {
     captureForm.value = {
       text: selectedText.trim(),
       title: title || selectedText.trim().substring(0, 50),
-      category: 'other',
+      category: 'reference',
       tags: '',
       lawName: '',
       articleNo: '',
@@ -117,7 +109,7 @@ export function useKnowledgeCapture(options = {}) {
     const result = await tauriCallSafe('create_knowledge', {
       data: {
         title: text.trim().substring(0, 50),
-        category: category || 'other',
+        category: category || 'reference',
         content: text.trim(),
         tags: tags ? tags.join(',') : null,
         sourceType: source || 'editor',

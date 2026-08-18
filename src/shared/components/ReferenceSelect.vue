@@ -18,7 +18,7 @@
  *   select: 选中时触发，返回完整对象（多选时返回数组）
  */
 import { ref, watch } from 'vue'
-import { tauriCallSafe } from '../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../core/tauriBridge'
 
 const props = defineProps({
   modelValue: {

@@ -179,7 +179,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, View, Download, EditPen } from '@element-plus/icons-vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import {
   useDocsyBridge,
   mapCaseToTemplate,

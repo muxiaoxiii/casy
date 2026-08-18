@@ -1,836 +1,1058 @@
 <script setup>
-import { ref, reactive, onMounted, watch, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useCasesStore } from '../../../stores/cases.js'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import CaseInfoPanel from '../components/CaseInfoPanel.vue'
-import CaseTimelinePanel from '../components/CaseTimelinePanel.vue'
-import ReferenceSelect from '../../../shared/components/ReferenceSelect.vue'
+import {
+  ArrowLeft, Edit, Calendar, Finished, Document,
+  Folder, Collection, Clock, Warning, Check,
+  Plus, More, Connection, Timer, Bell
+} from '@element-plus/icons-vue'
+import {
+  CIVIL_STATUS_LABELS,
+  INVALIDATION_STATUS_LABELS,
+  ADMIN_STATUS_LABELS,
+  CASE_ROUTE_LABELS,
+} from '../../../types'
 
 const route = useRoute()
 const router = useRouter()
-const casesStore = useCasesStore()
-const form = ref({})
+
+// ============================================================
+// 状态
+// ============================================================
+const caseData = ref(null)
+const loading = ref(false)
+const tasks = ref([])
 const timeline = ref([])
-const timelineLoading = ref(false)
-const showAddLogDialog = ref(false)
-const newLog = ref({
-  eventSummary: '',
-  eventType: 'record',
-  eventDate: new Date().toISOString().split('T')[0],
-  content: '',
-})
-let saveTimer = null
+const knowledge = ref([])
+const files = ref([])
 
-// 快捷操作相关
-const showAddHearingDialog = ref(false)
-const showAddTaskDialog = ref(false)
-const newHearing = ref({
-  hearingName: '',
-  hearingDate: new Date().toISOString().split('T')[0],
-  hearingType: 'oral',
-  court: '',
-  linkedCaseId: null,
-})
-const newTask = ref({
-  taskName: '',
-  deadline: '',
-  priority: 'normal',
-  description: '',
+// 编辑状态
+const editingGoal = ref(false)
+const goalInput = ref('')
+
+// ============================================================
+// 计算属性
+// ============================================================
+const caseId = computed(() => route.params.id)
+
+const caseTypeLabel = computed(() => {
+  const types = {
+    computational: '计算型',
+    exploratory: '探索型',
+    growth: '成长型',
+  }
+  return types[caseData.value?.caseType] || '探索型'
 })
 
-// 关系相关
-const relations = ref([])
-const relationsLoading = ref(false)
-const showAddRelationDialog = ref(false)
-const selectedRelationType = ref('cross_reference')
-const relationLabel = ref('')
-const selectedRelationTarget = ref(null)
+const caseTypeColor = computed(() => {
+  const colors = {
+    computational: '#409EFF',
+    exploratory: '#8B5CF6',
+    growth: '#10B981',
+  }
+  return colors[caseData.value?.caseType] || '#8B5CF6'
+})
 
-// 文件夹模板相关
-const folderTemplates = ref([])
-const folderTemplateId = ref(null)
-const selectedFolderTemplate = ref(null)
-const templatePreviewDirs = ref([])
+const trackBadges = computed(() => {
+  if (!caseData.value) return []
+  
+  const badges = []
+  const route = caseData.value.caseRoute || ''
+  
+  // 民事诉讼状态颜色映射
+  const civilStatusColors = {
+    intake: '#6B7280',
+    filed: '#3B82F6',
+    pre_hearing: '#F59E0B',
+    in_trial: '#8B5CF6',
+    settled: '#10B981',
+    awaiting_verdict: '#F59E0B',
+    verdict_issued: '#EF4444',
+    appeal_period: '#F59E0B',
+    second_instance: '#8B5CF6',
+    second_verdict: '#EF4444',
+    retrial: '#8B5CF6',
+    enforcement: '#10B981',
+    suspended: '#6B7280',
+    closed: '#10B981',
+  }
+  
+  // 专利无效状态颜色映射
+  const invalidationStatusColors = {
+    preparing: '#6B7280',
+    filed: '#3B82F6',
+    pre_oral: '#F59E0B',
+    oral_done: '#8B5CF6',
+    awaiting_decision: '#F59E0B',
+    decision_issued: '#EF4444',
+  }
+  
+  // 行政诉讼状态颜色映射
+  const adminStatusColors = {
+    filed: '#3B82F6',
+    pre_hearing: '#F59E0B',
+    in_trial: '#8B5CF6',
+    awaiting_verdict: '#F59E0B',
+    verdict_issued: '#EF4444',
+    second_instance: '#8B5CF6',
+    closed: '#10B981',
+  }
+  
+  if (route.includes('民事诉讼') && caseData.value.civilStatus) {
+    badges.push({
+      track: '民事诉讼',
+      status: caseData.value.civilStatus,
+      label: CIVIL_STATUS_LABELS[caseData.value.civilStatus] || caseData.value.civilStatus,
+      color: civilStatusColors[caseData.value.civilStatus] || '#6B7280',
+    })
+  }
+  
+  if (route.includes('专利无效') && caseData.value.invalidationStatus) {
+    badges.push({
+      track: '专利无效',
+      status: caseData.value.invalidationStatus,
+      label: INVALIDATION_STATUS_LABELS[caseData.value.invalidationStatus] || caseData.value.invalidationStatus,
+      color: invalidationStatusColors[caseData.value.invalidationStatus] || '#6B7280',
+    })
+  }
+  
+  if (route.includes('行政诉讼') && caseData.value.adminStatus) {
+    badges.push({
+      track: '行政诉讼',
+      status: caseData.value.adminStatus,
+      label: ADMIN_STATUS_LABELS[caseData.value.adminStatus] || caseData.value.adminStatus,
+      color: adminStatusColors[caseData.value.adminStatus] || '#6B7280',
+    })
+  }
+  
+  return badges
+})
 
-async function loadFolderTemplates() {
-  const result = await tauriCallSafe('list_folder_templates')
+const taskStats = computed(() => {
+  const total = tasks.value.length
+  const completed = tasks.value.filter(t => t.completed).length
+  const pending = tasks.value.filter(t => !t.completed).length
+  const overdue = tasks.value.filter(t => {
+    if (t.completed) return false
+    const due = t.dueDate || t.deadline
+    return due && due < new Date().toISOString().split('T')[0]
+  }).length
+  
+  return { total, completed, pending, overdue }
+})
+
+const nextAction = computed(() => {
+  // 找到第一个 blocked=0 的任务
+  return tasks.value.find(t => !t.completed && t.blocked === 0 && t.taskType === 'action')
+})
+
+// 顺序项目统计
+const sequentialTasks = computed(() => {
+  return tasks.value.filter(t => t.sequential).sort((a, b) => a.sequenceOrder - b.sequenceOrder)
+})
+
+const sequentialTotalCount = computed(() => {
+  return sequentialTasks.value.length
+})
+
+const sequentialCompletedCount = computed(() => {
+  return sequentialTasks.value.filter(t => t.completed).length
+})
+
+const sequentialCompletionRate = computed(() => {
+  if (sequentialTotalCount.value === 0) return 0
+  return Math.round(sequentialCompletedCount.value / sequentialTotalCount.value * 100)
+})
+
+// ============================================================
+// 数据加载
+// ============================================================
+async function loadCaseData() {
+  loading.value = true
+  await Promise.all([
+    loadCase(),
+    loadTasks(),
+    loadTimeline(),
+    loadKnowledge(),
+    loadFiles(),
+  ])
+  loading.value = false
+}
+
+async function loadCase() {
+  const result = await tauriCallSafe('get_case', { id: caseId.value })
   if (result.ok) {
-    folderTemplates.value = result.data || []
-    // 设置默认选中
-    if (form.value.folderTemplateId) {
-      folderTemplateId.value = form.value.folderTemplateId
-      updateTemplatePreview()
-    } else {
-      // 按案件类型选默认
-      const causeAction = form.value.causeAction || ''
-      let defaultId = 'tpl-consultation'
-      if (/侵权|民事|刑事|行政|合同|纠纷/.test(causeAction)) defaultId = 'tpl-litigation'
-      else if (/专利|发明|实用新型|外观|无效/.test(causeAction)) defaultId = 'tpl-patent'
-      else if (/商标/.test(causeAction)) defaultId = 'tpl-trademark'
-      folderTemplateId.value = defaultId
-      updateTemplatePreview()
-    }
+    caseData.value = result.data
+    goalInput.value = result.data.caseGoal || ''
   }
 }
 
-function updateTemplatePreview() {
-  const tpl = folderTemplates.value.find(t => t.id === folderTemplateId.value)
-  selectedFolderTemplate.value = tpl
-  templatePreviewDirs.value = tpl?.directories || []
-}
-
-function onTemplateChange(val) {
-  folderTemplateId.value = val
-  updateTemplatePreview()
-  // 保存到案件
-  form.value.folderTemplateId = val
-  scheduleSave()
-}
-
-const relationTypeOptions = [
-  { value: 'same_patent', label: '同专利号' },
-  { value: 'same_party', label: '同客户' },
-  { value: 'appeal_of', label: '审级关联' },
-  { value: 'cross_reference', label: '交叉引用' },
-]
-
-const relationTypeMap = {
-  same_patent: { label: '同专利号', color: '#409eff' },
-  same_party: { label: '同客户', color: '#67c23a' },
-  appeal_of: { label: '审级关联', color: '#e6a23c' },
-  cross_reference: { label: '交叉引用', color: '#909399' },
-}
-
-const logTypeOptions = [
-  { value: 'record', label: '记录' },
-  { value: 'submitted', label: '交文' },
-  { value: 'received', label: '收文' },
-  { value: 'task', label: '任务' },
-]
-
-// ===== 动态字段分组 =====
-const fieldGroups = ref([])
-const fieldGroupsLoading = ref(false)
-const collapsedGroups = reactive({})
-
-async function loadFieldGroups() {
-  const causeAction = form.value.causeAction || ''
-  fieldGroupsLoading.value = true
-  const result = await tauriCallSafe('list_field_groups', {
-    caseType: causeAction || null,
+async function loadTasks() {
+  const result = await tauriCallSafe('list_tasks', {
+    filter: { caseId: caseId.value }
   })
   if (result.ok) {
-    fieldGroups.value = result.data || []
+    tasks.value = result.data || []
   }
-  fieldGroupsLoading.value = false
 }
 
-function toggleGroup(groupId) {
-  collapsedGroups[groupId] = !collapsedGroups[groupId]
-}
-
-function isGroupCollapsed(groupId) {
-  return collapsedGroups[groupId] === true
-}
-
-// 从 form 中读取字段值
-function getFieldValue(columnName) {
-  // 转换 snake_case 到 camelCase
-  const camel = columnName.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
-  return form.value[camel] ?? ''
-}
-
-// 更新字段值到 form
-function setFieldValue(columnName, value) {
-  const camel = columnName.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
-  form.value[camel] = value
-  scheduleSave()
-}
-
-onMounted(async () => {
-  const id = route.params.id
-  if (id) {
-    await casesStore.loadCase(id)
-    if (casesStore.currentCase) {
-      form.value = { ...casesStore.currentCase }
-    }
-    await loadTimeline()
-    await loadRelations()
-    await loadFieldGroups()
-    await loadFolderTemplates()
+async function loadTimeline() {
+  const result = await tauriCallSafe('get_case_timeline', { caseId: caseId.value })
+  if (result.ok) {
+    timeline.value = result.data || []
   }
-})
-
-// 自动保存（2秒防抖）
-function scheduleSave() {
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(async () => {
-    if (!casesStore.currentCase?.id) return
-    const result = await casesStore.updateCase(casesStore.currentCase.id, form.value)
-    if (result.ok) {
-      ElMessage.success('已自动保存')
-    }
-  }, 2000)
 }
 
+async function loadKnowledge() {
+  // TODO: 加载关联知识
+  knowledge.value = []
+}
+
+async function loadFiles() {
+  const result = await tauriCallSafe('list_case_files', { caseId: caseId.value })
+  if (result.ok) {
+    files.value = result.data || []
+  }
+}
+
+// ============================================================
+// 操作
+// ============================================================
 function goBack() {
   router.push({ name: 'cases' })
 }
 
-async function loadTimeline() {
-  if (!casesStore.currentCase?.id) return
-  timelineLoading.value = true
-  const result = await tauriCallSafe('get_case_timeline', { caseId: casesStore.currentCase.id })
-  if (result.ok) {
-    timeline.value = result.data || []
-  }
-  timelineLoading.value = false
-}
-
-async function addLog() {
-  if (!newLog.value.eventSummary.trim()) {
-    ElMessage.warning('请输入事件概述')
-    return
-  }
-  const result = await tauriCallSafe('add_case_log', {
-    caseId: casesStore.currentCase.id,
-    eventSummary: newLog.value.eventSummary,
-    eventType: newLog.value.eventType,
-    eventDate: newLog.value.eventDate,
-    content: newLog.value.content || null,
+async function saveGoal() {
+  if (!caseData.value) return
+  
+  const result = await tauriCallSafe('update_case', {
+    id: caseId.value,
+    data: { caseGoal: goalInput.value }
   })
+  
   if (result.ok) {
-    ElMessage.success('已添加')
-    showAddLogDialog.value = false
-    newLog.value = { eventSummary: '', eventType: 'record', eventDate: new Date().toISOString().split('T')[0], content: '' }
-    await loadTimeline()
+    caseData.value.caseGoal = goalInput.value
+    editingGoal.value = false
+    ElMessage.success('已保存')
   }
 }
 
-async function deleteLog(id) {
-  try {
-    await ElMessageBox.confirm('确定删除此事件？', '确认', { type: 'warning' })
-    const result = await tauriCallSafe('delete_case_log', { id })
-    if (result.ok) {
-      await loadTimeline()
+async function toggleTaskComplete(task) {
+  const result = await tauriCallSafe('toggle_task', { id: task.id })
+  if (result.ok) {
+    task.completed = task.completed ? 0 : 1
+    ElMessage.success(task.completed ? '已完成' : '已恢复')
+    
+    // 如果是顺序项目，解锁下一个任务
+    if (task.completed && task.sequential) {
+      await unlockNextTask(task)
     }
-  } catch {}
-}
-
-// ===== 关系管理 =====
-async function loadRelations() {
-  if (!casesStore.currentCase?.id) return
-  relationsLoading.value = true
-  const result = await tauriCallSafe('get_relations', { caseId: casesStore.currentCase.id })
-  if (result.ok) {
-    relations.value = result.data || []
-  }
-  relationsLoading.value = false
-}
-
-async function handleDetectRelations() {
-  if (!casesStore.currentCase?.id) return
-  relationsLoading.value = true
-  const result = await tauriCallSafe('detect_relations', { caseId: casesStore.currentCase.id })
-  if (result.ok) {
-    const detected = result.data || []
-    if (detected.length > 0) {
-      ElMessage.success(`检测到 ${detected.length} 个新关系`)
-    } else {
-      ElMessage.info('未检测到新关系')
-    }
-    await loadRelations()
-  }
-  relationsLoading.value = false
-}
-
-function openAddRelationDialog() {
-  selectedRelationTarget.value = null
-  selectedRelationType.value = 'cross_reference'
-  relationLabel.value = ''
-  showAddRelationDialog.value = true
-}
-
-function onRelationCaseSelect(caseObj) {
-  selectedRelationTarget.value = caseObj
-}
-
-async function addRelation() {
-  const caseId = casesStore.currentCase?.id
-  const targetId = selectedRelationTarget.value?.id
-  if (!caseId || !targetId) {
-    ElMessage.warning('请选择要关联的案件')
-    return
-  }
-  const result = await tauriCallSafe('add_relation', {
-    caseId,
-    relatedId: targetId,
-    relationType: selectedRelationType.value,
-    label: relationLabel.value || null,
-  })
-  if (result.ok) {
-    ElMessage.success('关联已添加')
-    showAddRelationDialog.value = false
-    await loadRelations()
   }
 }
 
-async function removeRelation(relationId) {
-  try {
-    await ElMessageBox.confirm('确定删除此关联？', '确认', { type: 'warning' })
-    const result = await tauriCallSafe('remove_relation', { id: relationId })
-    if (result.ok) {
-      await loadRelations()
-    }
-  } catch {}
-}
-
-function goToRelatedCase(caseId) {
-  router.push({ name: 'case-detail', params: { id: caseId } })
-}
-
-// ===== 快捷操作 =====
-async function addHearing() {
-  if (!newHearing.value.hearingName.trim()) {
-    ElMessage.warning('请输入庭审名称')
-    return
-  }
-  const result = await tauriCallSafe('add_case_log', {
-    caseId: casesStore.currentCase.id,
-    eventSummary: `庭审: ${newHearing.value.hearingName}`,
-    eventType: 'hearing',
-    eventDate: newHearing.value.hearingDate,
-    content: `法院: ${newHearing.value.court || form.value.court || '—'}\n类型: ${newHearing.value.hearingType}${newHearing.value.linkedCaseId ? `\n关联案件: ${newHearing.value.linkedCaseId}` : ''}`,
-  })
-  if (result.ok) {
-    ElMessage.success('庭审已添加')
-    showAddHearingDialog.value = false
-    newHearing.value = { hearingName: '', hearingDate: new Date().toISOString().split('T')[0], hearingType: 'oral', court: '', linkedCaseId: null }
-    await loadTimeline()
-  }
-}
-
-async function addQuickTask() {
-  if (!newTask.value.taskName.trim()) {
-    ElMessage.warning('请输入任务名称')
-    return
-  }
-  const result = await tauriCallSafe('create_task', {
-    data: {
-      taskName: newTask.value.taskName,
-      description: newTask.value.description,
-      deadline: newTask.value.deadline || null,
-      priority: newTask.value.priority,
-      caseId: casesStore.currentCase.id,
-    },
-  })
-  if (result.ok) {
-    ElMessage.success('任务已创建')
-    showAddTaskDialog.value = false
-    newTask.value = { taskName: '', deadline: '', priority: 'normal', description: '' }
-  }
-}
-
-function goToDocWorkshop() {
-  router.push({ name: 'docs', query: { caseId: casesStore.currentCase?.id } })
-}
-
-async function openCaseFolder() {
-  const caseId = casesStore.currentCase?.id
-  if (!caseId) return
-  try {
-    const { openPath } = await import('../../../core/tauriBridge.js')
-    const result = await tauriCallSafe('get_case', { id: caseId })
-    if (result.ok) {
-      const folderPath = result.data.folderPath
-      if (folderPath) {
-        await openPath(folderPath)
-      } else {
-        ElMessage.info('该案件暂无关联文件夹')
+async function unlockNextTask(completedTask) {
+  // 找到 sequence_order 大于当前任务的下一个任务
+  const nextTask = tasks.value.find(t => 
+    t.caseId === caseId.value && 
+    t.sequential && 
+    t.blocked && 
+    t.sequenceOrder > completedTask.sequenceOrder
+  )
+  
+  if (nextTask) {
+    await tauriCallSafe('update_task', {
+      data: {
+        id: nextTask.id,
+        blocked: 0,
       }
-    }
-  } catch (err) {
-    ElMessage.error('无法打开文件夹: ' + err.message)
+    })
+    nextTask.blocked = 0
+    ElMessage.success(`已解锁：${nextTask.taskName}`)
   }
 }
+
+function openTaskEdit(task) {
+  router.push({ name: 'tasks', query: { edit: task.id } })
+}
+
+function addNewTask() {
+  router.push({ name: 'tasks', query: { capture: 'task', caseId: caseId.value } })
+}
+
+// ============================================================
+// 工具函数
+// ============================================================
+function formatDate(dateStr) {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
+function isOverdue(task) {
+  const due = task.dueDate || task.deadline
+  return due && due < new Date().toISOString().split('T')[0]
+}
+
+function getTaskTypeLabel(type) {
+  const labels = { action: '行动', waiting: '等待', delegated: '委派', someday: '某天' }
+  return labels[type] || type
+}
+
+function getTaskTypeColor(type) {
+  const colors = { action: '#409EFF', waiting: '#E6A23C', delegated: '#909399', someday: '#909399' }
+  return colors[type] || '#909399'
+}
+
+// 跳转到客户视图
+function goToClient(clientName) {
+  // 这里假设有一个客户视图路由，实际需要根据项目路由结构来实现
+  // 暂时使用简单的alert，后续可以改为router.push
+  ElMessage.info(`跳转到客户: ${clientName}`)
+  // router.push({ name: 'client', query: { name: clientName } })
+}
+
+// ============================================================
+// 生命周期
+// ============================================================
+onMounted(() => {
+  loadCaseData()
+})
+
+watch(caseId, () => {
+  loadCaseData()
+})
 </script>
 
 <template>
-  <div class="case-detail-page">
+  <div class="case-detail" v-loading="loading">
     <!-- 顶部导航 -->
     <div class="detail-header">
-      <el-button @click="goBack" text>← 返回列表</el-button>
-      <span class="case-title">{{ form.caseName || '案件详情' }}</span>
-      <el-tag v-if="form.caseStatus" size="small" :type="form.caseStatus === '已完结' ? 'info' : 'success'">
-        {{ form.caseStatus }}
-      </el-tag>
+      <el-button @click="goBack" :icon="ArrowLeft" text>返回案件列表</el-button>
     </div>
 
-    <div v-if="!casesStore.currentCase" class="loading-state">
-      加载中...
-    </div>
-
-    <div v-else class="detail-grid">
-      <!-- 左栏：案件信息面板 -->
-      <div class="detail-left">
-        <CaseInfoPanel :form="form" @update="scheduleSave" />
-
-        <!-- 动态字段分组 -->
-        <div v-if="fieldGroupsLoading" style="margin-top: 12px; color: #999; font-size: 13px;">
-          加载字段组...
+    <!-- 案件概要 -->
+    <div class="case-summary" v-if="caseData">
+      <div class="summary-main">
+        <div class="summary-title">
+          <h1>{{ caseData.caseName }}</h1>
+          <el-tag v-if="caseData.caseNo" size="small">{{ caseData.caseNo }}</el-tag>
         </div>
-        <template v-for="group in fieldGroups" :key="group.id">
-          <!-- 跳过通用字段组（已在 CaseInfoPanel 中展示） -->
-          <el-card v-if="group.id !== 'fg-common'" style="margin-top: 12px">
-            <template #header>
-              <div class="card-header-row" @click="toggleGroup(group.id)" style="cursor: pointer;">
-                <strong>{{ group.name }}</strong>
-                <span style="color: #999; font-size: 12px;">
-                  {{ group.description }}
-                  <span style="margin-left: 4px;">{{ isGroupCollapsed(group.id) ? '▸' : '▾' }}</span>
-                </span>
-              </div>
-            </template>
-            <div v-show="!isGroupCollapsed(group.id)">
-              <el-form label-width="100px" size="small">
-                <el-form-item
-                  v-for="item in group.items"
-                  :key="item.id"
-                  :label="item.label"
-                >
-                  <!-- text 类型 -->
-                  <el-input
-                    v-if="item.fieldType === 'text'"
-                    :model-value="getFieldValue(item.columnName)"
-                    @input="(v) => setFieldValue(item.columnName, v)"
-                  />
-                  <!-- date 类型 -->
-                  <el-date-picker
-                    v-else-if="item.fieldType === 'date'"
-                    :model-value="getFieldValue(item.columnName)"
-                    type="date"
-                    value-format="YYYY-MM-DD"
-                    style="width: 100%"
-                    @change="(v) => setFieldValue(item.columnName, v)"
-                  />
-                  <!-- select 类型 -->
-                  <el-select
-                    v-else-if="item.fieldType === 'select'"
-                    :model-value="getFieldValue(item.columnName)"
-                    clearable
-                    style="width: 100%"
-                    @change="(v) => setFieldValue(item.columnName, v)"
-                  >
-                    <el-option
-                      v-for="opt in (item.options || [])"
-                      :key="opt"
-                      :label="opt"
-                      :value="opt"
-                    />
-                  </el-select>
-                  <!-- textarea 类型 -->
-                  <el-input
-                    v-else-if="item.fieldType === 'textarea'"
-                    :model-value="getFieldValue(item.columnName)"
-                    type="textarea"
-                    :rows="2"
-                    @input="(v) => setFieldValue(item.columnName, v)"
-                  />
-                  <!-- 默认 text -->
-                  <el-input
-                    v-else
-                    :model-value="getFieldValue(item.columnName)"
-                    @input="(v) => setFieldValue(item.columnName, v)"
-                  />
-                </el-form-item>
-              </el-form>
-            </div>
-          </el-card>
-        </template>
-      </div>
-
-      <!-- 中栏：时间线面板 -->
-      <div class="detail-center">
-        <CaseTimelinePanel
-          :timeline="timeline"
-          :loading="timelineLoading"
-          @add-log="showAddLogDialog = true"
-          @delete-log="deleteLog"
-        />
-      </div>
-
-      <!-- 右栏：关联 + 快捷操作 -->
-      <div class="detail-right">
-        <el-card>
-          <template #header><strong>日期里程碑</strong></template>
-          <el-form label-width="70px" size="small">
-            <el-form-item label="立案">
-              <el-date-picker v-model="form.filingDate" type="date" value-format="YYYY-MM-DD" @change="scheduleSave" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="开庭">
-              <el-date-picker v-model="form.trialDate" type="date" value-format="YYYY-MM-DD" @change="scheduleSave" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="判决">
-              <el-date-picker v-model="form.verdictDate" type="date" value-format="YYYY-MM-DD" @change="scheduleSave" style="width: 100%" />
-            </el-form-item>
-          </el-form>
-        </el-card>
-
-        <el-card style="margin-top: 12px">
-          <template #header><strong>文件夹模板</strong></template>
-          <el-select
-            :model-value="folderTemplateId"
-            size="small"
-            style="width: 100%"
-            @change="onTemplateChange"
+        
+        <div class="summary-meta">
+          <span class="meta-item clickable" @click="goToClient(caseData.clientName)">
+            <el-icon><Folder /></el-icon>
+            {{ caseData.clientName }}
+          </span>
+          <span class="meta-item" v-if="caseData.court">
+            <el-icon><Connection /></el-icon>
+            {{ caseData.court }}
+          </span>
+          <span class="meta-item case-type" :style="{ color: caseTypeColor }">
+            <el-icon><Collection /></el-icon>
+            {{ caseTypeLabel }}
+          </span>
+        </div>
+        
+        <!-- 轨道徽章 -->
+        <div class="track-badges" v-if="trackBadges.length > 0">
+          <div 
+            v-for="badge in trackBadges" 
+            :key="badge.track"
+            class="track-badge"
+            :style="{ borderColor: badge.color, color: badge.color }"
           >
-            <el-option
-              v-for="tpl in folderTemplates"
-              :key="tpl.id"
-              :label="tpl.name"
-              :value="tpl.id"
-            />
-          </el-select>
-          <div v-if="templatePreviewDirs.length" class="template-preview-dirs">
-            <div
-              v-for="dir in templatePreviewDirs"
-              :key="dir.id"
-              class="preview-dir-item"
-            >
-              <span class="dir-id">{{ dir.id }}</span>
-              <span>{{ dir.name }}</span>
-            </div>
+            {{ badge.track }}: {{ badge.label }}
           </div>
-          <div v-if="selectedFolderTemplate" class="template-meta">
-            <el-tag v-if="selectedFolderTemplate.isBuiltin" size="small" type="info">内置</el-tag>
-            <el-tag v-else size="small" type="success">自定义</el-tag>
-          </div>
-        </el-card>
-
-        <el-card style="margin-top: 12px">
-          <template #header>
-            <div class="card-header-row">
-              <strong>关联案件</strong>
-              <div>
-                <el-button size="small" text @click="handleDetectRelations" :loading="relationsLoading">🔍 检测</el-button>
-                <el-button size="small" text type="primary" @click="openAddRelationDialog">+ 添加</el-button>
-              </div>
-            </div>
-          </template>
-          <div v-if="relationsLoading" class="relations-loading">加载中...</div>
-          <div v-else-if="!relations.length" class="relations-empty">
-            <el-empty description="暂无关联" :image-size="40">
-              <el-button size="small" @click="handleDetectRelations">自动检测</el-button>
-            </el-empty>
-          </div>
-          <div v-else class="relations-list">
-            <div v-for="rel in relations" :key="rel.relationId" class="relation-item" @click="goToRelatedCase(rel.caseId)">
-              <div class="relation-info">
-                <div class="relation-name">{{ rel.caseName }}</div>
-                <div class="relation-meta">
-                  <el-tag :color="relationTypeMap[rel.relationType]?.color" size="small" effect="dark" style="border: none; color: #fff;">
-                    {{ relationTypeMap[rel.relationType]?.label || rel.relationType }}
-                  </el-tag>
-                  <span v-if="rel.caseNo" class="relation-case-no">{{ rel.caseNo }}</span>
-                </div>
-                <div class="relation-sub">
-                  <span>{{ rel.clientName }}</span>
-                  <span v-if="rel.caseStatus"> · {{ rel.caseStatus }}</span>
-                </div>
-              </div>
-              <el-button size="small" text type="danger" class="relation-remove" @click.stop="removeRelation(rel.relationId)">×</el-button>
-            </div>
-          </div>
-        </el-card>
-
-        <el-card style="margin-top: 12px">
-          <template #header><strong>快捷操作</strong></template>
-          <div class="quick-actions">
-            <el-button size="small" block @click="showAddLogDialog = true">📝 添加日志</el-button>
-            <el-button size="small" block @click="showAddHearingDialog = true">📅 添加庭审</el-button>
-            <el-button size="small" block @click="showAddTaskDialog = true">📌 添加任务</el-button>
-            <el-button size="small" block @click="goToDocWorkshop">📄 生成文书</el-button>
-            <el-button size="small" block @click="router.push({ name: 'write', params: { caseId: casesStore.currentCase?.id } })">✍️ 撰写文书</el-button>
-            <el-button size="small" block @click="router.push({ name: 'files', params: { caseId: casesStore.currentCase?.id } })">📂 案件文件</el-button>
-            <el-button size="small" block @click="openCaseFolder">📁 打开文件夹</el-button>
-          </div>
-        </el-card>
+        </div>
       </div>
     </div>
 
-    <!-- 添加日志弹窗 -->
-    <el-dialog v-model="showAddLogDialog" title="添加事件" width="450">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="事件概述" required>
-          <el-input v-model="newLog.eventSummary" placeholder="如：提交无效宣告请求书" />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="newLog.eventType" style="width: 100%">
-            <el-option v-for="opt in logTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="日期">
-          <el-date-picker v-model="newLog.eventDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="详细内容">
-          <el-input v-model="newLog.content" type="textarea" :rows="3" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAddLogDialog = false">取消</el-button>
-        <el-button type="primary" @click="addLog">添加</el-button>
-      </template>
-    </el-dialog>
+    <!-- 项目总览 -->
+    <div class="section" v-if="caseData">
+      <div class="section-header">
+        <h2>项目总览</h2>
+      </div>
+      
+      <div class="project-overview">
+        <!-- 案件目标 -->
+        <div class="overview-item goal">
+          <div class="item-header">
+            <span class="item-label">案件目标</span>
+            <el-button 
+              v-if="!editingGoal" 
+              text 
+              size="small" 
+              @click="editingGoal = true"
+            >
+              编辑
+            </el-button>
+          </div>
+          
+          <div v-if="editingGoal" class="goal-edit">
+            <el-input
+              v-model="goalInput"
+              placeholder="30字内概括案件目标..."
+              maxlength="30"
+              show-word-limit
+              @keyup.enter="saveGoal"
+            />
+            <div class="goal-actions">
+              <el-button size="small" @click="editingGoal = false">取消</el-button>
+              <el-button size="small" type="primary" @click="saveGoal">保存</el-button>
+            </div>
+          </div>
+          
+          <div v-else class="goal-display">
+            {{ caseData.caseGoal || '点击编辑设置案件目标' }}
+          </div>
+        </div>
+        
+        <!-- 任务统计 -->
+        <div class="overview-item stats">
+          <div class="item-label">任务统计</div>
+          <div class="stats-grid">
+            <div class="stat">
+              <span class="stat-value">{{ taskStats.total }}</span>
+              <span class="stat-label">总计</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value">{{ taskStats.pending }}</span>
+              <span class="stat-label">待办</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value">{{ taskStats.completed }}</span>
+              <span class="stat-label">完成</span>
+            </div>
+            <div class="stat" v-if="taskStats.overdue > 0">
+              <span class="stat-value overdue">{{ taskStats.overdue }}</span>
+              <span class="stat-label">逾期</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 进度环 -->
+        <div class="overview-item progress">
+          <div class="item-label">项目进度</div>
+          <div class="progress-ring">
+            <el-progress
+              type="circle"
+              :percentage="taskStats.total > 0 ? Math.round(taskStats.completed / taskStats.total * 100) : 0"
+              :width="80"
+              :stroke-width="8"
+              color="#67C23A"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
 
-    <!-- 添加庭审弹窗 -->
-    <el-dialog v-model="showAddHearingDialog" title="添加庭审" width="450">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="庭审名称" required>
-          <el-input v-model="newHearing.hearingName" placeholder="如：口头审理" />
-        </el-form-item>
-        <el-form-item label="日期">
-          <el-date-picker v-model="newHearing.hearingDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="newHearing.hearingType" style="width: 100%">
-            <el-option label="口头审理" value="oral" />
-            <el-option label="开庭" value="trial" />
-            <el-option label="调解" value="mediation" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="法院">
-          <el-input v-model="newHearing.court" :placeholder="form.court || ''" />
-        </el-form-item>
-        <el-form-item label="关联案件">
-          <ReferenceSelect
-            type="case"
-            placeholder="可选：关联其他案件"
-            @select="(c) => newHearing.linkedCaseId = c?.id || null"
+    <!-- 下一步行动 -->
+    <div class="section next-action-section" v-if="nextAction">
+      <div class="section-header">
+        <h2>下一步行动</h2>
+        <el-button 
+          type="success" 
+          size="small" 
+          @click.stop="toggleTaskComplete(nextAction)"
+          class="complete-action-btn"
+        >
+          <el-icon><Check /></el-icon>
+          完成
+        </el-button>
+      </div>
+      
+      <div class="next-action-card" @click="openTaskEdit(nextAction)">
+        <div class="action-check" @click.stop="toggleTaskComplete(nextAction)">
+          <el-icon color="#C0C4CC"><CircleCheck /></el-icon>
+        </div>
+        
+        <div class="action-content">
+          <div class="action-title">{{ nextAction.taskName }}</div>
+          <div class="action-meta">
+            <span v-if="nextAction.dueDate || nextAction.deadline" class="meta-item" :class="{ overdue: isOverdue(nextAction) }">
+              <el-icon><Calendar /></el-icon>
+              {{ formatDate(nextAction.dueDate || nextAction.deadline) }}
+            </span>
+            <span v-if="nextAction.estimatedMinutes" class="meta-item">
+              <el-icon><Timer /></el-icon>
+              {{ nextAction.estimatedMinutes }}分钟
+            </span>
+            <span v-if="nextAction.context" class="meta-item context">
+              @{{ nextAction.context }}
+            </span>
+          </div>
+        </div>
+        
+        <el-icon color="#A1A1AA"><ArrowRight /></el-icon>
+      </div>
+    </div>
+
+    <!-- 顺序项目列表 -->
+    <div class="section" v-if="tasks.filter(t => t.sequential).length > 0">
+      <div class="section-header">
+        <h2>项目流程</h2>
+        <div class="sequential-progress">
+          <el-progress 
+            :percentage="sequentialCompletionRate" 
+            :stroke-width="8"
+            :show-text="false"
+            color="#67C23A"
           />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAddHearingDialog = false">取消</el-button>
-        <el-button type="primary" @click="addHearing">添加</el-button>
-      </template>
-    </el-dialog>
+          <span class="progress-text">{{ sequentialCompletedCount }}/{{ sequentialTotalCount }}</span>
+        </div>
+        <el-button text size="small" @click="addNewTask">
+          <el-icon><Plus /></el-icon>
+          添加步骤
+        </el-button>
+      </div>
+      
+      <div class="sequential-tasks">
+        <div
+          v-for="task in tasks.filter(t => t.sequential).sort((a, b) => a.sequenceOrder - b.sequenceOrder)"
+          :key="task.id"
+          :class="['sequential-task', { 
+            completed: task.completed, 
+            blocked: task.blocked,
+            current: !task.completed && !task.blocked 
+          }]"
+        >
+          <div class="task-check" @click="toggleTaskComplete(task)">
+            <el-icon v-if="task.completed" color="#67C23A"><Check /></el-icon>
+            <el-icon v-else-if="task.blocked" color="#C0C4CC"><Lock /></el-icon>
+            <el-icon v-else color="#C0C4CC"><CircleCheck /></el-icon>
+          </div>
+          
+          <div class="task-content" @click="openTaskEdit(task)">
+            <span class="task-name">{{ task.taskName }}</span>
+            <span v-if="task.blocked" class="blocked-hint">等待前置步骤完成</span>
+          </div>
+          
+          <div class="task-status">
+            <el-tag v-if="task.completed" type="success" size="small">已完成</el-tag>
+            <el-tag v-else-if="task.blocked" type="info" size="small">已锁定</el-tag>
+            <el-tag v-else type="primary" size="small">进行中</el-tag>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    <!-- 添加任务弹窗 -->
-    <el-dialog v-model="showAddTaskDialog" title="添加任务" width="450">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="任务名称" required>
-          <el-input v-model="newTask.taskName" placeholder="输入任务名称" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="newTask.description" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="截止日期">
-          <el-date-picker v-model="newTask.deadline" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-select v-model="newTask.priority" style="width: 100%">
-            <el-option label="重要紧急" value="urgent_important" />
-            <el-option label="重要不紧急" value="important" />
-            <el-option label="紧急不重要" value="urgent" />
-            <el-option label="普通" value="normal" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAddTaskDialog = false">取消</el-button>
-        <el-button type="primary" @click="addQuickTask">创建</el-button>
-      </template>
-    </el-dialog>
+    <!-- 三轨状态 -->
+    <div class="section" v-if="trackBadges.length > 0">
+      <div class="section-header">
+        <h2>案件状态</h2>
+      </div>
+      
+      <div class="track-status">
+        <div 
+          v-for="badge in trackBadges" 
+          :key="badge.track"
+          class="track-card"
+        >
+          <div class="track-header" :style="{ borderBottomColor: badge.color }">
+            <span class="track-name">{{ badge.track }}</span>
+          </div>
+          
+          <div class="track-body">
+            <div class="status-badge" :style="{ backgroundColor: badge.color + '20', color: badge.color }">
+              {{ badge.label }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    <!-- 添加关联弹窗 -->
-    <el-dialog v-model="showAddRelationDialog" title="添加关联案件" width="500">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="关联类型">
-          <el-select v-model="selectedRelationType" style="width: 100%">
-            <el-option v-for="opt in relationTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="relationLabel" placeholder="可选备注" />
-        </el-form-item>
-        <el-form-item label="搜索案件">
-          <ReferenceSelect
-            type="case"
-            placeholder="输入案件名称、案号或客户名"
-            @select="onRelationCaseSelect"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAddRelationDialog = false">关闭</el-button>
-        <el-button type="primary" :disabled="!selectedRelationTarget" @click="addRelation">添加关联</el-button>
-      </template>
-    </el-dialog>
+    <!-- 关联资源 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>关联资源</h2>
+      </div>
+      
+      <div class="resources-grid">
+        <!-- 任务 -->
+        <div class="resource-card" @click="router.push({ name: 'tasks', query: { caseId: caseId } })">
+          <el-icon :size="24" color="#E6A23C"><Finished /></el-icon>
+          <div class="resource-info">
+            <span class="resource-count">{{ taskStats.pending }}</span>
+            <span class="resource-label">待办任务</span>
+          </div>
+        </div>
+        
+        <!-- 文件 -->
+        <div class="resource-card">
+          <el-icon :size="24" color="#409EFF"><Folder /></el-icon>
+          <div class="resource-info">
+            <span class="resource-count">{{ files.length }}</span>
+            <span class="resource-label">案卷文件</span>
+          </div>
+        </div>
+        
+        <!-- 知识 -->
+        <div class="resource-card">
+          <el-icon :size="24" color="#8B5CF6"><Collection /></el-icon>
+          <div class="resource-info">
+            <span class="resource-count">{{ knowledge.length }}</span>
+            <span class="resource-label">关联知识</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 动态轨迹 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>动态轨迹</h2>
+      </div>
+      
+      <div class="timeline" v-if="timeline.length > 0">
+        <div 
+          v-for="event in timeline.slice(0, 10)" 
+          :key="event.id"
+          class="timeline-item"
+        >
+          <div class="timeline-dot" :style="{ backgroundColor: event.color || '#409EFF' }"></div>
+          <div class="timeline-content">
+            <div class="timeline-title">{{ event.eventSummary }}</div>
+            <div class="timeline-date">{{ formatDate(event.eventDate) }}</div>
+          </div>
+        </div>
+      </div>
+      
+      <div v-else class="empty-timeline">
+        <el-icon :size="32" color="#C0C4CC"><Clock /></el-icon>
+        <p>暂无动态记录</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.case-detail-page {
-  max-width: 1400px;
+.case-detail {
+  padding: 20px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
+/* 顶部导航 */
 .detail-header {
+  margin-bottom: 20px;
+}
+
+/* 案件概要 */
+.case-summary {
+  background: #FFFFFF;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.summary-title {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
-.case-title {
-  font-size: 18px;
+.summary-title h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #18181B;
+}
+
+.summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #52525B;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.case-type {
   font-weight: 500;
 }
 
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: #666;
+.track-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.detail-grid {
-  display: grid;
-  grid-template-columns: 320px 1fr 280px;
-  gap: 16px;
+.track-badge {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.detail-left,
-.detail-center,
-.detail-right {
-  min-width: 0;
+/* 区块通用 */
+.section {
+  background: #FFFFFF;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-.card-header-row {
+.section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 16px;
 }
 
-.quick-actions {
+.section-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #18181B;
+}
+
+/* 项目总览 */
+.project-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+}
+
+.overview-item {
+  padding: 16px;
+  background: #FAFAFA;
+  border-radius: 8px;
+}
+
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.item-label {
+  font-size: 12px;
+  color: #A1A1AA;
+  margin-bottom: 8px;
+}
+
+.goal-display {
+  font-size: 14px;
+  color: #18181B;
+  min-height: 40px;
+}
+
+.goal-edit {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-/* 关系列表 */
-.relations-loading,
-.relations-empty {
+.goal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 统计 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.stat {
   text-align: center;
-  padding: 12px 0;
-  color: #999;
-  font-size: 13px;
 }
 
-.relations-list {
+.stat-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  color: #18181B;
+}
+
+.stat-value.overdue {
+  color: #F56C6C;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #A1A1AA;
+}
+
+/* 进度环 */
+.progress-ring {
+  display: flex;
+  justify-content: center;
+}
+
+/* 下一步行动 */
+.next-action-section {
+  background: #EFF6FF;
+}
+
+.next-action-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #FFFFFF;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.next-action-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.action-check {
+  cursor: pointer;
+}
+
+.action-content {
+  flex: 1;
+}
+
+.action-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #18181B;
+  margin-bottom: 4px;
+}
+
+.action-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #A1A1AA;
+}
+
+/* 顺序项目 */
+.sequential-tasks {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.relation-item {
+.sequential-task {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 6px;
+  gap: 12px;
+  padding: 12px;
+  background: #FAFAFA;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.sequential-task.current {
+  background: #EFF6FF;
+  border-left: 3px solid #409EFF;
+}
+
+.sequential-task.blocked {
+  opacity: 0.6;
+}
+
+.sequential-task.completed {
+  opacity: 0.5;
+}
+
+.task-check {
   cursor: pointer;
-  transition: background 0.2s;
 }
 
-.relation-item:hover {
-  background: #f5f7fa;
-}
-
-.relation-info {
+.task-content {
   flex: 1;
-  min-width: 0;
+  cursor: pointer;
 }
 
-.relation-name {
-  font-size: 13px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.task-name {
+  font-size: 14px;
+  color: #18181B;
 }
 
-.relation-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.relation-case-no {
-  font-size: 11px;
-  color: #999;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.relation-sub {
-  font-size: 11px;
-  color: #999;
+.blocked-hint {
+  display: block;
+  font-size: 12px;
+  color: #A1A1AA;
   margin-top: 2px;
 }
 
-.relation-remove {
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.2s;
+/* 轨道状态 */
+.track-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
 }
 
-.relation-item:hover .relation-remove {
-  opacity: 1;
+.track-card {
+  border: 1px solid #E4E7ED;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.quick-actions .el-button {
-  width: 100%;
+.track-header {
+  padding: 12px;
+  border-bottom: 2px solid;
+  background: #FAFAFA;
 }
 
-@media (max-width: 1199px) {
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
+.track-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #18181B;
 }
 
-/* 文件夹模板预览 */
-.template-preview-dirs {
-  margin-top: 8px;
+.track-body {
+  padding: 16px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 关联资源 */
+.resources-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.resource-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #FAFAFA;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.resource-card:hover {
+  background: #F4F4F5;
+}
+
+.resource-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 200px;
-  overflow-y: auto;
 }
 
-.preview-dir-item {
+.resource-count {
+  font-size: 18px;
+  font-weight: 600;
+  color: #18181B;
+}
+
+.resource-label {
+  font-size: 12px;
+  color: #A1A1AA;
+}
+
+/* 动态轨迹 */
+.timeline {
+  position: relative;
+  padding-left: 20px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #E4E7ED;
+}
+
+.timeline-item {
+  position: relative;
+  padding-bottom: 16px;
+  padding-left: 16px;
+}
+
+.timeline-dot {
+  position: absolute;
+  left: -14px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.timeline-title {
+  font-size: 13px;
+  color: #18181B;
+  margin-bottom: 2px;
+}
+
+.timeline-date {
+  font-size: 12px;
+  color: #A1A1AA;
+}
+
+.empty-timeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #A1A1AA;
+}
+
+.empty-timeline p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+/* 新增样式 */
+.clickable {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.clickable:hover {
+  color: #409EFF;
+  text-decoration: underline;
+}
+
+.complete-action-btn {
+  font-weight: 500;
+}
+
+.sequential-progress {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 6px;
+  flex: 1;
+  margin: 0 16px;
+}
+
+.progress-text {
   font-size: 12px;
-  color: #606266;
-  background: #f9f9f9;
-  border-radius: 3px;
+  color: #6B7280;
+  white-space: nowrap;
 }
 
-.preview-dir-item .dir-id {
-  color: #909399;
-  font-family: monospace;
-  min-width: 20px;
-  font-size: 11px;
-}
-
-.template-meta {
-  margin-top: 6px;
+.context {
+  color: #6B7280;
+  background: #F3F4F6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
 }
 </style>

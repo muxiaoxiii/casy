@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useCasesStore } from '../../../stores/cases.js'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { useCasesStore } from '../../../stores/cases'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
