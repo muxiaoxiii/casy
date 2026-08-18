@@ -1,18 +1,19 @@
 /* ── Casy 全局样式 ─────────────────────────────────────── */
 
 :root {
-  --color-primary: #409eff;
-  --color-success: #67c23a;
-  --color-warning: #e6a23c;
-  --color-danger: #f56c6c;
-  --color-info: #909399;
-  --color-text: #303133;
-  --color-text-regular: #606266;
-  --color-text-secondary: #909399;
+  --color-primary: #2563eb;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #6b7280;
+  --color-text: #374151;
+  --color-text-regular: #4b5563;
+  --color-text-secondary: #6b7280;
   --color-bg: #ffffff;
-  --color-bg-page: #f5f7fa;
-  --color-border: #dcdfe6;
-  --font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --color-bg-page: #f9fafb;
+  --color-border: #d1d5db;
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
 }
 
 *,

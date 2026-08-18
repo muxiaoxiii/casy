@@ -100,6 +100,18 @@ const routes = [
     component: () => import('../modules/knowledge/views/KnowledgeStyleGuide.vue'),
     meta: { title: '文书风格指南' },
   },
+  {
+    path: '/ai',
+    name: 'ai',
+    component: () => import('../modules/ai/views/AICompanionView.vue'),
+    meta: { title: 'AI 智伴' },
+  },
+  {
+    path: '/reminder',
+    name: 'reminder',
+    component: () => import('../modules/reminder/views/ReminderView.vue'),
+    meta: { title: '提醒预警' },
+  },
 ]
 
 const router = createRouter({

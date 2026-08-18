@@ -1,8 +1,16 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge.js'
+import { tauriCallSafe } from '../core/tauriBridge'
+import type { CalendarEvent } from '../types'
+
+interface CalendarState {
+  events: CalendarEvent[]
+  loading: boolean
+  currentYear: number
+  currentMonth: number
+}
 
 export const useCalendarStore = defineStore('calendar', {
-  state: () => ({
+  state: (): CalendarState => ({
     events: [],
     loading: false,
     currentYear: new Date().getFullYear(),
@@ -10,8 +18,8 @@ export const useCalendarStore = defineStore('calendar', {
   }),
 
   getters: {
-    eventsByDate: (state) => {
-      const map = {}
+    eventsByDate: (state): Record<string, CalendarEvent[]> => {
+      const map: Record<string, CalendarEvent[]> = {}
       for (const event of state.events) {
         if (!map[event.date]) map[event.date] = []
         map[event.date].push(event)
@@ -21,21 +29,21 @@ export const useCalendarStore = defineStore('calendar', {
   },
 
   actions: {
-    async loadEvents(year, month) {
+    async loadEvents(year?: number, month?: number): Promise<void> {
       this.loading = true
       if (year) this.currentYear = year
       if (month) this.currentMonth = month
-      const result = await tauriCallSafe('get_calendar_events', {
+      const result = await tauriCallSafe<CalendarEvent[]>('get_calendar_events', {
         year: this.currentYear,
         month: this.currentMonth,
       })
-      if (result.ok) {
-        this.events = result.data || []
+      if (result.ok && result.data) {
+        this.events = result.data
       }
       this.loading = false
     },
 
-    prevMonth() {
+    prevMonth(): void {
       if (this.currentMonth === 1) {
         this.currentYear--
         this.currentMonth = 12
@@ -45,7 +53,7 @@ export const useCalendarStore = defineStore('calendar', {
       this.loadEvents()
     },
 
-    nextMonth() {
+    nextMonth(): void {
       if (this.currentMonth === 12) {
         this.currentYear++
         this.currentMonth = 1
@@ -55,7 +63,7 @@ export const useCalendarStore = defineStore('calendar', {
       this.loadEvents()
     },
 
-    goToday() {
+    goToday(): void {
       this.currentYear = new Date().getFullYear()
       this.currentMonth = new Date().getMonth() + 1
       this.loadEvents()
