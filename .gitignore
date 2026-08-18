@@ -38,3 +38,6 @@ Thumbs.db
 
 # 本地工具工作目录
 .workbuddy/
+
+# 外部参考仓库（嵌入 git repo，不入库）
+baoyu-design/

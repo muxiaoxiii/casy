@@ -724,9 +724,40 @@ pub async fn process_inbox_with_ai(
 ) -> Result<(AiClassifyResult, RoutingDecision)> {
     let config = load_ai_config();
     let backend = create_backend(&config);
+    let provider = config.mode.clone();
+    let model = config.model.clone().unwrap_or_default();
+
+    // 计算 input_hash（SHA256 hex，脱敏入库）
+    use sha2::Digest;
+    let input_hash = hex::encode(sha2::Sha256::digest(text.as_bytes()));
 
     // 使用 prompt 增强的分类
-    let classify_result = classify_document_with_prompt(backend.as_ref(), text).await?;
+    let classify_result = classify_document_with_prompt(backend.as_ref(), text).await;
+
+    // 审计日志（失败不阻塞主流程）
+    let status_and_output = match &classify_result {
+        Ok(r) => {
+            let out = serde_json::to_string(&r.extracted_info).unwrap_or_default();
+            let output_hash = hex::encode(sha2::Sha256::digest(out.as_bytes()));
+            ("completed", Some(output_hash))
+        }
+        Err(_) => ("failed", None),
+    };
+
+    if let Err(e) = crate::commands::ai_routes::log_ai_run(
+        &provider,
+        &model,
+        "classify_document",
+        Some("v1"),
+        &input_hash,
+        status_and_output.1.as_deref(),
+        status_and_output.0,
+        classify_result.as_ref().err().map(|e| e.to_string()).as_deref(),
+    ) {
+        log::warn!("AI 审计日志写入失败: {}", e);
+    }
+
+    let classify_result = classify_result?;
 
     // 提取 matched_case_id
     let matched_case_id = classify_result
@@ -996,14 +1027,50 @@ pub async fn generate_writing_suggestion(
         return Err("AI 调用已达每日限额".to_string());
     }
 
+    let config = load_ai_config();
+    let provider = config.mode.clone();
+    let model = config.model.clone().unwrap_or_default();
+
+    // 拼 input 内容用于哈希（intent + context + knowledge 三段）
+    let input_text = format!(
+        "{}|{}|{}",
+        intent,
+        context.as_deref().unwrap_or(""),
+        knowledge.as_deref().unwrap_or("")
+    );
+    use sha2::Digest;
+    let input_hash = hex::encode(sha2::Sha256::digest(input_text.as_bytes()));
+
     let result = generate_writing_with_ai(
         &intent,
         context.as_deref().unwrap_or(""),
         knowledge.as_deref().unwrap_or(""),
         style.as_deref().unwrap_or("general"),
     )
-    .await
-    .map_err(|e| e.to_string())?;
+    .await;
+
+    // 审计日志
+    let (status, output_hash, error_msg) = match &result {
+        Ok(text) => {
+            let h = hex::encode(sha2::Sha256::digest(text.as_bytes()));
+            ("completed", Some(h), None)
+        }
+        Err(e) => ("failed", None, Some(e.to_string())),
+    };
+    if let Err(e) = crate::commands::ai_routes::log_ai_run(
+        &provider,
+        &model,
+        "writing_suggestion",
+        Some("v1"),
+        &input_hash,
+        output_hash.as_deref(),
+        status,
+        error_msg.as_deref(),
+    ) {
+        log::warn!("AI 审计日志写入失败: {}", e);
+    }
+
+    let result = result.map_err(|e| e.to_string())?;
 
     // 消耗配额
     let _ = budget.consume().await;

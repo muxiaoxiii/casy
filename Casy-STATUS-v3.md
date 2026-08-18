@@ -16,6 +16,15 @@
 | AI 提供商 | 1 (Ollama) | 3+ (Ollama/OpenAI/DeepSeek) |
 | 事件系统 | 无 | 统一事件系统 |
 | 确认机制 | 分散 | 统一 L1/L2/L3 |
+| Rust 命令 | 70 | 148 |
+| Vue 组件 | 30 | 44 |
+| 代码行数 | ~23,500 | ~43,300 |
+| 路由 | 16 | 18 |
+
+### v3.0 新增完成项
+
+- ✅ **AI 审计日志接通** — `ai_routes.rs` 的 `log_ai_run` / `log_ai_context_item` 已接入 `process_inbox_with_ai` 与 `generate_writing_suggestion` 调用路径，SHA256 脱敏入库
+- ✅ **R1-R4 后端分级** — `reminder_log` 表新增 `level` 字段，`dispatch_reminder` 在派发时计算 R1(温和 T>1)/R2(明确 T=1)/R3(强提醒 T=0)/R4(逾期 T<0) 并写入，前端 `ReminderView` 直接消费后端 level
 
 ---
 

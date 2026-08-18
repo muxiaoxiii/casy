@@ -944,6 +944,7 @@ CREATE TABLE IF NOT EXISTS reminder_log (
     task_id         TEXT,
     channel         TEXT NOT NULL,
     message         TEXT NOT NULL,
+    level           TEXT CHECK(level IN ('R1','R2','R3','R4')),
     status          TEXT DEFAULT 'sent'
                     CHECK(status IN ('sent','failed','snoozed')),
     sent_at         TEXT DEFAULT (datetime('now','localtime'))
@@ -1724,6 +1725,22 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         log::info!("Added law_name/article_no/effective_date/status columns to knowledge_items");
     }
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);")?;
+
+    // 条件补列：reminder_log.level（R1-R4 分级，旧 DB 可能缺少该列）
+    let has_reminder_level: bool = conn
+        .prepare("PRAGMA table_info(reminder_log)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|col| col == "level");
+    if !has_reminder_level {
+        conn.execute_batch(
+            "ALTER TABLE reminder_log ADD COLUMN level TEXT CHECK(level IN ('R1','R2','R3','R4'));",
+        )?;
+        log::info!("Added level column to reminder_log (R1-R4 classification)");
+    }
+
+    // 条件补列：ai_runs / ai_context_items 等表的索引（旧 DB 可能缺少）
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_ai_runs_created ON ai_runs(created_at);")?;
 
     Ok(())
 }

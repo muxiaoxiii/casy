@@ -1,9 +1,11 @@
 # Casy 设计哲学与改造蓝图
 
-> **版本**: v2.3  
-> **日期**: 2026-08-14  
+> **版本**: v2.4  
+> **日期**: 2026-08-18  
 > **状态**: 设计基准（Master Design Doc）  
 > **定位**: 当前Casy完整设计基准。
+>
+> **v2.4（R1-R4 后端分级接通 + AI 审计日志）**：① `reminder_log` 新增 `level` 列，`dispatch_reminder` 在派发时计算并写入 R1/R2/R3/R4，前端 ReminderView 直接消费后端 level（兼容旧数据回退前端解析）；② AI 调用接通审计日志——`process_inbox_with_ai` 与 `generate_writing_suggestion` 在调用后写入 `ai_runs`（provider/model/purpose/input_hash/output_hash/status/error），input/output 用 SHA256 脱敏入库，审计失败不阻塞主流程；③ `log_ai_context_item` 保留为待接（按场景需要再调）。
 >
 > **v2.1（评审收口）**：① 客户认知修订——数据库新增 `clients` 基础主数据（稳定 ID + 别名归一），四大认知对象不变；② AI 能力边界统一——"LLM 不产生确定性事实，可产生建议与叙事"；③ 确认策略补 `effective_policy`（system_minimum 安全下限不可突破）；④ "信息完整"改为 ContextPolicy 界定（有界上下文，弃无界数据链）；⑤ 文档内 SQL 全删，字段语义以 architecture.md §5 为准。
 >

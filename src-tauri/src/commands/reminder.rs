@@ -39,6 +39,7 @@ pub struct ReminderLogEntry {
     pub task_id: Option<String>,
     pub channel: String,
     pub message: String,
+    pub level: Option<String>,
     pub status: String,
     pub sent_at: Option<String>,
 }
@@ -177,11 +178,12 @@ fn check_deadline_rules(
                 case_name, deadline_name, due_date_str, days_diff
             );
 
+            let level = compute_level(days_diff, false);
             let channels: Vec<String> =
                 serde_json::from_str(&rule.channels).unwrap_or_default();
 
             for channel in &channels {
-                let entry = dispatch_reminder(conn, &rule.id, Some(&case_id), None, channel, &message)?;
+                let entry = dispatch_reminder(conn, &rule.id, Some(&case_id), None, channel, &message, level)?;
                 triggered.push(entry);
             }
         }
@@ -234,11 +236,12 @@ fn check_hearing_rules(
                 case_name, hearing_label, hearing_date_str, days_diff
             );
 
+            let level = compute_level(days_diff, false);
             let channels: Vec<String> =
                 serde_json::from_str(&rule.channels).unwrap_or_default();
 
             for channel in &channels {
-                let entry = dispatch_reminder(conn, &rule.id, Some(&case_id), None, channel, &message)?;
+                let entry = dispatch_reminder(conn, &rule.id, Some(&case_id), None, channel, &message, level)?;
                 triggered.push(entry);
             }
         }
@@ -301,6 +304,7 @@ fn check_task_rules(
                 task_name, case_name, deadline_str, status_text
             );
 
+            let level = compute_level(days_diff, rule.trigger_type == "task_overdue");
             let channels: Vec<String> =
                 serde_json::from_str(&rule.channels).unwrap_or_default();
 
@@ -312,6 +316,7 @@ fn check_task_rules(
                     Some(&task_id),
                     channel,
                     &message,
+                    level,
                 )?;
                 triggered.push(entry);
             }
@@ -325,6 +330,24 @@ fn check_task_rules(
 // 通道分发
 // ============================================================
 
+/// 计算 R1-R4 预警等级
+///
+/// - R1 温和：T-3 至 T-2 天（截止前较多余量）
+/// - R2 明确：T-1 天
+/// - R3 强提醒：T=0 当天到期
+/// - R4 逾期：T<0 已超过截止
+fn compute_level(days_diff: i64, is_overdue: bool) -> &'static str {
+    if is_overdue || days_diff < 0 {
+        "R4"
+    } else if days_diff == 0 {
+        "R3"
+    } else if days_diff <= 1 {
+        "R2"
+    } else {
+        "R1"
+    }
+}
+
 fn dispatch_reminder(
     conn: &Connection,
     rule_id: &str,
@@ -332,6 +355,7 @@ fn dispatch_reminder(
     task_id: Option<&str>,
     channel: &str,
     message: &str,
+    level: &str,
 ) -> Result<ReminderLogEntry> {
     let result = match channel {
         "local" => send_local_notification(message),
@@ -377,14 +401,15 @@ fn dispatch_reminder(
         task_id: task_id.map(|s| s.to_string()),
         channel: channel.to_string(),
         message: message.to_string(),
+        level: Some(level.to_string()),
         status: status.to_string(),
         sent_at: Some(db::now_local()),
     };
 
     // 写入日志
     conn.execute(
-        "INSERT INTO reminder_log (id, rule_id, case_id, task_id, channel, message, status, sent_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now','localtime'))",
+        "INSERT INTO reminder_log (id, rule_id, case_id, task_id, channel, message, level, status, sent_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now','localtime'))",
         params![
             entry.id,
             entry.rule_id,
@@ -392,6 +417,7 @@ fn dispatch_reminder(
             entry.task_id,
             entry.channel,
             entry.message,
+            entry.level,
             entry.status,
         ],
     )?;
@@ -632,8 +658,8 @@ pub async fn test_reminder(
 
             let log_id = db::new_id();
             conn.execute(
-                "INSERT INTO reminder_log (id, rule_id, case_id, task_id, channel, message, status)
-                 VALUES (?1, 'test', NULL, NULL, ?2, ?3, 'sent')",
+                "INSERT INTO reminder_log (id, rule_id, case_id, task_id, channel, message, level, status)
+                 VALUES (?1, 'test', NULL, NULL, ?2, ?3, 'R1', 'sent')",
                 params![log_id, channel, test_msg],
             )?;
 
@@ -644,6 +670,7 @@ pub async fn test_reminder(
                 task_id: None,
                 channel: channel.clone(),
                 message: test_msg.clone(),
+                level: Some("R1".to_string()),
                 status: "sent".to_string(),
                 sent_at: Some(db::now_local()),
             });
@@ -709,7 +736,7 @@ pub async fn get_reminder_log(limit: Option<i64>) -> Result<Vec<ReminderLogEntry
         let limit = limit.unwrap_or(100);
 
         let mut stmt = conn.prepare(
-            "SELECT id, rule_id, case_id, task_id, channel, message, status, sent_at
+            "SELECT id, rule_id, case_id, task_id, channel, message, level, status, sent_at
              FROM reminder_log ORDER BY sent_at DESC LIMIT ?1",
         )?;
 
@@ -722,8 +749,9 @@ pub async fn get_reminder_log(limit: Option<i64>) -> Result<Vec<ReminderLogEntry
                     task_id: row.get(3)?,
                     channel: row.get(4)?,
                     message: row.get(5)?,
-                    status: row.get(6)?,
-                    sent_at: row.get(7)?,
+                    level: row.get(6)?,
+                    status: row.get(7)?,
+                    sent_at: row.get(8)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;

@@ -35,8 +35,12 @@ function parseReminderMessage(message) {
 
 // ============================================================
 // R1-R4 分级计算
+// 优先使用后端 reminder_log.level，回退到前端解析（兼容旧数据）
 // ============================================================
 function classifyLevel(entry) {
+  if (entry.level && ['R1', 'R2', 'R3', 'R4'].includes(entry.level)) {
+    return entry.level
+  }
   const parsed = parseReminderMessage(entry.message)
   const days = parsed.daysLeft
 

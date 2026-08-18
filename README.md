@@ -4,6 +4,8 @@
 
 Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：动态字段、跨类型筛选、期限引擎、多通道提醒、知识库、文书生成、大口袋收件箱。
 
+**v3.0 架构**：采用插件化架构（借鉴 Cordis + DeepSeek Harness），每个业务模块是独立插件，AI 能力以工具/技能形式接入。详见 `docs/architecture-v3.md` 与 `docs/architecture-plugin-system.md`。
+
 ---
 
 ## 技术栈
@@ -11,14 +13,14 @@ Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：
 | 层 | 技术 |
 |----|------|
 | 框架 | Tauri 2 |
-| 前端 | Vue 3 + Element Plus + Pinia + Vue Router |
+| 前端 | Vue 3 + Element Plus + Pinia + Vue Router（TypeScript） |
 | 编辑器 | TipTap (ProseMirror) |
 | 后端 | Rust |
-| 数据库 | SQLite (SQLCipher 加密) + FTS5 全文搜索 |
+| 数据库 | SQLite (SQLCipher 加密) + FTS5 全文搜索（Schema v9） |
 | 公式引擎 | Rust nom 解析器 |
 | 同步 | WebDAV + 飞书 Bitable API |
-| 提醒 | 本地弹窗 + macOS 通知 + 飞书消息 + 飞书任务 |
-| AI | Ollama (本地) / OpenAI 兼容 API (远程) |
+| 提醒 | 本地弹窗 + macOS 通知 + 飞书消息 + 飞书任务（R1-R4 分级预警） |
+| AI | Ollama (本地) / OpenAI 兼容 API (远程) + 命令路由 + 审计日志 |
 | 邮件 | async-imap + IDLE |
 | OCR | Tesseract (可选) |
 
@@ -68,26 +70,35 @@ Casy/
 ├── src/                    # Vue 前端
 │   ├── modules/            # 功能模块
 │   │   ├── cases/          # 案件管理（列表/详情/看板/关系图）
-│   │   ├── tasks/          # 任务管理（四象限）
-│   │   ├── calendar/       # 日历（月视图）
+│   │   ├── tasks/          # 任务管理（四象限 + GTD 透视）
+│   │   ├── calendar/       # 日历（月视图 + Forecast）
 │   │   ├── inbox/          # 收件箱（大口袋）
 │   │   ├── docs/           # 文书工坊（编辑器+Copilot）
 │   │   ├── knowledge/      # 知识库
 │   │   ├── files/          # 案卷文件
+│   │   ├── ai/             # AI 智伴（路由/确认/审计/对话）
+│   │   ├── reminder/       # 提醒（R1-R4 预警）
 │   │   ├── sync/           # 同步状态
-│   │   ├── settings/       # 设置（飞书/AI/WebDAV/IMAP）
+│   │   ├── settings/       # 设置（飞书/AI/WebDAV/IMAP/提醒）
 │   │   └── home/           # 首页 Dashboard
-│   ├── stores/             # Pinia Stores
-│   ├── core/               # tauriBridge
-│   ├── shared/             # 共享组件
+│   ├── core/               # tauriBridge + plugins（v3.0 插件化架构）
+│   │   └── plugins/        # 9 个业务插件 + CasyContext 容器
+│   ├── stores/             # Pinia Stores（TypeScript）
+│   ├── shared/             # 共享组件（AIStatusBadge/ReminderToast/...）
+│   ├── types/              # TypeScript 类型定义
 │   └── router/             # 路由
 ├── docs/                   # 设计文档
 │   ├── casy-design-philosophy.md # ★ 设计哲学（唯一总纲：原则/模块蓝图/UI 规范/路线图）
-│   ├── architecture.md     # ★ 顶层架构设计（统领全局）
-│   ├── modules/            # 各模块细节设计文档（00-README.md 索引）
+│   ├── architecture.md     # ★ 顶层架构设计（统领全局，含离线提醒决策）
+│   ├── architecture-v3.md  # ★ v3.0 插件化架构
+│   ├── architecture-plugin-system.md # 插件系统详细设计
+│   ├── modules/            # 各模块细节设计文档（00-README.md 索引，17 篇）
+│   ├── devlog/             # 开发日志
 │   └── archive/            # 归档文档（调研/旧版设计）
+├── designs/                # UI 设计稿（11 张屏幕 PNG+SVG + HTML 原型）
 ├── Casy-SPEC.md            # 综合技术规格
-├── Casy-STATUS.md          # 项目状态与进度
+├── Casy-STATUS.md          # 项目状态（v0.2.0 历史）
+├── Casy-STATUS-v3.md       # 项目状态 v3.0（当前）
 └── README.md               # 本文件
 ```
 
@@ -98,8 +109,10 @@ Casy/
 ```
 README.md（你在这里）
   ├─ docs/casy-design-philosophy.md ← 设计哲学：八大原则、模块蓝图、UI 规范、路线图
-  └─ docs/architecture.md           ← 顶层架构：模块全景、数据模型、离线提醒决策
-       └─ docs/modules/             ← 各模块细节设计
+  ├─ docs/architecture.md           ← 顶层架构：模块全景、数据模型、离线提醒决策
+  ├─ docs/architecture-v3.md        ← v3.0 插件化架构（CasyContext + 9 插件）
+  └─ docs/architecture-plugin-system.md ← 插件系统详细设计
+       └─ docs/modules/             ← 各模块细节设计（17 篇）
             ├─ 00-README.md         ← 模块索引与依赖关系
             ├─ 01-cases.md          ← 案件管理
             ├─ 02-status-machine.md ← 三轨状态机
@@ -112,11 +125,13 @@ README.md（你在这里）
             ├─ 09-files.md          ← 文件管理
             ├─ 10-sync.md           ← 同步（WebDAV/飞书）
             ├─ 11-email.md          ← 邮件（IMAP）
-            ├─ 12-reminder.md       ← 提醒系统
+            ├─ 12-reminder.md       ← 提醒系统（R1-R4 分级）
             ├─ 13-ai-companion.md   ← AI 智伴
             ├─ 14-data-layer.md     ← 数据层
             ├─ 15-observability-settings.md ← 可观测性与设置
             └─ 16-openness.md       ← 双向开放（MCP/Skill）
+       └─ docs/devlog/              ← 开发日志
+       └─ docs/archive/             ← 归档文档（调研/旧版设计）
 ```
 
 ---
@@ -160,8 +175,16 @@ npm run tauri build
 
 | 指标 | 数值 |
 |------|------|
-| 代码行数 | ~25,000 |
-| Rust 命令 | 70+ |
-| Vue 组件 | 30 |
-| 测试 | 61 (全部通过) |
+| 代码行数 | ~43,300（Rust ~20k + Vue ~19.4k + TS/JS） |
+| Rust 命令 | 148 |
+| Vue 组件 | 44 |
+| 业务插件 | 9（v3.0 插件化架构） |
+| 注册工具 | 38 |
+| 路由 | 18 |
 | 编译错误 | 0 |
+
+---
+
+## 附录 B：改动登记
+
+- 2026-08-18 — v3.0 文档同步：项目指标刷新（43.3k 行 / 148 命令 / 44 组件 / 9 插件 / 38 工具），项目结构补全 ai/reminder/core/plugins/types 模块，文档层级补 architecture-v3 与 architecture-plugin-system，新增 designs/ 与 Casy-STATUS-v3.md。详见 `docs/devlog/2026-08-18.md`。
