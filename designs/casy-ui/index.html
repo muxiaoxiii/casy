@@ -1,0 +1,2657 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="slate">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Casy · 专利律师全流程秩序引擎 — UI 设计稿</title>
+<style>
+/* ============================================================
+   Casy Design System — 依据 casy-design-philosophy.md 第十二章
+   Token 值来自 12.2，视觉铁律来自 12.3，降级态来自 12.5
+   ============================================================ */
+:root {
+  /* 圆角 12.2 */
+  --r-lg: 8px;
+  --r-md: 6px;
+  --r-sm: 4px;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+
+  /* 尺寸 */
+  --sidebar-w: 216px;
+  --topbar-h: 52px;
+  --transition: 160ms ease;
+}
+
+/* ============================================================
+   主题系统 — 预置 5 套皮肤，data-theme 切换（localStorage 持久化）
+   ============================================================ */
+
+/* ① 石墨 Slate（默认 · 低饱和稳重） */
+:root[data-theme="slate"] {
+  --primary: #3E5C9A;
+  --primary-hover: #334D82;
+  --primary-soft: #EDF1F8;
+  --primary-border: #C3CFE3;
+  --bg: #F6F7F9;
+  --surface: #FFFFFF;
+  --surface-hover: #F0F2F5;
+  --border: #E0E3E9;
+  --border-strong: #CDD2DB;
+  --divider: #EEF0F3;
+  --text-1: #1F2430;
+  --text-2: #4B5160;
+  --text-3: #9BA2AF;
+  --red: #B4554F;
+  --red-soft: #F6EDEC;
+  --amber: #B0823A;
+  --amber-soft: #F7F1E3;
+  --amber-border: #E4D3A8;
+  --amber-text: #7A5B24;
+  --amber-text-hover: #5E4519;
+  --green: #4C8067;
+  --green-soft: #EDF3EF;
+  --purple: #6C6A9C;
+  --purple-soft: #F0EFF6;
+  --blue-soft: #EDF1F8;
+  --scrollbar-thumb: #D5D9E0;
+  --scrollbar-thumb-hover: #C0C5CE;
+  --skeleton-a: #F0F2F5;
+  --skeleton-b: #E7EAEF;
+  --overlay: rgba(31,36,48,.32);
+  --shadow-sm: 0 1px 2px rgba(31,36,48,.05);
+  --shadow-md: 0 4px 12px rgba(31,36,48,.08);
+  --shadow-lg: 0 12px 32px rgba(31,36,48,.12);
+}
+
+/* ② 经典蓝 Blue（原 12.2 Token 配色） */
+:root[data-theme="blue"] {
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-soft: #EFF4FF;
+  --primary-border: #BFDBFE;
+  --bg: #FAFAFA;
+  --surface: #FFFFFF;
+  --surface-hover: #F4F4F5;
+  --border: #E4E4E7;
+  --border-strong: #D4D4D8;
+  --divider: #F4F4F5;
+  --text-1: #18181B;
+  --text-2: #52525B;
+  --text-3: #A1A1AA;
+  --red: #EF4444;
+  --red-soft: #FEF2F2;
+  --amber: #F59E0B;
+  --amber-soft: #FFFBEB;
+  --amber-border: #FDE68A;
+  --amber-text: #92400E;
+  --amber-text-hover: #78350F;
+  --green: #10B981;
+  --green-soft: #ECFDF5;
+  --purple: #8B5CF6;
+  --purple-soft: #F5F3FF;
+  --blue-soft: #EFF6FF;
+  --scrollbar-thumb: #DCDCE0;
+  --scrollbar-thumb-hover: #C7C7CC;
+  --skeleton-a: #F0F0F1;
+  --skeleton-b: #E8E8EA;
+  --overlay: rgba(24,24,27,.32);
+  --shadow-sm: 0 1px 2px rgba(24,24,27,.04);
+  --shadow-md: 0 4px 12px rgba(24,24,27,.08);
+  --shadow-lg: 0 12px 32px rgba(24,24,27,.12);
+}
+
+/* ③ 暖陶 Terracotta（陶土棕 · 稳重） */
+:root[data-theme="terracotta"] {
+  --primary: #8F5B46;
+  --primary-hover: #774B3A;
+  --primary-soft: #F4EDE8;
+  --primary-border: #D8C3B6;
+  --bg: #F9F7F5;
+  --surface: #FFFFFF;
+  --surface-hover: #F3EFEB;
+  --border: #E7E0DA;
+  --border-strong: #D4C9C0;
+  --divider: #F2EDE8;
+  --text-1: #2B2420;
+  --text-2: #5C534C;
+  --text-3: #A79C93;
+  --red: #AD5244;
+  --red-soft: #F6EDEA;
+  --amber: #A87B2F;
+  --amber-soft: #F7F1E2;
+  --amber-border: #E3D1A4;
+  --amber-text: #74571F;
+  --amber-text-hover: #574115;
+  --green: #64794F;
+  --green-soft: #F0F2EB;
+  --purple: #796586;
+  --purple-soft: #F2EFF4;
+  --blue-soft: #EEF1F6;
+  --scrollbar-thumb: #DDD5CD;
+  --scrollbar-thumb-hover: #C9BFB5;
+  --skeleton-a: #F2EEE9;
+  --skeleton-b: #E9E3DC;
+  --overlay: rgba(43,36,32,.32);
+  --shadow-sm: 0 1px 2px rgba(43,36,32,.05);
+  --shadow-md: 0 4px 12px rgba(43,36,32,.08);
+  --shadow-lg: 0 12px 32px rgba(43,36,32,.12);
+}
+
+/* ④ 苔藓 Moss（低饱和绿 · 专业冷静） */
+:root[data-theme="moss"] {
+  --primary: #47705B;
+  --primary-hover: #3A5C4C;
+  --primary-soft: #ECF1ED;
+  --primary-border: #C2D1C6;
+  --bg: #F7F8F6;
+  --surface: #FFFFFF;
+  --surface-hover: #F0F2EF;
+  --border: #E1E5DF;
+  --border-strong: #CCD3CB;
+  --divider: #EEF1EC;
+  --text-1: #20251F;
+  --text-2: #4B554D;
+  --text-3: #98A39A;
+  --red: #A8524C;
+  --red-soft: #F5EDEC;
+  --amber: #9E7A38;
+  --amber-soft: #F6F1E3;
+  --amber-border: #E0D1A5;
+  --amber-text: #715A24;
+  --amber-text-hover: #554315;
+  --green: #3E7C59;
+  --green-soft: #EDF3EF;
+  --purple: #6A6E8F;
+  --purple-soft: #F0F1F5;
+  --blue-soft: #EDF0F5;
+  --scrollbar-thumb: #D6DBD4;
+  --scrollbar-thumb-hover: #C0C7BE;
+  --skeleton-a: #F0F2EF;
+  --skeleton-b: #E7EBE6;
+  --overlay: rgba(32,37,31,.32);
+  --shadow-sm: 0 1px 2px rgba(32,37,31,.05);
+  --shadow-md: 0 4px 12px rgba(32,37,31,.08);
+  --shadow-lg: 0 12px 32px rgba(32,37,31,.12);
+}
+
+/* ⑤ 深夜 Midnight（深色 · 低亮护眼） */
+:root[data-theme="midnight"] {
+  --primary: #5B84C8;
+  --primary-hover: #6E95D4;
+  --primary-soft: #1B2639;
+  --primary-border: #2C3A55;
+  --bg: #14161B;
+  --surface: #1C1F26;
+  --surface-hover: #242833;
+  --border: #2B303A;
+  --border-strong: #3A404C;
+  --divider: #262B34;
+  --text-1: #E6E9EF;
+  --text-2: #A3AAB8;
+  --text-3: #6E7684;
+  --red: #CE6A62;
+  --red-soft: #2E2023;
+  --amber: #C89A4F;
+  --amber-soft: #2C2618;
+  --amber-border: #4A3D20;
+  --amber-text: #D6B26E;
+  --amber-text-hover: #E4C98F;
+  --green: #57A284;
+  --green-soft: #1D2C26;
+  --purple: #8F82C2;
+  --purple-soft: #282233;
+  --blue-soft: #1D2434;
+  --scrollbar-thumb: #3A404C;
+  --scrollbar-thumb-hover: #4A5160;
+  --skeleton-a: #242833;
+  --skeleton-b: #2C313C;
+  --overlay: rgba(0,0,0,.55);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.35);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
+}
+
+/* 默认主题 = 石墨（低饱和稳重） */
+:root { --primary: #3E5C9A; --primary-hover: #334D82; --primary-soft: #EDF1F8; --primary-border: #C3CFE3; --bg: #F6F7F9; --surface: #FFFFFF; --surface-hover: #F0F2F5; --border: #E0E3E9; --border-strong: #CDD2DB; --divider: #EEF0F3; --text-1: #1F2430; --text-2: #4B5160; --text-3: #9BA2AF; --red: #B4554F; --red-soft: #F6EDEC; --amber: #B0823A; --amber-soft: #F7F1E3; --amber-border: #E4D3A8; --amber-text: #7A5B24; --amber-text-hover: #5E4519; --green: #4C8067; --green-soft: #EDF3EF; --purple: #6C6A9C; --purple-soft: #F0EFF6; --blue-soft: #EDF1F8; --scrollbar-thumb: #D5D9E0; --scrollbar-thumb-hover: #C0C5CE; --skeleton-a: #F0F2F5; --skeleton-b: #E7EAEF; --overlay: rgba(31,36,48,.32); --shadow-sm: 0 1px 2px rgba(31,36,48,.05); --shadow-md: 0 4px 12px rgba(31,36,48,.08); --shadow-lg: 0 12px 32px rgba(31,36,48,.12); }
+
+/* ============================================================
+   密度设置 — data-density 切换（智能布局：按偏好调整信息密度）
+   ============================================================ */
+:root[data-density="compact"] {
+  font-size: 12.5px;
+}
+:root[data-density="compact"] .card { padding: 10px 12px; }
+:root[data-density="compact"] .card-header { margin-bottom: 7px; padding-bottom: 7px; }
+:root[data-density="compact"] .content { padding: 14px; }
+:root[data-density="compact"] .task-card, :root[data-density="compact"] .row { padding: 5px 8px; }
+:root[data-density="compact"] .hard-item, :root[data-density="compact"] .task-item { padding: 5px 2px; }
+:root[data-density="compact"] .table td { padding: 6px 10px; }
+:root[data-density="compact"] .home-grid, :root[data-density="compact"] .case-detail-grid, :root[data-density="compact"] .tasks-layout, :root[data-density="compact"] .cal-layout, :root[data-density="compact"] .kb-grid { gap: 12px; }
+:root[data-density="compact"] .home-stack { gap: 12px; }
+
+/* ============================================================
+   侧栏折叠 — data-sidebar 切换（智能布局：窄屏自动收窄）
+   ============================================================ */
+.app[data-sidebar="collapsed"] { --sidebar-w: 58px; }
+.app[data-sidebar="collapsed"] .sidebar { padding: 12px 8px; }
+.app[data-sidebar="collapsed"] .logo { justify-content: center; padding: 8px 0 16px; }
+.app[data-sidebar="collapsed"] .logo span:not(.logo-mark), 
+.app[data-sidebar="collapsed"] .nav-group-label,
+.app[data-sidebar="collapsed"] .nav-item span,
+.app[data-sidebar="collapsed"] .nav-badge,
+.app[data-sidebar="collapsed"] .ai-status,
+.app[data-sidebar="collapsed"] .user-row { display: none; }
+.app[data-sidebar="collapsed"] .nav-item { justify-content: center; padding: 8px 0; }
+
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-1);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, select, textarea { font-family: inherit; font-size: inherit; color: var(--text-1); }
+::selection { background: var(--primary-soft); }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ============ 布局外壳 ============ */
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* 侧边导航（Linear 风格：白底、细边、图标+文字） */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 12px 10px;
+  gap: 4px;
+}
+.logo {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px 16px;
+  font-weight: 700; font-size: 15px; letter-spacing: .2px;
+}
+.logo-mark {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--primary);
+  display: grid; place-items: center; color: #fff;
+  flex-shrink: 0;
+}
+.nav-group-label {
+  font-size: 11px; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: .8px; padding: 12px 10px 5px; font-weight: 600;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: var(--r-md);
+  color: var(--text-2); font-size: 13px; line-height: 1.4;
+  position: relative; transition: background var(--transition), color var(--transition);
+  width: 100%; text-align: left;
+}
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .85; }
+.nav-item:hover { background: var(--surface-hover); color: var(--text-1); }
+.nav-item.active {
+  background: var(--primary-soft); color: var(--primary); font-weight: 600;
+}
+.nav-item.active::before {
+  content: ""; position: absolute; left: -10px; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--primary);
+}
+.nav-badge {
+  margin-left: auto; background: var(--red); color: #fff;
+  font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px;
+  display: grid; place-items: center; padding: 0 5px; font-weight: 600;
+}
+.nav-badge.amber { background: var(--amber); }
+
+.sidebar-spacer { flex: 1; }
+.ai-status {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--r-md); margin-top: 6px;
+  background: var(--bg); font-size: 12px; color: var(--text-2);
+}
+.ai-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.ai-dot.amber { background: var(--amber); }
+.ai-dot.gray { background: var(--text-3); }
+.user-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-top: 1px solid var(--border); margin-top: 4px;
+}
+.avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--primary-soft); color: var(--primary);
+  display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ============ 主区 ============ */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* 顶栏：模块标题 + 搜索 + 今日面板 + 捕获 */
+.topbar {
+  height: var(--topbar-h); background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px; flex-shrink: 0;
+}
+.topbar-title { font-size: 14px; font-weight: 700; }
+.topbar-title .crumb { color: var(--text-3); font-weight: 400; margin-right: 6px; }
+.topbar-search {
+  flex: 1; max-width: 320px; display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 5px 10px; color: var(--text-3); font-size: 13px;
+}
+.topbar-search svg { width: 14px; height: 14px; }
+.topbar-search input { border: none; outline: none; flex: 1; background: transparent; font-size: 13px; }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+/* 通用按钮 */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 13px; border-radius: var(--r-md);
+  font-size: 13px; font-weight: 500; line-height: 1.4;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-1);
+  transition: background var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+.btn svg { width: 14px; height: 14px; }
+.btn:hover { background: var(--surface-hover); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover { background: var(--primary-hover); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
+.btn.ghost:hover { background: var(--surface-hover); color: var(--text-1); }
+.btn.danger { color: var(--red); border-color: transparent; background: transparent; }
+.btn.danger:hover { background: var(--red-soft); }
+.btn.sm { padding: 3px 9px; font-size: 12px; border-radius: var(--r-sm); }
+.btn.sm svg { width: 13px; height: 13px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 徽章 / 标签 */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500; line-height: 1;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+}
+.badge.blue { background: var(--blue-soft); color: var(--primary); }
+.badge.purple { background: var(--purple-soft); color: var(--purple); }
+.badge.green { background: var(--green-soft); color: var(--green); }
+.badge.red { background: var(--red-soft); color: var(--red); }
+.badge.amber { background: var(--amber-soft); color: var(--amber); }
+.badge.gray { background: var(--surface-hover); color: var(--text-2); }
+.badge.outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text-2); }
+
+/* 轨道徽章（案件） */
+.track-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+/* 卡片 */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 14px 16px;
+}
+.card-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; color: var(--text-1);
+  padding-bottom: 10px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.card-header .sub { font-weight: 400; color: var(--text-3); font-size: 11px; margin-left: auto; }
+
+/* 提示条（12.5 降级态：浅琥珀底 + 琥珀图标，不是错误） */
+.alertbar {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--amber-soft); border: 1px solid var(--amber-border);
+  color: var(--amber-text); border-radius: var(--r-md);
+  padding: 7px 12px; font-size: 12.5px; margin-bottom: 12px;
+}
+.alertbar svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--amber); }
+.alertbar .retry { margin-left: auto; color: var(--amber-text); font-weight: 600; text-decoration: underline; }
+.alertbar .retry:hover { color: var(--amber-text-hover); }
+
+/* 空状态 */
+.empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 44px 20px; color: var(--text-3); text-align: center;
+}
+.empty svg { width: 34px; height: 34px; opacity: .5; }
+.empty .action { color: var(--primary); font-weight: 500; cursor: pointer; }
+.empty .action:hover { text-decoration: underline; }
+
+/* 列表行 */
+.row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: var(--r-md);
+  transition: background var(--transition);
+}
+.row:hover { background: var(--surface-hover); }
+.row.active { background: var(--primary-soft); }
+
+/* 筛选 chips */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  padding: 4px 11px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  transition: all var(--transition); white-space: nowrap;
+}
+.chip:hover { border-color: var(--border-strong); color: var(--text-1); }
+.chip.active { background: var(--text-1); border-color: var(--text-1); color: #fff; }
+
+/* 表格 */
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th {
+  text-align: left; font-size: 11px; color: var(--text-3); font-weight: 600;
+  padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.table td { padding: 9px 10px; border-bottom: 1px solid var(--divider); vertical-align: middle; }
+.table tr:last-child td { border-bottom: none; }
+.table tbody tr { transition: background var(--transition); cursor: pointer; }
+.table tbody tr:hover { background: var(--surface-hover); }
+
+/* 屏幕切换 */
+.screen { display: none; }
+.screen.active { display: block; }
+.content { padding: 20px; overflow-y: auto; height: calc(100vh - var(--topbar-h)); }
+
+/* 骨架屏（12.5 处理中态） */
+.skeleton {
+  background: linear-gradient(90deg, var(--skeleton-a) 25%, var(--skeleton-b) 37%, var(--skeleton-a) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+  border-radius: var(--r-sm);
+}
+@keyframes skeleton-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* 图标按钮 */
+.icon-btn {
+  width: 28px; height: 28px; border-radius: var(--r-md);
+  display: grid; place-items: center; color: var(--text-2);
+  transition: background var(--transition), color var(--transition);
+}
+.icon-btn:hover { background: var(--surface-hover); color: var(--text-1); }
+.icon-btn svg { width: 15px; height: 15px; }
+
+/* 浮动捕获按钮（4.3） */
+.capture-fab {
+  position: fixed; right: 22px; bottom: 22px; z-index: 40;
+  display: flex; align-items: center; gap: 8px;
+}
+.fab-main {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--text-1); color: #fff;
+  display: grid; place-items: center;
+  box-shadow: var(--shadow-lg); transition: transform var(--transition), background var(--transition);
+}
+.fab-main:hover { background: var(--primary); transform: translateY(-1px); }
+.fab-main svg { width: 18px; height: 18px; }
+.fab-menu {
+  position: absolute; right: 0; bottom: 54px; width: 200px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-lg);
+  padding: 6px; display: none; flex-direction: column; gap: 2px;
+}
+.fab-menu.open { display: flex; }
+.fab-menu .row { font-size: 13px; }
+.fab-menu .kbd {
+  margin-left: auto; font-family: var(--mono); font-size: 11px;
+  color: var(--text-3); border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 5px; background: var(--bg);
+}
+
+/* 今日面板浮层 */
+.today-panel {
+  position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+  width: 560px; max-height: 82vh; overflow-y: auto; z-index: 50;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-lg);
+  padding: 18px; display: none;
+}
+.today-panel.open { display: block; animation: panel-in 150ms ease; }
+@keyframes panel-in { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* 悬浮层通用 */
+.overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 45; display: none; }
+.overlay.open { display: block; }
+.modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: 480px; max-width: calc(100vw - 40px); z-index: 55;
+  background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-lg);
+  padding: 20px; display: none;
+}
+.modal.open { display: block; animation: modal-in 150ms ease; }
+@keyframes modal-in { from { opacity: 0; transform: translate(-50%,-48%); } to { opacity: 1; transform: translate(-50%,-50%); } }
+.modal h3 { font-size: 15px; margin-bottom: 14px; }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; font-weight: 500; }
+.field input, .field select, .field textarea {
+  width: 100%; border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 7px 10px; font-size: 13px; outline: none; background: var(--surface);
+  transition: border-color var(--transition);
+}
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary); }
+.field textarea { min-height: 64px; resize: vertical; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* 进度环（案件） */
+.ring {
+  --p: 0;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: conic-gradient(var(--primary) calc(var(--p) * 1%), var(--surface-hover) 0);
+  display: grid; place-items: center; position: relative; flex-shrink: 0;
+}
+.ring::after {
+  content: ""; position: absolute; inset: 5px; border-radius: 50%;
+  background: var(--surface);
+}
+.ring span { position: relative; z-index: 1; font-size: 11px; font-weight: 700; color: var(--text-1); }
+
+/* ============ 首页 / 今日面板 ============ */
+.home-grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start; }
+.home-stack { display: flex; flex-direction: column; gap: 16px; }
+
+.hard-list, .task-list { display: flex; flex-direction: column; }
+.hard-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+  border-bottom: 1px solid var(--divider); font-size: 13px;
+}
+.hard-item:last-child { border-bottom: none; }
+.hard-item .time {
+  font-family: var(--mono); font-size: 12px; color: var(--text-1); width: 46px; flex-shrink: 0;
+}
+.hard-item .dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.dot.red { background: var(--red); }
+.dot.blue { background: var(--primary); }
+.dot.purple { background: var(--purple); }
+.dot.green { background: var(--green); }
+
+.task-item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--divider); font-size: 13px; }
+.task-item:last-child { border-bottom: none; }
+.check {
+  width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--border-strong);
+  margin-top: 3px; flex-shrink: 0; display: grid; place-items: center; transition: all var(--transition);
+}
+.check:hover { border-color: var(--primary); }
+.check.done { background: var(--primary); border-color: var(--primary); color: #fff; }
+.check.done svg { width: 10px; height: 10px; }
+.task-item .body { flex: 1; min-width: 0; }
+.task-item .title { font-size: 13px; }
+.task-item .title.overdue { color: var(--red); }
+.task-item .meta { display: flex; gap: 6px; font-size: 11px; color: var(--text-3); margin-top: 1px; align-items: center; flex-wrap: wrap; }
+
+/* 案件分布条形 */
+.dist-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13px; }
+.dist-label { width: 84px; color: var(--text-2); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.dist-bar { flex: 1; height: 7px; border-radius: 4px; background: var(--surface-hover); overflow: hidden; }
+.dist-fill { height: 100%; border-radius: 4px; }
+.dist-val { width: 40px; text-align: right; font-family: var(--mono); color: var(--text-2); font-size: 12px; }
+
+/* 智能推荐区（规则版降级态） */
+.reco-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--r-md); border: 1px solid var(--border); margin-bottom: 8px; background: var(--surface); }
+.reco-item .why { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.reco-order {
+  width: 20px; height: 20px; border-radius: 6px; background: var(--primary-soft);
+  color: var(--primary); font-size: 12px; font-weight: 700;
+  display: grid; place-items: center; flex-shrink: 0;
+}
+
+/* ============ 任务工作台 ============ */
+.tasks-layout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: start; }
+.task-group { margin-bottom: 14px; }
+.task-group-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; color: var(--text-2);
+  padding: 6px 4px; border-bottom: 1px solid var(--border);
+}
+.task-group-title .count { color: var(--text-3); font-weight: 400; font-size: 11px; }
+.task-group-title .clear { margin-left: auto; font-weight: 400; color: var(--text-3); font-size: 11px; cursor: pointer; }
+.task-group-title .clear:hover { color: var(--red); }
+
+.task-card {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px; border-radius: var(--r-md);
+  border: 1px solid transparent; transition: background var(--transition), border-color var(--transition);
+  cursor: pointer;
+}
+.task-card:hover { background: var(--surface-hover); }
+.task-card.active { background: var(--primary-soft); border-color: var(--primary-border); }
+.task-card .title { font-size: 13px; line-height: 1.45; }
+.task-card .title.overdue { color: var(--red); }
+.task-card .title.someday { color: var(--text-3); }
+.task-card .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 3px; }
+.task-card .waiting-since { color: var(--amber); font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.task-card .waiting-since svg { width: 11px; height: 11px; }
+
+.flag { color: var(--amber); font-size: 12px; line-height: 1; margin-left: 2px; }
+
+/* 任务详情面板 */
+.task-detail { position: sticky; top: 0; }
+.detail-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--divider); font-size: 13px; }
+.detail-row .k { width: 74px; color: var(--text-3); flex-shrink: 0; font-size: 12px; }
+.detail-row .v { flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* 顺序项目锁行 */
+.locked { opacity: .55; }
+.lock-ic { color: var(--text-3); width: 13px; height: 13px; flex-shrink: 0; }
+
+/* ============ 日历 Forecast ============ */
+.cal-layout { display: grid; grid-template-columns: 380px 1fr; gap: 16px; align-items: start; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-head .month { font-size: 15px; font-weight: 700; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-dow { font-size: 11px; color: var(--text-3); text-align: center; padding: 4px 0; font-weight: 600; }
+.cal-cell {
+  height: 58px; border-radius: var(--r-md); border: 1px solid transparent;
+  background: var(--surface); padding: 4px 6px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+  transition: border-color var(--transition), background var(--transition);
+}
+.cal-cell:hover { border-color: var(--border-strong); }
+.cal-cell.other { opacity: .35; }
+.cal-cell.today { border-color: var(--primary); }
+.cal-cell.selected { background: var(--primary-soft); border-color: var(--primary-border); }
+.cal-cell.danger { background: var(--red-soft); }
+.cal-cell.warn { background: var(--amber-soft); }
+.cal-num { font-size: 12px; color: var(--text-2); }
+.cal-num.today-num {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: #fff;
+  display: grid; place-items: center; font-weight: 700; font-size: 11px;
+}
+.cal-events { display: flex; gap: 2px; flex-wrap: wrap; }
+.cal-events .ev {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.cal-events .ev.red { background: var(--red); }
+.cal-events .ev.blue { background: var(--primary); }
+.cal-events .ev.purple { background: var(--purple); }
+.cal-events .ev.green { background: var(--green); }
+.cal-events .ev.amber { background: var(--amber); }
+
+.cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--text-2); align-items: center; }
+.cal-legend .item { display: flex; align-items: center; gap: 5px; }
+
+/* 右侧时间块 */
+.timeblock { margin-bottom: 16px; }
+.timeblock-label {
+  font-size: 11px; color: var(--text-3); font-weight: 700; letter-spacing: .6px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 6px;
+}
+.slot {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--r-md); margin-bottom: 6px; font-size: 13px;
+  border: 1px solid var(--border); background: var(--surface);
+}
+.slot.hard { border-left: 3px solid var(--red); }
+.slot.flex { border-left: 3px solid var(--primary); }
+.slot.grow { border-left: 3px solid var(--green); }
+.slot .time { font-family: var(--mono); font-size: 12px; color: var(--text-2); width: 44px; flex-shrink: 0; }
+.slot .tag { margin-left: auto; }
+.slot.drag-handle { cursor: grab; }
+.slot.drag-handle:active { cursor: grabbing; }
+
+/* ============ 案件工作台 ============ */
+.cases-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.view-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 2px; gap: 2px; }
+.view-toggle button {
+  padding: 4px 12px; border-radius: var(--r-sm); font-size: 12px; color: var(--text-2);
+  display: flex; align-items: center; gap: 5px; transition: all var(--transition);
+}
+.view-toggle button svg { width: 13px; height: 13px; }
+.view-toggle button.active { background: var(--text-1); color: #fff; }
+
+.kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; align-items: start; }
+.case-tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+.kanban-col { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); }
+.kanban-col-head {
+  display: flex; align-items: center; gap: 7px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700;
+}
+.kanban-col-head .count { color: var(--text-3); font-weight: 400; font-size: 11px; margin-left: auto; }
+.kanban-col-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; min-height: 80px; }
+.kcard {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 9px 10px; cursor: pointer; transition: box-shadow var(--transition), border-color var(--transition);
+}
+.kcard:hover { box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
+.kcard .t { font-size: 12.5px; font-weight: 500; line-height: 1.45; }
+.kcard .m { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+
+/* ============ 案件详情项目书 ============ */
+.case-head {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 18px 20px; margin-bottom: 16px;
+  display: flex; align-items: flex-start; gap: 16px;
+}
+.case-head .name { font-size: 18px; font-weight: 700; }
+.case-head .no { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.case-head .badges { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.case-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.case-detail-stack { display: flex; flex-direction: column; gap: 16px; }
+
+.track-panel { display: flex; flex-direction: column; gap: 12px; }
+.track-row {
+  display: grid; grid-template-columns: 76px 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--divider);
+}
+.track-row:last-child { border-bottom: none; }
+.track-name { font-size: 12px; color: var(--text-2); font-weight: 600; }
+.track-progress { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.track-step {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+  padding: 3px 9px; border-radius: 999px; background: var(--surface-hover); color: var(--text-2);
+}
+.track-step.done { background: var(--green-soft); color: var(--green); }
+.track-step.current { background: var(--primary); color: #fff; font-weight: 600; }
+.track-step.blocked { color: var(--text-3); }
+
+.milestone { padding: 9px 0; border-bottom: 1px solid var(--divider); }
+.milestone:last-child { border-bottom: none; }
+.milestone .stage { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+.milestone .ms {
+  display: flex; align-items: center; gap: 8px; padding: 5px 0 5px 22px; font-size: 12.5px; color: var(--text-2);
+}
+.ms-dot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--border-strong); flex-shrink: 0; }
+.ms-dot.done { background: var(--green); border-color: var(--green); }
+.ms-dot.current { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+
+.next-action-card {
+  position: sticky; bottom: 0; background: var(--primary-soft);
+  border: 1px solid var(--primary-border); border-radius: var(--r-lg);
+  padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+}
+.next-action-card .play {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: #fff;
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.next-action-card .play svg { width: 14px; height: 14px; }
+.next-action-card .t { font-size: 13px; font-weight: 600; }
+.next-action-card .s { font-size: 12px; color: var(--primary); margin-top: 1px; }
+
+.timeline { position: relative; padding-left: 20px; }
+.timeline::before { content: ""; position: absolute; left: 6px; top: 4px; bottom: 4px; width: 2px; background: var(--border); border-radius: 1px; }
+.tl-item { position: relative; padding: 0 0 14px 0; }
+.tl-item::before {
+  content: ""; position: absolute; left: -20px; top: 5px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--border-strong);
+}
+.tl-item::marker { display: none; }
+.tl-item .d { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
+.tl-item .txt { font-size: 12.5px; color: var(--text-2); margin-top: 1px; }
+
+/* ============ 知识库 ============ */
+.kb-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+.kb-item { padding: 10px 12px; border-radius: var(--r-md); border: 1px solid transparent; cursor: pointer; transition: all var(--transition); }
+.kb-item:hover { background: var(--surface-hover); }
+.kb-item.active { background: var(--primary-soft); border-color: var(--primary-border); }
+.kb-item .t { font-size: 13px; font-weight: 600; }
+.kb-item .p { font-size: 12px; color: var(--text-2); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kb-item .tags { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.kb-body .block {
+  padding: 10px 0; border-bottom: 1px solid var(--divider); font-size: 13px; line-height: 1.75;
+}
+.kb-body .block.ref { color: var(--text-2); }
+.kb-body .block .cite {
+  display: inline-flex; align-items: center; gap: 4px; color: var(--primary);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.kb-body .block .cite:hover { text-decoration: underline; }
+
+/* ============ 收件箱 · 大口袋（捕获中心） ============ */
+/* 顶部状态条 */
+.inbox-hero {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 12px 18px; margin-bottom: 12px;
+}
+.inbox-hero-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.inbox-hero-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.inbox-hero-stats { margin-left: auto; display: flex; gap: 22px; align-items: center; }
+.inbox-hero-stats .stat { text-align: center; }
+.inbox-hero-stats .stat .n { font-size: 18px; font-weight: 700; font-family: var(--mono); line-height: 1.1; }
+.inbox-hero-stats .stat .n.amber { color: var(--amber); }
+.inbox-hero-stats .stat .n.red { color: var(--red); }
+.inbox-hero-stats .stat .l { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+/* 快速捕获条 */
+.capture-bar {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 12px 14px; margin-bottom: 12px;
+}
+.capture-bar textarea {
+  width: 100%; border: none; outline: none; resize: none;
+  font-size: 13.5px; line-height: 1.6; background: transparent; color: var(--text-1);
+  font-family: var(--font); min-height: 22px;
+}
+.capture-bar textarea::placeholder { color: var(--text-3); }
+.capture-bar-tools {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  padding-top: 8px; border-top: 1px dashed var(--divider);
+}
+.capture-bar-tools .hint { font-size: 11.5px; color: var(--text-3); margin-right: auto; }
+.capture-bar-tools .hint kbd {
+  font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--border);
+  border-radius: 4px; padding: 0 4px; background: var(--bg);
+}
+
+/* 捕获通道网格（丰富的触发方式） */
+.channel-section { margin-bottom: 14px; }
+.channel-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 600; color: var(--text-3);
+  letter-spacing: .6px; margin-bottom: 8px;
+}
+.channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
+.channel-card {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 9px 11px; font-size: 12.5px; color: var(--text-1);
+  cursor: pointer; transition: border-color var(--transition), background var(--transition), transform var(--transition);
+}
+.channel-card:hover { border-color: var(--primary-border); background: var(--primary-soft); transform: translateY(-1px); }
+.channel-card svg { width: 15px; height: 15px; color: var(--primary); flex-shrink: 0; }
+.channel-card .k {
+  margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-3);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; background: var(--bg); white-space: nowrap;
+}
+.channel-card .sub { display: block; font-size: 11px; color: var(--text-3); margin-top: 1px; }
+
+/* 主体三栏 */
+.inbox-body { display: grid; grid-template-columns: 196px minmax(0, 1fr) 348px; gap: 14px; align-items: start; }
+
+/* 左栏：来源过滤 + 批量 */
+.src-filter .card-header { padding-bottom: 8px; margin-bottom: 8px; }
+.src-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: var(--r-md); font-size: 12.5px; color: var(--text-2);
+  cursor: pointer; transition: all var(--transition); border: 1px solid transparent;
+}
+.src-item:hover { background: var(--surface-hover); color: var(--text-1); }
+.src-item.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; border-color: var(--primary-border); }
+.src-item .cnt { margin-left: auto; font-size: 11px; font-family: var(--mono); color: var(--text-3); }
+.src-item.active .cnt { color: var(--primary); }
+.src-icon { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; flex-shrink: 0; }
+.src-icon svg { width: 11px; height: 11px; }
+
+/* 中栏：条目流 */
+.inbox-flow { min-width: 0; }
+.flow-toolbar {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.flow-toolbar .lbl { font-size: 12px; color: var(--text-3); }
+.flow-toolbar .sel { font-size: 12px; color: var(--primary); font-weight: 600; margin-left: 6px; display: none; }
+.flow-group { margin-bottom: 6px; }
+.flow-group-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  padding: 6px 4px 4px; letter-spacing: .4px;
+}
+.flow-group-title .cnt { font-family: var(--mono); font-weight: 400; }
+.inbox-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px; border-radius: var(--r-md); border: 1px solid transparent;
+  cursor: pointer; transition: all var(--transition);
+}
+.inbox-item:hover { background: var(--surface-hover); }
+.inbox-item.active { background: var(--primary-soft); border-color: var(--primary-border); }
+.inbox-item .ck {
+  width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--border-strong);
+  margin-top: 1px; flex-shrink: 0; display: grid; place-items: center; transition: all var(--transition);
+}
+.inbox-item .ck svg { width: 9px; height: 9px; opacity: 0; }
+.inbox-item.sel .ck { background: var(--primary); border-color: var(--primary); }
+.inbox-item.sel .ck svg { opacity: 1; color: #fff; }
+.inbox-item .t { font-size: 13px; line-height: 1.5; }
+.inbox-item .t .done-t { text-decoration: line-through; color: var(--text-3); }
+.inbox-item .time { font-size: 11px; color: var(--text-3); font-family: var(--mono); margin-top: 2px; }
+.inbox-item .src-tag { font-size: 11px; color: var(--primary); background: var(--primary-soft); border-radius: 4px; padding: 0 6px; }
+.inbox-item .att { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-3); margin-top: 4px; }
+.inbox-item .att svg { width: 11px; height: 11px; }
+.inbox-item .ai-hint {
+  margin-top: 5px; font-size: 11.5px; color: var(--amber-text);
+  background: var(--amber-soft); border: 1px solid var(--amber-border);
+  border-radius: 6px; padding: 4px 8px; display: none;
+}
+.inbox-item .ai-hint.show { display: block; }
+.inbox-item .ai-hint b { font-weight: 600; }
+.inbox-flow .empty-flow { padding: 28px 0; text-align: center; color: var(--text-3); font-size: 12.5px; }
+
+/* 厘清判定面板（右侧） */
+.clarify-panel .big { font-size: 12.5px; color: var(--text-2); line-height: 1.7; }
+.clarify-panel .big .hl { color: var(--text-1); font-weight: 600; }
+.quick-routes { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.quick-route {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 8px 11px; font-size: 12.5px; color: var(--text-1);
+  cursor: pointer; transition: all var(--transition); text-align: left;
+}
+.quick-route:hover { border-color: var(--primary-border); background: var(--primary-soft); }
+.quick-route svg { width: 14px; height: 14px; color: var(--primary); flex-shrink: 0; }
+.quick-route .d { font-size: 11px; color: var(--text-3); }
+.quick-route .k { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+
+/* ============ 设置 ============ */
+.settings-grid { max-width: 680px; display: flex; flex-direction: column; gap: 16px; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 8px; margin: 4px 0 12px; }
+.theme-card {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); padding: 10px 12px; font-size: 12.5px; color: var(--text-1);
+  text-align: left; transition: border-color var(--transition), background var(--transition);
+}
+.theme-card:hover { border-color: var(--border-strong); }
+.theme-card.active { border-color: var(--primary); background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary); }
+.theme-card .swatches { display: flex; gap: 4px; flex-shrink: 0; }
+.theme-card .swatches .sw { width: 15px; height: 15px; border-radius: 4px; }
+.theme-card .desc { font-size: 11px; color: var(--text-3); line-height: 1.3; }
+
+.setting-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--divider); }
+.setting-row:last-child { border-bottom: none; }
+.setting-row .info { flex: 1; }
+.setting-row .info .t { font-size: 13px; font-weight: 600; }
+.setting-row .info .d { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.switch { position: relative; width: 36px; height: 20px; border-radius: 10px; background: var(--border-strong); transition: background var(--transition); flex-shrink: 0; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left var(--transition); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.switch.on { background: var(--primary); }
+.switch.on::after { left: 18px; }
+.seg { display: inline-flex; background: var(--surface-hover); border-radius: var(--r-md); padding: 2px; gap: 2px; }
+.seg button { padding: 4px 11px; border-radius: var(--r-sm); font-size: 12px; color: var(--text-2); transition: all var(--transition); }
+.seg button.active { background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-sm); font-weight: 600; }
+
+/* ============ 降级态 ============ */
+.ai-banner {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 9px 14px; font-size: 12.5px; color: var(--text-2);
+}
+.ai-banner .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.ai-banner .dot.amber { background: var(--amber); }
+.ai-banner .dot.red { background: var(--red); }
+
+/* 分段进度（三轨） */
+@media (max-width: 1200px) {
+  .home-grid, .cal-layout, .tasks-layout, .kb-grid, .clarify-layout { grid-template-columns: 1fr; }
+  .case-detail-grid { grid-template-columns: 1fr; }
+  .kanban { grid-template-columns: repeat(2, 1fr); }
+}
+/* ============ GTD 任务系统增强（v2） ============ */
+.tasks-layout { grid-template-columns: 1fr 356px; }
+.today-num {
+  width: 18px; height: 18px; border-radius: 5px; background: var(--surface-hover);
+  color: var(--text-3); font-size: 11px; display: grid; place-items: center; flex-shrink: 0;
+  font-family: var(--mono);
+}
+.drag-grip { color: var(--text-3); cursor: grab; flex-shrink: 0; opacity: .55; margin-left: auto; }
+.drag-grip:hover { opacity: 1; }
+.waiting-line {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: var(--r-md); border: 1px solid var(--border);
+  margin-bottom: 8px; background: var(--surface); font-size: 13px;
+}
+.waiting-line:hover { border-color: var(--border-strong); }
+.day-group {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; color: var(--text-2);
+  padding: 10px 4px 5px;
+}
+.day-group .count { color: var(--text-3); font-weight: 400; font-size: 11px; }
+.day-group:first-child { padding-top: 2px; }
+.seq-step { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 12.5px; }
+.seq-step .lock { color: var(--text-3); width: 12px; height: 12px; flex-shrink: 0; }
+.seq-step .step-done { color: var(--green); }
+.seq-step.locked { opacity: .55; }
+.dual-time { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.time-box { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 12px; }
+.time-box .label { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 4px; }
+.time-box .val { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.time-box .val.overdue { color: var(--red); }
+.time-box .val.due-soon { color: var(--amber); }
+.review-card {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 12px 14px; margin-bottom: 10px; background: var(--surface); cursor: pointer;
+  transition: border-color var(--transition);
+}
+.review-card:hover { border-color: var(--border-strong); }
+.review-card .t { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.review-card .m { font-size: 12px; color: var(--text-2); margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.review-card .why { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.task-detail .title-lg { font-size: 15px; font-weight: 700; line-height: 1.45; margin-bottom: 10px; }
+.detail-label { font-size: 11px; color: var(--text-3); font-weight: 600; letter-spacing: .4px; margin: 12px 0 6px; text-transform: uppercase; }
+.kv-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+.kv-row .k { width: 72px; color: var(--text-3); font-size: 12px; flex-shrink: 0; }
+.capture-inline {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+  padding: 8px 12px; margin-top: 12px; color: var(--text-3); font-size: 13px;
+  cursor: text; transition: border-color var(--transition);
+}
+.capture-inline:hover { border-color: var(--primary); color: var(--text-2); }
+.capture-inline svg { width: 14px; height: 14px; }
+.perspective-tip {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-3); padding: 0 4px 10px;
+}
+.ctx-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px;
+  padding: 2px 8px; border-radius: 999px; background: var(--surface-hover);
+  color: var(--text-2);
+}
+.ctx-chip.office { background: var(--blue-soft); color: var(--primary); }
+.ctx-chip.phone { background: var(--green-soft); color: var(--green); }
+.ctx-chip.court { background: var(--purple-soft); color: var(--purple); }
+
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ================= 侧边导航 ================= -->
+<aside class="sidebar">
+  <div class="logo">
+    <span class="logo-mark">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    </span>
+    Casy
+  </div>
+
+  <div class="nav-group-label">工作台</div>
+  <button class="nav-item active" data-nav="home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>
+    今日
+  </button>
+  <button class="nav-item" data-nav="cases">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
+    案件工作台
+  </button>
+  <button class="nav-item" data-nav="tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg>
+    任务工作台
+    <span class="nav-badge amber">7</span>
+  </button>
+  <button class="nav-item" data-nav="calendar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+    日历
+  </button>
+  <button class="nav-item" data-nav="knowledge">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    知识库
+  </button>
+  <button class="nav-item" data-nav="inbox">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+    收件箱
+    <span class="nav-badge">4</span>
+  </button>
+
+  <div class="nav-group-label">系统</div>
+  <button class="nav-item" data-nav="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    设置
+  </button>
+
+  <div class="sidebar-spacer"></div>
+  <div class="ai-status">
+    <span class="ai-dot"></span>
+    <span>AI 智伴 · 本地模型可用</span>
+  </div>
+  <div class="user-row">
+    <span class="avatar">王</span>
+    <div style="min-width:0">
+      <div style="font-size:12.5px;font-weight:600;">王律师</div>
+      <div style="font-size:11px;color:var(--text-3);">专利诉讼 · 专精无效程序</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ================= 主区 ================= -->
+<div class="main">
+  <header class="topbar">
+    <button class="icon-btn" onclick="toggleSidebar()" title="折叠 / 展开侧栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+    </button>
+    <div class="topbar-title" id="topbarTitle"><span class="crumb">工作台</span>今日</div>
+    <div class="topbar-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input placeholder="搜索案件 / 任务 / 法条 / 客户…  (⌘K)" />
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" onclick="toggleToday()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+        今日
+      </button>
+      <button class="btn primary" onclick="openCapture()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        捕获
+      </button>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- ================= 首页 今日 ================= -->
+    <section class="screen active" data-screen-label="首页 / 今日面板" id="screen-home">
+      <div class="ai-banner">
+        <span class="dot"></span>
+        <span><strong>智能推荐已就绪</strong> · 基于 32 条未完成任务 + 5 个活跃案件 + 8 条等待，给出今日建议</span>
+        <button class="btn sm ghost" style="margin-left:auto" onclick="openReco()">查看推荐依据</button>
+      </div>
+
+      <div class="home-grid">
+        <div class="home-stack">
+          <!-- 硬性日程 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+              今日硬性日程
+              <span class="sub">8月14日 周五</span>
+            </div>
+            <div class="hard-list">
+              <div class="hard-item"><span class="time">09:30</span><span class="dot red"></span><div><strong>口审</strong> · 张三专利无效案 <span class="badge purple">无效</span></div></div>
+              <div class="hard-item"><span class="time">14:00</span><span class="dot blue"></span><div><strong>庭审</strong> · 李明侵权纠纷案 <span class="badge blue">民事</span></div></div>
+              <div class="hard-item"><span class="time">17:30</span><span class="dot red"></span><div><strong>期限截止</strong> · 提交上诉状（李四案）<span class="badge red">今天 17:30</span></div></div>
+            </div>
+          </div>
+
+          <!-- 今日到期任务 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg>
+              今日到期 · 4
+              <span class="sub">弹性任务</span>
+            </div>
+            <div class="task-list">
+              <div class="task-item">
+                <span class="check" onclick="this.classList.toggle('done')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div class="body">
+                  <div class="title overdue">起草上诉状初稿</div>
+                  <div class="meta"><span class="badge red">逾期 +1 天</span><span>预计 2h</span><span>李四专利侵权案</span></div>
+                </div>
+              </div>
+              <div class="task-item">
+                <span class="check" onclick="this.classList.toggle('done')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div class="body">
+                  <div class="title">核对口审证据清单</div>
+                  <div class="meta"><span class="badge amber">今天截止</span><span>预计 45m</span><span>张三无效案</span></div>
+                </div>
+              </div>
+              <div class="task-item">
+                <span class="check" onclick="this.classList.toggle('done')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div class="body">
+                  <div class="title">联系证人确认出庭时间</div>
+                  <div class="meta"><span>预计 20m</span><span>@电话</span><span>李明侵权案</span></div>
+                </div>
+              </div>
+              <div class="task-item">
+                <span class="check" onclick="this.classList.toggle('done')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div class="body">
+                  <div class="title">审阅新收到的证据材料</div>
+                  <div class="meta"><span>预计 1h</span><span>赵六无效案</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 等待跟进 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+              等待跟进 · 2 条超 3 天
+              <span class="sub">等 = 律师的日常</span>
+            </div>
+            <div class="task-list">
+              <div class="task-item">
+                <span class="check gray" style="border-color:var(--border-strong);background:var(--surface-hover);"></span>
+                <div class="body">
+                  <div class="title">等 国家知识产权局 对无效请求的答复</div>
+                  <div class="meta"><span class="waiting-since"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>已等 12 天</span><span class="badge amber">建议催办</span></div>
+                </div>
+                <button class="btn sm" onclick="openFollowup()">催办</button>
+              </div>
+              <div class="task-item">
+                <span class="check gray" style="border-color:var(--border-strong);background:var(--surface-hover);"></span>
+                <div class="body">
+                  <div class="title">等 对方律师 提交补充证据</div>
+                  <div class="meta"><span class="waiting-since"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>已等 6 天</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 需回顾案件 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              需要回顾 · 2
+              <span class="sub">Reflect 阶段</span>
+            </div>
+            <div class="task-list">
+              <div class="task-item" style="cursor:pointer" onclick="goNav('cases')">
+                <div class="body">
+                  <div class="title">李明侵权纠纷案 — 距上次更新 6 天，3 个行动在等</div>
+                  <div class="meta"><span class="badge outline">已结案评估</span><span class="badge blue">民事</span></div>
+                </div>
+              </div>
+              <div class="task-item" style="cursor:pointer" onclick="goNav('cases')">
+                <div class="body">
+                  <div class="title">赵六专利无效案 — 收到新证据，决策待复核</div>
+                  <div class="meta"><span class="badge purple">无效</span><span class="badge amber">需决策</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-stack">
+          <!-- 智能推荐（含降级态演示） -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.4 5.2 5.6.8-4 4 1 5.8-5-2.7-5 2.7 1-5.8-4-4 5.6-.8z"/></svg>
+              智能推荐 · 今日 3 件事
+              <span class="sub">AI 推荐 → 你可调整</span>
+            </div>
+            <div class="reco-item" onclick="openReco()">
+              <span class="reco-order">1</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;">优先完成：核对口审证据清单</div>
+                <div class="why">口审在 09:30，材料需在庭前定稿 · 依据：张三无效案 今日硬性日程</div>
+              </div>
+              <button class="btn sm primary" onclick="event.stopPropagation()">确认</button>
+            </div>
+            <div class="reco-item" onclick="openReco()">
+              <span class="reco-order">2</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;">上午庭审结束后：起草上诉状</div>
+                <div class="why">逾期 +1 天，今日 17:30 期限截止 · 依据：due_date 缓存</div>
+              </div>
+              <button class="btn sm ghost" onclick="event.stopPropagation()">改期</button>
+            </div>
+            <div class="reco-item" onclick="openReco()">
+              <span class="reco-order">3</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;">给赵六案催办：国知局答复</div>
+                <div class="why">已等 12 天 &gt; 阈值 3 天，历史此类等待平均 9 天 · 依据：task_events 模式</div>
+              </div>
+              <button class="btn sm ghost" onclick="event.stopPropagation()">催办</button>
+            </div>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:12px;color:var(--text-3);">
+              <span style="cursor:pointer;color:var(--primary);font-weight:500" onclick="openReco()">查看推荐依据 &amp; 拒绝记录</span>
+            </div>
+          </div>
+
+          <!-- 案件分布 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
+              案件分布 · 按轨道
+              <span class="sub">共 21 个进行中</span>
+            </div>
+            <div class="dist-row"><span class="dist-label"><span class="track-dot" style="background:var(--primary)"></span>民事诉讼</span><span class="dist-bar"><span class="dist-fill" style="width:52%;background:var(--primary)"></span></span><span class="dist-val">11</span></div>
+            <div class="dist-row"><span class="dist-label"><span class="track-dot" style="background:var(--purple)"></span>专利无效</span><span class="dist-bar"><span class="dist-fill" style="width:33%;background:var(--purple)"></span></span><span class="dist-val">7</span></div>
+            <div class="dist-row"><span class="dist-label"><span class="track-dot" style="background:var(--green)"></span>顾问服务</span><span class="dist-bar"><span class="dist-fill" style="width:14%;background:var(--green)"></span></span><span class="dist-val">3</span></div>
+            <div class="dist-row"><span class="dist-label"><span class="track-dot" style="background:var(--amber)"></span>行政诉讼</span><span class="dist-bar"><span class="dist-fill" style="width:9%;background:var(--amber)"></span></span><span class="dist-val">2</span></div>
+            <div class="dist-row"><span class="dist-label"><span class="track-dot" style="background:var(--text-3)"></span>其他</span><span class="dist-bar"><span class="dist-fill" style="width:14%;background:var(--text-3)"></span></span><span class="dist-val">3</span></div>
+          </div>
+
+          <!-- 每日早报（结构化版） -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              每日早报
+              <span class="sub">08:00 自动生成 · 可编辑</span>
+            </div>
+            <div class="hard-list">
+              <div class="hard-item"><span class="time">昨日</span><div>完成 6/9 任务 · 完成率 67% <span class="badge green">较上周五 +12%</span></div></div>
+              <div class="hard-item"><span class="time">今日</span><div>2 场开庭 + 1 个期限截止 <span class="badge red">上诉状 17:30</span></div></div>
+              <div class="hard-item"><span class="time">等待</span><div>3 条等待超 3 天，建议催办国知局答复</div></div>
+              <div class="hard-item"><span class="time">建议</span><div>张三案与赵六案同属无效程序，可合并准备口审材料</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 任务工作台（GTD 7 透视） ================= -->
+    <section class="screen" data-screen-label="任务工作台 · GTD 7 透视" id="screen-tasks">
+      <!-- 透视切换（Things / OmniFocus Perspectives） -->
+      <div class="chips" id="perspChips" style="margin-bottom:10px">
+        <button class="chip active" data-persp="inbox" onclick="switchPersp('inbox')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>收件箱 · 4</button>
+        <button class="chip" data-persp="today" onclick="switchPersp('today')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>今天 · 3</button>
+        <button class="chip" data-persp="upcoming" onclick="switchPersp('upcoming')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M8 2v4M16 2v4M3 10h18"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="m9 16 2 2 4-4"/></svg>计划中 · 5</button>
+        <button class="chip" data-persp="anytime" onclick="switchPersp('anytime')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M20 6 9 17l-5-5"/></svg>随时 · 7</button>
+        <button class="chip" data-persp="waiting" onclick="switchPersp('waiting')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>等待 · 3</button>
+        <button class="chip" data-persp="review" onclick="switchPersp('review')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>回顾 · 2</button>
+        <button class="chip" data-persp="someday" onclick="switchPersp('someday')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>某天 · 3</button>
+      </div>
+      <div class="perspective-tip" id="perspTip">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        收件箱是「待厘清」的暂存区——先记下来，稍后统一判定归属（GTD Clarify）
+      </div>
+
+      <div class="tasks-layout">
+        <div style="min-width:0">
+
+          <!-- ===== 收件箱透视 ===== -->
+          <div class="persp" data-persp-panel="inbox">
+            <div class="task-group">
+              <div class="task-group-title"><span>待厘清</span><span class="count">4 项</span><span class="clear">全部厘清</span></div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="对方律师来电说要补充一份证据清单" data-when="—" data-deadline="待厘清" data-ctx="待判定" data-est="—" data-case="待关联" data-seq="—" data-note="来源：电话 · 今天 09:12。需要判定：这是什么（行动/等待/委派/某天），归属哪个案件。">
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">对方律师来电说要补充一份证据清单</div>
+                  <div class="meta"><span class="badge gray">待判定</span><span>今天 09:12</span><span class="badge outline">电话</span></div>
+                </div>
+              </div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="国知局寄来口审通知书（赵六案）" data-when="—" data-deadline="待厘清" data-ctx="待判定" data-est="—" data-case="赵六专利无效案" data-seq="—" data-note="附件：口审通知书.pdf · 昨天 16:40。判定期限与跟进日期后，可转等待。">
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">国知局寄来口审通知书（赵六案）</div>
+                  <div class="meta"><span class="badge gray">待判定</span><span>昨天 16:40</span><span class="badge outline">邮件</span></div>
+                </div>
+              </div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="客户想了解无效程序大概要多久" data-when="—" data-deadline="待厘清" data-ctx="待判定" data-est="10 分钟" data-case="待关联" data-seq="—" data-note="来源：微信 · 昨天 11:05。倾向转行动：整理一份无效程序周期说明发给客户。">
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">客户想了解无效程序大概要多久</div>
+                  <div class="meta"><span class="badge gray">待判定</span><span>昨天 11:05</span><span class="badge outline">微信</span></div>
+                </div>
+              </div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="准备下周二新案子的接案材料" data-when="—" data-deadline="8月17日" data-ctx="@办公室" data-est="1 小时" data-case="待关联" data-seq="—" data-note="来源：邮件 · 8月12日。倾向转行动，When=8月16日。">
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">准备下周二新案子的接案材料</div>
+                  <div class="meta"><span class="badge gray">待判定</span><span>8月12日</span><span class="badge outline">邮件</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="capture-inline" onclick="openCaptureModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              快速捕获：先记下来，稍后厘清（⌘I）
+            </div>
+          </div>
+
+          <!-- ===== 今天透视 ===== -->
+          <div class="persp" data-persp-panel="today" style="display:none">
+            <div class="task-group">
+              <div class="task-group-title"><span>8月14日 · 今天</span><span class="count">3 项 · 拖拽重排（today_index）</span><span class="clear">完成</span></div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="核对口审证据清单" data-when="今天" data-deadline="今天 09:30 · 口审" data-dueclass="overdue" data-ctx="office" data-est="45 分钟" data-case="张三专利无效案" data-seq="阶段二 · 第 1 步 / 共 3 步" data-flag="1" data-note="口审在 09:30，证据清单需在庭前定稿。与赵六案同属无效程序，可合并准备口审材料。">
+                <span class="today-num">1</span>
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">核对口审证据清单 <span class="flag">⚑</span></div>
+                  <div class="meta"><span class="ctx-chip office">@办公室</span><span>45m</span><span class="badge red">09:30 口审</span><span>张三无效案</span></div>
+                </div>
+                <svg class="drag-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01"/></svg>
+              </div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="起草上诉状初稿" data-when="今天" data-deadline="今天 17:30" data-dueclass="overdue" data-ctx="office" data-est="2 小时" data-case="李四专利侵权案" data-seq="民事轨 · 上诉期" data-flag="1" data-note="一审判决送达，上诉期 15 天，今天 17:30 截止。已逾期 +1 天。">
+                <span class="today-num">2</span>
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title overdue">起草上诉状初稿 <span class="flag">⚑</span></div>
+                  <div class="meta"><span class="ctx-chip office">@办公室</span><span>2h</span><span class="badge red">逾期 +1 天</span><span>李四侵权案</span></div>
+                </div>
+                <svg class="drag-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01"/></svg>
+              </div>
+              <div class="task-card" onclick="selectTask(this)"
+                data-title="联系证人确认出庭时间" data-when="今天" data-deadline="今天 14:00 · 庭审前" data-dueclass="due-soon" data-ctx="phone" data-est="20 分钟" data-case="李明侵权纠纷案" data-seq="民事轨 · 待开庭" data-note="李明案 14:00 庭审，证人出庭需确认。">
+                <span class="today-num">3</span>
+                <span class="check"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">联系证人确认出庭时间</div>
+                  <div class="meta"><span class="ctx-chip phone">@电话</span><span>20m</span><span class="badge amber">14:00 庭审前</span><span>李明案</span></div>
+                </div>
+                <svg class="drag-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01"/></svg>
+              </div>
+            </div>
+            <div class="capture-inline" onclick="openCaptureModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              加入今天（⌘T）
+            </div>
+          </div>
+
+          <!-- ===== 计划中透视 ===== -->
+          <div class="persp" data-persp-panel="upcoming" style="display:none">
+            <div class="day-group">8月17日 · 周一 <span class="count">2</span></div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="起草答辩状（王五案）" data-when="8月16日" data-deadline="8月22日" data-ctx="office" data-est="3 小时" data-case="王五实用新型案" data-seq="阶段一 · 第 2 步" data-note="对方答辩期 15 天，When=8/16 开始准备。">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0">
+                <div class="title">起草答辩状</div>
+                <div class="meta"><span class="ctx-chip office">@办公室</span><span>3h</span><span>When 8/16 · 截止 8/22</span><span>王五案</span></div>
+              </div>
+            </div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="准备接案材料（新客户）" data-when="8月16日" data-deadline="8月17日" data-ctx="office" data-est="1 小时" data-case="待关联" data-seq="—" data-note="来自收件箱厘清，转行动。">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0">
+                <div class="title">准备接案材料</div>
+                <div class="meta"><span class="ctx-chip office">@办公室</span><span>1h</span><span>When 8/16</span></div>
+              </div>
+            </div>
+            <div class="day-group">8月20日 · 周四 <span class="count">1</span></div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="提交补充证据" data-when="8月18日" data-deadline="8月20日" data-ctx="court" data-est="2 小时" data-case="赵六专利无效案" data-seq="阶段二 · 待口审" data-note="补充证据窗口：无效请求后 1 个月内。">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0">
+                <div class="title">提交补充证据</div>
+                <div class="meta"><span class="ctx-chip court">@法院</span><span>2h</span><span>When 8/18</span><span>赵六案</span></div>
+              </div>
+            </div>
+            <div class="day-group">8月24日 · 周一 <span class="count">2</span></div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="跟进无效决定" data-when="8月23日" data-deadline="8月30日" data-ctx="phone" data-est="30 分钟" data-case="张三专利无效案" data-seq="阶段三 · 第 3 步" data-note="口审后等待无效决定，跟进。">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0">
+                <div class="title">跟进无效决定</div>
+                <div class="meta"><span class="ctx-chip phone">@电话</span><span>30m</span><span>When 8/23</span><span>张三案</span></div>
+              </div>
+            </div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="起草二审代理意见" data-when="8月23日" data-deadline="9月1日" data-ctx="office" data-est="4 小时" data-case="李四专利侵权案" data-seq="民事轨 · 二审" data-note="上诉期过后进入二审准备。">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0">
+                <div class="title">起草二审代理意见</div>
+                <div class="meta"><span class="ctx-chip office">@办公室</span><span>4h</span><span>When 8/23</span><span>李四案</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== 随时透视 ===== -->
+          <div class="persp" data-persp-panel="anytime" style="display:none">
+            <div class="day-group">@办公室 <span class="count">4</span></div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="整理张三案证据目录" data-when="随时" data-deadline="—" data-ctx="office" data-est="40 分钟" data-case="张三专利无效案" data-seq="阶段二 · 准备" data-note="">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0"><div class="title">整理张三案证据目录</div><div class="meta"><span class="ctx-chip office">@办公室</span><span>40m</span><span>张三案</span></div></div>
+            </div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="更新案件周报模板" data-when="随时" data-deadline="—" data-ctx="office" data-est="30 分钟" data-case="—" data-seq="—" data-note="">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0"><div class="title">更新案件周报模板</div><div class="meta"><span class="ctx-chip office">@办公室</span><span>30m</span></div></div>
+            </div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="归档已结案卷宗" data-when="随时" data-deadline="—" data-ctx="office" data-est="1 小时" data-case="—" data-seq="—" data-note="">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0"><div class="title">归档已结案卷宗</div><div class="meta"><span class="ctx-chip office">@办公室</span><span>1h</span></div></div>
+            </div>
+            <div class="day-group">@电话 <span class="count">2</span></div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="电话沟通客户确认委托范围" data-when="随时" data-deadline="—" data-ctx="phone" data-est="15 分钟" data-case="待关联" data-seq="—" data-note="">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0"><div class="title">电话沟通客户确认委托范围</div><div class="meta"><span class="ctx-chip phone">@电话</span><span>15m</span></div></div>
+            </div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="致电法院确认开庭时间" data-when="随时" data-deadline="—" data-ctx="phone" data-est="10 分钟" data-case="李明侵权纠纷案" data-seq="民事轨 · 待开庭" data-note="">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0"><div class="title">致电法院确认开庭时间</div><div class="meta"><span class="ctx-chip phone">@电话</span><span>10m</span><span>李明案</span></div></div>
+            </div>
+            <div class="day-group">@法院 <span class="count">1</span></div>
+            <div class="task-card" onclick="selectTask(this)"
+              data-title="递交授权委托书原件" data-when="下次去法院时" data-deadline="—" data-ctx="court" data-est="20 分钟" data-case="陈某一审案" data-seq="行政轨 · 一审" data-note="">
+              <span class="check"></span>
+              <div style="flex:1;min-width:0"><div class="title">递交授权委托书原件</div><div class="meta"><span class="ctx-chip court">@法院</span><span>20m</span><span>陈某案</span></div></div>
+            </div>
+          </div>
+
+          <!-- ===== 等待透视 ===== -->
+          <div class="persp" data-persp-panel="waiting" style="display:none">
+            <div class="task-group-title" style="border-bottom:1px solid var(--border);padding:8px 4px;"><span>等待中</span><span class="count">3 条 · 等 = 律师的日常</span><span class="clear">设置跟进</span></div>
+            <div style="margin-top:10px">
+              <div class="waiting-line">
+                <span class="check gray" style="border-color:var(--border-strong);background:var(--surface-hover)"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">等 国家知识产权局 对无效请求的答复</div>
+                  <div class="meta"><span class="waiting-since"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>已等 12 天</span><span class="badge amber">建议催办</span><span class="badge outline">跟进 8/20</span></div>
+                </div>
+                <button class="btn sm" onclick="openFollowup()">催办</button>
+              </div>
+              <div class="waiting-line">
+                <span class="check gray" style="border-color:var(--border-strong);background:var(--surface-hover)"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">等 对方律师 提交补充证据</div>
+                  <div class="meta"><span class="waiting-since"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>已等 6 天</span><span class="badge outline">跟进 8/21</span></div>
+                </div>
+                <button class="btn sm ghost">稍后</button>
+              </div>
+              <div class="waiting-line">
+                <span class="check gray" style="border-color:var(--border-strong);background:var(--surface-hover)"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="title">等 客户 确认委托方案</div>
+                  <div class="meta"><span class="waiting-since"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>已等 3 天</span><span class="badge outline">跟进 8/18</span></div>
+                </div>
+                <button class="btn sm ghost">稍后</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== 回顾透视 ===== -->
+          <div class="persp" data-persp-panel="review" style="display:none">
+            <div class="task-group-title" style="border-bottom:1px solid var(--border);padding:8px 4px;"><span>需要回顾（GTD Reflect）</span><span class="count">2 案</span><span class="clear">标记已回顾</span></div>
+            <div style="margin-top:10px">
+              <div class="review-card" onclick="openCaseDetail()">
+                <div class="t"><span class="track-dot" style="background:var(--primary)"></span>李明侵权纠纷案 <span class="badge amber">6 天未更新</span></div>
+                <div class="m"><span>3 个行动在等</span><span>下次回顾 8/15</span></div>
+                <div class="why">距上次更新 6 天；建议审视：证据、庭前准备、证人安排是否到位</div>
+              </div>
+              <div class="review-card" onclick="openCaseDetail()">
+                <div class="t"><span class="track-dot" style="background:var(--purple)"></span>赵六专利无效案 <span class="badge amber">待决策</span></div>
+                <div class="m"><span>收到新证据</span><span>下次回顾 8/16</span></div>
+                <div class="why">对方提交新证据，需决策：是否需要补充意见陈述</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== 某天透视 ===== -->
+          <div class="persp" data-persp-panel="someday" style="display:none">
+            <div class="task-group-title" style="border-bottom:1px solid var(--border);padding:8px 4px;"><span>某天（Someday）</span><span class="count">3 项 · 不承诺时间</span><span class="clear">移入随时</span></div>
+            <div style="margin-top:10px">
+              <div class="task-card" onclick="selectTask(this)" data-title="整理历年无效决定数据库" data-when="某天" data-deadline="—" data-ctx="—" data-est="—" data-case="—" data-seq="—" data-note="沉淀经验：把历年代理的无效决定按技术领域归档。">
+                <span class="check gray"></span>
+                <div style="flex:1;min-width:0"><div class="title someday">整理历年无效决定数据库</div><div class="meta"><span class="badge gray">未来</span><span>沉淀经验</span></div></div>
+              </div>
+              <div class="task-card" onclick="selectTask(this)" data-title="学习新专利法实施细则" data-when="某天" data-deadline="—" data-ctx="—" data-est="—" data-case="—" data-seq="—" data-note="新细则实施后系统研读，更新知识库。">
+                <span class="check gray"></span>
+                <div style="flex:1;min-width:0"><div class="title someday">学习新专利法实施细则</div><div class="meta"><span class="badge gray">未来</span><span>知识更新</span></div></div>
+              </div>
+              <div class="task-card" onclick="selectTask(this)" data-title="设计案卷归档电子化方案" data-when="某天" data-deadline="—" data-ctx="—" data-est="—" data-case="—" data-seq="—" data-note="让新来的助理也能接手归档流程。">
+                <span class="check gray"></span>
+                <div style="flex:1;min-width:0"><div class="title someday">设计案卷归档电子化方案</div><div class="meta"><span class="badge gray">未来</span><span>流程改进</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：任务详情面板 -->
+        <aside class="card task-detail" data-screen-label="任务详情面板">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <span class="check" style="margin-top:3px"></span>
+            <div class="title-lg" id="dtTitle">核对口审证据清单</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:2px">
+            <span class="badge purple" id="dtCaseBadge">张三专利无效案</span>
+            <span class="badge amber" id="dtFlagBadge" style="display:none">⚑ 旗标</span>
+          </div>
+
+          <div class="detail-label">时间双轨（When / Deadline）</div>
+          <div class="dual-time">
+            <div class="time-box">
+              <div class="label"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> When · 开始</div>
+              <div class="val" id="dtWhen">今天</div>
+            </div>
+            <div class="time-box">
+              <div class="label"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> Deadline · 截止</div>
+              <div class="val overdue" id="dtDeadline">今天 09:30 · 口审</div>
+            </div>
+          </div>
+
+          <div class="detail-label">执行上下文</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span class="ctx-chip office" id="dtCtx">@办公室</span>
+          </div>
+
+          <div class="detail-label">任务信息</div>
+          <div class="kv-row"><span class="k">预计耗时</span><span id="dtEst">45 分钟</span></div>
+          <div class="kv-row"><span class="k">关联案件</span><span id="dtCase">张三专利无效案</span></div>
+          <div class="kv-row"><span class="k">顺序位置</span><span id="dtSeq">阶段二 · 第 1 步 / 共 3 步</span></div>
+
+          <div class="detail-label">顺序项目（案件线性流程）</div>
+          <div class="seq-step"><span class="step-done"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>核对口审证据清单 <span class="badge blue" style="margin-left:auto">当前</span></div>
+          <div class="seq-step locked"><span class="lock"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>口审答辩</div>
+          <div class="seq-step locked"><span class="lock"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>跟进无效决定</div>
+
+          <div class="detail-label">备注</div>
+          <div style="font-size:12.5px;color:var(--text-2);line-height:1.7" id="dtNote">口审在 09:30，证据清单需在庭前定稿。与赵六案同属无效程序，可合并准备口审材料。</div>
+
+          <div class="modal-actions" style="margin-top:16px">
+            <button class="btn ghost">改期</button>
+            <button class="btn primary">开始任务</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ================= 日历 Forecast ================= -->
+    <section class="screen" data-screen-label="日历 Forecast 双栏" id="screen-calendar">
+      <div class="cal-layout">
+        <!-- 左：月网格 -->
+        <div class="card">
+          <div class="cal-head">
+            <button class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+            <span class="month">2026 年 8 月</span>
+            <button class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+          </div>
+          <div class="cal-grid">
+            <div class="cal-dow">一</div><div class="cal-dow">二</div><div class="cal-dow">三</div><div class="cal-dow">四</div><div class="cal-dow">五</div><div class="cal-dow">六</div><div class="cal-dow">日</div>
+            <div class="cal-cell other"><span class="cal-num">27</span></div>
+            <div class="cal-cell other"><span class="cal-num">28</span></div>
+            <div class="cal-cell other"><span class="cal-num">29</span></div>
+            <div class="cal-cell other"><span class="cal-num">30</span></div>
+            <div class="cal-cell other"><span class="cal-num">31</span></div>
+            <div class="cal-cell"><span class="cal-num">1</span><div class="cal-events"><span class="ev green"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">2</span></div>
+            <div class="cal-cell"><span class="cal-num">3</span></div>
+            <div class="cal-cell"><span class="cal-num">4</span><div class="cal-events"><span class="ev blue"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">5</span></div>
+            <div class="cal-cell"><span class="cal-num">6</span></div>
+            <div class="cal-cell warn"><span class="cal-num">7</span><div class="cal-events"><span class="ev amber"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">8</span></div>
+            <div class="cal-cell"><span class="cal-num">9</span></div>
+            <div class="cal-cell"><span class="cal-num">10</span><div class="cal-events"><span class="ev purple"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">11</span></div>
+            <div class="cal-cell"><span class="cal-num">12</span></div>
+            <div class="cal-cell danger"><span class="cal-num">13</span><div class="cal-events"><span class="ev red"></span><span class="ev blue"></span></div></div>
+            <div class="cal-cell today selected"><span class="cal-num today-num">14</span><div class="cal-events"><span class="ev red"></span><span class="ev blue"></span><span class="ev purple"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">15</span></div>
+            <div class="cal-cell"><span class="cal-num">16</span></div>
+            <div class="cal-cell"><span class="cal-num">17</span><div class="cal-events"><span class="ev red"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">18</span><div class="cal-events"><span class="ev green"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">19</span></div>
+            <div class="cal-cell"><span class="cal-num">20</span></div>
+            <div class="cal-cell"><span class="cal-num">21</span></div>
+            <div class="cal-cell"><span class="cal-num">22</span></div>
+            <div class="cal-cell"><span class="cal-num">23</span></div>
+            <div class="cal-cell"><span class="cal-num">24</span><div class="cal-events"><span class="ev purple"></span></div></div>
+            <div class="cal-cell"><span class="cal-num">25</span></div>
+            <div class="cal-cell"><span class="cal-num">26</span></div>
+            <div class="cal-cell"><span class="cal-num">27</span></div>
+            <div class="cal-cell"><span class="cal-num">28</span></div>
+            <div class="cal-cell"><span class="cal-num">29</span></div>
+            <div class="cal-cell"><span class="cal-num">30</span></div>
+            <div class="cal-cell"><span class="cal-num">31</span></div>
+          </div>
+          <div class="cal-legend">
+            <span class="item"><span class="ev red" style="width:8px;height:8px"></span>逾期 / 开庭</span>
+            <span class="item"><span class="ev amber" style="width:8px;height:8px"></span>即将到期</span>
+            <span class="item"><span class="ev blue" style="width:8px;height:8px"></span>民事</span>
+            <span class="item"><span class="ev purple" style="width:8px;height:8px"></span>无效</span>
+            <span class="item"><span class="ev green" style="width:8px;height:8px"></span>成长</span>
+          </div>
+        </div>
+
+        <!-- 右：时间块 -->
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:15px;font-weight:700">8月14日 · 周五</div>
+            <button class="btn sm" onclick="openModal('scheduleModal')">自动排程（AI 推荐）</button>
+          </div>
+          <div class="timeblock">
+            <div class="timeblock-label">上午</div>
+            <div class="slot hard drag-handle"><span class="time">09:30</span><span>口审 · 张三专利无效案</span><span class="tag"><span class="badge red">硬性</span></span></div>
+            <div class="slot flex drag-handle"><span class="time">10:00</span><span>核对口审证据清单</span><span class="tag"><span class="badge blue">弹性 · 45m</span></span></div>
+          </div>
+          <div class="timeblock">
+            <div class="timeblock-label">下午</div>
+            <div class="slot hard drag-handle"><span class="time">14:00</span><span>庭审 · 李明侵权纠纷案</span><span class="tag"><span class="badge red">硬性</span></span></div>
+            <div class="slot flex drag-handle"><span class="time">15:30</span><span>起草上诉状初稿</span><span class="tag"><span class="badge blue">弹性 · 2h</span></span></div>
+            <div class="slot flex drag-handle"><span class="time">16:00</span><span>联系证人确认出庭时间</span><span class="tag"><span class="badge blue">弹性 · 20m</span></span></div>
+          </div>
+          <div class="timeblock">
+            <div class="timeblock-label">晚上</div>
+            <div class="slot grow drag-handle"><span class="time">19:30</span><span>阅读：新专利法实施细则解读</span><span class="tag"><span class="badge green">成长</span></span></div>
+          </div>
+          <div style="font-size:12px;color:var(--text-3);padding:4px 2px">
+            时间分配遵循「先硬性 → 再弹性 → 最后成长」。拖拽任务到其他日期 = 改期。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 案件工作台 ================= -->
+    <section class="screen" data-screen-label="案件工作台" id="screen-cases">
+      <div class="chips" style="margin-bottom:12px">
+        <button class="chip active">全部</button>
+        <button class="chip">我负责</button>
+        <button class="chip">等待中</button>
+        <button class="chip">已结案</button>
+        <button class="chip">按客户</button>
+        <button class="chip">周报</button>
+      </div>
+      <div class="cases-toolbar">
+        <div class="view-toggle">
+          <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>列表</button>
+          <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>看板</button>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn" onclick="openModal('newCaseModal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            新建案件
+          </button>
+          <button class="btn">导出</button>
+        </div>
+      </div>
+
+      <div class="case-tracks">
+        <!-- 诉讼轨看板 -->
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;font-weight:700">
+            <span class="track-dot" style="background:var(--primary)"></span>民事诉讼轨 <span style="color:var(--text-3);font-weight:400">11</span>
+          </div>
+          <div class="kanban" style="grid-template-columns:1fr">
+            <div class="kanban-col">
+              <div class="kanban-col-head"><span class="track-dot" style="background:var(--text-3)"></span>待办<span class="count">3</span></div>
+              <div class="kanban-col-body">
+                <div class="kcard" onclick="openCaseDetail()"><div class="t">李四专利侵权案</div><div class="m"><span class="badge red">逾期任务</span><span>上诉期还剩 4 天</span></div></div>
+                <div class="kcard" onclick="openCaseDetail()"><div class="t">周伟实用新型案</div><div class="m"><span>待立案</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 无效轨看板 -->
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;font-weight:700">
+            <span class="track-dot" style="background:var(--purple)"></span>专利无效轨 <span style="color:var(--text-3);font-weight:400">7</span>
+          </div>
+          <div class="kanban" style="grid-template-columns:1fr">
+            <div class="kanban-col">
+              <div class="kanban-col-head"><span class="track-dot" style="background:var(--purple)"></span>审理中<span class="count">4</span></div>
+              <div class="kanban-col-body">
+                <div class="kcard" onclick="openCaseDetail()"><div class="t">张三专利无效案</div><div class="m"><span class="badge amber">今日口审</span></div></div>
+                <div class="kcard" onclick="openCaseDetail()"><div class="t">赵六专利无效案</div><div class="m"><span class="badge amber">等 12 天</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 行政轨看板 -->
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;font-weight:700">
+            <span class="track-dot" style="background:var(--amber)"></span>行政诉讼轨 <span style="color:var(--text-3);font-weight:400">2</span>
+          </div>
+          <div class="kanban" style="grid-template-columns:1fr">
+            <div class="kanban-col">
+              <div class="kanban-col-head"><span class="track-dot" style="background:var(--amber)"></span>一审<span class="count">1</span></div>
+              <div class="kanban-col-body">
+                <div class="kcard" onclick="openCaseDetail()"><div class="t">陈某诉国知局无效决定案</div><div class="m"><span>待开庭</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 案件列表表格 -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">全部案件 <span class="sub">21 进行中 · 34 已结案</span></div>
+        <table class="table">
+          <thead><tr><th>案件名称</th><th>轨道</th><th>客户</th><th>下一步行动</th><th>状态</th><th>期限</th></tr></thead>
+          <tbody>
+            <tr onclick="openCaseDetail()">
+              <td><strong>张三专利无效案</strong><div style="font-size:11px;color:var(--text-3);font-family:var(--mono)">2026-0001</div></td>
+              <td><span class="badge purple">无效</span></td>
+              <td>张氏科技有限公司</td>
+              <td>核对口审证据清单</td>
+              <td><span class="badge amber">今日口审</span></td>
+              <td style="color:var(--red)">今天 09:30</td>
+            </tr>
+            <tr onclick="openCaseDetail()">
+              <td><strong>李四专利侵权案</strong><div style="font-size:11px;color:var(--text-3);font-family:var(--mono)">2026-0003</div></td>
+              <td><span class="badge blue">民事</span></td>
+              <td>李四</td>
+              <td>起草上诉状初稿</td>
+              <td><span class="badge blue">上诉期</span></td>
+              <td style="color:var(--red)">今天 17:30</td>
+            </tr>
+            <tr onclick="openCaseDetail()">
+              <td><strong>李明侵权纠纷案</strong><div style="font-size:11px;color:var(--text-3);font-family:var(--mono)">2026-0006</div></td>
+              <td><span class="badge blue">民事</span></td>
+              <td>华远制造有限公司</td>
+              <td>联系证人确认出庭</td>
+              <td><span class="badge gray">待开庭</span></td>
+              <td>今天 14:00</td>
+            </tr>
+            <tr onclick="openCaseDetail()">
+              <td><strong>赵六专利无效案</strong><div style="font-size:11px;color:var(--text-3);font-family:var(--mono)">2026-0008</div></td>
+              <td><span class="badge purple">无效</span></td>
+              <td>赵六</td>
+              <td>催办国知局答复</td>
+              <td><span class="badge amber">等待中</span></td>
+              <td style="color:var(--amber)">已等 12 天</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 案件详情项目书 ================= -->
+    <section class="screen" data-screen-label="案件详情 · 项目书" id="screen-case-detail">
+      <button class="btn ghost" style="margin-bottom:12px" onclick="goNav('cases')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="m15 18-6-6 6-6"/></svg>
+        返回案件工作台
+      </button>
+
+      <div class="case-head">
+        <div style="flex:1;min-width:0">
+          <div class="name">张三专利无效宣告案</div>
+          <div class="no">NO. 2026-0001 · 专利号 ZL20181012345.6 · 专利名称：一种液压阀结构</div>
+          <div class="badges">
+            <span class="badge purple">专利无效轨</span>
+            <span class="badge amber">审理中 · 待口审</span>
+            <span class="badge blue">并轨：民事诉讼</span>
+            <span class="badge outline">探索型案件</span>
+            <span class="badge outline">委托方：我方</span>
+          </div>
+        </div>
+        <div class="ring" style="--p:63"><span>5/8</span></div>
+        <div style="text-align:right;font-size:12px;color:var(--text-3)">
+          进度环<br>读缓存字段<br><button class="btn sm ghost" style="margin-top:6px" onclick="openCaseDetail()">案件操作</button>
+        </div>
+      </div>
+
+      <div class="case-detail-grid">
+        <div class="case-detail-stack">
+          <!-- 项目总览 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+              项目总览
+              <span class="sub">3-3-3 嵌套：阶段 → 里程碑 → 任务</span>
+            </div>
+            <div class="field" style="margin-bottom:10px">
+              <label>案件目标</label>
+              <input value="使涉案专利权利要求 1-4 全部无效，扫清我方客户产品侵权风险" style="background:var(--bg)">
+            </div>
+            <div class="milestone">
+              <div class="stage"><span class="track-step done">✓ 受理</span> 阶段一 · 提出无效请求</div>
+              <div class="ms"><span class="ms-dot done"></span>起草无效宣告请求书 <span class="badge green">已完成</span></div>
+              <div class="ms"><span class="ms-dot done"></span>提交请求书至国知局</div>
+            </div>
+            <div class="milestone">
+              <div class="stage"><span class="track-step current">口审</span> 阶段二 · 口审与答辩</div>
+              <div class="ms"><span class="ms-dot current"></span>核对口审证据清单 <span class="badge amber">今日 09:30</span></div>
+              <div class="ms"><span class="ms-dot"></span>口审答辩（锁定，需上一步完成）</div>
+            </div>
+            <div class="milestone">
+              <div class="stage"><span class="track-step blocked">决定</span> 阶段三 · 无效决定</div>
+              <div class="ms"><span class="ms-dot"></span>跟进无效决定（锁定）</div>
+            </div>
+          </div>
+
+          <!-- 三轨状态 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2h6c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></svg>
+              三轨状态（可并行）
+              <span class="sub">轨道回答法律走到哪</span>
+            </div>
+            <div class="track-panel">
+              <div class="track-row">
+                <span class="track-name">无效轨</span>
+                <div class="track-progress">
+                  <span class="track-step done">✓ 受理</span><span class="track-step current">口审</span><span class="track-step blocked">决定</span>
+                </div>
+                <span class="badge purple">进行中</span>
+              </div>
+              <div class="track-row">
+                <span class="track-name">民事轨</span>
+                <div class="track-progress">
+                  <span class="track-step done">✓ 一审</span><span class="track-step current">上诉期</span><span class="track-step blocked">二审</span>
+                </div>
+                <span class="badge blue">上诉期 · 4 天</span>
+              </div>
+              <div class="track-row">
+                <span class="track-name">行政轨</span>
+                <div class="track-progress">
+                  <span class="track-step">—</span>
+                </div>
+                <span class="badge gray">未启动</span>
+              </div>
+            </div>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:12px;color:var(--text-3)">
+              无效决定不利时，可转入行政诉讼轨（无效→行政诉讼并轨）。
+            </div>
+          </div>
+        </div>
+
+        <div class="case-detail-stack">
+          <!-- 关联资源 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+              关联资源
+              <span class="sub">案件 ↔ 任务 / 文书 / 知识 / 沟通</span>
+            </div>
+            <div class="detail-row"><span class="k">任务统计</span><span class="v"><span class="badge gray">行动 3</span><span class="badge amber">等待 1</span><span class="badge green">已完成 2</span><span class="badge red">逾期 0</span></span></div>
+            <div class="detail-row"><span class="k">文书</span><span class="v"><span class="badge outline">无效宣告请求书</span><span class="badge outline">证据清单</span><span class="badge outline">口审意见陈述</span><button class="btn sm ghost">+ 新建</button></span></div>
+            <div class="detail-row"><span class="k">知识引用</span><span class="v"><span class="badge blue">《专利审查指南》第四部分</span><span class="badge blue">同类无效案例笔记</span></span></div>
+            <div class="detail-row"><span class="k">沟通记录</span><span class="v"><span class="badge gray">邮件 4</span><span class="badge gray">通话 1</span></span></div>
+            <div class="detail-row"><span class="k">客户端</span><span class="v"><span style="color:var(--primary);cursor:pointer;font-weight:600" onclick="goNav('cases')">张氏科技有限公司 →</span><span style="font-size:12px;color:var(--text-3)">名下 5 案 · 2 进行中</span></span></div>
+          </div>
+
+          <!-- 动态轨迹 -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+              动态轨迹
+              <span class="sub">审级历程 + 决策链</span>
+            </div>
+            <div class="timeline">
+              <div class="tl-item"><div class="d">2026-08-07</div><div class="txt">无效轨 → <strong>审理中 · 待口审</strong>（收到口审通知书）<span style="color:var(--text-3)"> · 系统推导</span></div></div>
+              <div class="tl-item"><div class="d">2026-08-02</div><div class="txt">民事轨 → <strong>上诉期</strong>（一审判决送达，15 天上诉期自动计算）<span style="color:var(--text-3)"> · 决策：提起上诉 ✓</span></div></div>
+              <div class="tl-item"><div class="d">2026-07-19</div><div class="txt">无效轨 → <strong>已受理</strong>（国知局受理通知书）</div></div>
+              <div class="tl-item"><div class="d">2026-07-10</div><div class="txt">收案 → 创建案件，建立无效+民事双轨</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 下一步行动卡 -->
+      <div style="margin-top:16px">
+        <div class="next-action-card">
+          <span class="play"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 5 11 7-11 7z"/></svg></span>
+          <div style="flex:1;min-width:0">
+            <div class="t">核对口审证据清单</div>
+            <div class="s">当前唯一可推进的行动 · 完成它，将解锁「口审答辩」· 预计 45 分钟</div>
+          </div>
+          <button class="btn primary">开始</button>
+          <button class="btn ghost">完成</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 知识库 ================= -->
+    <section class="screen" data-screen-label="知识库 · 6 职能" id="screen-knowledge">
+      <div class="chips" style="margin-bottom:14px">
+        <button class="chip">灵感 · 3</button>
+        <button class="chip">方法 · 6</button>
+        <button class="chip active">参考 · 24</button>
+        <button class="chip">问题 · 4</button>
+        <button class="chip">经验 · 9</button>
+        <button class="chip">日志 · 5</button>
+      </div>
+      <div class="kb-grid">
+        <div style="min-width:0">
+          <div class="kb-item active">
+            <div class="t">《专利审查指南》第四部分 · 无效宣告程序</div>
+            <div class="p">无效宣告请求的受理、审查方式、口头审理……</div>
+            <div class="tags"><span class="badge blue">法条参考</span><span class="badge outline">关联：张三案 / 赵六案</span></div>
+          </div>
+          <div class="kb-item">
+            <div class="t">无效程序中证据补充的时间限制</div>
+            <div class="p">请求人补充证据的期限为提出无效请求之日起 1 个月内……</div>
+            <div class="tags"><span class="badge blue">参考</span></div>
+          </div>
+          <div class="kb-item">
+            <div class="t">类似无效案件：权利要求修改策略复盘</div>
+            <div class="p">上一起同类案件中，将权利要求合并修改后无效成功……</div>
+            <div class="tags"><span class="badge purple">经验</span></div>
+          </div>
+          <div class="kb-item">
+            <div class="t">口审程序常见问题</div>
+            <div class="p">口审通知书发出后、当事人提交新证据的处理方式……</div>
+            <div class="tags"><span class="badge green">方法</span></div>
+          </div>
+        </div>
+        <div class="card" style="min-width:0">
+          <div class="card-header">
+            《专利审查指南》第四部分 · 无效宣告程序
+            <span class="sub">编号 KB-REF-014</span>
+          </div>
+          <div class="kb-body">
+            <div class="block">本部分涉及无效宣告程序中请求人补充证据的时限要求。</div>
+            <div class="block">请求人应当自提出无效宣告请求之日起 1 个月内补充证据。逾期补充的，不予考虑。例外情形：<span class="cite">第四部分第八章第 2.1 节 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg></span></div>
+            <div class="block ref">结合 2026-0001（张三案）与 2026-0008（赵六案）：两案均处于无效程序，证据补充窗口已过，需在口审前完成全部证据核对。<span class="cite">引用：张三案 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg></span></div>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);font-size:12px;color:var(--text-3)">
+              块级引用：可精确引用到「《专利法》第 58 条」这一级，而非整篇文档。引用会建立知识 ↔ 案件的关联，供隐性关联分析（通道 B）学习。
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 收件箱 · 大口袋 ================= -->
+    <section class="screen" data-screen-label="收件箱 · 大口袋 · 捕获中心" id="screen-inbox">
+      <!-- 顶部状态 -->
+      <div class="inbox-hero">
+        <div>
+          <div class="inbox-hero-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+            收件箱 · 大口袋
+          </div>
+          <div class="inbox-hero-sub">所有想法、材料先进口袋——先捕获，后厘清。清空口袋 = 清空大脑。</div>
+        </div>
+        <div class="inbox-hero-stats">
+          <div class="stat"><div class="n red">4</div><div class="l">待厘清</div></div>
+          <div class="stat"><div class="n">7</div><div class="l">今日捕获</div></div>
+          <div class="stat"><div class="n">3</div><div class="l">今日已厘清</div></div>
+          <div class="stat"><div class="n amber">2.4 天</div><div class="l">平均停留</div></div>
+        </div>
+      </div>
+
+      <!-- 快速捕获条（最常用入口，永远可见） -->
+      <div class="capture-bar">
+        <textarea id="captureInput" placeholder="有什么想法、材料、待办？先记下来，稍后厘清…（回车即入袋）"></textarea>
+        <div class="capture-bar-tools">
+          <button class="btn sm" onclick="captureQuick()">快速捕获 <span class="kbd" style="margin-left:4px;font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px;background:var(--bg)">⌘I</span></button>
+          <button class="btn sm" title="粘贴剪贴板内容"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>粘贴</button>
+          <button class="btn sm" title="截图入袋"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>截图</button>
+          <button class="btn sm" title="语音速记"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg>语音</button>
+          <button class="btn sm" title="拖拽文件入袋"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>文件</button>
+          <span class="hint">也可直接拖文件 / 图片 / 文本到这里 <kbd>⌘⇧I</kbd> 全局呼出</span>
+        </div>
+      </div>
+
+      <!-- 捕获通道（丰富的触发方式） -->
+      <div class="channel-section">
+        <div class="channel-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          捕获通道 · 所有入口都汇入这里
+        </div>
+        <div class="channel-grid">
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <div>邮件转发<span class="sub">转发给专属地址</span></div>
+            <span class="k">⌘E</span>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/></svg>
+            <div>微信 / 飞书<span class="sub">转发消息即入袋</span></div>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="23"/></svg>
+            <div>语音速记<span class="sub">按住说话 / 录音转写</span></div>
+            <span class="k">⌘V</span>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <div>截图<span class="sub">区域截图自动入袋</span></div>
+            <span class="k">⌘⇧4</span>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg>
+            <div>任务转存<span class="sub">任何任务标记「待厘清」</span></div>
+            <span class="k">⌘T</span>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15h4l3 8 4-16 3 8h4"/></svg>
+            <div>网页剪藏<span class="sub">浏览器插件一键入袋</span></div>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <div>剪贴板<span class="sub">复制即捕获（可关闭）</span></div>
+            <span class="k">⌘⇧V</span>
+          </div>
+          <div class="channel-card" onclick="captureQuick()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            <div>全局快捷键<span class="sub">任何界面直接呼出</span></div>
+            <span class="k">⌘I</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 主体三栏：来源 / 条目流 / 厘清 -->
+      <div class="inbox-body">
+        <!-- 左栏：来源过滤 + 批量操作 -->
+        <aside class="card src-filter">
+          <div class="card-header">来源过滤 <span class="sub">全部 · 4</span></div>
+          <div class="src-item active" onclick="filterSrc(this,'all')"><span class="src-icon" style="background:var(--primary-soft)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span>全部<span class="cnt">4</span></div>
+          <div class="src-item" onclick="filterSrc(this,'mail')"><span class="src-icon" style="background:var(--blue-soft)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span>邮件<span class="cnt">2</span></div>
+          <div class="src-item" onclick="filterSrc(this,'wechat')"><span class="src-icon" style="background:var(--green-soft)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/></svg></span>微信 / 飞书<span class="cnt">1</span></div>
+          <div class="src-item" onclick="filterSrc(this,'phone')"><span class="src-icon" style="background:var(--purple-soft)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>电话<span class="cnt">1</span></div>
+          <div class="src-item" onclick="filterSrc(this,'file')"><span class="src-icon" style="background:var(--amber-soft)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg></span>文件 / 截图<span class="cnt">0</span></div>
+          <div style="border-top:1px solid var(--divider);margin:10px 0 8px"></div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-3);margin-bottom:6px">批量操作</div>
+          <button class="btn sm" style="width:100%;justify-content:center;margin-bottom:6px" onclick="captureQuick()">全部厘清</button>
+          <button class="btn sm" style="width:100%;justify-content:center" onclick="captureQuick()">清空已厘清</button>
+        </aside>
+
+        <!-- 中栏：条目流 -->
+        <div class="card inbox-flow">
+          <div class="flow-toolbar">
+            <span class="lbl">待厘清条目</span>
+            <span class="sel" id="flowSel">已选 0 项</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="btn sm ghost">批量厘清</button>
+              <button class="btn sm ghost">排序：时间</button>
+            </div>
+          </div>
+          <div class="flow-group">
+            <div class="flow-group-title">今天 <span class="cnt">2</span></div>
+            <div class="inbox-item active" onclick="selectInbox(this)" data-src="phone"
+              data-title="对方律师来电说要补充一份证据清单" data-note="来源：电话 · 今天 09:12。需要判定：这是什么（行动/等待/委派/某天），归属哪个案件。">
+              <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <div class="t">对方律师来电说要补充一份证据清单</div>
+                <div class="time">今天 09:12 · <span class="src-tag">电话</span></div>
+                <div class="ai-hint show"><b>AI 建议</b>：倾向「等待」——等对方提交证据清单，附预计时间后转等待。</div>
+              </div>
+            </div>
+            <div class="inbox-item" onclick="selectInbox(this)" data-src="mail"
+              data-title="国知局寄来口审通知书（赵六案）" data-note="附件：口审通知书.pdf · 昨天 16:40。判定期限与跟进日期后，可转等待。">
+              <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <div class="t">国知局寄来口审通知书（赵六案）</div>
+                <div class="time">昨天 16:40 · <span class="src-tag">邮件</span></div>
+                <div class="att"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>口审通知书.pdf</div>
+                <div class="ai-hint show"><b>AI 建议</b>：含期限 → 转「等待」，预计 9/1 有结果，到期后起草意见陈述。</div>
+              </div>
+            </div>
+          </div>
+          <div class="flow-group">
+            <div class="flow-group-title">更早 <span class="cnt">2</span></div>
+            <div class="inbox-item" onclick="selectInbox(this)" data-src="wechat"
+              data-title="客户想了解无效程序大概要多久" data-note="来源：微信 · 昨天 11:05。倾向转行动：整理一份无效程序周期说明发给客户。">
+              <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <div class="t">客户想了解无效程序大概要多久</div>
+                <div class="time">昨天 11:05 · <span class="src-tag">微信</span></div>
+                <div class="ai-hint"><b>AI 建议</b>：倾向「行动」——整理无效程序周期说明发给客户（10 分钟）。</div>
+              </div>
+            </div>
+            <div class="inbox-item" onclick="selectInbox(this)" data-src="mail"
+              data-title="下周新案接案材料" data-note="来源：邮件 · 8月12日。倾向转行动，When=8月16日。">
+              <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div style="flex:1;min-width:0">
+                <div class="t">下周新案接案材料</div>
+                <div class="time">8月12日 09:00 · <span class="src-tag">邮件</span></div>
+                <div class="att"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>接案清单.xlsx</div>
+              </div>
+            </div>
+          </div>
+          <div class="empty-flow" style="display:none">该来源下暂无条目</div>
+        </div>
+
+        <!-- 右栏：厘清判定 -->
+        <aside class="card clarify-panel" style="position:sticky;top:0">
+          <div class="card-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11 4 6v13h16V6l-5 5"/><path d="M9 11 4 6v13h16V6l-5 5"/><circle cx="12" cy="12" r="2"/></svg>
+            厘清判定
+            <span class="sub">Clarify</span>
+          </div>
+          <div class="big">它是什么？——不是「怎么分类」，是「下一步行动是什么」。<span class="hl">清空大脑，放回系统。</span></div>
+          <div class="field" style="margin-top:12px"><label>这是什么</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="chip" onclick="pickClarify(this,'行动')">行动</button>
+              <button class="chip active" onclick="pickClarify(this,'等待')">等待</button>
+              <button class="chip" onclick="pickClarify(this,'委派')">委派</button>
+              <button class="chip" onclick="pickClarify(this,'某天')">某天</button>
+              <button class="chip" onclick="pickClarify(this,'参考资料')">资料</button>
+            </div>
+          </div>
+          <div class="field"><label>关联案件</label><input id="clrCase" value="赵六专利无效案"></div>
+          <div class="field"><label>等谁 / 给谁</label><input id="clrWho" value="国家知识产权局"></div>
+          <div class="field"><label>预计何时有结果</label><input type="date" id="clrDate" value="2026-09-01"></div>
+          <div class="field"><label>到期后要做什么</label><input placeholder="如：收到答复后起草意见陈述"></div>
+          <div class="quick-routes">
+            <div class="quick-route" onclick="captureQuick()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg><div>转为行动<span class="d">进入计划中 / 今天</span></div><span class="k">⌘⏎</span></div>
+            <div class="quick-route" onclick="captureQuick()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><div>归入「等待」<span class="d">按预计时间自动提醒</span></div><span class="k">⌘W</span></div>
+            <div class="quick-route" onclick="captureQuick()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><div>存为参考资料<span class="d">进知识库待关联</span></div><span class="k">⌘R</span></div>
+            <div class="quick-route" onclick="captureQuick()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg><div>丢弃 / 归档<span class="d">垃圾、已完成、无价值</span></div><span class="k">⌘⌫</span></div>
+          </div>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--divider);font-size:11.5px;color:var(--text-3)">
+            支持多选批量厘清 · 全部厘清后自动进入「清空口袋」庆祝
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ================= 设置 ================= -->
+    <section class="screen" data-screen-label="设置" id="screen-settings">
+      <div class="settings-grid">
+        <!-- 外观：主题皮肤 / 密度 / 侧栏 -->
+        <div class="card">
+          <div class="card-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
+            外观
+            <span class="sub">主题皮肤 · 信息密度 · 侧栏模式</span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">主题皮肤</div><div class="d">预置 5 套 · 切换即时生效 · 自动记住选择</div></div>
+          </div>
+          <div class="theme-grid">
+            <button class="theme-card" data-theme-pick="slate" onclick="applyTheme('slate')">
+              <span class="swatches"><span class="sw" style="background:#3E5C9A"></span><span class="sw" style="background:#F6F7F9;border:1px solid var(--border)"></span><span class="sw" style="background:#4C8067"></span></span>
+              <span>石墨 <span class="desc">低饱和 · 稳重</span></span>
+            </button>
+            <button class="theme-card" data-theme-pick="blue" onclick="applyTheme('blue')">
+              <span class="swatches"><span class="sw" style="background:#2563EB"></span><span class="sw" style="background:#FAFAFA;border:1px solid var(--border)"></span><span class="sw" style="background:#10B981"></span></span>
+              <span>经典蓝 <span class="desc">12.2 原配色</span></span>
+            </button>
+            <button class="theme-card" data-theme-pick="terracotta" onclick="applyTheme('terracotta')">
+              <span class="swatches"><span class="sw" style="background:#8F5B46"></span><span class="sw" style="background:#F9F7F5;border:1px solid var(--border)"></span><span class="sw" style="background:#64794F"></span></span>
+              <span>暖陶 <span class="desc">陶土棕 · 温润</span></span>
+            </button>
+            <button class="theme-card" data-theme-pick="moss" onclick="applyTheme('moss')">
+              <span class="swatches"><span class="sw" style="background:#47705B"></span><span class="sw" style="background:#F7F8F6;border:1px solid var(--border)"></span><span class="sw" style="background:#6A6E8F"></span></span>
+              <span>苔藓 <span class="desc">低饱和绿 · 冷静</span></span>
+            </button>
+            <button class="theme-card" data-theme-pick="midnight" onclick="applyTheme('midnight')">
+              <span class="swatches"><span class="sw" style="background:#5B84C8"></span><span class="sw" style="background:#1C1F26;border:1px solid #2B303A"></span><span class="sw" style="background:#57A284"></span></span>
+              <span>深夜 <span class="desc">深色 · 护眼</span></span>
+            </button>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">信息密度</div><div class="d">紧凑适合大量任务同屏，标准更宽松</div></div>
+            <div class="seg" id="densitySeg">
+              <button data-density-pick="comfortable" class="active" onclick="applyDensity('comfortable')">标准</button>
+              <button data-density-pick="compact" onclick="applyDensity('compact')">紧凑</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">侧栏模式</div><div class="d">仅图标模式释放内容区空间</div></div>
+            <div class="seg" id="sidebarSeg">
+              <button data-sidebar-pick="expanded" class="active" onclick="applySidebar('expanded')">完整</button>
+              <button data-sidebar-pick="collapsed" onclick="applySidebar('collapsed')">仅图标</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.4 5.2 5.6.8-4 4 1 5.8-5-2.7-5 2.7 1-5.8-4-4 5.6-.8z"/></svg>
+            AI 智伴
+            <span class="sub">模型可切换 · 记忆不丢（跨模型成长）</span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">AI 后端</div><div class="d">当前：Ollama · llama3.1-8b（本地）</div></div>
+            <div class="seg">
+              <button class="active">本地 Ollama</button>
+              <button>OpenAI 兼容</button>
+              <button>DeepSeek</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">智能推荐</div><div class="d">今日任务推荐 + 优先级 + 时间预估（AI 不可用时回退规则排序）</div></div>
+            <span class="switch on" onclick="setSwitch(this)"></span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">每日早报 / 每周总结</div><div class="d">08:00 自动生成 · 可编辑 · 编辑即学习反馈</div></div>
+            <span class="switch on" onclick="setSwitch(this)"></span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">数据蒸馏</div><div class="d">每周提炼 L1 行为数据 → 候选记忆 → 确认后进知识库</div></div>
+            <span class="switch on" onclick="setSwitch(this)"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2h6c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></svg>
+            确认与信任
+            <span class="sub">AI 产出必确认 · 决策留痕可追溯</span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">确认策略</div><div class="d">按场景挂载，不同场景不同确认级别</div></div>
+            <button class="btn sm">配置策略</button>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">递归确认（L3 场景）</div><div class="d">关键决策 / 外部写操作，确认后自动比对全数据链</div></div>
+            <span class="switch on" onclick="setSwitch(this)"></span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">降级态提示</div><div class="d">AI 不可用时显示提示条（可关闭，关闭后静默用规则版）</div></div>
+            <span class="switch on" onclick="setSwitch(this)"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            隐私与安全
+            <span class="sub">案件敏感数据 · 本地优先</span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">数据库加密</div><div class="d">SQLCipher + 本地密钥文件（0600）</div></div>
+            <span class="badge green">已启用</span>
+          </div>
+          <div class="setting-row">
+            <div class="info"><div class="t">外部 AI API 脱敏</div><div class="d">默认禁发敏感字段（当事人姓名 / 案号 / 证据细节）</div></div>
+            <span class="switch on" onclick="setSwitch(this)"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- __APPEND_NEXT__ -->
+  </div>
+</div>
+</div>
+
+<!-- ================= 浮动捕获按钮（4.3） ================= -->
+<div class="capture-fab">
+  <div class="fab-menu">
+    <div class="row" onclick="closeFab();openCaptureModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg>新建任务<span class="kbd">⌘T</span></div>
+    <div class="row" onclick="closeFab();openCaptureModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>新建日程<span class="kbd">⌘E</span></div>
+    <div class="row" onclick="closeFab();openCaptureModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>新建笔记<span class="kbd">⌘N</span></div>
+    <div class="row" onclick="closeFab();openCaptureModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>速记<span class="kbd">⌘I</span></div>
+  </div>
+  <button class="fab-main" onclick="openCapture()" title="捕获（先记下来）">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+</div>
+
+<!-- ================= 今日面板浮层 ================= -->
+<div class="today-panel" id="todayPanel" data-screen-label="今日面板浮层">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div style="font-size:15px;font-weight:700">今日聚合</div>
+    <button class="icon-btn" onclick="closeToday()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="card-header">今日硬性日程 <span class="sub">不可动</span></div>
+    <div class="hard-item"><span class="time">09:30</span><span class="dot red"></span>口审 · 张三无效案</div>
+    <div class="hard-item"><span class="time">14:00</span><span class="dot blue"></span>庭审 · 李明侵权案</div>
+    <div class="hard-item"><span class="time">17:30</span><span class="dot red"></span>期限截止 · 提交上诉状</div>
+  </div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="card-header">今日到期 <span class="sub">弹性 · 4 项</span></div>
+    <div class="task-item"><span class="check"></span><div class="body"><div class="title">起草上诉状初稿</div></div></div>
+    <div class="task-item"><span class="check"></span><div class="body"><div class="title">核对口审证据清单</div></div></div>
+    <div class="task-item"><span class="check"></span><div class="body"><div class="title">联系证人确认出庭时间</div></div></div>
+  </div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="card-header">等待超 3 天 <span class="sub">2 条建议催办</span></div>
+    <div class="task-item"><div class="body"><div class="title">等 国知局 答复（已 12 天）</div></div><button class="btn sm" onclick="closeToday();openFollowup()">催办</button></div>
+  </div>
+  <div class="card">
+    <div class="card-header">需要回顾 <span class="sub">2 案</span></div>
+    <div class="task-item"><div class="body"><div class="title">李明侵权纠纷案 · 6 天未更新</div></div></div>
+    <div class="task-item"><div class="body"><div class="title">赵六无效案 · 新证据待决策</div></div></div>
+  </div>
+</div>
+
+<!-- ================= 弹层 ================= -->
+<div class="overlay" id="overlay" onclick="closeModal()"></div>
+
+<div class="modal" id="recoModal">
+  <h3>今日推荐 · 依据与确认</h3>
+  <div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">每条推荐都可追溯到数据来源；拒绝也会记录，防止重复推荐。</div>
+  <div class="reco-item">
+    <span class="reco-order">1</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:600;">核对口审证据清单</div>
+      <div class="why">依据：张三无效案 09:30 口审（calendar） · 置信度 高</div>
+    </div>
+    <div style="display:flex;gap:4px"><button class="btn sm primary">确认</button><button class="btn sm ghost">拒绝</button></div>
+  </div>
+  <div class="reco-item">
+    <span class="reco-order">2</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:600;">起草上诉状</div>
+      <div class="why">依据：due_date 今日 17:30（rule 缓存） · 已逾期 +1 天</div>
+    </div>
+    <div style="display:flex;gap:4px"><button class="btn sm primary">确认</button><button class="btn sm ghost">拒绝</button></div>
+  </div>
+  <div class="reco-item">
+    <span class="reco-order">3</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:600;">催办国知局答复（赵六案）</div>
+      <div class="why">依据：等待 12 天 > 3 天阈值 · 历史同类平均 9 天（task_events）</div>
+    </div>
+    <div style="display:flex;gap:4px"><button class="btn sm primary">确认</button><button class="btn sm ghost">拒绝</button></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn ghost" onclick="closeModal()">关闭</button>
+  </div>
+</div>
+
+<div class="modal" id="followupModal">
+  <h3>催办 · 国知局答复</h3>
+  <div class="field"><label>等待对象</label><input value="国家知识产权局" disabled></div>
+  <div class="field"><label>已等待</label><input value="12 天" disabled></div>
+  <div class="field"><label>催办话术（AI 生成，可编辑）</label><textarea>您好，我处就专利号 ZL20181012345.6 的无效宣告请求（案件编号 2026-0001）已于 2026-08-02 提交补充材料，烦请确认查收并告知审查进度，谢谢。</textarea></div>
+  <div class="modal-actions">
+    <button class="btn ghost" onclick="closeModal()">取消</button>
+    <button class="btn primary" onclick="closeModal()">生成催办邮件</button>
+  </div>
+</div>
+
+<div class="modal" id="newCaseModal">
+  <h3>新建案件</h3>
+  <div class="field"><label>案件名称</label><input placeholder="如：王五实用新型无效宣告案"></div>
+  <div class="field"><label>案件类型</label>
+    <div style="display:flex;gap:6px"><button class="chip active">专利无效</button><button class="chip">民事诉讼</button><button class="chip">行政诉讼</button><button class="chip">顾问服务</button></div>
+  </div>
+  <div class="field"><label>评估类型</label>
+    <div style="display:flex;gap:6px"><button class="chip active">探索型</button><button class="chip">计算型</button><button class="chip">成长型</button></div>
+  </div>
+  <div class="field"><label>客户</label><input placeholder="客户名称"></div>
+  <div class="modal-actions">
+    <button class="btn ghost" onclick="closeModal()">取消</button>
+    <button class="btn primary" onclick="closeModal()">创建案件</button>
+  </div>
+</div>
+
+<div class="modal" id="scheduleModal">
+  <h3>自动排程 · AI 推荐</h3>
+  <div class="alertbar" style="margin-bottom:12px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+    AI 排程不可用，已显示规则排序（硬性日程优先 + 按截止排序）
+  </div>
+  <div class="hard-list">
+    <div class="hard-item"><span class="time">09:30</span><span class="dot red"></span>口审 · 张三无效案 <span class="badge red">硬性</span></div>
+    <div class="hard-item"><span class="time">14:00</span><span class="dot blue"></span>庭审 · 李明侵权案 <span class="badge red">硬性</span></div>
+    <div class="hard-item"><span class="time">10:00</span><span class="dot"></span>核对证据清单 <span class="badge amber">截止最早</span></div>
+    <div class="hard-item"><span class="time">15:30</span><span class="dot"></span>起草上诉状 <span class="badge amber">逾期 +1 天</span></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn ghost" onclick="closeModal()">取消</button>
+    <button class="btn primary" onclick="closeModal()">采用此排程</button>
+  </div>
+</div>
+
+<div class="modal" id="captureModal">
+  <h3>速记 / 捕获</h3>
+  <div class="field"><label>内容（标题可留空，自动生成时间戳）</label><textarea placeholder="先把想法记下来，稍后再整理…" style="min-height:84px"></textarea></div>
+  <div class="field"><label>来源（自动识别，可改）</label>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="chip active">手动输入</button><button class="chip">邮件</button><button class="chip">微信 / 飞书</button><button class="chip">电话</button><button class="chip">语音</button><button class="chip">截图</button><button class="chip">文件</button>
+    </div>
+  </div>
+  <div style="border:1px dashed var(--border);border-radius:var(--r-md);padding:16px;text-align:center;font-size:12px;color:var(--text-3);margin-bottom:12px;cursor:pointer">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>
+    拖拽文件 / 图片到这里，或粘贴截图（Ctrl+V）
+  </div>
+  <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">提交后进入收件箱「待厘清」，不打断当前工作。</div>
+  <div class="modal-actions">
+    <button class="btn ghost" onclick="closeModal()">取消</button>
+    <button class="btn ghost" onclick="closeModal()">存为笔记</button>
+    <button class="btn primary" onclick="closeModal()">捕获</button>
+  </div>
+</div>
+
+<script>
+/* 导航切换 */
+const NAV_TITLES = {
+  home: '今日', cases: '案件工作台', tasks: '任务工作台',
+  calendar: '日历', knowledge: '知识库', inbox: '收件箱', settings: '设置',
+};
+function goNav(key) {
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === key));
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + key));
+  const t = document.getElementById('topbarTitle');
+  if (key === 'cases') { t.innerHTML = '<span class="crumb">案件</span>工作台'; }
+  else if (key === 'tasks') { t.innerHTML = '<span class="crumb">任务</span>工作台'; }
+  else { t.innerHTML = NAV_TITLES[key]; }
+}
+document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => goNav(b.dataset.nav)));
+
+/* 案件详情 */
+function openCaseDetail() { goNav('case-detail'); }
+
+/* ============ GTD 任务系统 ============ */
+function selectTask(el) {
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  const d = el.dataset;
+  document.getElementById('dtTitle').textContent = d.title || '未命名任务';
+  document.getElementById('dtWhen').textContent = d.when || '—';
+  const dl = document.getElementById('dtDeadline');
+  dl.textContent = d.deadline || '无截止';
+  dl.className = 'val' + (d.dueclass ? ' ' + d.dueclass : '');
+  const ctxEl = document.getElementById('dtCtx');
+  ctxEl.textContent = d.ctx || '未设置';
+  ctxEl.className = 'ctx-chip' + (d.ctx === 'office' ? ' office' : d.ctx === 'phone' ? ' phone' : d.ctx === 'court' ? ' court' : '');
+  document.getElementById('dtEst').textContent = d.est || '—';
+  document.getElementById('dtCase').textContent = d.case || '未关联案件';
+  document.getElementById('dtCaseBadge').textContent = d.case || '未关联案件';
+  document.getElementById('dtSeq').textContent = d.seq || '未参与顺序项目';
+  document.getElementById('dtNote').textContent = d.note || '';
+  document.getElementById('dtFlagBadge').style.display = d.flag ? 'inline-flex' : 'none';
+}
+
+const PERSP_TIPS = {
+  inbox: '收件箱是「待厘清」的暂存区——先记下来，稍后统一判定归属（GTD Clarify）',
+  today: '今天是「计划今天做什么」，不是「今天到期」——拖拽可重排，改的是 today_index（GTD Engage）',
+  upcoming: '计划中是 When 在未来开始的任务，按日期分组——「等判决后再写上诉状」就落在这里（When/Deadline 双轨）',
+  anytime: '随时是已厘清、可立即执行但不急的行动——按 @上下文 分组，适合按场景批量处理',
+  waiting: '等待是律师的日常——等法院/对方/客户，显示已等天数，超阈值建议催办',
+  review: '回顾是 GTD Reflect——案件/任务到了下次回顾时间，统一审视推进状态',
+  someday: '某天是未来可能做、现在不承诺的任务——不占用行动清单',
+};
+function switchPersp(key) {
+  document.querySelectorAll('#perspChips .chip').forEach(c => c.classList.toggle('active', c.dataset.persp === key));
+  document.querySelectorAll('.persp').forEach(p => { p.style.display = p.dataset.perspPanel === key ? '' : 'none'; });
+  const tip = document.getElementById('perspTip');
+  tip.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg> ' + (PERSP_TIPS[key] || '');
+}
+
+/* 今日面板浮层 */
+function toggleToday() { document.getElementById('todayPanel').classList.toggle('open'); }
+function closeToday() { document.getElementById('todayPanel').classList.remove('open'); }
+
+/* 捕获 FAB */
+function openCapture() { document.querySelector('.fab-menu').classList.toggle('open'); }
+function closeFab() { document.querySelector('.fab-menu').classList.remove('open'); }
+function openCaptureModal() { openModal('captureModal'); }
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.capture-fab')) closeFab();
+});
+
+/* ============ 收件箱 · 大口袋 ============ */
+function captureQuick() {
+  const input = document.getElementById('captureInput');
+  if (input && input.value.trim()) input.value = '';
+  openModal('captureModal');
+}
+function selectInbox(el) {
+  document.querySelectorAll('.inbox-item').forEach(i => i.classList.toggle('active', i === el));
+  const d = el.dataset;
+  const who = d.src === 'mail' ? '国家知识产权局' : d.src === 'phone' ? '对方律师' : d.src === 'wechat' ? '客户' : '';
+  const dl = document.getElementById('clrCase');
+  if (d.title && d.title.includes('赵六')) dl.value = '赵六专利无效案';
+  else dl.value = '';
+  document.getElementById('clrWho').value = who;
+}
+function filterSrc(el, src) {
+  document.querySelectorAll('.src-filter .src-item').forEach(i => i.classList.toggle('active', i === el));
+  let shown = 0;
+  document.querySelectorAll('.inbox-flow .inbox-item').forEach(item => {
+    const hit = src === 'all' || item.dataset.src === src;
+    item.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  document.querySelectorAll('.inbox-flow .flow-group').forEach(g => {
+    g.style.display = g.querySelector('.inbox-item') && g.querySelector('.inbox-item').style.display !== 'none' ? '' : 'none';
+  });
+  const empty = document.querySelector('.inbox-flow .empty-flow');
+  empty.style.display = shown === 0 ? 'block' : 'none';
+  const cnt = document.querySelector('.src-filter .card-header .sub');
+  if (cnt) cnt.textContent = '全部 · ' + shown;
+}
+function pickClarify(el, label) {
+  document.querySelectorAll('.clarify-panel .chip').forEach(c => c.classList.toggle('active', c === el));
+}
+/* 捕获条：回车即入袋（模拟） */
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('captureInput');
+  if (input) input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const v = input.value.trim();
+      if (v) {
+        /* 简单演示：把新条目插到「今天」分组最前面 */
+        const group = document.querySelector('.inbox-flow .flow-group');
+        const first = group.querySelector('.inbox-item');
+        const item = document.createElement('div');
+        item.className = 'inbox-item';
+        item.dataset.src = 'manual';
+        item.onclick = function(){ selectInbox(this); };
+        item.innerHTML = '<span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>'
+          + '<div style="flex:1;min-width:0"><div class="t">' + v.replace(/</g,'&lt;') + '</div>'
+          + '<div class="time">刚刚 · <span class="src-tag">手动</span></div></div>';
+        group.insertBefore(item, first);
+        const badge = document.querySelector('.nav-item[data-nav="inbox"] .nav-badge');
+        const heroBadge = document.querySelector('.inbox-hero-stats .n.red');
+        if (badge) badge.textContent = parseInt(badge.textContent||'4') + 1;
+        if (heroBadge) heroBadge.textContent = parseInt(heroBadge.textContent) + 1;
+        input.value = '';
+      }
+    }
+  });
+  /* 全局快捷键（演示） */
+  document.addEventListener('keydown', (e) => {
+    if (e.metaKey && e.key === 'i') { e.preventDefault(); openModal('captureModal'); }
+  });
+});
+/* 收件箱条目：勾选切换（模拟多选） */
+document.addEventListener('click', (e) => {
+  const ck = e.target.closest('.inbox-item .ck');
+  if (ck) {
+    e.stopPropagation();
+    const item = ck.closest('.inbox-item');
+    item.classList.toggle('sel');
+  }
+});
+
+/* 弹层 */
+function openModal(id) {
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById(id).classList.add('open');
+}
+function closeModal() {
+  document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
+  document.getElementById('overlay').classList.remove('open');
+}
+function openReco() { openModal('recoModal'); }
+function openFollowup() { openModal('followupModal'); }
+
+/* 设置页开关 */
+function setSwitch(el) { el.classList.toggle('on'); }
+
+/* ============ 主题 / 密度 / 侧栏（智能布局）============ */
+function applyTheme(name) {
+  document.documentElement.dataset.theme = name;
+  localStorage.setItem('casy-theme', name);
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', c.dataset.themePick === name));
+}
+function applyDensity(v) {
+  document.documentElement.dataset.density = v;
+  localStorage.setItem('casy-density', v);
+  document.querySelectorAll('#densitySeg button').forEach(b => b.classList.toggle('active', b.dataset.densityPick === v));
+}
+function applySidebar(v) {
+  const app = document.querySelector('.app');
+  app.dataset.sidebar = v;
+  localStorage.setItem('casy-sidebar', v);
+  document.querySelectorAll('#sidebarSeg button').forEach(b => b.classList.toggle('active', b.dataset.sidebarPick === v));
+}
+function toggleSidebar() {
+  const cur = document.querySelector('.app').dataset.sidebar;
+  applySidebar(cur === 'collapsed' ? 'expanded' : 'collapsed');
+}
+/* 初始化：读本地偏好，默认 石墨 / 标准 / 完整侧栏 */
+(function initAppearance() {
+  applyTheme(localStorage.getItem('casy-theme') || 'slate');
+  applyDensity(localStorage.getItem('casy-density') || 'comfortable');
+  applySidebar(localStorage.getItem('casy-sidebar') || 'expanded');
+})();
+</script>
+</body>
+</html>
