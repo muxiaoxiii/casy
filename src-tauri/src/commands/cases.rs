@@ -748,3 +748,319 @@ pub async fn get_today_stats() -> Result<serde_json::Value, String> {
     })
     .await
 }
+
+// ═══════════════════════════════════════════════════════════
+// 案件类型差异化评估（设计哲学 §原则五 / P3）
+//
+// 按 cases.case_type 输出不同评估指标，纯 SQL 确定性计算，不调 AI：
+// - computational（计算型）：期限内按时完成率 + 当前逾期数
+// - exploratory（探索型）：阶段推进（近 90 天状态变迁）+ blocked 任务解锁进度
+// - growth（成长型）：近 30 天活跃天数 + 连续无活动天数
+// - 未设 case_type（NULL）：通用指标（任务完成率 + 逾期数）
+// ═══════════════════════════════════════════════════════════
+
+/// 任务的实际截止日期（due_date 优先，回退 deadline）
+const TASK_DUE_EXPR: &str = "COALESCE(t.due_date, t.deadline)";
+
+/// 当前逾期未完成任务数
+fn count_overdue_tasks(conn: &rusqlite::Connection, case_id: &str) -> anyhow::Result<i64> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM tasks t
+         WHERE t.case_id=?1 AND t.completed=0
+           AND {due} IS NOT NULL AND {due} != ''
+           AND {due} < date('now','localtime')",
+        due = TASK_DUE_EXPR
+    );
+    let n = conn.query_row(&sql, rusqlite::params![case_id], |row| row.get(0))?;
+    Ok(n)
+}
+
+/// 计算单个案件的类型差异化指标
+pub fn compute_case_type_metrics(
+    conn: &rusqlite::Connection,
+    case_id: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let case_type: Option<String> = conn
+        .query_row(
+            "SELECT case_type FROM cases WHERE id=?1",
+            rusqlite::params![case_id],
+            |row| row.get(0),
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?
+        .ok_or_else(|| anyhow::anyhow!("案件不存在: {}", case_id))?;
+
+    let overdue_count = count_overdue_tasks(conn, case_id)?;
+
+    let metrics = match case_type.as_deref() {
+        Some("computational") => {
+            // 计算型：已完成任务中在截止前完成的比例（完成时间取 task_events 的 completed 事件）
+            let sql = format!(
+                "SELECT COUNT(*),
+                        SUM(CASE WHEN due IS NOT NULL THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN due IS NOT NULL AND completed_at IS NOT NULL
+                                  AND date(completed_at) <= due THEN 1 ELSE 0 END)
+                 FROM (
+                   SELECT t.id, {due} AS due,
+                          (SELECT MIN(te.occurred_at) FROM task_events te
+                            WHERE te.task_id = t.id AND te.event_type='completed') AS completed_at
+                   FROM tasks t
+                   WHERE t.case_id=?1 AND t.completed=1
+                 )",
+                due = TASK_DUE_EXPR
+            );
+            let (completed_total, with_due, on_time): (i64, Option<i64>, Option<i64>) =
+                conn.query_row(&sql, rusqlite::params![case_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?;
+            let with_due = with_due.unwrap_or(0);
+            let on_time = on_time.unwrap_or(0);
+            let on_time_rate = if with_due > 0 {
+                serde_json::Value::from(on_time as f64 / with_due as f64)
+            } else {
+                serde_json::Value::Null
+            };
+            serde_json::json!({
+                "completedTotal": completed_total,
+                "completedWithDue": with_due,
+                "onTimeCompleted": on_time,
+                "onTimeRate": on_time_rate,
+                "overdueCount": overdue_count,
+            })
+        }
+        Some("exploratory") => {
+            // 探索型：阶段推进（近 90 天轨道状态变迁次数）+ blocked 任务解锁进度
+            let transitions_90d: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM case_track_history
+                 WHERE case_id=?1 AND changed_at >= datetime('now','localtime','-90 days')",
+                rusqlite::params![case_id],
+                |row| row.get(0),
+            )?;
+            let (total_tasks, blocked_total, blocked_remaining): (i64, Option<i64>, Option<i64>) =
+                conn.query_row(
+                    "SELECT COUNT(*),
+                            SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN blocked=1 AND completed=0 THEN 1 ELSE 0 END)
+                     FROM tasks WHERE case_id=?1",
+                    rusqlite::params![case_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+            let blocked_total = blocked_total.unwrap_or(0);
+            let blocked_remaining = blocked_remaining.unwrap_or(0);
+            serde_json::json!({
+                "trackTransitions90d": transitions_90d,
+                "totalTasks": total_tasks,
+                "blockedTotal": blocked_total,
+                "blockedRemaining": blocked_remaining,
+                "blockedResolved": blocked_total - blocked_remaining,
+                "overdueCount": overdue_count,
+            })
+        }
+        Some("growth") => {
+            // 成长型：近 30 天活跃天数（task_events distinct date）+ 连续无活动天数
+            let active_days_30d: i64 = conn.query_row(
+                "SELECT COUNT(DISTINCT date(te.occurred_at))
+                 FROM task_events te JOIN tasks t ON t.id = te.task_id
+                 WHERE t.case_id=?1 AND te.occurred_at >= datetime('now','localtime','-30 days')",
+                rusqlite::params![case_id],
+                |row| row.get(0),
+            )?;
+            let inactive_days: Option<f64> = conn.query_row(
+                "SELECT julianday(date('now','localtime')) - julianday(date(MAX(te.occurred_at)))
+                 FROM task_events te JOIN tasks t ON t.id = te.task_id
+                 WHERE t.case_id=?1",
+                rusqlite::params![case_id],
+                |row| row.get(0),
+            )?;
+            serde_json::json!({
+                "activeDays30d": active_days_30d,
+                "inactiveStreakDays": inactive_days.map(|d| d as i64),
+                "overdueCount": overdue_count,
+            })
+        }
+        _ => {
+            // 未设 case_type：通用指标（任务完成率 + 逾期数）
+            let (total, completed): (i64, Option<i64>) = conn.query_row(
+                "SELECT COUNT(*), SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END)
+                 FROM tasks WHERE case_id=?1",
+                rusqlite::params![case_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            let completed = completed.unwrap_or(0);
+            let completion_rate = if total > 0 {
+                serde_json::Value::from(completed as f64 / total as f64)
+            } else {
+                serde_json::Value::Null
+            };
+            serde_json::json!({
+                "totalTasks": total,
+                "completedTasks": completed,
+                "completionRate": completion_rate,
+                "overdueCount": overdue_count,
+            })
+        }
+    };
+
+    Ok(serde_json::json!({
+        "caseId": case_id,
+        "caseType": case_type.as_deref().unwrap_or("generic"),
+        "metrics": metrics,
+    }))
+}
+
+/// 获取单个案件的类型差异化评估指标
+#[tauri::command]
+pub async fn get_case_type_metrics(case_id: String) -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        compute_case_type_metrics(&conn, &case_id)
+    })
+    .await
+}
+
+/// 批量获取所有案件的类型差异化评估指标（单个案件失败不影响其余）
+#[tauri::command]
+pub async fn get_all_case_type_metrics() -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare("SELECT id FROM cases ORDER BY created_at")?;
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            match compute_case_type_metrics(&conn, &id) {
+                Ok(m) => out.push(m),
+                Err(e) => log::warn!("计算案件 {} 类型指标失败: {}", id, e),
+            }
+        }
+        Ok(out)
+    })
+    .await
+}
+
+#[cfg(test)]
+mod case_type_metrics_tests {
+    use super::*;
+
+    /// 最小内存库：cases / tasks / task_events / case_track_history
+    fn setup_test_db() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE cases (id TEXT PRIMARY KEY, case_type TEXT);
+             CREATE TABLE tasks (
+               id TEXT PRIMARY KEY, case_id TEXT, completed INTEGER DEFAULT 0,
+               due_date TEXT, deadline TEXT, blocked INTEGER DEFAULT 0
+             );
+             CREATE TABLE task_events (
+               id TEXT PRIMARY KEY, task_id TEXT, event_type TEXT, occurred_at TEXT
+             );
+             CREATE TABLE case_track_history (
+               id TEXT PRIMARY KEY, case_id TEXT, changed_at TEXT
+             );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn add_task(conn: &rusqlite::Connection, id: &str, case_id: &str, completed: i32, due: Option<&str>, blocked: i32) {
+        conn.execute(
+            "INSERT INTO tasks (id, case_id, completed, due_date, blocked) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, case_id, completed, due, blocked],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_computational_metrics() {
+        let conn = setup_test_db();
+        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c1', 'computational')", []).unwrap();
+        let today = db::today();
+        // 按时完成：due 今天，completed 事件今天
+        add_task(&conn, "t1", "c1", 1, Some(&today), 0);
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e1', 't1', 'completed', datetime('now','localtime'))",
+            [],
+        ).unwrap();
+        // 逾期完成：due 昨天，completed 事件今天
+        add_task(&conn, "t2", "c1", 1, Some("2000-01-01"), 0);
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e2', 't2', 'completed', datetime('now','localtime'))",
+            [],
+        ).unwrap();
+        // 当前逾期未完成
+        add_task(&conn, "t3", "c1", 0, Some("2000-01-01"), 0);
+
+        let m = compute_case_type_metrics(&conn, "c1").unwrap();
+        assert_eq!(m["caseType"], "computational");
+        assert_eq!(m["metrics"]["completedTotal"], 2);
+        assert_eq!(m["metrics"]["completedWithDue"], 2);
+        assert_eq!(m["metrics"]["onTimeCompleted"], 1);
+        assert_eq!(m["metrics"]["onTimeRate"], 0.5);
+        assert_eq!(m["metrics"]["overdueCount"], 1);
+    }
+
+    #[test]
+    fn test_exploratory_metrics() {
+        let conn = setup_test_db();
+        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c2', 'exploratory')", []).unwrap();
+        add_task(&conn, "t1", "c2", 1, None, 1); // blocked 已完成
+        add_task(&conn, "t2", "c2", 0, None, 1); // blocked 未完成
+        add_task(&conn, "t3", "c2", 0, None, 0); // 非 blocked
+        // 90 天内 2 次变迁，90 天外 1 次
+        conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h1', 'c2', datetime('now','localtime','-10 days'))", []).unwrap();
+        conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h2', 'c2', datetime('now','localtime','-80 days'))", []).unwrap();
+        conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h3', 'c2', datetime('now','localtime','-120 days'))", []).unwrap();
+
+        let m = compute_case_type_metrics(&conn, "c2").unwrap();
+        assert_eq!(m["caseType"], "exploratory");
+        assert_eq!(m["metrics"]["trackTransitions90d"], 2);
+        assert_eq!(m["metrics"]["totalTasks"], 3);
+        assert_eq!(m["metrics"]["blockedTotal"], 2);
+        assert_eq!(m["metrics"]["blockedRemaining"], 1);
+        assert_eq!(m["metrics"]["blockedResolved"], 1);
+    }
+
+    #[test]
+    fn test_growth_metrics() {
+        let conn = setup_test_db();
+        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c3', 'growth')", []).unwrap();
+        add_task(&conn, "t1", "c3", 0, None, 0);
+        // 今天、5 天前、40 天前（超出 30 天窗口）各一条事件
+        conn.execute("INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e1', 't1', 'created', datetime('now','localtime'))", []).unwrap();
+        conn.execute("INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e2', 't1', 'moved', datetime('now','localtime','-5 days'))", []).unwrap();
+        conn.execute("INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e3', 't1', 'moved', datetime('now','localtime','-40 days'))", []).unwrap();
+
+        let m = compute_case_type_metrics(&conn, "c3").unwrap();
+        assert_eq!(m["caseType"], "growth");
+        assert_eq!(m["metrics"]["activeDays30d"], 2);
+        assert_eq!(m["metrics"]["inactiveStreakDays"], 0); // 今天有活动
+    }
+
+    #[test]
+    fn test_generic_metrics_when_case_type_null() {
+        let conn = setup_test_db();
+        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c4', NULL)", []).unwrap();
+        add_task(&conn, "t1", "c4", 1, None, 0);
+        add_task(&conn, "t2", "c4", 0, Some("2000-01-01"), 0);
+        add_task(&conn, "t3", "c4", 0, None, 0);
+
+        let m = compute_case_type_metrics(&conn, "c4").unwrap();
+        assert_eq!(m["caseType"], "generic");
+        assert_eq!(m["metrics"]["totalTasks"], 3);
+        assert_eq!(m["metrics"]["completedTasks"], 1);
+        assert_eq!(m["metrics"]["overdueCount"], 1);
+        let rate = m["metrics"]["completionRate"].as_f64().unwrap();
+        assert!((rate - 1.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_case_not_found() {
+        let conn = setup_test_db();
+        assert!(compute_case_type_metrics(&conn, "no-such").is_err());
+    }
+}

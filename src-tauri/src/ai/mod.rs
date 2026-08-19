@@ -3,7 +3,15 @@
 //! - AiBackend trait: classify_document, extract_info, summarize
 //! - OllamaBackend: 本地 Ollama API
 //! - OpenAiBackend: OpenAI 兼容 API
+//! - Recommender: 推荐决策引擎
 //! - NoOpBackend: 无 AI 时的 fallback（规则匹配）
+
+pub mod distillation;
+pub mod insights;
+pub mod learning;
+pub mod recommender;
+pub mod recursive_check;
+pub mod reports;
 
 use anyhow::Result;
 use reqwest::Client;
@@ -375,6 +383,13 @@ pub trait AiBackend: Send + Sync {
 
     /// 文本摘要
     async fn summarize(&self, text: &str) -> Result<String>;
+
+    /// 自由对话（叙事生成 / 一致性核对等场景）
+    /// 默认实现返回 Err：不支持的后端（如 NoOp）由调用方静默降级（§12.5）
+    async fn chat_completion(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+        let _ = (system_prompt, user_prompt);
+        anyhow::bail!("当前 AI 后端不支持自由对话")
+    }
 }
 
 // ============================================================
@@ -531,6 +546,10 @@ impl AiBackend for OllamaBackend {
 
         self.chat(system, &user_prompt).await
     }
+
+    async fn chat_completion(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+        self.chat(system_prompt, user_prompt).await
+    }
 }
 
 // ============================================================
@@ -561,6 +580,16 @@ impl OpenAiBackend {
     }
 
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+        self.chat_with_max_tokens(system_prompt, user_prompt, 500).await
+    }
+
+    /// 自由对话入口：max_tokens 可配（叙事/核对场景需要更长输出）
+    async fn chat_with_max_tokens(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        max_tokens: u32,
+    ) -> Result<String> {
         let url = format!("{}/chat/completions", self.base_url);
 
         let body = serde_json::json!({
@@ -570,7 +599,7 @@ impl OpenAiBackend {
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.1,
-            "max_tokens": 500
+            "max_tokens": max_tokens
         });
 
         let resp = self
@@ -661,6 +690,10 @@ impl AiBackend for OpenAiBackend {
         let user_prompt = format!("请总结以下文档：\n\n{}", truncate_chars(text, 2000));
 
         self.chat(system, &user_prompt).await
+    }
+
+    async fn chat_completion(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+        self.chat_with_max_tokens(system_prompt, user_prompt, 2000).await
     }
 }
 

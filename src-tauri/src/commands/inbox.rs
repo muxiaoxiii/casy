@@ -1622,6 +1622,31 @@ struct QueueItem {
     retry_count: i32,
 }
 
+/// 通过 app handle 向前端 emit 批处理进度（architecture 目标 B）
+///
+/// 轮询命令 get_inbox_progress 保留不动，事件是增量增强；
+/// 照 reminder.rs 的 reminder:triggered 模式，app 未就绪时静默跳过。
+fn emit_batch_progress(progress: &ProcessingProgress) {
+    if let Some(handle) = crate::get_app_handle() {
+        let _ = tauri::Emitter::emit(handle, "inbox:batch-progress", progress);
+    }
+}
+
+/// 批次结束事件（含 total/processed/failed 汇总）
+fn emit_batch_finished(total: usize, processed: usize, failed: usize) {
+    if let Some(handle) = crate::get_app_handle() {
+        let _ = tauri::Emitter::emit(
+            handle,
+            "inbox:batch-finished",
+            serde_json::json!({
+                "total": total,
+                "processed": processed,
+                "failed": failed,
+            }),
+        );
+    }
+}
+
 /// 全局处理器实例
 static PROCESSOR: std::sync::OnceLock<InboxProcessor> = std::sync::OnceLock::new();
 
@@ -1709,8 +1734,13 @@ impl InboxProcessor {
 
         if total == 0 {
             self.running.store(false, Ordering::Relaxed);
+            emit_batch_progress(&self.get_progress());
+            emit_batch_finished(0, 0, 0);
             return Ok(0);
         }
+
+        // 批次开始：推送初始进度
+        emit_batch_progress(&self.get_progress());
 
         let semaphore = Arc::new(Semaphore::new(self.max_concurrency.load(Ordering::Relaxed)));
         let mut handles = Vec::new();
@@ -1784,14 +1814,17 @@ impl InboxProcessor {
                 // 动态调节并发
                 adjust_concurrency(&max_conc, elapsed, false);
 
-                let _ = progress_tx.send(ProcessingProgress {
+                // 条目完成/失败：广播 + 事件推送
+                let progress = ProcessingProgress {
                     total: total_c.load(Ordering::Relaxed),
                     processed: proc_count.load(Ordering::Relaxed),
                     failed: fail_count.load(Ordering::Relaxed),
                     active: act_count.load(Ordering::Relaxed),
                     current_item: None,
                     running: true,
-                });
+                };
+                let _ = progress_tx.send(progress.clone());
+                emit_batch_progress(&progress);
             });
 
             handles.push(handle);
@@ -1808,14 +1841,18 @@ impl InboxProcessor {
         tokio::spawn(async move {
             for h in handles { let _ = h.await; }
             running.store(false, Ordering::Relaxed);
-            let _ = progress_tx.send(ProcessingProgress {
+            // 批次结束：广播 + 事件推送（含 finished 汇总）
+            let progress = ProcessingProgress {
                 total: tot.load(Ordering::Relaxed),
                 processed: proc.load(Ordering::Relaxed),
                 failed: fail.load(Ordering::Relaxed),
                 active: act.load(Ordering::Relaxed),
                 current_item: None,
                 running: false,
-            });
+            };
+            let _ = progress_tx.send(progress.clone());
+            emit_batch_progress(&progress);
+            emit_batch_finished(progress.total, progress.processed, progress.failed);
         });
 
         Ok(total)
@@ -1885,14 +1922,18 @@ pub async fn start_inbox_batch() -> Result<ProcessingProgress, String> {
 /// 暂停批量处理
 #[tauri::command]
 pub async fn pause_inbox_batch() -> Result<(), String> {
-    get_processor().paused.store(true, Ordering::Relaxed);
+    let p = get_processor();
+    p.paused.store(true, Ordering::Relaxed);
+    emit_batch_progress(&p.get_progress());
     Ok(())
 }
 
 /// 恢复批量处理
 #[tauri::command]
 pub async fn resume_inbox_batch() -> Result<(), String> {
-    get_processor().paused.store(false, Ordering::Relaxed);
+    let p = get_processor();
+    p.paused.store(false, Ordering::Relaxed);
+    emit_batch_progress(&p.get_progress());
     Ok(())
 }
 
@@ -1902,6 +1943,7 @@ pub async fn cancel_inbox_batch() -> Result<(), String> {
     let p = get_processor();
     p.cancel.store(true, Ordering::Relaxed);
     p.paused.store(false, Ordering::Relaxed);
+    emit_batch_progress(&p.get_progress());
     Ok(())
 }
 
@@ -1931,4 +1973,336 @@ pub async fn retry_inbox_case(case_id: String) -> Result<usize, String> {
         rusqlite::params![case_id],
     ).map_err(|e| e.to_string())?;
     Ok(count)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 多通道捕获（设计哲学 §10）
+// ═══════════════════════════════════════════════════════════
+
+/// 截屏捕获：截取当前屏幕并保存到收件箱
+#[tauri::command]
+pub async fn capture_screenshot() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let screen = screenshots::Screen::all()
+            .map_err(|e| anyhow::anyhow!("获取屏幕失败: {}", e))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("未找到屏幕"))?;
+
+        let image = screen
+            .capture()
+            .map_err(|e| anyhow::anyhow!("截屏失败: {}", e))?;
+
+        // 保存到临时文件
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("screenshot_{}.png", timestamp);
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(&filename);
+
+        let png = image
+            .to_png()
+            .map_err(|e| anyhow::anyhow!("编码截图失败: {}", e))?;
+        std::fs::write(&file_path, &png)
+            .map_err(|e| anyhow::anyhow!("保存截屏失败: {}", e))?;
+
+        // 添加到收件箱
+        let conn = db::open_db()?;
+        let id = db::new_id();
+        conn.execute(
+            "INSERT INTO inbox_items (id, source_type, title, source_path, status, created_at)
+             VALUES (?1, 'screenshot', ?2, ?3, 'pending', ?4)",
+            rusqlite::params![
+                id,
+                format!("截屏 {}", chrono::Local::now().format("%H:%M:%S")),
+                file_path.to_string_lossy().to_string(),
+                db::now_local(),
+            ],
+        )?;
+
+        Ok(serde_json::json!({
+            "id": id,
+            "path": file_path.to_string_lossy().to_string(),
+            "filename": filename,
+        }))
+    })
+    .await
+}
+
+/// 读取剪贴板内容并添加到收件箱
+#[tauri::command]
+pub async fn capture_clipboard() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let mut clipboard = arboard::Clipboard::new()
+            .map_err(|e| anyhow::anyhow!("剪贴板访问失败: {}", e))?;
+
+        // 尝试读取文本
+        if let Ok(text) = clipboard.get_text() {
+            if !text.trim().is_empty() {
+                let conn = db::open_db()?;
+                let id = db::new_id();
+                let title = text.chars().take(50).collect::<String>();
+                conn.execute(
+                    "INSERT INTO inbox_items (id, source_type, title, content_text, status, created_at)
+                     VALUES (?1, 'paste', ?2, ?3, 'pending', ?4)",
+                    rusqlite::params![id, title, text, db::now_local()],
+                )?;
+                return Ok(serde_json::json!({
+                    "id": id,
+                    "type": "text",
+                    "preview": title,
+                }));
+            }
+        }
+
+        // 尝试读取图片
+        if let Ok(image) = clipboard.get_image() {
+            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let filename = format!("clipboard_{}.png", timestamp);
+            let temp_dir = std::env::temp_dir();
+            let file_path = temp_dir.join(&filename);
+
+            // 保存图片数据：arboard 返回的是原始 RGBA 像素，不能直接当 PNG 写盘。
+            // 复用 screenshots 0.6 自带的 Image::new + to_png()（png 编码器）编码为真 PNG。
+            let png = screenshots::Image::new(
+                image.width as u32,
+                image.height as u32,
+                image.bytes.into_owned(),
+            )
+            .to_png()
+            .map_err(|e| anyhow::anyhow!("编码剪贴板图片失败: {}", e))?;
+            std::fs::write(&file_path, &png)
+                .map_err(|e| anyhow::anyhow!("保存剪贴板图片失败: {}", e))?;
+
+            let conn = db::open_db()?;
+            let id = db::new_id();
+            conn.execute(
+                "INSERT INTO inbox_items (id, source_type, title, source_path, status, created_at)
+                 VALUES (?1, 'paste', ?2, ?3, 'pending', ?4)",
+                rusqlite::params![
+                    id,
+                    format!("剪贴板图片 {}", chrono::Local::now().format("%H:%M:%S")),
+                    file_path.to_string_lossy().to_string(),
+                    db::now_local(),
+                ],
+            )?;
+            return Ok(serde_json::json!({
+                "id": id,
+                "type": "image",
+                "path": file_path.to_string_lossy().to_string(),
+            }));
+        }
+
+        Err(anyhow::anyhow!("剪贴板为空"))
+    })
+    .await
+}
+
+/// 监听剪贴板变化（启动后台任务）
+///
+/// 现状说明：前端 useCapture.ts 会调用本命令启动监听，但当前仅检测文本变化并写日志，
+/// **不自动入袋**——实际入袋由用户主动触发（capture_clipboard 命令 / 全局热键 quick capture）。
+/// 用 SHA-256 hash 去重：内容不变时跳过，且不在内存中长期持有剪贴板原文。
+#[tauri::command]
+pub async fn start_clipboard_monitor() -> Result<String, String> {
+    let _handle = tokio::spawn(async {
+        use sha2::Digest;
+        let mut last_hash: Option<Vec<u8>> = None;
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                if let Ok(text) = clipboard.get_text() {
+                    if !text.is_empty() {
+                        let hash = sha2::Sha256::digest(text.as_bytes()).to_vec();
+                        if last_hash.as_deref() != Some(hash.as_slice()) {
+                            last_hash = Some(hash);
+                            log::info!("剪贴板内容变化: {}字节", text.len());
+                        }
+                    }
+                }
+            }
+        }
+    });
+    Ok("剪贴板监听已启动".to_string())
+}
+
+/// 保存语音速记文件
+#[tauri::command]
+pub async fn save_voice_note(audio_data: String, mime_type: String) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+
+    run_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&audio_data)
+            .map_err(|e| anyhow::anyhow!("base64 解码失败: {}", e))?;
+
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let ext = if mime_type.contains("webm") { "webm" } else { "ogg" };
+        let filename = format!("voice_{}.{}", timestamp, ext);
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(&filename);
+
+        std::fs::write(&file_path, &bytes)
+            .map_err(|e| anyhow::anyhow!("保存语音文件失败: {}", e))?;
+
+        Ok(serde_json::json!({
+            "path": file_path.to_string_lossy().to_string(),
+            "filename": filename,
+            "size": bytes.len(),
+        }))
+    })
+    .await
+}
+
+/// 语音速记转写（设计哲学 §10，可选能力，降级优先）
+///
+/// 找到收件项关联的音频文件（save_voice_note 保存、前端经 source_path 关联），
+/// 仅当 AI 配置为 OpenAI 兼容 API 时 POST {base_url}/audio/transcriptions；
+/// 本地 Ollama / 未配置 API key → 友好错误，不 panic。
+/// 成功把转写文本写回 inbox_items.content_text（保留 source_path 音频引用）并返回文本。
+#[tauri::command]
+pub async fn transcribe_voice_note(inbox_item_id: String) -> Result<String, String> {
+    // 同步部分：读收件项音频路径 + AI/STT 配置（不满足条件直接友好报错）
+    let id_for_read = inbox_item_id.clone();
+    let (audio_path, stt_model, base_url, api_key) = run_blocking(move || {
+        let conn = db::open_db()?;
+        let source_path: Option<String> = conn
+            .query_row(
+                "SELECT source_path FROM inbox_items WHERE id = ?1",
+                rusqlite::params![id_for_read],
+                |r| r.get(0),
+            )
+            .map_err(|_| anyhow::anyhow!("收件项不存在"))?;
+        let audio_path = source_path
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("该收件项没有关联的音频文件"))?;
+
+        let config = crate::ai::load_ai_config();
+        let api_key = config.api_key.clone().unwrap_or_default();
+        if config.mode != "openai" || api_key.is_empty() {
+            anyhow::bail!("当前 AI 后端不支持语音转写，请配置 OpenAI 兼容 API 或手动填写");
+        }
+
+        let stt_model = db::get_setting(&conn, "stt_model")?
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "whisper-1".to_string());
+        let base_url = config
+            .api_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".into());
+
+        Ok((audio_path, stt_model, base_url, api_key))
+    })
+    .await?;
+
+    let bytes = std::fs::read(&audio_path)
+        .map_err(|e| format!("读取音频文件失败: {}", e))?;
+
+    use sha2::Digest;
+    let input_hash = hex::encode(sha2::Sha256::digest(&bytes));
+
+    // 手工构造 multipart/form-data（不引入新 crate）：model 字段 + file 字段
+    let boundary = format!("casy-stt-{}", db::new_id());
+    let file_name = std::path::Path::new(&audio_path)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "voice.ogg".to_string());
+    let file_mime = if file_name.ends_with(".webm") {
+        "audio/webm"
+    } else {
+        "audio/ogg"
+    };
+
+    let mut body: Vec<u8> = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{}\r\n",
+            boundary, stt_model
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(
+        format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\nContent-Type: {}\r\n\r\n",
+            boundary, file_name, file_mime
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(&bytes);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("创建 HTTP client 失败: {}", e))?;
+
+    let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header(
+            "Content-Type",
+            format!("multipart/form-data; boundary={}", boundary),
+        )
+        .body(body)
+        .send()
+        .await;
+
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = super::ai_routes::log_ai_run(
+                "openai", &stt_model, "voice_transcription", Some("v1"),
+                &input_hash, None, "failed", Some(&e.to_string()),
+            );
+            return Err(format!("转写请求失败: {}", e));
+        }
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err_body = resp.text().await.unwrap_or_default();
+        let _ = super::ai_routes::log_ai_run(
+            "openai", &stt_model, "voice_transcription", Some("v1"),
+            &input_hash, None, "failed",
+            Some(&format!("HTTP {}: {}", status, err_body)),
+        );
+        return Err(format!("转写接口错误 {}: {}", status, err_body));
+    }
+
+    let result: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析转写响应失败: {}", e))?;
+    let text = result["text"].as_str().unwrap_or("").trim().to_string();
+    if text.is_empty() {
+        let _ = super::ai_routes::log_ai_run(
+            "openai", &stt_model, "voice_transcription", Some("v1"),
+            &input_hash, None, "failed", Some("转写结果为空"),
+        );
+        return Err("转写结果为空，请手动填写".to_string());
+    }
+
+    // 审计（失败不阻塞主流程）
+    let output_hash = hex::encode(sha2::Sha256::digest(text.as_bytes()));
+    if let Err(e) = super::ai_routes::log_ai_run(
+        "openai", &stt_model, "voice_transcription", Some("v1"),
+        &input_hash, Some(&output_hash), "completed", None,
+    ) {
+        log::warn!("AI 审计日志写入失败: {}", e);
+    }
+
+    // 写回 content_text（保留 source_path 音频引用）
+    let text_for_write = text.clone();
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        conn.execute(
+            "UPDATE inbox_items SET content_text = ?1 WHERE id = ?2",
+            rusqlite::params![text_for_write, inbox_item_id],
+        )?;
+        Ok(())
+    })
+    .await?;
+
+    Ok(text)
 }

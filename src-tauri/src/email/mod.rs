@@ -3,7 +3,10 @@
 //! - ImapWatcher: async-imap + IDLE 模式监听新邮件
 //! - 白名单过滤（sender/subject）
 //! - 新邮件自动解析 → 添加到收件箱
+//! - SMTP 发送（ICS 日历邀请）
 //! - 29 分钟 IDLE 超时重连
+
+pub mod smtp;
 
 use anyhow::{Context, Result};
 use async_imap::Session;
@@ -44,11 +47,30 @@ pub fn save_imap_account(config: &ImapAccountConfig) -> Result<String> {
     let conn = crate::db::open_db()?;
     let id = config.id.clone().unwrap_or_else(new_id);
 
-    // 简单加密密码（base64 编码，生产环境应使用 OS keychain）
-    let password_enc = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        config.password.as_bytes(),
-    );
+    // 密码优先写入 OS keychain（service "casy-imap"，account 为邮箱地址）；
+    // keychain 不可用时回退 base64，保证保存不失败（兼容旧逻辑）
+    let password_enc = if config.password.is_empty() {
+        // 空密码：保留原值（更新账号时不改密码的场景由前端避免传空，这里兜底）
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            config.password.as_bytes(),
+        )
+    } else {
+        match crate::credentials::store_credential(
+            crate::credentials::CredentialType::ImapPassword,
+            &config.email_address,
+            &config.password,
+        ) {
+            Ok(()) => "keychain".to_string(),
+            Err(e) => {
+                log::warn!("keychain 存储失败，回退 base64 存储: {}", e);
+                base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    config.password.as_bytes(),
+                )
+            }
+        }
+    };
 
     conn.execute(
         "INSERT INTO imap_accounts (id, email_address, imap_server, imap_port, username, password_enc, use_tls, watch_folders, filter_from, filter_subject, enabled)
@@ -97,18 +119,15 @@ pub fn load_enabled_accounts() -> Result<Vec<ImapAccountConfig>> {
 
     let accounts = stmt
         .query_map([], |row| {
+            let email_address: String = row.get("email_address")?;
             let password_enc: String = row.get("password_enc")?;
-            let password = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                &password_enc,
-            )
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .unwrap_or_default();
+            // 优先 keychain，回退旧 base64 路径（兼容旧数据）
+            let password = crate::credentials::get_imap_password(&email_address, &password_enc)
+                .unwrap_or_default();
 
             Ok(ImapAccountConfig {
                 id: Some(row.get("id")?),
-                email_address: row.get("email_address")?,
+                email_address,
                 imap_server: row.get("imap_server")?,
                 imap_port: row.get::<_, u16>("imap_port")?,
                 username: row.get("username")?,
@@ -707,6 +726,11 @@ pub async fn delete_imap_account(email_address: String) -> Result<String, String
             rusqlite::params![email_address],
         )?;
         if deleted > 0 {
+            // 同步清理 keychain 中的密码
+            let _ = crate::credentials::delete_credential(
+                crate::credentials::CredentialType::ImapPassword,
+                &email_address,
+            );
             Ok(format!("已删除账号: {}", email_address))
         } else {
             Err(anyhow::anyhow!("未找到账号: {}", email_address))

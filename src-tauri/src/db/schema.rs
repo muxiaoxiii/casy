@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 9;
+pub const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -633,6 +633,9 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("7", MIGRATION_V7_SQL),
     ("8", MIGRATION_V8_SQL),
     ("9", MIGRATION_V9_SQL),
+    ("10", MIGRATION_V10_SQL),
+    ("11", MIGRATION_V11_SQL),
+    ("12", MIGRATION_V12_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1699,6 +1702,130 @@ INSERT OR IGNORE INTO command_routes (command_name, route_type, description, req
   ('extract_info_with_prompt', 'ai', 'AI 信息提取', 1, 'L2');
 "#;
 
+/// 版本 10: Saved Filters + memory_entries status 扩展（蒸馏确认区）
+pub const MIGRATION_V10_SQL: &str = r#"
+-- ============================================================
+-- Saved Filters（设计哲学 §9：筛选/排序/分组规则可保存复用）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS saved_filters (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_type TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  filter_json TEXT NOT NULL,
+  sort_order  INTEGER DEFAULT 0,
+  created_at  TEXT DEFAULT (datetime('now','localtime')),
+  updated_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_filters_entity ON saved_filters(entity_type);
+
+-- ============================================================
+-- memory_entries 重建：扩展 status CHECK
+-- 新增 pending（待确认）/ merged（已合并）/ dismissed（已丢弃），供数据蒸馏确认区使用
+-- SQLite 不支持 ALTER CHECK，按 inbox_items v8 模式重建表
+-- ============================================================
+DROP TABLE IF EXISTS memory_entries_v10;
+
+CREATE TABLE memory_entries_v10 (
+  id              TEXT PRIMARY KEY,
+  layer           TEXT NOT NULL CHECK(layer IN ('l1','l2','l3')),
+  content         TEXT NOT NULL,
+  source_ref      TEXT,  -- JSON: 单一来源
+  status          TEXT DEFAULT 'active'
+                  CHECK(status IN ('active','stale','archived','pending','merged','dismissed')),
+  confidence      REAL DEFAULT 0.5,
+  ai_model        TEXT,
+  last_used_at    TEXT,
+  merged_from     TEXT,  -- JSON: 合并来源 ID 列表
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+INSERT INTO memory_entries_v10 (
+  id, layer, content, source_ref, status, confidence, ai_model,
+  last_used_at, merged_from, created_at, updated_at
+)
+SELECT
+  id, layer, content, source_ref, status, confidence, ai_model,
+  last_used_at, merged_from, created_at, updated_at
+FROM memory_entries;
+
+DROP TABLE memory_entries;
+ALTER TABLE memory_entries_v10 RENAME TO memory_entries;
+
+CREATE INDEX IF NOT EXISTS idx_memory_layer ON memory_entries(layer);
+CREATE INDEX IF NOT EXISTS idx_memory_status ON memory_entries(status);
+CREATE INDEX IF NOT EXISTS idx_memory_last_used ON memory_entries(last_used_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_memory_updated
+AFTER UPDATE ON memory_entries FOR EACH ROW
+BEGIN
+  UPDATE memory_entries SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+"#;
+
+/// 版本 11: 知识块级化 + 报表叙事层 + L3 递归确认
+///
+/// 实际变更全部在 run_migrations 的条件执行段完成（PRAGMA 探测后按需 ALTER/重建），
+/// 保证迁移幂等；此常量仅作版本占位，用于把 user_version 推进到 11。
+///
+/// 内容：
+/// - knowledge_items 加 parent_id（自引用）/ block_type（'page'/'block'/'reference'）+ parent_id 索引（§8.2）
+/// - smart_summaries 加 narrative_source（'rule'/'ai'，叙事层来源标记，§11.3）
+/// - task_events 重建：event_type CHECK 新增 'recursion_gap'，task_id 改为可空（§11.5）
+pub const MIGRATION_V11_SQL: &str = r#"
+-- v11 实际变更见 run_migrations 条件执行段（幂等）
+SELECT 1;
+"#;
+
+/// 版本 12: MCP 写操作待确认队列（设计哲学 §11.11 安全约束）
+///
+/// 外部 AI 经 MCP 通道发起的写操作不直接执行，先落队等待应用内确认；
+/// 确认/拒绝留痕 audit_events（actor='mcp'）。
+pub const MIGRATION_V12_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS mcp_pending_writes (
+  id          TEXT PRIMARY KEY,
+  tool        TEXT NOT NULL,
+  arguments   TEXT NOT NULL,  -- JSON
+  status      TEXT NOT NULL DEFAULT 'pending'
+              CHECK(status IN ('pending','approved','rejected','executed','failed')),
+  result      TEXT,
+  created_at  TEXT DEFAULT (datetime('now','localtime')),
+  resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_pending_writes_status ON mcp_pending_writes(status);
+CREATE INDEX IF NOT EXISTS idx_mcp_pending_writes_created ON mcp_pending_writes(created_at);
+"#;
+
+/// task_events 重建 SQL（v11）：event_type CHECK 扩展 recursion_gap，task_id 可空
+/// 仅在旧表 CHECK 不含 recursion_gap 时由 run_migrations 执行
+const TASK_EVENTS_REBUILD_V11_SQL: &str = r#"
+DROP TABLE IF EXISTS task_events_v11;
+
+CREATE TABLE task_events_v11 (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+  event_type      TEXT NOT NULL CHECK(event_type IN (
+    'created','completed','deferred','snoozed','reminded',
+    'overdue','escalated','cancelled','moved','recursion_gap'
+  )),
+  occurred_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  payload         TEXT,  -- JSON
+  actor           TEXT DEFAULT 'user' CHECK(actor IN ('user','ai','system'))
+);
+
+INSERT INTO task_events_v11 (id, task_id, event_type, occurred_at, payload, actor)
+SELECT id, task_id, event_type, occurred_at, payload, actor FROM task_events;
+
+DROP TABLE task_events;
+ALTER TABLE task_events_v11 RENAME TO task_events;
+
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_task_events_time ON task_events(occurred_at);
+"#;
+
 /// 执行迁移：从 from_version 之后的版本逐条应用
 #[allow(dead_code)]
 pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow::Error> {
@@ -1741,6 +1868,50 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
 
     // 条件补列：ai_runs / ai_context_items 等表的索引（旧 DB 可能缺少）
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_ai_runs_created ON ai_runs(created_at);")?;
+
+    // ── v11 条件执行段（幂等：PRAGMA 探测后按需变更）────────────────
+
+    // 知识块级化（§8.2）：knowledge_items.parent_id / block_type
+    let ki_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(knowledge_items)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !ki_cols.iter().any(|c| c == "parent_id") {
+        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN parent_id TEXT;")?;
+        log::info!("Added parent_id column to knowledge_items (block hierarchy)");
+    }
+    if !ki_cols.iter().any(|c| c == "block_type") {
+        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN block_type TEXT DEFAULT 'page';")?;
+        log::info!("Added block_type column to knowledge_items (page/block/reference)");
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_items(parent_id);")?;
+
+    // 报表叙事层（§11.3）：smart_summaries.narrative_source（'rule'/'ai'）
+    let ss_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(smart_summaries)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !ss_cols.iter().any(|c| c == "narrative_source") {
+        conn.execute_batch("ALTER TABLE smart_summaries ADD COLUMN narrative_source TEXT DEFAULT 'rule';")?;
+        log::info!("Added narrative_source column to smart_summaries (rule/ai)");
+    }
+
+    // L3 递归确认（§11.5）：task_events.event_type CHECK 扩展 'recursion_gap'，task_id 可空
+    let te_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_events'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(sql) = te_sql {
+        if !sql.contains("recursion_gap") {
+            conn.execute_batch(TASK_EVENTS_REBUILD_V11_SQL)?;
+            log::info!("Rebuilt task_events with recursion_gap event type (v11)");
+        }
+    }
 
     Ok(())
 }
@@ -1794,3 +1965,86 @@ pub fn seed_deadline_rules(conn: &Connection) -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// v11 迁移幂等性：从 v1 全量迁移两次，结果一致且新列/新约束就位
+    #[test]
+    fn test_v11_migration_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+
+        run_migrations(&conn, 1).unwrap();
+        // v11 条件段幂等：从 v11 边界重复执行，条件段每次都会跑，必须安全
+        run_migrations(&conn, 11).unwrap();
+        run_migrations(&conn, 11).unwrap();
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+        let ki_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(knowledge_items)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(ki_cols.iter().any(|c| c == "parent_id"));
+        assert!(ki_cols.iter().any(|c| c == "block_type"));
+
+        let ss_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(smart_summaries)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(ss_cols.iter().any(|c| c == "narrative_source"));
+
+        // task_events：recursion_gap 可写、task_id 可空
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, payload, actor)
+             VALUES ('te-v11', NULL, 'recursion_gap', '{}', 'system')",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// v12 迁移幂等性：mcp_pending_writes 表存在且可重复迁移
+    #[test]
+    fn test_v12_migration_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+
+        run_migrations(&conn, 1).unwrap();
+        run_migrations(&conn, 12).unwrap();
+        run_migrations(&conn, 12).unwrap();
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+        // 表结构：status CHECK 生效，默认 pending
+        conn.execute(
+            "INSERT INTO mcp_pending_writes (id, tool, arguments)
+             VALUES ('w1', 'case_create_task', '{}')",
+            [],
+        )
+        .unwrap();
+        let status: String = conn
+            .query_row("SELECT status FROM mcp_pending_writes WHERE id='w1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "pending");
+
+        let bad = conn.execute(
+            "INSERT INTO mcp_pending_writes (id, tool, arguments, status)
+             VALUES ('w2', 'case_create_task', '{}', 'bogus')",
+            [],
+        );
+        assert!(bad.is_err(), "非法 status 应被 CHECK 拒绝");
+    }
+}
+

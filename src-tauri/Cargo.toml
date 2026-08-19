@@ -68,6 +68,12 @@ keyring = "3"
 getrandom = "0.2"
 hex = "0.4"
 
+# 截屏捕获
+screenshots = "0.6"
+
+# 剪贴板监听
+arboard = "3"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

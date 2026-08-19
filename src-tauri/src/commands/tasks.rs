@@ -155,45 +155,75 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
-pub async fn toggle_task(id: String) -> Result<(), String> {
-    run_blocking(move || {
+pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), String> {
+    let task_id = id.clone();
+    let completed_now = run_blocking(move || {
         let conn = db::open_db()?;
         let now = db::now_local();
-        
+
         // 获取当前状态
         let current: i32 = conn.query_row(
             "SELECT completed FROM tasks WHERE id = ?1",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
-        
+
         let new_status = if current == 0 { 1 } else { 0 };
-        
+
         conn.execute(
             "UPDATE tasks SET completed = ?1 WHERE id = ?2",
             rusqlite::params![new_status, id],
         )?;
-        
-        // 记录 task_event
+
+        // 完成任务时可同时记录实际耗时（行为学习数据源）
+        if new_status == 1 {
+            if let Some(mins) = actual_minutes {
+                conn.execute(
+                    "UPDATE tasks SET actual_minutes = ?1 WHERE id = ?2",
+                    rusqlite::params![mins, id],
+                )?;
+            }
+        }
+
+        // 记录 task_event（完成事件 payload 带实际耗时）
         let event_type = if new_status == 1 { "completed" } else { "created" };
+        let payload = actual_minutes
+            .map(|m| serde_json::json!({ "actualMinutes": m }).to_string());
         conn.execute(
-            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, ?3, ?4, 'user')",
-            rusqlite::params![db::new_id(), id, event_type, now],
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, ?3, ?4, ?5, 'user')",
+            rusqlite::params![db::new_id(), id, event_type, now, payload],
         )?;
-        
-        Ok(())
+
+        Ok(new_status == 1)
     })
-    .await
+    .await?;
+
+    // 任务完成后撤销其提醒作业（含已同步到日历的事件，避免误提醒）
+    if completed_now {
+        if let Err(e) = super::caldav::cancel_jobs_for_entity("task", &task_id).await {
+            log::warn!("任务完成后撤销提醒作业失败 (task {}): {}", task_id, e);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_task(id: String) -> Result<(), String> {
+    let task_id = id.clone();
     run_blocking(move || {
         let conn = db::open_db()?;
         conn.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
     })
-    .await
+    .await?;
+
+    // 任务删除后撤销其提醒作业（含已同步到日历的事件）
+    if let Err(e) = super::caldav::cancel_jobs_for_entity("task", &task_id).await {
+        log::warn!("任务删除后撤销提醒作业失败 (task {}): {}", task_id, e);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -203,8 +233,20 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
         let id = data["id"].as_str().ok_or_else(|| anyhow::anyhow!("Missing task id"))?;
         let now = db::now_local();
 
+        // 读取旧 due_date，用于检测延期（deferred 事件）
+        let old_due_date: Option<String> = conn
+            .query_row(
+                "SELECT due_date FROM tasks WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+
+        let new_due_date = data["dueDate"].as_str().or(data["deadline"].as_str());
+
         conn.execute(
-            "UPDATE tasks SET 
+            "UPDATE tasks SET
                 task_name = COALESCE(?1, task_name),
                 description = COALESCE(?2, description),
                 deadline = ?3,
@@ -221,13 +263,14 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 today_index = COALESCE(?14, today_index),
                 estimated_minutes = ?15,
                 area_id = ?16,
-                updated_at = ?17
+                updated_at = ?17,
+                actual_minutes = COALESCE(?19, actual_minutes)
              WHERE id = ?18",
             rusqlite::params![
                 data["taskName"].as_str(),
                 data["description"].as_str(),
                 data["deadline"].as_str(),
-                data["dueDate"].as_str().or(data["deadline"].as_str()),
+                new_due_date,
                 data["priority"].as_str(),
                 data["caseId"].as_str(),
                 data["taskType"].as_str(),
@@ -242,8 +285,24 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 data["areaId"].as_str(),
                 now,
                 id,
+                data["actualMinutes"].as_i64(),
             ],
         )?;
+
+        // due_date 被推迟（新值 > 旧值）→ 记录 deferred 事件（YYYY-MM-DD 字符串可直接比较）
+        if let (Some(old_due), Some(new_due)) = (old_due_date.as_deref(), new_due_date) {
+            if new_due > old_due {
+                let payload = serde_json::json!({
+                    "from": old_due,
+                    "to": new_due,
+                })
+                .to_string();
+                conn.execute(
+                    "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deferred', ?3, ?4, 'user')",
+                    rusqlite::params![db::new_id(), id, now, payload],
+                )?;
+            }
+        }
 
         // 记录 task_event
         conn.execute(

@@ -1,9 +1,12 @@
 pub mod areas;
+pub mod caldav;
 pub mod calendar;
 pub mod cases;
+pub mod decisions;
 pub mod docs;
 pub mod drafts;
 pub mod files;
+pub mod filters;
 pub mod import_feishu;
 pub mod inbox;
 pub mod knowledge;
@@ -66,6 +69,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         cases::export_cases,
         cases::update_case_status,
         cases::get_today_stats,
+        cases::get_case_type_metrics,
+        cases::get_all_case_type_metrics,
         import_feishu_data,
         get_deadline_warnings,
         tasks::list_tasks,
@@ -119,6 +124,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         knowledge::create_knowledge_from_selection,
         knowledge::link_knowledge_to_case,
         knowledge::link_knowledge_to_law,
+        knowledge::get_knowledge_graph,
+        // 知识块级化（设计哲学 §8.2）
+        knowledge::list_knowledge_blocks,
+        knowledge::get_knowledge_with_blocks,
         // 混合检索命令
         crate::db::search::hybrid_search_knowledge,
         crate::db::search::embed_knowledge,
@@ -153,6 +162,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         crate::email::get_email_monitor_status,
         crate::email::list_imap_accounts,
         crate::email::delete_imap_account,
+        // SMTP ICS 邀请发送
+        crate::email::smtp::send_ics_invitation_cmd,
         // AI 后端命令
         crate::ai::configure_ai,
         crate::ai::test_ai_connection,
@@ -170,6 +181,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         settings::delete_folder_template,
         settings::get_folder_naming_settings,
         settings::save_folder_naming_settings,
+        settings::get_lawyer_profile,
+        settings::save_lawyer_profile,
         // 文件管理命令
         files::list_case_files,
         files::add_case_file,
@@ -182,6 +195,13 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         reminder::test_reminder,
         reminder::start_reminder_engine,
         reminder::get_reminder_log,
+        // 分级预警 R1-R4（设计哲学 §11.2）
+        reminder::get_deadline_warnings_with_levels,
+        // CalDAV 日历同步（设计哲学 §11.2 M1）
+        caldav::test_caldav_connection,
+        caldav::sync_reminders_to_calendar,
+        caldav::get_calendar_sync_status,
+        caldav::cancel_reminder_jobs_for,
         // 任务模板命令
         tasks::list_task_templates,
         tasks::create_task_template,
@@ -204,6 +224,12 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         inbox::get_inbox_progress,
         inbox::retry_inbox_item,
         inbox::retry_inbox_case,
+        // 多通道捕获（设计哲学 §10）
+        inbox::capture_screenshot,
+        inbox::capture_clipboard,
+        inbox::start_clipboard_monitor,
+        inbox::save_voice_note,
+        inbox::transcribe_voice_note,
         // 日志调试命令
         get_log_dir,
         get_recent_logs,
@@ -213,7 +239,411 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         ai_routes::get_ai_run_history,
         ai_routes::check_confirmation_required,
         ai_routes::calculate_effective_policy_cmd,
+        // MCP Server 命令（设计哲学 §11.11）
+        mcp_list_tools,
+        mcp_execute_tool,
+        list_mcp_pending_writes,
+        approve_mcp_write,
+        reject_mcp_write,
+        crate::mcp::server::get_mcp_server_info,
+        // 凭据安全存储命令
+        migrate_credentials_to_keychain,
+        check_keychain_status,
+        // AI 推荐引擎命令（设计哲学 §11.6）
+        get_today_recommendations,
+        // 自动报表命令（设计哲学 §11.3）
+        generate_daily_brief_cmd,
+        generate_weekly_summary_cmd,
+        get_today_brief,
+        get_latest_weekly_summary,
+        list_summaries,
+        // 行为学习分析命令（设计哲学 §11.9）
+        get_learning_analysis,
+        apply_learning_calibration,
+        // 数据蒸馏命令（设计哲学 §11.10）
+        run_distillation_cmd,
+        list_pending_memories,
+        confirm_memory,
+        dismiss_memory,
+        // 隐性关联学习命令（设计哲学 §3.2 通道 B）
+        generate_insights_cmd,
+        list_pending_insights,
+        confirm_insight,
+        dismiss_insight,
+        // Saved Filters 命令（设计哲学 §9）
+        filters::list_saved_filters,
+        filters::save_filter,
+        filters::delete_filter,
+        // 决策记录命令（设计哲学 §11.6）
+        decisions::record_decision,
+        decisions::list_decisions,
+        // 决策复核命令（设计哲学 §11.7）
+        decisions::get_pending_decision_reviews,
+        decisions::mark_decision_reviewed,
+        // L3 递归确认命令（设计哲学 §11.5）
+        crate::ai::recursive_check::run_recursive_check,
     ]
+}
+
+// ═══════════════════════════════════════════════════════════
+// MCP Server 命令（设计哲学 §11.11）
+// ═══════════════════════════════════════════════════════════
+
+/// 获取 MCP 工具列表
+#[tauri::command]
+pub fn mcp_list_tools() -> Vec<serde_json::Value> {
+    crate::mcp::get_tools()
+        .into_iter()
+        .map(|t| serde_json::to_value(t).unwrap_or_default())
+        .collect()
+}
+
+/// 执行 MCP 工具调用（只读操作）
+#[tauri::command]
+pub async fn mcp_execute_tool(tool: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+    let call = crate::mcp::McpToolCall { tool, arguments };
+    let result = crate::mcp::execute_tool(call).await;
+    serde_json::to_value(result).map_err(|e| e.to_string())
+}
+
+/// 列出 MCP 待确认写操作（status='pending'，设计哲学 §11.11）
+#[tauri::command]
+pub async fn list_mcp_pending_writes() -> Result<Vec<crate::mcp::McpPendingWrite>, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::mcp::list_pending_writes(&conn)
+    })
+    .await
+}
+
+/// 批准并执行一条 MCP 待确认写（用户在应用内完成 L3 确认）
+///
+/// 通过 MCP 内部 allow_write 路径执行真实写；结果回写 mcp_pending_writes
+/// （executed / failed），并留痕 audit_events（actor='mcp'）。
+#[tauri::command]
+pub async fn approve_mcp_write(id: String) -> Result<serde_json::Value, String> {
+    let pending = {
+        let id = id.clone();
+        run_blocking(move || {
+            let conn = crate::db::open_db()?;
+            match crate::mcp::get_pending_write(&conn, &id)? {
+                Some(w) if w.status == "pending" => Ok(w),
+                Some(w) => Err(anyhow::anyhow!("该写操作已处理（status={}）", w.status)),
+                None => Err(anyhow::anyhow!("待确认写不存在: {}", id)),
+            }
+        })
+        .await?
+    };
+
+    // 执行真实写（MCP 内部 allow_write 路径）
+    let call = crate::mcp::McpToolCall {
+        tool: pending.tool.clone(),
+        arguments: serde_json::from_str(&pending.arguments).unwrap_or(serde_json::Value::Null),
+    };
+    let exec_result = crate::mcp::execute_tool(call).await;
+
+    let (status, result_text) = match &exec_result {
+        Ok(v) => ("executed", serde_json::to_string(v).unwrap_or_default()),
+        Err(e) => ("failed", e.clone()),
+    };
+
+    let write_id = pending.id.clone();
+    let tool = pending.tool.clone();
+    let audit_status = status;
+    let audit_result = result_text.clone();
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::mcp::resolve_pending_write(&conn, &write_id, audit_status, Some(&audit_result))?;
+        crate::mcp::write_mcp_audit(
+            &conn,
+            &write_id,
+            "mcp_write_approved",
+            &serde_json::json!({ "tool": tool, "outcome": audit_status }),
+        )?;
+        Ok(())
+    })
+    .await?;
+
+    match exec_result {
+        Ok(v) => Ok(serde_json::json!({ "status": "executed", "result": v })),
+        Err(e) => Err(format!("写操作执行失败（已记录为 failed）: {}", e)),
+    }
+}
+
+/// 拒绝一条 MCP 待确认写（不执行，仅标记 rejected 并留痕）
+#[tauri::command]
+pub async fn reject_mcp_write(id: String) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let pending = match crate::mcp::get_pending_write(&conn, &id)? {
+            Some(w) if w.status == "pending" => w,
+            Some(w) => return Err(anyhow::anyhow!("该写操作已处理（status={}）", w.status)),
+            None => return Err(anyhow::anyhow!("待确认写不存在: {}", id)),
+        };
+        crate::mcp::resolve_pending_write(&conn, &id, "rejected", None)?;
+        crate::mcp::write_mcp_audit(
+            &conn,
+            &id,
+            "mcp_write_rejected",
+            &serde_json::json!({ "tool": pending.tool }),
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+// ═══════════════════════════════════════════════════════════
+// 凭据安全存储命令
+// ═══════════════════════════════════════════════════════════
+
+/// 迁移 IMAP 密码从 base64 到 Keychain
+#[tauri::command]
+pub async fn migrate_credentials_to_keychain() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let result = crate::credentials::migrate_imap_passwords_to_keychain()?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 检查 Keychain 状态
+#[tauri::command]
+pub async fn check_keychain_status() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        // 检查 keyring 是否可用
+        let test_entry = keyring::Entry::new("casy-test", "test")
+            .map_err(|e| anyhow::anyhow!("Keychain 不可用: {}", e))?;
+
+        // 尝试写入测试值
+        test_entry.set_password("test").map_err(|e| anyhow::anyhow!("Keychain 写入失败: {}", e))?;
+
+        // 读取测试值
+        let _ = test_entry.get_password().map_err(|e| anyhow::anyhow!("Keychain 读取失败: {}", e))?;
+
+        // 清理
+        let _ = test_entry.delete_credential();
+
+        // 检查已迁移的账号
+        let conn = crate::db::open_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, email_address, password_enc FROM imap_accounts"
+        )?;
+
+        let accounts: Vec<serde_json::Value> = stmt.query_map([], |row| {
+            let email: String = row.get(1)?;
+            let has_keychain = crate::credentials::has_credential(
+                crate::credentials::CredentialType::ImapPassword,
+                &email,
+            );
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "email": email,
+                "hasLegacyPassword": !row.get::<_, String>(2)?.is_empty(),
+                "hasKeychainPassword": has_keychain,
+            }))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(serde_json::json!({
+            "keychainAvailable": true,
+            "accounts": accounts,
+        }))
+    })
+    .await
+}
+
+// ═══════════════════════════════════════════════════════════
+// AI 推荐引擎命令（设计哲学 §11.6）
+// ═══════════════════════════════════════════════════════════
+
+/// 获取今日推荐
+#[tauri::command]
+pub async fn get_today_recommendations() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let result = crate::ai::recommender::generate_today_recommendations(&conn)?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 生成每日早报（手动触发，落库 daily_stats + smart_summaries；随后尝试叙事层覆盖）
+#[tauri::command]
+pub async fn generate_daily_brief_cmd() -> Result<serde_json::Value, String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let date = today.clone();
+    let result = run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let brief = crate::ai::reports::generate_daily_brief(&conn, &date)?;
+        serde_json::to_value(brief).map_err(anyhow::Error::msg)
+    })
+    .await?;
+
+    // 叙事层（§11.3）：规则版已落库，AI 可用时覆盖 content；失败静默回退（§12.5）
+    let _ = crate::ai::reports::try_narrative_layer("daily", &today, "daily_brief_narrative").await;
+
+    Ok(result)
+}
+
+/// 获取今日早报（smart_summaries 有则取之，没有则现算）
+#[tauri::command]
+pub async fn get_today_brief() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::reports::get_today_brief(&conn)
+    })
+    .await
+}
+
+/// 生成每周总结（手动触发，落库 smart_summaries；随后尝试叙事层覆盖）
+#[tauri::command]
+pub async fn generate_weekly_summary_cmd() -> Result<serde_json::Value, String> {
+    let result = run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let summary = crate::ai::reports::generate_weekly_summary(&conn)?;
+        serde_json::to_value(summary).map_err(anyhow::Error::msg)
+    })
+    .await?;
+
+    // 叙事层（§11.3）：规则版已落库，AI 可用时覆盖 content；失败静默回退（§12.5）
+    if let Some(week_start) = result["weekStart"].as_str() {
+        let _ = crate::ai::reports::try_narrative_layer("weekly", week_start, "weekly_brief_narrative").await;
+    }
+
+    Ok(result)
+}
+
+/// 获取最新一期周报（没有则现算）
+#[tauri::command]
+pub async fn get_latest_weekly_summary() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::reports::get_latest_weekly_summary(&conn)
+    })
+    .await
+}
+
+/// 获取行为学习分析
+#[tauri::command]
+pub async fn get_learning_analysis() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let result = crate::ai::learning::generate_learning_analysis(&conn)?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 执行数据蒸馏
+#[tauri::command]
+pub async fn run_distillation_cmd() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let result = crate::ai::distillation::run_distillation(&conn)?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 应用预估校准（把偏差 >50% 或未设预估的未完成任务更新为历史均值）
+#[tauri::command]
+pub async fn apply_learning_calibration() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let result = crate::ai::learning::apply_estimation_calibration(&conn)?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 列出待确认候选记忆
+#[tauri::command]
+pub async fn list_pending_memories() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let result = crate::ai::distillation::list_pending_memories(&conn)?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 采纳候选记忆（可选同时沉淀进 knowledge_items 经验类）
+#[tauri::command]
+pub async fn confirm_memory(id: String, sink_to_knowledge: Option<bool>) -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let result = crate::ai::distillation::confirm_memory(&conn, &id, sink_to_knowledge.unwrap_or(false))?;
+        serde_json::to_value(result).map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
+/// 丢弃候选记忆
+#[tauri::command]
+pub async fn dismiss_memory(id: String) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::distillation::dismiss_memory(&conn, &id)
+    })
+    .await
+}
+
+/// 列出报表历史（smart_summaries，summary_type 可选过滤，§11.3 报表浏览）
+#[tauri::command]
+pub async fn list_summaries(
+    summary_type: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::reports::list_summaries(&conn, summary_type.as_deref(), limit)
+    })
+    .await
+}
+
+// ═══════════════════════════════════════════════════════════
+// 隐性关联学习命令（设计哲学 §3.2 通道 B）
+// ═══════════════════════════════════════════════════════════
+
+/// 手动触发隐性关联洞察生成（AI 未配置时静默返回 0）
+#[tauri::command]
+pub async fn generate_insights_cmd() -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let inserted = crate::ai::insights::generate_relation_insights(&conn)?;
+        Ok(serde_json::json!({ "inserted": inserted }))
+    })
+    .await
+}
+
+/// 列出待确认关联洞察
+#[tauri::command]
+pub async fn list_pending_insights() -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::insights::list_pending_insights(&conn)
+    })
+    .await
+}
+
+/// 确认关联洞察（status → confirmed，可选沉淀 knowledge_items 经验类）
+#[tauri::command]
+pub async fn confirm_insight(id: String, sink_to_knowledge: Option<bool>) -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::insights::confirm_insight(&conn, &id, sink_to_knowledge.unwrap_or(false))
+    })
+    .await
+}
+
+/// 丢弃关联洞察（status → rejected）
+#[tauri::command]
+pub async fn dismiss_insight(id: String) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        crate::ai::insights::dismiss_insight(&conn, &id)
+    })
+    .await
 }
 
 // ═══════════════════════════════════════════════════════════

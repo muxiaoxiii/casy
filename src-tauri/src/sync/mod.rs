@@ -1,3 +1,4 @@
+pub mod caldav;
 pub mod feishu;
 pub mod webdav;
 
