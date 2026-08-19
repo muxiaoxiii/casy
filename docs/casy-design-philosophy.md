@@ -7,7 +7,7 @@
 >
 > **v2.4（R1-R4 后端分级接通 + AI 审计日志）**：① `reminder_log` 新增 `level` 列，`dispatch_reminder` 在派发时计算并写入 R1/R2/R3/R4，前端 ReminderView 直接消费后端 level（兼容旧数据回退前端解析）；② AI 调用接通审计日志——`process_inbox_with_ai` 与 `generate_writing_suggestion` 在调用后写入 `ai_runs`（provider/model/purpose/input_hash/output_hash/status/error），input/output 用 SHA256 脱敏入库，审计失败不阻塞主流程；③ `log_ai_context_item` 保留为待接（按场景需要再调）。
 >
-> **v2.1（评审收口）**：① 客户认知修订——数据库新增 `clients` 基础主数据（稳定 ID + 别名归一），四大认知对象不变；② AI 能力边界统一——"LLM 不产生确定性事实，可产生建议与叙事"；③ 确认策略补 `effective_policy`（system_minimum 安全下限不可突破）；④ "信息完整"改为 ContextPolicy 界定（有界上下文，弃无界数据链）；⑤ 文档内 SQL 全删，字段语义以 architecture.md §5 为准。
+> **v2.1（评审收口）**：① 客户认知修订——数据库新增 `clients` 基础主数据（稳定 ID + 别名归一），四大认知对象不变；② AI 能力边界统一——"LLM 不产生确定性事实，可产生建议与叙事"；③ 确认策略补 `effective_policy`（system_minimum 安全下限不可突破）；④ "信息完整"改为 ContextPolicy 界定（有界上下文，弃无界数据链）；⑤ 文档内 SQL 全删，字段语义以 archive/architecture.md §5 为准。
 >
 > **v2.3（离线提醒·日历同步收口）**：11.2 离线提醒方案重新决策——本地进程确实无法在关机/休眠/退出/断网时触发提醒，但"离线准时提醒"通过**日历/日程同步（CalDAV + ICS via Email）**实现：把提醒固化为日程事件同步到用户已有的 Google/Apple/Outlook 日历，由日历服务商 24/7 在线的推送基础设施负责准时送达。原"自建云端中继（B）"降级为备选，不再作为 M1 推荐。提醒等级保持 R1-R4。
 >
@@ -19,17 +19,17 @@
 
 本文件是 Casy 改造的**唯一总纲。**
 
-**与 architecture.md 的职责边界**：
+**与 archive/architecture.md 的职责边界**：
 
-| | 设计哲学（本文档） | 架构文档（architecture.md） |
+| | 设计哲学（本文档） | 架构文档（archive/architecture.md） |
 |---|---|---|
 | 回答 | 为什么这样做 | 怎么实现 |
 | 内容 | 原则、需求、模块设计、UI 规范、路线图 | 技术方案、数据模型、接口定义、Rust 模块 |
 | SQL | **不写建表 SQL**；字段语义与表名以架构 §5 为准 | 数据模型（表名/字段/状态机）见架构 §5；现状建表语句以 `src-tauri/src/db/schema.rs` 为准；目标态 v9 新表（`task_events`/`decisions`/`ai_runs`/`memory_entries` 等）与 `reminder_jobs` 均为设计草案 |
 | 原则 | 八大原则的唯一出处 | 不重复讲原则（引用即可） |
-| 单模块细节 | 只讲"这个模块要变成什么样"（蓝图） | 单模块的技术细节（数据模型/命令/流程/约束）见 `modules/`（`modules/00-README.md` 索引） |
+| 单模块细节 | 只讲"这个模块要变成什么样"（蓝图） | 单模块的技术细节（数据模型/命令/流程/约束）见 `archive/casy-todo/`（归档的模块设计文档） |
 
-> 本文档自 v2.1 起已移除建表 SQL；如需核对表名/字段语义/状态机口径，请查 architecture.md §5（现状关键表）与 §3.3（目标态边界，未实现项）。
+> 本文档自 v2.1 起已移除建表 SQL；如需核对表名/字段语义/状态机口径，请查 archive/architecture.md §5（现状关键表）与 §3.3（目标态边界，未实现项）。
 
 结构：
 
@@ -96,7 +96,7 @@
 
 **为什么 Case 导向不够**：案件是**有终点的**（结案、归档），而客户关系、律师的能力积累是**没有终点的**。如果一个律师只围着案件转，结案后所有关联就断了；但如果以客户为锚，结案只是一个里程碑，客户名下还会不断长出新案件、新委托。
 
-**为什么 Client 导向还没进 4 元信息**：客户不是第五个"顶级认知对象"——**用户心智里依然是四大核心对象**。数据库层则增加 `clients` 基础主数据表（稳定 ID + 别名归一，见 architecture.md §5.2），案件通过 `client_id` 稳定归属客户。正如同一个案件可以有多轨，一个客户可以聚合名下所有案件、所有相关任务、所有相关文书。**这就是"既相互隔离，又能通过某种方式链接"的具体落点。**
+**为什么 Client 导向还没进 4 元信息**：客户不是第五个"顶级认知对象"——**用户心智里依然是四大核心对象**。数据库层则增加 `clients` 基础主数据表（稳定 ID + 别名归一，见 archive/architecture.md §5.2），案件通过 `client_id` 稳定归属客户。正如同一个案件可以有多轨，一个客户可以聚合名下所有案件、所有相关任务、所有相关文书。**这就是"既相互隔离，又能通过某种方式链接"的具体落点。**
 
 ### 1.4 为什么任务管理比案件管理更长远、更重要
 
@@ -430,7 +430,7 @@
 
 **客户：认知上是聚合维度，数据库里是基础主数据（v2.8 修订）**：早期设计坚持"客户不建表，只作 `cases.client_name` 聚合"。但客户年度报告、客户历史行为、客户延期模式、`decisions.entity_type='client'` 等后续设计已把客户当实体使用——**"腾讯科技 / 腾讯科技有限公司 / Tencent" 到底是不是同一客户？改名后历史案件和 AI 记忆怎么关联？**
 
-因此数据库新增 `clients` 表（稳定 ID + 别名归一，见 architecture.md §5.2），**用户认知上的四大核心对象（Area/Case/Task/Knowledge）不变**——clients 是 reference entity / 基础主数据，不是第五个顶级模块。"数据有限、视图无限"约束的是**产品认知复杂度**，不是数据库不能正常化。客户端（客户 → 名下所有案件 → 相关任务 → 相关文书）依然是聚合视图，只是现在基于稳定的 client_id 聚合。
+因此数据库新增 `clients` 表（稳定 ID + 别名归一，见 archive/architecture.md §5.2），**用户认知上的四大核心对象（Area/Case/Task/Knowledge）不变**——clients 是 reference entity / 基础主数据，不是第五个顶级模块。"数据有限、视图无限"约束的是**产品认知复杂度**，不是数据库不能正常化。客户端（客户 → 名下所有案件 → 相关任务 → 相关文书）依然是聚合视图，只是现在基于稳定的 client_id 聚合。
 
 ### 3.2 数据关联性双通道（本架构的关键机制）
 
@@ -505,7 +505,7 @@ AI 分析 → 产出"关联洞察"：
 这是 Casy 独有的**双维度案件模型**：
 
 ```
-横向：轨道状态（三轨并行，见 modules/02-status-machine.md）
+横向：轨道状态（三轨并行，见 archive/casy-todo/（模块设计文档已归档））
   诉讼轨 14 档 / 无效轨 6 档 / 行政轨 7 档
   ↕ 同一案件可同时在多轨（民事 + 无效 + 行政）
 
@@ -580,7 +580,7 @@ AI 分析 → 产出"关联洞察"：
 
 ### 5.3 任务类型与字段（迁移 v9）
 
-> 表名与字段语义以 architecture.md §5 为准；目标态 v9 新表为设计草案。此处只列字段语义：
+> 表名与字段语义以 archive/architecture.md §5 为准；目标态 v9 新表为设计草案。此处只列字段语义：
 
 **tasks 表 GTD 化字段**（迁移 v9）：
 
@@ -810,25 +810,25 @@ AI 分析 → 产出"关联洞察"：
 
 #### 离线提醒与送达语义（v2.3 收口：日历同步实现离线准时）
 
-> **结论先行：Casy 本地进程确实无法在关机/休眠/退出/断网时触发提醒**（技术事实）。但"离线准时提醒"不必由 Casy 自己实现——**M1 起通过日历/日程同步（CalDAV + ICS via Email）把提醒固化为日程事件，同步到用户已有的 Google/Apple/Outlook 日历，由日历服务商 24/7 在线的推送基础设施负责准时送达**。完整技术决策见 architecture.md 第九章。
+> **结论先行：Casy 本地进程确实无法在关机/休眠/退出/断网时触发提醒**（技术事实）。但"离线准时提醒"不必由 Casy 自己实现——**M1 起通过日历/日程同步（CalDAV + ICS via Email）把提醒固化为日程事件，同步到用户已有的 Google/Apple/Outlook 日历，由日历服务商 24/7 在线的推送基础设施负责准时送达**。完整技术决策见 archive/architecture.md 第九章。
 
 **四层语义**（统一口径，UI/文档/日志共用）：
 
 | 层 | 含义 | 现状 |
 |---|---|---|
 | **① 计算正确** | 期限/开庭/任务触发条件由本地规则引擎确定性地算对 | ✅ 可离线计算（`deadline/engine.rs`） |
-| **② 进入发送队列** | 提醒固化为可持久化、可重试、可对账的作业 | ⚠️ 现状只有 `reminder_log` 事后日志；M1 引入 `reminder_jobs`（architecture.md §9.6） |
+| **② 进入发送队列** | 提醒固化为可持久化、可重试、可对账的作业 | ⚠️ 现状只有 `reminder_log` 事后日志；M1 引入 `reminder_jobs`（archive/architecture.md §9.6） |
 | **③ 服务端接受** | 通道（日历服务 CalDAV / 邮件 SMTP）确认接受事件 | ⚠️ 未接通；M1 接通，日历服务返回 ETag/事件 ID 即接受 |
 | **④ 终端实际送达 / 用户已读** | 推送真正到达用户设备、用户已读/已处理 | ❌ 无法保证；`delivered/read` 必须来自回执或用户确认 |
 
 **日历服务接受 ≠ 用户已读**：ETag / Message-ID 只代表事件已入日历/邮件已发，不等于已送达，更不等于用户已读。`reminder_log` 的 `sent` 只表示"本地声称已发出"。提醒记录 UI 必须区分"日历已就绪 / 已发送 / 已送达 / 用户已处理"，禁止把同步成功推断为"用户看到了"。
 
-**四种方案与推荐**（详见 architecture.md §9.4-9.5）：
+**四种方案与推荐**（详见 archive/architecture.md §9.4-9.5）：
 
 - **方案 A 纯本地**（原生通知 + 启动补偿）：**M0 默认能力**，始终保留兜底。应用在线时触发，离线期重启后补偿扫描；明确标注"M0 尽力而为"。
 - **方案 D 日历/日程同步（CalDAV + ICS via Email）：M1 推荐**。Casy 不自己推送，把提醒固化为日程事件（iCalendar .ics），通过 CalDAV（Google/Apple/Outlook，通常即用户的邮箱账号）同步到用户日历，或通过 SMTP 发送 ICS 邀请（也支持给当事人/同事发日程）；日历服务商在到期前按 alarm 跨设备推送（移动/邮件/桌面）。**零自建基础设施、零凭据托管（CalDAV/OAuth/SMTP 只存本地 keyring）、可靠性远超自建**。Casy 离线、关机、退出均不影响。
 - **方案 B 自建云端中继（降级为备选）**：仅当"不配置日历 + 必须飞书渠道 + 接受自建服务"的明确需求出现时评估，不默认立项。需要自建常驻服务 + 托管飞书发送凭据 + 全套 SLO 运维，成本远高于方案 D。
-- **方案 C 移动端伴侣**：**不是离线准时推送的前置条件**——移动端后台同样受 iOS/Android 系统限制，要可靠推送仍需 APNs/FCM 或常驻服务。方案 D 已通过日历生态覆盖移动端提醒（日历 App 自带推送），只有移动办公、移动录入/查阅等**独立需求**成立时才立项（architecture.md §9.4-9.5）。
+- **方案 C 移动端伴侣**：**不是离线准时推送的前置条件**——移动端后台同样受 iOS/Android 系统限制，要可靠推送仍需 APNs/FCM 或常驻服务。方案 D 已通过日历生态覆盖移动端提醒（日历 App 自带推送），只有移动办公、移动录入/查阅等**独立需求**成立时才立项（archive/architecture.md §9.4-9.5）。
 
 **高敏案件**：对高敏案件（涉密/大额/客户指定保密）允许只同步脱敏摘要或**不出端**（只在应用内提醒）。案件级配置通知策略 ∈ {完整, 脱敏摘要, 不出端}，默认脱敏摘要；开启前弹风险提示："日程内容会出现在你的日历应用（及关联设备）中，可能被他人看到；选择'不出端'则提醒只在应用内展示。"
 
@@ -1028,7 +1028,7 @@ effective_policy = max(
 #### 核对范围由 ContextPolicy 界定（v2.8）
 
 > "全部数据链"作为工程规范是有问题的：大客户 100 个案件 × 每案 100 个 task + 文书/决策/历史 = **无限图遍历**；且从法律数据隔离角度，"判断今天做什么"不该自动携带客户全部其他案件的细节。
-> **原则：AI 必须获得对当前决策所需事实的完整上下文，而不是数据库中的全部相关数据。** 每个场景一份 ContextPolicy（required_sources / max_depth / max_items / token_budget / sensitivity_scope / snapshot_version，见 architecture.md §3.3 目标态边界，未实现），缺失关键事实 = 信息不完整，但上下文有界。
+> **原则：AI 必须获得对当前决策所需事实的完整上下文，而不是数据库中的全部相关数据。** 每个场景一份 ContextPolicy（required_sources / max_depth / max_items / token_budget / sensitivity_scope / snapshot_version，见 archive/architecture.md §3.3 目标态边界，未实现），缺失关键事实 = 信息不完整，但上下文有界。
 
 #### 完整递归确认流程（仅 L3）
 
@@ -1193,7 +1193,7 @@ effective_policy = max(
 - 换 AI 模型 / 换律师交接时，必须有可追溯的决策链
 - 推荐引擎（11.6）产生的每条推荐，一旦用户确认/拒绝，都应落决策链
 
-**决策记录表**（迁移 v9，表名与字段语义见 architecture.md §5）：
+**决策记录表**（迁移 v9，表名与字段语义见 archive/architecture.md §5）：
 
 > 核心字段：`entity_type`（case/client/task/knowledge）· `entity_id` · `decision_type`（appeal/settle/accept/refuse/other + recommend_* 六种）· `decision`（决策内容）· `basis`（决策依据）· `ai_advice` / `ai_model`（AI 建议留档）· `source_ref`（正式 JSON 依据）· `status`（proposed/confirmed/rejected/voided）· `recursive_checked`（是否过二次递归确认）· `confirmed_at` / `review_due` / `reviewed_at`
 
@@ -1262,7 +1262,7 @@ AI 建议（proposed，带依据）
 
 ### 11.9 数据支撑（行为沉淀 + AI 审计）
 
-> 表名与字段语义以 architecture.md §5 为准。此处只列语义：
+> 表名与字段语义以 archive/architecture.md §5 为准。此处只列语义：
 
 **行为学习（task_events，90 天清理）**：`task_id` · `event_type`（created/completed/deferred/snoozed/reminded）· `occurred_at` · `payload`。专职"行为学习"（预估校准/活跃时段），**不承担审计职责**。
 
@@ -1352,7 +1352,7 @@ AI 建议（proposed，带依据）
 
 #### 新增数据表
 
-> `memory_entries` 建表 SQL 见 architecture.md §5（当前关键表清单；v9 目标态新表为设计草案，未落库）。字段语义：`layer`（l1/l2/l3）· `content` · `source_ref`（正式 JSON 单一来源）· `status`（active/stale/archived）· `confidence` · `ai_model` · `last_used_at`（生命周期判断）· `merged_from`（合并来源 ID）。多来源引用用 `provenance` 表。
+> `memory_entries` 建表 SQL 见 archive/architecture.md §5（当前关键表清单；v9 目标态新表为设计草案，未落库）。字段语义：`layer`（l1/l2/l3）· `content` · `source_ref`（正式 JSON 单一来源）· `status`（active/stale/archived）· `confidence` · `ai_model` · `last_used_at`（生命周期判断）· `merged_from`（合并来源 ID）。多来源引用用 `provenance` 表。
 
 #### 蒸馏的核心原则
 
@@ -1406,7 +1406,7 @@ skill 默认不加载（不占常驻上下文），使用时才读说明 + 调�
 关键机制（v2.1 分阶段，避免过度工程）：
 - **组件切换分阶段**：M0-P2 用 **trait + enum** 实现组件切换（配置决定组合，不写死流水线）；**真的需要第三方插件时**（P4+）才升级为注册表 + 事件总线 + 可逆效应
 - **"模型可见即记录"不变量**：任何到达模型的内容必须能从 `ai_runs` + `ai_context_items` 重建（见 11.9），长期保留
-- **写入口唯一**：Copilot 只产出 Proposal，确认后经 DomainCommand 由领域事务落库（见 architecture.md §6.3 后续收口原则，目标态）
+- **写入口唯一**：Copilot 只产出 Proposal，确认后经 DomainCommand 由领域事务落库（见 archive/architecture.md §6.3 后续收口原则，目标态）
 
 #### 安全约束
 
@@ -1594,7 +1594,7 @@ Casy 的视觉标准遵循以下原则：**信息密度高但视觉安静**；�
 | AI 推荐决策引擎 | 今日任务推荐 + 优先级 + 时间预估 + 当日排程（见 11.6）   |
 | 决策记录与复核   | decisions 表 + 决策链 + 复核提醒（见 11.7）     |
 | L2 蒸馏 + 确认区  | AI 提炼 → 候选记忆 → 确认 → 进 L3 知识库（见 11.10）     |
-| 日历/日程同步 v1 | M1：接通 CalDAV（Google/Apple/Outlook）+ ICS email 邀请；`reminder_jobs.executor=calendar`，提醒固化为日程事件由日历服务准时触发；幂等 UID/重试/回执/撤销/改期/时区校验/脱敏策略（见 11.2，详见 architecture.md 第九章） |
+| 日历/日程同步 v1 | M1：接通 CalDAV（Google/Apple/Outlook）+ ICS email 邀请；`reminder_jobs.executor=calendar`，提醒固化为日程事件由日历服务准时触发；幂等 UID/重试/回执/撤销/改期/时区校验/脱敏策略（见 11.2，详见 archive/architecture.md 第九章） |
 
 ### P4 — 长期
 
@@ -1612,7 +1612,7 @@ Casy 的视觉标准遵循以下原则：**信息密度高但视觉安静**；�
 | 学习闭环         | 行为数据分析 → 校准预估/提醒时机               |
 | 移动端伴侣         | **仅当移动办公、移动录入/查阅等独立需求成立时立项**；不是离线准时推送的前置条件（见 11.2） |
 
-> **离线提醒路线（v2.3，与 architecture.md 第九章一致）**：M0 保留本地提醒 + 启动补偿（P2 完成，明确"本地尽力而为"）；**M1 通过日历/日程同步（CalDAV + ICS email）实现离线准时**（P3，借用 Google/Apple/Outlook 日历生态，不自建云端中继）；自建云端中继仅当"不配置日历 + 必须飞书渠道"的明确需求出现时评估。**不因推送问题立即开发完整移动端**——移动端提醒已由日历生态覆盖；移动端只服务独立的移动办公/移动录入查阅需求（P4+，条件成立才立项）。
+> **离线提醒路线（v2.3，与 archive/architecture.md 第九章一致）**：M0 保留本地提醒 + 启动补偿（P2 完成，明确"本地尽力而为"）；**M1 通过日历/日程同步（CalDAV + ICS email）实现离线准时**（P3，借用 Google/Apple/Outlook 日历生态，不自建云端中继）；自建云端中继仅当"不配置日历 + 必须飞书渠道"的明确需求出现时评估。**不因推送问题立即开发完整移动端**——移动端提醒已由日历生态覆盖；移动端只服务独立的移动办公/移动录入查阅需求（P4+，条件成立才立项）。
 
 ---
 

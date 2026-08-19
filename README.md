@@ -4,7 +4,7 @@
 
 Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：动态字段、跨类型筛选、期限引擎、多通道提醒、知识库、文书生成、大口袋收件箱。
 
-**v3.0 架构**：采用插件化架构（借鉴 Cordis + DeepSeek Harness），每个业务模块是独立插件，AI 能力以工具/技能形式接入。详见 `docs/architecture-v3.md` 与 `docs/architecture-plugin-system.md`。
+**v3.0 架构**：采用插件化架构（借鉴 Cordis + DeepSeek Harness），每个业务模块是独立插件，AI 能力以工具/技能形式接入。详见 `docs/archive/architecture-v3.md` 与 `docs/archive/architecture-plugin-system.md`（已归档，现行唯一总纲为 `docs/casy-design-philosophy.md`）。
 
 ---
 
@@ -89,12 +89,8 @@ Casy/
 │   └── router/             # 路由
 ├── docs/                   # 设计文档
 │   ├── casy-design-philosophy.md # ★ 设计哲学（唯一总纲：原则/模块蓝图/UI 规范/路线图）
-│   ├── architecture.md     # ★ 顶层架构设计（统领全局，含离线提醒决策）
-│   ├── architecture-v3.md  # ★ v3.0 插件化架构
-│   ├── architecture-plugin-system.md # 插件系统详细设计
-│   ├── modules/            # 各模块细节设计文档（00-README.md 索引，17 篇）
 │   ├── devlog/             # 开发日志
-│   └── archive/            # 归档文档（调研/旧版设计）
+│   └── archive/            # 归档文档（架构文档/模块文档/调研/旧版设计）
 ├── designs/                # UI 设计稿（11 张屏幕 PNG+SVG + HTML 原型）
 ├── Casy-SPEC.md            # 综合技术规格
 ├── Casy-STATUS.md          # 项目状态（v0.2.0 历史）
@@ -108,30 +104,9 @@ Casy/
 
 ```
 README.md（你在这里）
-  ├─ docs/casy-design-philosophy.md ← 设计哲学：八大原则、模块蓝图、UI 规范、路线图
-  ├─ docs/architecture.md           ← 顶层架构：模块全景、数据模型、离线提醒决策
-  ├─ docs/architecture-v3.md        ← v3.0 插件化架构（CasyContext + 9 插件）
-  └─ docs/architecture-plugin-system.md ← 插件系统详细设计
-       └─ docs/modules/             ← 各模块细节设计（17 篇）
-            ├─ 00-README.md         ← 模块索引与依赖关系
-            ├─ 01-cases.md          ← 案件管理
-            ├─ 02-status-machine.md ← 三轨状态机
-            ├─ 03-tasks.md          ← 任务系统（GTD）
-            ├─ 04-inbox.md          ← 收件箱（大口袋）
-            ├─ 05-inbox-batch.md    ← 收件箱批处理
-            ├─ 06-calendar-deadline.md ← 日历与期限引擎
-            ├─ 07-knowledge.md      ← 知识库
-            ├─ 08-docsy.md          ← 文书工坊
-            ├─ 09-files.md          ← 文件管理
-            ├─ 10-sync.md           ← 同步（WebDAV/飞书）
-            ├─ 11-email.md          ← 邮件（IMAP）
-            ├─ 12-reminder.md       ← 提醒系统（R1-R4 分级）
-            ├─ 13-ai-companion.md   ← AI 智伴
-            ├─ 14-data-layer.md     ← 数据层
-            ├─ 15-observability-settings.md ← 可观测性与设置
-            └─ 16-openness.md       ← 双向开放（MCP/Skill）
-       └─ docs/devlog/              ← 开发日志
-       └─ docs/archive/             ← 归档文档（调研/旧版设计）
+  ├─ docs/casy-design-philosophy.md ← 设计哲学（唯一总纲：八大原则、模块蓝图、UI 规范、路线图）
+  ├─ docs/devlog/                   ← 开发日志（按日期 + TODO.md 待办清单）
+  └─ docs/archive/                  ← 归档文档（历史架构/模块设计/调研，含 architecture*.md、casy-todo/、modules/）
 ```
 
 ---

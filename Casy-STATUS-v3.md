@@ -194,11 +194,11 @@
 
 | 文档 | 说明 |
 |------|------|
-| `docs/architecture-v3.md` | v3.0 架构设计文档 |
-| `docs/architecture-plugin-system.md` | 插件系统详细设计 |
-| `docs/architecture.md` | v2.11 架构文档（历史） |
-| `docs/casy-design-philosophy.md` | 设计哲学 |
-| `docs/modules/` | 模块设计文档（16 个） |
+| `docs/casy-design-philosophy.md` | 设计哲学（唯一总纲） |
+| `docs/archive/architecture-v3.md` | v3.0 架构设计文档（已归档） |
+| `docs/archive/architecture-plugin-system.md` | 插件系统详细设计（已归档） |
+| `docs/archive/architecture.md` | v2.11 架构文档（已归档） |
+| `docs/archive/casy-todo/` | 模块设计文档（已归档） |
 | `docs/devlog/` | 开发日志 |
 
 ---
