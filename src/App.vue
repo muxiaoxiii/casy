@@ -1,11 +1,16 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { listen } from '@tauri-apps/api/event'
+import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from './core/tauriBridge'
 import ReminderToast from './shared/components/ReminderToast.vue'
 import ReminderBanner from './shared/components/ReminderBanner.vue'
+import DecisionReviewNotice from './shared/components/DecisionReviewNotice.vue'
 import OverdueMorningBrief from './shared/components/OverdueMorningBrief.vue'
 import AIStatusBadge from './shared/components/AIStatusBadge.vue'
+import OnboardingWizard from './shared/components/OnboardingWizard.vue'
+import { useProfileStore } from './stores/profile'
 import {
   DataBoard,
   Briefcase,
@@ -29,6 +34,24 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+
+// ============================================================
+// 律师画像 / 首次使用引导
+// 未完成画像且未手动关闭过 → 自动弹出；「稍后再填」后不再自动弹
+// ============================================================
+const profileStore = useProfileStore()
+const showOnboarding = ref(false)
+
+async function checkOnboarding() {
+  await profileStore.load()
+  if (!profileStore.onboardingCompleted && !localStorage.getItem('casy_onboarding_dismissed')) {
+    showOnboarding.value = true
+  }
+}
+
+function onOnboardingDismiss() {
+  localStorage.setItem('casy_onboarding_dismissed', '1')
+}
 
 // ============================================================
 // 今日面板数据
@@ -64,10 +87,12 @@ function toggleTodayPanel() {
 // 第二层：核心模块导航
 // ============================================================
 const coreModules = [
-  { name: 'home', label: '首页', icon: DataBoard },
+  { name: 'home', label: '今日', icon: DataBoard },
   { name: 'cases', label: '案件', icon: Briefcase },
   { name: 'tasks', label: '任务', icon: Finished },
   { name: 'calendar', label: '日历', icon: Calendar },
+  { name: 'dashboard', label: '数据看板', icon: Cpu },
+  { name: 'clients', label: '客户', icon: Folder },
   { name: 'inbox', label: '收件箱', icon: Box },
   { name: 'knowledge', label: '知识库', icon: Collection },
   { name: 'docs', label: '文书', icon: Document },
@@ -153,15 +178,59 @@ const hasUrgentItems = computed(() => {
 })
 
 // ============================================================
+// 全局快速捕获（后端全局热键 Cmd+I/E/N → emit 'global:quick_capture'）
+// ============================================================
+const showQuickCapture = ref(false)
+const quickCaptureText = ref('')
+const quickCaptureSaving = ref(false)
+let unlistenQuickCapture = null
+
+async function setupQuickCaptureListener() {
+  try {
+    unlistenQuickCapture = await listen('global:quick_capture', () => {
+      quickCaptureText.value = ''
+      showQuickCapture.value = true
+    })
+  } catch (e) {
+    console.warn('[Casy] 全局快速捕获监听未建立:', e)
+  }
+}
+
+// 保存逻辑照 InboxView 捕获条：add_inbox_item(sourceType: 'note')
+async function saveQuickCapture() {
+  const text = quickCaptureText.value.trim()
+  if (!text) return
+  quickCaptureSaving.value = true
+  const result = await tauriCallSafe('add_inbox_item', {
+    sourceType: 'note',
+    contentText: text,
+  })
+  quickCaptureSaving.value = false
+  if (result.ok) {
+    ElMessage.success('已捕获到收件箱')
+    quickCaptureText.value = ''
+    showQuickCapture.value = false
+  } else {
+    ElMessage.error(result.error || '保存失败')
+  }
+}
+
+// ============================================================
 // 生命周期
 // ============================================================
 onMounted(() => {
   loadTodayStats()
-  
+  checkOnboarding()
+  setupQuickCaptureListener()
+
   // 从路由 query 恢复 tab
   if (route.query.tab) {
     activeTab.value = route.query.tab
   }
+})
+
+onUnmounted(() => {
+  if (unlistenQuickCapture) unlistenQuickCapture()
 })
 
 watch(() => route.name, () => {
@@ -349,14 +418,39 @@ function onMenuSelect(name) {
   <ReminderToast />
   <!-- R2/R3/R4 横幅 -->
   <ReminderBanner />
+  <!-- 待复核决策横幅 -->
+  <DecisionReviewNotice />
   <!-- 每日逾期早报 -->
   <OverdueMorningBrief />
+  <!-- 首次使用引导（律师画像） -->
+  <OnboardingWizard v-model="showOnboarding" @dismiss="onOnboardingDismiss" />
+  <!-- 全局快速捕获对话框（Cmd+I/E/N） -->
+  <el-dialog v-model="showQuickCapture" title="快速捕获" width="480" append-to-body>
+    <el-input
+      v-model="quickCaptureText"
+      type="textarea"
+      :rows="4"
+      placeholder="有什么想法、材料、待办？先记下来，稍后厘清…"
+      @keydown.enter.ctrl.exact.prevent="saveQuickCapture"
+    />
+    <template #footer>
+      <el-button @click="showQuickCapture = false">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="quickCaptureSaving"
+        :disabled="!quickCaptureText.trim()"
+        @click="saveQuickCapture"
+      >
+        捕获到收件箱
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
 .app-container {
   height: 100vh;
-  background: #FAFAFA;
+  background: #F6F7F9;
 }
 
 /* ── 第二层：侧边栏 ─────────────────────────────────────── */
@@ -364,7 +458,7 @@ function onMenuSelect(name) {
   width: 48px;
   min-width: 48px;
   background: #FFFFFF;
-  border-right: 1px solid #E5E7EB;
+  border-right: 1px solid #E0E3E9;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -392,7 +486,7 @@ function onMenuSelect(name) {
 .brand-letter {
   font-size: 18px;
   font-weight: 700;
-  color: #2563EB;
+  color: #3E5C9A;
   flex-shrink: 0;
   width: 24px;
   text-align: center;
@@ -442,8 +536,8 @@ function onMenuSelect(name) {
 }
 
 .nav-item.active {
-  background: #EFF6FF;
-  color: #2563EB;
+  background: #EDF1F8;
+  color: #3E5C9A;
 }
 
 .nav-item.active::before {
@@ -453,7 +547,7 @@ function onMenuSelect(name) {
   top: 6px;
   bottom: 6px;
   width: 3px;
-  background: #2563EB;
+  background: #3E5C9A;
   border-radius: 0 2px 2px 0;
 }
 
@@ -486,7 +580,7 @@ function onMenuSelect(name) {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #2563EB;
+  background: #3E5C9A;
   color: #FFFFFF;
   display: flex;
   align-items: center;
@@ -497,7 +591,7 @@ function onMenuSelect(name) {
 }
 
 .capture-button:hover {
-  background: #1D4ED8;
+  background: #334D82;
   transform: scale(1.05);
 }
 

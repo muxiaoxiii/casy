@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Filter, View } from '@element-plus/icons-vue'
 
 const loading = ref(false)
@@ -156,8 +156,85 @@ function parseBasis(basis) {
   }
 }
 
+// ============================================================
+// 待复核决策（get_pending_decision_reviews / mark_decision_reviewed / run_recursive_check）
+// ============================================================
+const pendingReviews = ref([])
+const pendingLoading = ref(false)
+const reviewBusyId = ref(null)              // 正在写回复核结果的决策 id
+const recursiveCheckingId = ref(null)       // 正在递归核对的决策 id
+const recursiveResults = ref({})            // id -> { consistent, gaps, source }
+
+async function loadPendingReviews() {
+  pendingLoading.value = true
+  const result = await tauriCallSafe('get_pending_decision_reviews')
+  if (result.ok) {
+    pendingReviews.value = result.data || []
+  }
+  pendingLoading.value = false
+}
+
+/** 复核：仍有效 / 已失效（失效需填说明） */
+async function markReviewed(item, stillValid) {
+  let note = null
+  if (!stillValid) {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        '请填写失效说明（将追加到决策依据，决策将被作废）',
+        '标记已失效',
+        {
+          confirmButtonText: '确认作废',
+          cancelButtonText: '取消',
+          inputPlaceholder: '如：案件已和解，该决策不再适用',
+          inputValidator: (v) => (v && v.trim() ? true : '请填写失效说明'),
+        }
+      )
+      note = value.trim()
+    } catch {
+      return // 用户取消
+    }
+  }
+
+  reviewBusyId.value = item.id
+  const result = await tauriCallSafe('mark_decision_reviewed', { id: item.id, stillValid, note })
+  reviewBusyId.value = null
+
+  if (result.ok) {
+    ElMessage.success(stillValid ? '已标记为仍有效' : '决策已作废')
+    pendingReviews.value = pendingReviews.value.filter(d => d.id !== item.id)
+    delete recursiveResults.value[item.id]
+    loadDecisions()
+  } else {
+    ElMessage.error(result.error || '复核操作失败')
+  }
+}
+
+/** L3 递归核对：AI 核对决策与案件状态的一致性，失败时降级为规则核对 */
+async function runRecursiveCheck(item) {
+  recursiveCheckingId.value = item.id
+  const result = await tauriCallSafe('run_recursive_check', { decisionId: item.id })
+  recursiveCheckingId.value = null
+
+  if (result.ok && result.data) {
+    recursiveResults.value = { ...recursiveResults.value, [item.id]: result.data }
+    if (!result.data.consistent) {
+      ElMessage.warning(`发现 ${result.data.gaps?.length || 0} 处不一致，请人工确认`)
+    }
+  } else {
+    ElMessage.error(result.error || '递归核对失败，请稍后重试')
+  }
+}
+
+function basisSummary(basis) {
+  const parsed = parseBasis(basis)
+  if (!parsed) return basis || ''
+  if (parsed.reason) return String(parsed.reason)
+  return JSON.stringify(parsed)
+}
+
 onMounted(() => {
   loadDecisions()
+  loadPendingReviews()
 })
 </script>
 
@@ -182,6 +259,66 @@ onMounted(() => {
         <div class="stat-label">已拒绝</div>
       </el-card>
     </div>
+
+    <!-- 待复核决策 -->
+    <el-card v-if="pendingLoading || pendingReviews.length > 0" shadow="never" class="review-card" v-loading="pendingLoading">
+      <template #header>
+        <div class="review-header">
+          <strong>待复核决策</strong>
+          <el-tag v-if="pendingReviews.length > 0" type="warning" size="small">{{ pendingReviews.length }} 条到期</el-tag>
+        </div>
+      </template>
+
+      <div v-for="item in pendingReviews" :key="item.id" class="review-item">
+        <div class="review-main">
+          <div class="review-title-row">
+            <el-tag size="small" type="info">{{ item.entityType }}</el-tag>
+            <span class="review-type">{{ getTypeLabel(item.decisionType) }}</span>
+            <span class="review-due">复核到期：{{ item.reviewDue || '-' }}</span>
+          </div>
+          <div class="review-decision">{{ item.decision }}</div>
+          <div v-if="item.basis" class="review-basis">依据：{{ basisSummary(item.basis) }}</div>
+
+          <!-- 递归核对结果 -->
+          <div v-if="recursiveResults[item.id]" class="recursive-result">
+            <template v-if="recursiveResults[item.id].consistent">
+              <span class="recursive-ok">核对一致（{{ recursiveResults[item.id].source === 'ai' ? 'AI' : '规则' }}核对）</span>
+            </template>
+            <template v-else>
+              <span class="recursive-warn">
+                发现缺口（{{ recursiveResults[item.id].source === 'ai' ? 'AI' : '规则' }}核对）：
+              </span>
+              <ul class="gap-list">
+                <li v-for="(gap, i) in recursiveResults[item.id].gaps" :key="i">{{ gap }}</li>
+              </ul>
+            </template>
+          </div>
+        </div>
+
+        <div class="review-actions">
+          <el-button
+            size="small"
+            :loading="recursiveCheckingId === item.id"
+            :disabled="reviewBusyId === item.id"
+            @click="runRecursiveCheck(item)"
+          >递归核对</el-button>
+          <el-button
+            size="small"
+            type="success"
+            :loading="reviewBusyId === item.id"
+            :disabled="recursiveCheckingId === item.id"
+            @click="markReviewed(item, true)"
+          >仍有效</el-button>
+          <el-button
+            size="small"
+            type="danger"
+            :loading="reviewBusyId === item.id"
+            :disabled="recursiveCheckingId === item.id"
+            @click="markReviewed(item, false)"
+          >已失效</el-button>
+        </div>
+      </div>
+    </el-card>
 
     <!-- 筛选工具栏 -->
     <div class="filter-bar">
@@ -371,5 +508,96 @@ onMounted(() => {
   color: #606266;
   overflow-x: auto;
   margin: 0;
+}
+
+/* 待复核决策 */
+.review-card :deep(.el-card__body) {
+  padding: 8px 16px;
+}
+
+.review-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.review-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+.review-item:last-child {
+  border-bottom: none;
+}
+
+.review-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.review-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.review-type {
+  font-size: 12px;
+  color: #909399;
+}
+
+.review-due {
+  font-size: 12px;
+  color: #B0823A;
+}
+
+.review-decision {
+  font-size: 13px;
+  color: #303133;
+  line-height: 1.5;
+}
+
+.review-basis {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recursive-result {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.recursive-ok {
+  color: #4C8067;
+}
+
+.recursive-warn {
+  color: #B0823A;
+}
+
+.gap-list {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  color: #B0823A;
+}
+
+.review-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.review-actions .el-button + .el-button {
+  margin-left: 0;
 }
 </style>

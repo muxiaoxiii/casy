@@ -8,6 +8,8 @@ import ImapSettings from './components/ImapSettings.vue'
 import GeneralSettings from './components/GeneralSettings.vue'
 import FolderTemplateSettings from './components/FolderTemplateSettings.vue'
 import ReminderSettings from './components/ReminderSettings.vue'
+import SmtpMcpSettings from './components/SmtpMcpSettings.vue'
+import ProfileSettings from './components/ProfileSettings.vue'
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('feishu')
@@ -21,6 +23,9 @@ onMounted(async () => {
   <div class="settings-page">
     <h2 class="page-title">设置</h2>
     <el-tabs v-model="activeTab" tab-position="left" class="settings-tabs">
+      <el-tab-pane label="律师画像" name="profile">
+        <ProfileSettings />
+      </el-tab-pane>
       <el-tab-pane label="飞书同步" name="feishu">
         <FeishuSettings />
       </el-tab-pane>
@@ -32,6 +37,9 @@ onMounted(async () => {
       </el-tab-pane>
       <el-tab-pane label="邮件监听" name="imap">
         <ImapSettings />
+      </el-tab-pane>
+      <el-tab-pane label="SMTP / MCP" name="smtp-mcp">
+        <SmtpMcpSettings />
       </el-tab-pane>
       <el-tab-pane label="通用设置" name="general">
         <GeneralSettings />

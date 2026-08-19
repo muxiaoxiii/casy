@@ -167,6 +167,28 @@ const sequentialCompletionRate = computed(() => {
 })
 
 // ============================================================
+// 案件类型差异化指标（get_case_type_metrics，加载失败静默隐藏）
+// ============================================================
+const typeMetrics = ref(null)
+
+const metricsCaseType = computed(() => {
+  const t = typeMetrics.value?.caseType || typeMetrics.value?.case_type || caseData.value?.caseType || 'generic'
+  return ['computational', 'exploratory', 'growth'].includes(t) ? t : 'generic'
+})
+
+const metricsTypeLabel = computed(() => {
+  const labels = { computational: '计算型', exploratory: '探索型', growth: '成长型', generic: '通用' }
+  return labels[metricsCaseType.value]
+})
+
+/** 比率字段可能为 0-1 或 0-100，统一转百分比文本 */
+function percentText(v) {
+  if (v == null) return '—'
+  const p = v <= 1 ? v * 100 : v
+  return `${Math.round(p)}%`
+}
+
+// ============================================================
 // 数据加载
 // ============================================================
 async function loadCaseData() {
@@ -177,8 +199,18 @@ async function loadCaseData() {
     loadTimeline(),
     loadKnowledge(),
     loadFiles(),
+    loadTypeMetrics(),
   ])
   loading.value = false
+}
+
+async function loadTypeMetrics() {
+  const result = await tauriCallSafe('get_case_type_metrics', { caseId: caseId.value })
+  if (result.ok && result.data) {
+    typeMetrics.value = result.data
+  } else {
+    typeMetrics.value = null
+  }
 }
 
 async function loadCase() {
@@ -441,8 +473,61 @@ watch(caseId, () => {
               :percentage="taskStats.total > 0 ? Math.round(taskStats.completed / taskStats.total * 100) : 0"
               :width="80"
               :stroke-width="8"
-              color="#67C23A"
+              color="#4C8067"
             />
+          </div>
+        </div>
+
+        <!-- 案件类型差异化指标（加载失败静默隐藏） -->
+        <div class="overview-item type-metrics" v-if="typeMetrics">
+          <div class="item-label">{{ metricsTypeLabel }}指标</div>
+          <div class="metrics-rows">
+            <template v-if="metricsCaseType === 'computational'">
+              <div class="metric-row">
+                <span class="metric-label">期限内按时完成率</span>
+                <span class="metric-value">{{ percentText(typeMetrics.onTimeRate) }}</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">当前逾期</span>
+                <span class="metric-value" :class="{ 'metric-danger': (typeMetrics.overdueCount || 0) > 0 }">
+                  {{ typeMetrics.overdueCount ?? 0 }}
+                </span>
+              </div>
+            </template>
+            <template v-else-if="metricsCaseType === 'exploratory'">
+              <div class="metric-row">
+                <span class="metric-label">近 90 天阶段推进</span>
+                <span class="metric-value">{{ typeMetrics.trackTransitions90d ?? 0 }} 次</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">顺序项目解锁进度</span>
+                <span class="metric-value">{{ typeMetrics.blockedResolved ?? 0 }}/{{ typeMetrics.blockedTotal ?? 0 }}</span>
+              </div>
+            </template>
+            <template v-else-if="metricsCaseType === 'growth'">
+              <div class="metric-row">
+                <span class="metric-label">近 30 天活跃天数</span>
+                <span class="metric-value">{{ typeMetrics.activeDays30d ?? 0 }} 天</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">连续无活动</span>
+                <span class="metric-value" :class="{ 'metric-warn': (typeMetrics.inactiveStreakDays || 0) > 3 }">
+                  {{ typeMetrics.inactiveStreakDays ?? 0 }} 天
+                </span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="metric-row">
+                <span class="metric-label">完成率</span>
+                <span class="metric-value">{{ percentText(typeMetrics.completionRate) }}</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">逾期</span>
+                <span class="metric-value" :class="{ 'metric-danger': (typeMetrics.overdueCount || 0) > 0 }">
+                  {{ typeMetrics.overdueCount ?? 0 }}
+                </span>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -793,6 +878,37 @@ watch(caseId, () => {
 .progress-ring {
   display: flex;
   justify-content: center;
+}
+
+/* 案件类型差异化指标 */
+.metrics-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.metric-label {
+  color: #52525B;
+}
+
+.metric-value {
+  font-weight: 600;
+  color: #18181B;
+}
+
+.metric-danger {
+  color: #B4554F;
+}
+
+.metric-warn {
+  color: #B0823A;
 }
 
 /* 下一步行动 */

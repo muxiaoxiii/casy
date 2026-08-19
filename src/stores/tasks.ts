@@ -174,8 +174,8 @@ export const useTasksStore = defineStore('tasks', {
       return result
     },
 
-    async toggleTask(id: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('toggle_task', { id })
+    async toggleTask(id: string, actualMinutes?: number | null): Promise<ReturnType<typeof tauriCallSafe<void>>> {
+      const result = await tauriCallSafe<void>('toggle_task', { id, actualMinutes: actualMinutes ?? null })
       if (result.ok) {
         const task = this.tasks.find(t => t.id === id)
         if (task) task.completed = task.completed ? 0 : 1

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Calendar,
@@ -11,25 +11,126 @@ import {
   Timer,
   RefreshRight,
   CircleCheck,
+  Star,
 } from '@element-plus/icons-vue'
+import { tauriCallSafe } from '../../core/tauriBridge'
 import { useCasesStore } from '../../stores/cases'
 import { useTasksStore } from '../../stores/tasks'
 import { useCalendarStore } from '../../stores/calendar'
+import { useProfileStore } from '../../stores/profile'
 
 const router = useRouter()
 const casesStore = useCasesStore()
 const tasksStore = useTasksStore()
 const calendarStore = useCalendarStore()
+const profileStore = useProfileStore()
+
+// 早报问候语：有画像姓名时带称呼（如「早安，王律师 · 每日早报」）
+const greeting = computed(() => {
+  const name = profileStore.name?.trim()
+  return name ? `早安，${name}律师 · 每日早报` : '每日早报'
+})
 
 const today = new Date().toISOString().split('T')[0]
 
+// 分级预警（设计哲学 §11.2）
+const deadlineWarnings = ref([])
+
+async function loadDeadlineWarnings() {
+  const result = await tauriCallSafe('get_deadline_warnings_with_levels', {})
+  if (result.ok && result.data) {
+    deadlineWarnings.value = result.data
+  }
+}
+
 onMounted(async () => {
+  profileStore.load()
   await Promise.all([
     casesStore.loadDashboard(),
     tasksStore.loadTasks(),
     calendarStore.loadEvents(new Date().getFullYear(), new Date().getMonth() + 1),
+    loadDeadlineWarnings(),
+    loadBrief(),
+    loadHomeRecommendations(),
   ])
 })
+
+// ============================================================
+// 每日早报（后端规则版 Markdown，失败回退本地拼接）
+// ============================================================
+const brief = ref(null)
+const briefDegraded = ref(false)
+const briefLoading = ref(false)
+
+/** get_today_brief 返回 smart_summaries 行；generate_daily_brief_cmd 返回 DailyBrief（markdown 字段） */
+function extractBriefContent(data) {
+  return data?.content || data?.markdown || ''
+}
+
+const briefContent = computed(() => extractBriefContent(brief.value))
+const briefTime = computed(() => brief.value?.createdAt || brief.value?.date || '')
+
+async function loadBrief() {
+  briefLoading.value = true
+  const result = await tauriCallSafe('get_today_brief')
+  briefLoading.value = false
+  if (result.ok && result.data && extractBriefContent(result.data)) {
+    brief.value = result.data
+    briefDegraded.value = false
+  } else {
+    brief.value = null
+    briefDegraded.value = true
+  }
+}
+
+async function regenerateBrief() {
+  briefLoading.value = true
+  const result = await tauriCallSafe('generate_daily_brief_cmd')
+  briefLoading.value = false
+  if (result.ok && result.data && extractBriefContent(result.data)) {
+    brief.value = result.data
+    briefDegraded.value = false
+  } else {
+    briefDegraded.value = true
+  }
+}
+
+/** 极简 Markdown 渲染：标题/列表/加粗（不引入新依赖） */
+function renderMarkdown(md) {
+  if (!md) return ''
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  let html = ''
+  let inList = false
+  for (const line of md.split('\n')) {
+    const t = line.trim()
+    if (t.startsWith('- ') || t.startsWith('* ')) {
+      if (!inList) { html += '<ul>'; inList = true }
+      html += `<li>${inline(t.slice(2))}</li>`
+      continue
+    }
+    if (inList) { html += '</ul>'; inList = false }
+    if (!t) continue
+    if (t.startsWith('### ')) html += `<h5>${inline(t.slice(4))}</h5>`
+    else if (t.startsWith('## ')) html += `<h4>${inline(t.slice(3))}</h4>`
+    else if (t.startsWith('# ')) html += `<h3>${inline(t.slice(2))}</h3>`
+    else html += `<p>${inline(t)}</p>`
+  }
+  if (inList) html += '</ul>'
+  return html
+}
+
+// ============================================================
+// 智能推荐：优先消费 get_today_recommendations，失败回退本地排序
+// ============================================================
+const homeRecommendations = ref([])
+
+async function loadHomeRecommendations() {
+  const result = await tauriCallSafe('get_today_recommendations')
+  if (result.ok && result.data?.recommendations?.length) {
+    homeRecommendations.value = result.data.recommendations.slice(0, 3)
+  }
+}
 
 // ============================================================
 // 硬性日程：今天的 hearing/deadline 类型日历事件
@@ -190,6 +291,53 @@ function goToCase(id) {
 
 <template>
   <div class="dashboard">
+    <!-- 每日早报 AI 横幅（设计哲学 §11.3，后端规则版 Markdown） -->
+    <div class="ai-banner">
+      <span class="ai-dot" :style="{ background: briefDegraded ? '#B0823A' : '#4C8067' }"></span>
+      <div class="ai-banner-content">
+        <strong>{{ greeting }}</strong>
+        <template v-if="briefDegraded">
+          <span class="ai-banner-summary">
+            昨日完成 {{ tasksStore.taskStats?.completed || 0 }} 项 ·
+            今日 {{ todayEvents.length }} 场硬性日程 ·
+            {{ waitingOverdueTasks.length }} 条等待超 3 天 ·
+            {{ overdueTasks.length }} 项逾期
+          </span>
+          <span class="ai-banner-degraded">AI/报表不可用，已显示本地汇总</span>
+        </template>
+        <span v-else-if="brief?.title" class="ai-banner-summary">{{ brief.title }}</span>
+        <span v-else class="ai-banner-summary">早报生成中…</span>
+      </div>
+      <el-button
+        size="small"
+        text
+        :loading="briefLoading"
+        @click="regenerateBrief"
+      >
+        重新生成
+      </el-button>
+      <span class="ai-banner-time">{{ briefDegraded ? '本地汇总' : (briefTime || '规则版') }}</span>
+    </div>
+
+    <!-- 早报正文（Markdown 渲染） -->
+    <div v-if="!briefDegraded && briefContent" class="brief-body" v-html="renderMarkdown(briefContent)"></div>
+
+    <!-- 分级预警横幅 R1-R4（设计哲学 §11.2） -->
+    <div v-if="deadlineWarnings.length > 0" class="deadline-warnings">
+      <div
+        v-for="w in deadlineWarnings.slice(0, 4)"
+        :key="w.deadlineId"
+        class="warning-item"
+        :class="'level-' + w.level.toLowerCase()"
+        @click="goToCase(w.caseId)"
+      >
+        <span class="warning-dot" :style="{ background: w.levelColor }" />
+        <span class="warning-level">{{ w.level }}</span>
+        <span class="warning-msg">{{ w.message }}</span>
+        <span class="warning-case">{{ w.caseName }}</span>
+      </div>
+    </div>
+
     <!-- 今日要点统计卡片 -->
     <div class="summary-bar">
       <div class="summary-card" @click="goToCalendar">
@@ -383,6 +531,74 @@ function goToCase(id) {
       </div>
     </div>
 
+    <!-- 智能推荐（优先后端推荐，回退本地规则排序 · 设计哲学 §11.6） -->
+    <div class="panel reco-panel">
+      <div class="panel-header">
+        <el-icon><Star /></el-icon>
+        <span>智能推荐 · 今日 {{ homeRecommendations.length || nextActionTasks.length }} 件事</span>
+        <span class="reco-badge">{{ homeRecommendations.length ? '推荐引擎' : '规则排序' }}</span>
+      </div>
+      <div class="panel-body">
+        <template v-if="homeRecommendations.length">
+          <div
+            v-for="(rec, idx) in homeRecommendations"
+            :key="rec.taskId"
+            class="reco-item"
+            @click="router.push({ name: 'tasks', query: { edit: rec.taskId } })"
+          >
+            <span class="reco-order">{{ idx + 1 }}</span>
+            <div class="reco-content">
+              <div class="reco-title">{{ rec.taskName }}</div>
+              <div class="reco-why">
+                {{ rec.reason }}
+                <template v-if="rec.estimatedMinutes"> · 预估 {{ rec.estimatedMinutes }} 分钟</template>
+              </div>
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <div
+            v-for="(task, idx) in nextActionTasks.slice(0, 3)"
+            :key="task.id"
+            class="reco-item"
+            @click="router.push({ name: 'tasks', query: { edit: task.id } })"
+          >
+            <span class="reco-order">{{ idx + 1 }}</span>
+            <div class="reco-content">
+              <div class="reco-title">{{ task.taskName }}</div>
+              <div class="reco-why">
+                {{ task.caseId ? `关联：${task.caseId}` : '无案件关联' }}
+                {{ task.dueDate ? ` · 截止 ${task.dueDate}` : '' }}
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-if="!homeRecommendations.length && nextActionTasks.length === 0" class="empty-state" style="padding: 16px">
+          <span>暂无推荐</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部统计一行（退居角落，不是主角） -->
+    <div class="statline">
+      <div class="st">
+        <span class="sv">{{ casesStore.cases.length }}</span>
+        <span class="sk">活跃案件</span>
+      </div>
+      <div class="st">
+        <span class="sv">{{ waitingOverdueTasks.length }}</span>
+        <span class="sk">等待中</span>
+      </div>
+      <div class="st">
+        <span class="sv">{{ tasksStore.taskStats?.completed || 0 }}</span>
+        <span class="sk">已完成</span>
+      </div>
+      <div class="st">
+        <span class="sv" style="color: #B4554F">{{ overdueTasks.length }}</span>
+        <span class="sk">逾期</span>
+      </div>
+    </div>
+
     <!-- 最近活动 -->
     <div class="panel activity-panel">
       <div class="panel-header">
@@ -420,7 +636,7 @@ function goToCase(id) {
    视觉 Token
    ============================================================ */
 :root {
-  --c-primary: #2563EB;
+  --c-primary: #3E5C9A;
   --c-bg: #FAFAFA;
   --c-surface: #FFFFFF;
   --c-text: #18181B;
@@ -748,5 +964,253 @@ function goToCase(id) {
 
 .empty-icon {
   color: var(--c-green);
+}
+
+/* ============================================================
+   智能推荐
+   ============================================================ */
+.reco-panel {
+  margin-bottom: 0;
+}
+
+.reco-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--c-text-muted);
+  font-weight: 400;
+}
+
+.reco-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  border: 1px solid #E0E3E9;
+  margin-bottom: 8px;
+  background: var(--c-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.reco-item:hover {
+  border-color: #C3CFE3;
+  background: #EDF1F8;
+}
+
+.reco-order {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: #EDF1F8;
+  color: #3E5C9A;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.reco-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.reco-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1F2430;
+}
+
+.reco-why {
+  font-size: 11px;
+  color: #9BA2AF;
+  margin-top: 1px;
+}
+
+/* ============================================================
+   底部统计一行
+   ============================================================ */
+.statline {
+  display: flex;
+  gap: 0;
+  background: var(--c-surface);
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 16px;
+}
+
+.st {
+  flex: 1;
+  padding: 12px 16px;
+  border-right: 1px solid #E0E3E9;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.st:last-child {
+  border-right: none;
+}
+
+.sv {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: #1F2430;
+}
+
+.sk {
+  font-size: 11px;
+  color: #9BA2AF;
+}
+
+/* ============================================================
+   分级预警横幅 R1-R4
+   ============================================================ */
+.deadline-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.warning-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.warning-item.level-r1 {
+  background: #F6F7F9;
+  color: #4B5160;
+}
+
+.warning-item.level-r2 {
+  background: #F7F1E3;
+  color: #7A5B24;
+}
+
+.warning-item.level-r3,
+.warning-item.level-r4 {
+  background: #F6EDEC;
+  color: #B4554F;
+}
+
+.warning-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.warning-level {
+  font-weight: 600;
+  font-size: 11px;
+  min-width: 20px;
+}
+
+.warning-msg {
+  flex: 1;
+}
+
+.warning-case {
+  font-size: 11px;
+  color: #9BA2AF;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   每日早报 AI 横幅
+   ============================================================ */
+.ai-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  background: var(--c-surface);
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 12.5px;
+  color: #4B5160;
+}
+
+.ai-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4C8067;
+  flex-shrink: 0;
+}
+
+.ai-banner-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-banner-content strong {
+  color: #1F2430;
+  font-weight: 600;
+}
+
+.ai-banner-summary {
+  color: #9BA2AF;
+}
+
+.ai-banner-time {
+  font-size: 11px;
+  color: #9BA2AF;
+  flex-shrink: 0;
+}
+
+.ai-banner-degraded {
+  font-size: 11px;
+  color: #B0823A;
+  background: #F7F1E3;
+  border: 1px solid #E4D3A8;
+  border-radius: 4px;
+  padding: 1px 8px;
+}
+
+/* 早报正文（Markdown 渲染） */
+.brief-body {
+  margin: -6px 0 14px;
+  background: var(--c-surface);
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12.5px;
+  color: #4B5160;
+  max-height: 220px;
+  overflow-y: auto;
+  line-height: 1.7;
+}
+
+.brief-body :deep(h3),
+.brief-body :deep(h4),
+.brief-body :deep(h5) {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1F2430;
+}
+
+.brief-body :deep(p) {
+  margin: 2px 0;
+}
+
+.brief-body :deep(ul) {
+  margin: 2px 0;
+  padding-left: 18px;
 }
 </style>

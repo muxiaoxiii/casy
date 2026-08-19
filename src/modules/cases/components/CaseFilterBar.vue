@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { Download, Search, Filter, FolderChecked } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
+import { useFiltersStore } from '../../../stores/filters'
 import type { CaseFilter, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus, TrackType, CaseStatus } from '../../../types'
 import {
   CIVIL_STATUS_LABELS,
@@ -84,10 +86,11 @@ const deadlineQuickOptions = [
 ]
 const deadlineQuick = ref('')
 
-// 保存的筛选方案
+// 保存的筛选方案（后端持久化，设计哲学 §9）
+const filtersStore = useFiltersStore()
 const showSaveFilterDialog = ref(false)
 const savedFilterName = ref('')
-const savedFilters = ref<Array<{ name: string; filter: CaseFilter; groupBy: string; createdAt: string }>>([])
+const savedFilters = computed(() => filtersStore.filters)
 
 // 搜索防抖
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -226,33 +229,39 @@ async function remoteClientSearch(query: string) {
   clientLoading.value = false
 }
 
-// 保存当前筛选方案
-function saveFilter() {
+// 保存当前筛选方案（存后端 saved_filters，entity_type='cases'）
+async function saveFilter() {
   if (!savedFilterName.value.trim()) return
-  const filterConfig = {
-    name: savedFilterName.value,
+  const result = await filtersStore.saveFilter({
+    module: 'cases',
+    name: savedFilterName.value.trim(),
     filter: { ...props.filter },
     groupBy: props.groupBy,
-    createdAt: new Date().toISOString(),
+  })
+  if (result.ok) {
+    ElMessage.success('筛选方案已保存')
+    showSaveFilterDialog.value = false
+    savedFilterName.value = ''
+  } else {
+    ElMessage.error(result.error || '保存失败')
   }
-  savedFilters.value.push(filterConfig)
-  // 保存到 localStorage
-  localStorage.setItem('casy_saved_filters', JSON.stringify(savedFilters.value))
-  showSaveFilterDialog.value = false
-  savedFilterName.value = ''
 }
 
 // 加载已保存的筛选方案
-function loadFilter(filterConfig: { filter: CaseFilter; groupBy: string }) {
+function loadFilter(filterConfig: { filter: CaseFilter; groupBy?: string }) {
   emit('update:filter', { ...filterConfig.filter })
-  emit('update:groupBy', filterConfig.groupBy)
+  emit('update:groupBy', filterConfig.groupBy || 'none')
   emit('search')
 }
 
 // 删除已保存的筛选方案
-function deleteFilter(index: number) {
-  savedFilters.value.splice(index, 1)
-  localStorage.setItem('casy_saved_filters', JSON.stringify(savedFilters.value))
+async function deleteFilter(id: string) {
+  const result = await filtersStore.deleteFilter(id)
+  if (result.ok) {
+    ElMessage.success('已删除')
+  } else {
+    ElMessage.error(result.error || '删除失败')
+  }
 }
 
 // 清除所有筛选
@@ -285,19 +294,8 @@ function clearFilters() {
   emit('search')
 }
 
-// 初始化：加载已保存的筛选方案
-const initSavedFilters = () => {
-  try {
-    const stored = localStorage.getItem('casy_saved_filters')
-    if (stored) {
-      savedFilters.value = JSON.parse(stored)
-    }
-  } catch (e) {
-    console.warn('加载筛选方案失败:', e)
-  }
-}
-
-initSavedFilters()
+// 初始化：从后端加载已保存的筛选方案
+filtersStore.loadFilters('cases')
 </script>
 
 <template>
@@ -423,10 +421,10 @@ initSavedFilters()
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-for="(sf, idx) in savedFilters" :key="idx">
+              <el-dropdown-item v-for="sf in savedFilters" :key="sf.id">
                 <div class="saved-filter-item" @click="loadFilter(sf)">
                   <span>{{ sf.name }}</span>
-                  <el-button size="small" type="danger" text @click.stop="deleteFilter(idx)">删除</el-button>
+                  <el-button size="small" type="danger" text @click.stop="deleteFilter(sf.id)">删除</el-button>
                 </div>
               </el-dropdown-item>
             </el-dropdown-menu>

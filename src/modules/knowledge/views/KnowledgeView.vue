@@ -1,7 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage } from 'element-plus'
+
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(false)
 const knowledgeList = ref([])
@@ -19,24 +23,24 @@ const filter = ref({
   lawName: '',
 })
 
-// 6 职能分类
+// 6 职能分类（设计哲学 §8.2）
 const categories = [
-  { value: 'inspiration', label: '灵感', color: '#8B5CF6' },
-  { value: 'method', label: '方法', color: '#409EFF' },
-  { value: 'reference', label: '参考', color: '#67C23A' },
-  { value: 'question', label: '问题', color: '#F56C6C' },
-  { value: 'experience', label: '经验', color: '#E6A23C' },
-  { value: 'log', label: '日志', color: '#909399' },
+  { value: 'inspiration', label: '灵感', color: '#6C6A9C' },
+  { value: 'method', label: '方法', color: '#3E5C9A' },
+  { value: 'reference', label: '参考', color: '#4C8067' },
+  { value: 'question', label: '问题', color: '#B4554F' },
+  { value: 'experience', label: '经验', color: '#B0823A' },
+  { value: 'log', label: '日志', color: '#9BA2AF' },
 ]
 
 // 职能颜色映射
 const categoryColorMap = {
-  inspiration: '#8B5CF6',
-  method: '#409EFF',
-  reference: '#67C23A',
-  question: '#F56C6C',
-  experience: '#E6A23C',
-  log: '#909399',
+  inspiration: '#6C6A9C',
+  method: '#3E5C9A',
+  reference: '#4C8067',
+  question: '#B4554F',
+  experience: '#B0823A',
+  log: '#9BA2AF',
 }
 
 // 职能标签映射
@@ -51,12 +55,32 @@ const categoryLabelMap = {
 
 // 获取职能颜色
 function getCategoryColor(category) {
-  return categoryColorMap[category] || '#909399'
+  return categoryColorMap[category] || '#9BA2AF'
 }
 
 // 获取职能标签
 function getCategoryLabel(category) {
   return categoryLabelMap[category] || category
+}
+
+// 块级引用类型（设计哲学 §8.2）
+const blockTypeLabels = {
+  paragraph: '段落',
+  list: '列表',
+  quote: '引用',
+  code: '代码',
+  table: '表格',
+  law_article: '法条',
+  case_note: '案例笔记',
+  experience: '经验总结',
+}
+
+// 跳转到父级条目（get_knowledge_with_blocks 返回 { item, blocks }）
+async function jumpToParent(parentId) {
+  const result = await tauriCallSafe('get_knowledge_with_blocks', { id: parentId })
+  if (result.ok && result.data?.item) {
+    selectItem(result.data.item)
+  }
 }
 
 async function loadKnowledge() {
@@ -81,9 +105,80 @@ async function loadVersions(itemId) {
   }
 }
 
+// ============================================================
+// 块级结构（get_knowledge_with_blocks / create_knowledge 带 parentId+blockType）
+// ============================================================
+const childBlocks = ref([])       // 当前条目的子块（扁平，含 parentId）
+const blocksLoading = ref(false)
+const showAddBlockDialog = ref(false)
+const addingBlock = ref(false)
+const addBlockForm = ref({ title: '', content: '' })
+
+// 顶层列表默认不显示块级条目
+const topLevelList = computed(() => knowledgeList.value.filter(k => k.blockType !== 'block'))
+
+// 带缩进层级的块列表（按 parentId 链计算深度，父块先于子块返回）
+const blocksWithDepth = computed(() => {
+  const depthMap = {}
+  return childBlocks.value.map(b => {
+    const depth = b.parentId && depthMap[b.parentId] !== undefined ? depthMap[b.parentId] + 1 : 0
+    depthMap[b.id] = depth
+    return { ...b, depth }
+  })
+})
+
+async function loadBlocks(itemId) {
+  blocksLoading.value = true
+  const result = await tauriCallSafe('get_knowledge_with_blocks', { id: itemId })
+  if (result.ok && result.data) {
+    childBlocks.value = result.data.blocks || []
+  } else {
+    childBlocks.value = []
+  }
+  blocksLoading.value = false
+}
+
+function openAddBlockDialog() {
+  addBlockForm.value = { title: '', content: '' }
+  showAddBlockDialog.value = true
+}
+
+async function confirmAddBlock() {
+  if (!addBlockForm.value.title.trim()) {
+    ElMessage.warning('请填写子块标题')
+    return
+  }
+  addingBlock.value = true
+  const result = await tauriCallSafe('create_knowledge', {
+    data: {
+      title: addBlockForm.value.title.trim(),
+      category: selectedItem.value?.category || 'reference',
+      content: addBlockForm.value.content || '',
+      parentId: selectedItem.value?.id || null,
+      blockType: 'block',
+      status: 'current',
+    },
+  })
+  addingBlock.value = false
+  if (result.ok) {
+    ElMessage.success('子块已添加')
+    showAddBlockDialog.value = false
+    loadBlocks(selectedItem.value.id)
+  } else {
+    ElMessage.error(result.error || '添加失败')
+  }
+}
+
+function getBlockTypeLabel(blockType) {
+  return blockTypeLabels[blockType] || blockType || '块'
+}
+
 function selectItem(item) {
+  if (!item) return
   selectedItem.value = item
+  childBlocks.value = []
   loadVersions(item.id)
+  loadBlocks(item.id)
 }
 
 async function showVersionHistory() {
@@ -145,8 +240,14 @@ function formatDate(dateStr) {
   return dateStr.replace('T', ' ').substring(0, 19)
 }
 
-onMounted(() => {
-  loadKnowledge()
+onMounted(async () => {
+  await loadKnowledge()
+  // 支持从知识图谱跳转定位：/knowledge?select=<id>
+  const selectId = route.query.select
+  if (selectId) {
+    const target = knowledgeList.value.find(k => k.id === selectId)
+    if (target) selectItem(target)
+  }
 })
 </script>
 
@@ -155,6 +256,7 @@ onMounted(() => {
     <div class="knowledge-header">
       <h2>知识库</h2>
       <div class="header-actions">
+        <el-button @click="router.push({ name: 'knowledge-graph' })">知识图谱</el-button>
         <el-input
           v-model="filter.search"
           placeholder="搜索知识条目..."
@@ -184,7 +286,7 @@ onMounted(() => {
       <!-- 左侧列表 -->
       <div class="knowledge-list">
         <el-table
-          :data="knowledgeList"
+          :data="topLevelList"
           v-loading="loading"
           stripe
           highlight-current-row
@@ -218,9 +320,12 @@ onMounted(() => {
           <template #header>
             <div class="detail-header">
               <h3>{{ selectedItem.title }}</h3>
-              <el-button type="primary" size="small" @click="showVersionHistory">
-                📜 版本历史
-              </el-button>
+              <div class="detail-actions">
+                <el-button size="small" @click="openAddBlockDialog">添加子块</el-button>
+                <el-button type="primary" size="small" @click="showVersionHistory">
+                  📜 版本历史
+                </el-button>
+              </div>
             </div>
           </template>
 
@@ -239,6 +344,14 @@ onMounted(() => {
             <el-descriptions-item label="条款号">{{ selectedItem.articleNo || '-' }}</el-descriptions-item>
             <el-descriptions-item label="生效日期">{{ selectedItem.effectiveDate || '-' }}</el-descriptions-item>
             <el-descriptions-item label="关联案件">{{ selectedItem.linkedCaseId || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="块类型" v-if="selectedItem.blockType">
+              <el-tag size="small" type="info">{{ blockTypeLabels[selectedItem.blockType] || selectedItem.blockType }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="父级条目" v-if="selectedItem.parentId">
+              <el-link type="primary" @click="jumpToParent(selectedItem.parentId)">
+                {{ selectedItem.parentTitle || selectedItem.parentId }}
+              </el-link>
+            </el-descriptions-item>
           </el-descriptions>
 
           <div class="content-section">
@@ -254,9 +367,47 @@ onMounted(() => {
               </el-tag>
             </div>
           </div>
+
+          <!-- 子块树 -->
+          <div v-if="blocksLoading || childBlocks.length > 0" class="blocks-section" v-loading="blocksLoading">
+            <h4>子块</h4>
+            <div
+              v-for="block in blocksWithDepth"
+              :key="block.id"
+              class="block-item"
+              :style="{ paddingLeft: (block.depth * 16) + 'px' }"
+            >
+              <div class="block-head">
+                <el-tag size="small" type="info">{{ getBlockTypeLabel(block.blockType) }}</el-tag>
+                <span class="block-title">{{ block.title || '（无标题）' }}</span>
+              </div>
+              <div class="block-content">{{ block.content }}</div>
+            </div>
+          </div>
         </el-card>
       </div>
     </div>
+
+    <!-- 添加子块对话框 -->
+    <el-dialog v-model="showAddBlockDialog" title="添加子块" width="520px">
+      <el-form label-width="70px">
+        <el-form-item label="标题">
+          <el-input v-model="addBlockForm.title" placeholder="子块标题" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input
+            v-model="addBlockForm.content"
+            type="textarea"
+            :rows="6"
+            placeholder="子块内容"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showAddBlockDialog = false">取消</el-button>
+        <el-button type="primary" :loading="addingBlock" @click="confirmAddBlock">添加</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 版本历史对话框 -->
     <el-dialog v-model="showVersionDialog" title="版本历史" width="800px">
@@ -430,6 +581,51 @@ onMounted(() => {
 
 .detail-header h3 {
   margin: 0;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 子块树 */
+.blocks-section {
+  margin-top: 16px;
+}
+
+.blocks-section h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.block-item {
+  padding: 8px 0 8px 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.block-item:last-child {
+  border-bottom: none;
+}
+
+.block-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.block-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.block-content {
+  font-size: 13px;
+  color: #606266;
+  white-space: pre-wrap;
+  line-height: 1.6;
 }
 
 .content-section {

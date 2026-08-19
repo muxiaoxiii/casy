@@ -25,8 +25,9 @@ const activeView = ref('month') // month/week/forecast
 const weekDays = ['一', '二', '三', '四', '五', '六', '日']
 
 const viewOptions = [
-  { key: 'month', label: '月视图' },
+  { key: 'day', label: '日视图' },
   { key: 'week', label: '周视图' },
+  { key: 'month', label: '月视图' },
   { key: 'forecast', label: '预测' },
 ]
 
@@ -319,6 +320,29 @@ function getEventCount(date) {
 }
 
 /**
+ * 周视图：获取某天某小时的事件
+ */
+const weekHours = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 - 21:00
+
+function getWeekDay(dayIndex) {
+  const d = new Date(currentDate.value)
+  const currentDay = d.getDay() || 7
+  const diff = dayIndex - currentDay
+  d.setDate(d.getDate() + diff)
+  return d
+}
+
+function getWeekDayHourEvents(date, hour) {
+  const dateStr = formatDate(date)
+  return events.value.filter(e => {
+    if (e.date !== dateStr) return false
+    if (!e.time) return false
+    const eHour = parseInt(e.time.split(':')[0])
+    return eHour === hour
+  })
+}
+
+/**
  * 未来7天预测数据
  */
 const forecastDays = computed(() => {
@@ -594,6 +618,132 @@ async function onDrop(dateStr, event) {
           <!-- 空状态 -->
           <div v-if="selectedDayEvents.length === 0 && selectedDayTasks.length === 0" class="empty-day">
             当日无事件
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 周视图（时间块） -->
+    <div v-if="activeView === 'week'" class="week-container">
+      <div class="week-grid">
+        <!-- 时间轴 + 星期头 -->
+        <div class="week-header-row">
+          <div class="week-time-gutter" />
+          <div v-for="day in 7" :key="day" class="week-day-header" :class="{ today: isToday(getWeekDay(day)) }">
+            <div class="week-day-name">周{{ weekDays[day - 1] }}</div>
+            <div class="week-day-number" :class="{ 'today-num': isToday(getWeekDay(day)) }">
+              {{ getWeekDay(day).getDate() }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 时间行 -->
+        <div v-for="hour in weekHours" :key="hour" class="week-hour-row">
+          <div class="week-time-label">{{ String(hour).padStart(2, '0') }}:00</div>
+          <div v-for="day in 7" :key="day" class="week-cell" :class="{ today: isToday(getWeekDay(day)) }">
+            <div
+              v-for="ev in getWeekDayHourEvents(getWeekDay(day), hour)"
+              :key="ev.id"
+              class="week-event"
+              :style="{ borderLeftColor: getEventColor(ev), background: getEventBgColor(ev) }"
+            >
+              <span class="week-event-title">{{ ev.title }}</span>
+              <span class="week-event-time">{{ ev.time }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 日视图（硬性/弹性/成长时间块 · 设计哲学 §7） -->
+    <div v-if="activeView === 'day'" class="day-container">
+      <div class="day-grid">
+        <!-- 左：时间轴 -->
+        <div class="day-timeline">
+          <div class="day-header">
+            <span class="day-header-date">{{ formatDate(selectedDay?.date || new Date()) }}</span>
+            <span class="day-header-weekday">周{{ weekDays[(selectedDay?.date || new Date()).getDay() === 0 ? 6 : (selectedDay?.date || new Date()).getDay() - 1] }}</span>
+          </div>
+
+          <!-- 硬性日程区 -->
+          <div class="day-section">
+            <div class="day-section-label hard">
+              <el-icon><Bell /></el-icon> 硬性日程
+            </div>
+            <div
+              v-for="event in (selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date())).filter(e => e.type === 'court' || e.type === 'hearing')"
+              :key="event.id"
+              class="day-slot hard"
+            >
+              <span class="slot-time">{{ event.time || '--:--' }}</span>
+              <span class="slot-title">{{ event.title }}</span>
+              <el-tag size="small" type="danger">硬性</el-tag>
+            </div>
+            <div v-if="(selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date())).filter(e => e.type === 'court' || e.type === 'hearing').length === 0" class="day-empty">
+              无硬性日程
+            </div>
+          </div>
+
+          <!-- 弹性任务区 -->
+          <div class="day-section">
+            <div class="day-section-label flex">
+              <el-icon><Finished /></el-icon> 弹性任务
+            </div>
+            <div
+              v-for="task in (selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).filter(t => !t.completed)"
+              :key="task.id"
+              class="day-slot flex"
+              draggable="true"
+              @dragstart="onDragStart(task, $event)"
+            >
+              <span class="slot-time">{{ task.estimatedMinutes ? `${task.estimatedMinutes}m` : '--' }}</span>
+              <span class="slot-title">{{ task.taskName }}</span>
+              <el-tag size="small" type="primary">弹性</el-tag>
+            </div>
+            <div v-if="(selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).filter(t => !t.completed).length === 0" class="day-empty">
+              无弹性任务
+            </div>
+          </div>
+
+          <!-- 提示 -->
+          <div class="day-tip">
+            时间分配遵循「先硬性 → 再弹性 → 最后成长」。拖拽任务到其他日期 = 改期。
+          </div>
+        </div>
+
+        <!-- 右：当日议程 -->
+        <div class="day-agenda">
+          <div class="card">
+            <div class="card-header">当日议程</div>
+            <div
+              v-for="event in (selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date()))"
+              :key="event.id"
+              class="agenda-item"
+            >
+              <span class="agenda-dot" :style="{ background: getEventColor(event) }"></span>
+              <div class="agenda-info">
+                <span class="agenda-title">{{ event.title }}</span>
+                <span class="agenda-time">{{ event.time }} · {{ getEventTypeLabel(event.type) }}</span>
+              </div>
+            </div>
+            <div v-if="(selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date())).length === 0" class="day-empty">
+              当日无事件
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 14px;">
+            <div class="card-header">当日到期任务</div>
+            <div
+              v-for="task in (selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date()))"
+              :key="task.id"
+              class="agenda-task"
+            >
+              <el-checkbox :model-value="!!task.completed" />
+              <span class="agenda-task-name">{{ task.taskName }}</span>
+            </div>
+            <div v-if="(selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).length === 0" class="day-empty">
+              无到期任务
+            </div>
           </div>
         </div>
       </div>
@@ -1089,6 +1239,278 @@ async function onDrop(dateStr, event) {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+/* ============================================================
+   周视图样式（时间块）
+   ============================================================ */
+.week-container {
+  background: #FFFFFF;
+  border: 1px solid #E4E7ED;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: calc(100vh - 200px);
+}
+
+.week-grid {
+  min-width: 700px;
+}
+
+.week-header-row {
+  display: grid;
+  grid-template-columns: 56px repeat(7, 1fr);
+  border-bottom: 1px solid #E4E7ED;
+  position: sticky;
+  top: 0;
+  background: #FFFFFF;
+  z-index: 2;
+}
+
+.week-time-gutter {
+  background: #FAFAFA;
+}
+
+.week-day-header {
+  padding: 8px 0;
+  text-align: center;
+  border-left: 1px solid #EEF0F3;
+}
+
+.week-day-header.today {
+  background: #EFF6FF;
+}
+
+.week-day-name {
+  font-size: 11px;
+  color: #9BA2AF;
+  letter-spacing: .5px;
+}
+
+.week-day-number {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1F2430;
+  margin-top: 2px;
+}
+
+.week-day-number.today-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #3E5C9A;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.week-hour-row {
+  display: grid;
+  grid-template-columns: 56px repeat(7, 1fr);
+  border-bottom: 1px solid #EEF0F3;
+  min-height: 48px;
+}
+
+.week-time-label {
+  font-size: 11px;
+  color: #9BA2AF;
+  font-family: var(--font-mono);
+  text-align: right;
+  padding: 4px 8px 0 0;
+}
+
+.week-cell {
+  border-left: 1px solid #EEF0F3;
+  padding: 2px 3px;
+  position: relative;
+}
+
+.week-cell.today {
+  background: rgba(62, 92, 154, 0.02);
+}
+
+.week-event {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border-left: 2px solid;
+  margin-bottom: 2px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.week-event-title {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.week-event-time {
+  font-size: 10px;
+  color: #9BA2AF;
+}
+
+/* ============================================================
+   日视图样式（硬性/弹性/成长时间块）
+   ============================================================ */
+.day-container {
+  background: #FFFFFF;
+  border: 1px solid #E4E7ED;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.day-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+}
+
+.day-header {
+  margin-bottom: 16px;
+}
+
+.day-header-date {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1F2430;
+}
+
+.day-header-weekday {
+  font-size: 14px;
+  color: #9BA2AF;
+  margin-left: 8px;
+}
+
+.day-section {
+  margin-bottom: 16px;
+}
+
+.day-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #EEF0F3;
+}
+
+.day-section-label.hard { color: #B4554F; }
+.day-section-label.flex { color: #3E5C9A; }
+.day-section-label.grow { color: #4C8067; }
+
+.day-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  border: 1px solid #E0E3E9;
+  background: #FFFFFF;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.day-slot:hover {
+  border-color: #CDD2DB;
+}
+
+.day-slot.hard {
+  border-left: 3px solid #B4554F;
+}
+
+.day-slot.flex {
+  border-left: 3px solid #3E5C9A;
+}
+
+.slot-time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #4B5160;
+  width: 44px;
+  flex-shrink: 0;
+}
+
+.slot-title {
+  flex: 1;
+  font-size: 13px;
+  color: #1F2430;
+}
+
+.day-empty {
+  text-align: center;
+  padding: 16px;
+  color: #9BA2AF;
+  font-size: 12px;
+}
+
+.day-tip {
+  font-size: 12px;
+  color: #9BA2AF;
+  padding: 8px 0;
+  border-top: 1px dashed #E0E3E9;
+  margin-top: 8px;
+}
+
+.day-agenda .card-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1F2430;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #EEF0F3;
+}
+
+.agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #EEF0F3;
+}
+
+.agenda-item:last-child { border-bottom: none; }
+
+.agenda-dot {
+  width: 4px;
+  height: 28px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.agenda-info {
+  flex: 1;
+}
+
+.agenda-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1F2430;
+}
+
+.agenda-time {
+  display: block;
+  font-size: 11px;
+  color: #9BA2AF;
+  margin-top: 1px;
+}
+
+.agenda-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.agenda-task-name {
+  font-size: 13px;
+  color: #1F2430;
 }
 
 /* ============================================================

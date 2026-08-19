@@ -2,10 +2,32 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { useInboxStore } from '../../../stores/inbox'
+import { useCapture } from '../composables/useCapture'
+import { useVoiceNote } from '../composables/useVoiceNote'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Connection } from '@element-plus/icons-vue'
+import { Connection, Paperclip, DocumentCopy, Camera, EditPen } from '@element-plus/icons-vue'
 
 const inboxStore = useInboxStore()
+const { captureScreenshot, captureClipboard, startClipboardMonitor } = useCapture()
+
+// 语音速记（设计哲学 §10）：录音 → save_voice_note → add_inbox_item
+const { isRecording, recordingTime, startRecording, stopRecording, formatTime } = useVoiceNote()
+const micAvailable = ref(true)
+
+async function toggleVoiceNote() {
+  if (isRecording.value) {
+    stopRecording()
+    // 保存后刷新收件箱（onstop 为异步，稍等落库）
+    setTimeout(() => loadItems(), 800)
+    return
+  }
+  try {
+    await startRecording()
+  } catch (err) {
+    micAvailable.value = false
+    ElMessage.warning('麦克风不可用或无权限，语音速记已禁用')
+  }
+}
 const items = ref([])
 const loading = ref(false)
 const activeTab = ref('pending')
@@ -13,6 +35,7 @@ const showAddNoteDialog = ref(false)
 const newNote = ref('')
 const processing = ref(false)
 const isDragging = ref(false)
+const quickCaptureText = ref('')
 let dragCounter = 0
 
 // v2.1: 推荐确认弹窗状态
@@ -31,6 +54,31 @@ const aiResults = ref({})
 
 // v2.1: 拷贝进度
 const copyProgress = ref(null)
+
+// 语音转写（transcribe_voice_note，需 OpenAI 兼容 STT；失败显示后端友好文案）
+const transcribingIds = ref({})
+const AUDIO_EXT_RE = /\.(webm|ogg|mp3|m4a|wav)$/i
+
+/** 判断收件项是否关联音频（宽松：source_path 命中音频扩展名，或语音类来源） */
+function isAudioItem(item) {
+  const p = item.sourcePath || item.source_path || ''
+  if (AUDIO_EXT_RE.test(p)) return true
+  return item.sourceType === 'voice' || item.sourceType === 'audio'
+}
+
+async function transcribeItem(item) {
+  if (transcribingIds.value[item.id]) return
+  transcribingIds.value = { ...transcribingIds.value, [item.id]: true }
+  const result = await tauriCallSafe('transcribe_voice_note', { inboxItemId: item.id })
+  transcribingIds.value = { ...transcribingIds.value, [item.id]: false }
+  if (result.ok) {
+    ElMessage.success('转写完成')
+    // 转写文本已由后端写回 content_text，刷新列表
+    await loadItems()
+  } else {
+    ElMessage.warning(result.error || '转写失败')
+  }
+}
 
 const categoryLabels = {
   summons: '传票',
@@ -190,6 +238,57 @@ async function quickConfirm(item) {
   }
 }
 
+// 快速捕获（回车即入袋，设计哲学 §10.2）
+async function quickCapture() {
+  if (!quickCaptureText.value.trim()) return
+  processing.value = true
+  const result = await tauriCallSafe('add_inbox_item', {
+    sourceType: 'note',
+    contentText: quickCaptureText.value,
+  })
+  processing.value = false
+  if (result.ok) {
+    ElMessage.success('已捕获到收件箱')
+    quickCaptureText.value = ''
+    await loadItems()
+  }
+}
+
+// 截屏捕获（设计哲学 §10）
+async function handleScreenshot() {
+  const result = await captureScreenshot()
+  if (result) {
+    ElMessage.success('截屏已捕获到收件箱')
+    await loadItems()
+  } else {
+    ElMessage.error('截屏失败')
+  }
+}
+
+// 从剪贴板粘贴
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text && text.trim()) {
+      processing.value = true
+      const result = await tauriCallSafe('add_inbox_item', {
+        sourceType: 'paste',
+        contentText: text,
+        title: '剪贴板内容',
+      })
+      processing.value = false
+      if (result.ok) {
+        ElMessage.success('剪贴板内容已捕获')
+        await loadItems()
+      }
+    } else {
+      ElMessage.warning('剪贴板为空')
+    }
+  } catch (err) {
+    ElMessage.error('无法读取剪贴板')
+  }
+}
+
 async function addNote() {
   if (!newNote.value.trim()) return
   processing.value = true
@@ -284,6 +383,96 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+// ===== 批量 AI 分类（事件驱动进度，失败回退轮询） =====
+const batch = ref({ total: 0, processed: 0, failed: 0, active: 0, currentItem: null, running: false })
+const batchPaused = ref(false) // paused 不在进度 payload 中，由前端本地跟踪
+const batchStarting = ref(false)
+let batchPollTimer = null
+
+const batchPercent = computed(() => {
+  if (!batch.value.total) return 0
+  return Math.min(100, Math.round(((batch.value.processed + batch.value.failed) / batch.value.total) * 100))
+})
+
+function applyBatchProgress(p) {
+  if (!p) return
+  batch.value = {
+    total: p.total || 0,
+    processed: p.processed || 0,
+    failed: p.failed || 0,
+    active: p.active || 0,
+    currentItem: p.currentItem ?? null,
+    running: !!p.running,
+  }
+  if (!p.running) batchPaused.value = false
+}
+
+function onBatchFinished(payload) {
+  batch.value.running = false
+  batchPaused.value = false
+  const ok = payload?.processed ?? batch.value.processed
+  const fail = payload?.failed ?? batch.value.failed
+  if (fail > 0) {
+    ElMessage.warning(`处理完成：成功 ${ok}，失败 ${fail}`)
+  } else {
+    ElMessage.success(`处理完成：成功 ${ok}，失败 ${fail}`)
+  }
+  loadItems()
+}
+
+async function startBatch() {
+  batchStarting.value = true
+  const result = await tauriCallSafe('start_inbox_batch')
+  batchStarting.value = false
+  if (result.ok) {
+    batchPaused.value = false
+    applyBatchProgress(result.data)
+  } else {
+    ElMessage.error(result.error || '启动批量分类失败')
+  }
+}
+
+async function pauseBatch() {
+  const result = await tauriCallSafe('pause_inbox_batch')
+  if (result.ok) {
+    batchPaused.value = true
+  } else {
+    ElMessage.error(result.error || '暂停失败')
+  }
+}
+
+async function resumeBatch() {
+  const result = await tauriCallSafe('resume_inbox_batch')
+  if (result.ok) {
+    batchPaused.value = false
+  } else {
+    ElMessage.error(result.error || '恢复失败')
+  }
+}
+
+async function cancelBatch() {
+  const result = await tauriCallSafe('cancel_inbox_batch')
+  if (result.ok) {
+    batchPaused.value = false
+  } else {
+    ElMessage.error(result.error || '取消失败')
+  }
+}
+
+// 事件监听失败时的降级：500ms 轮询 get_inbox_progress
+function startBatchPolling() {
+  if (batchPollTimer) return
+  let wasRunning = batch.value.running
+  batchPollTimer = setInterval(async () => {
+    const result = await tauriCallSafe('get_inbox_progress')
+    if (!result.ok) return
+    const nowRunning = !!result.data?.running
+    applyBatchProgress(result.data)
+    if (wasRunning && !nowRunning) onBatchFinished(result.data)
+    wasRunning = nowRunning
+  }, 500)
 }
 
 // ===== 拖拽上传 =====
@@ -393,21 +582,97 @@ onMounted(async () => {
   } catch (err) {
     console.warn('事件监听注册失败:', err)
   }
+
+  // 批量 AI 分类：先取一次当前进度（页面打开时批次可能已在跑）
+  const progressResult = await tauriCallSafe('get_inbox_progress')
+  if (progressResult.ok) applyBatchProgress(progressResult.data)
+
+  // 批量进度事件监听；失败时回退 500ms 轮询
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+
+    unlistenFns.push(
+      await listen('inbox:batch-progress', (event) => {
+        applyBatchProgress(event.payload)
+      })
+    )
+
+    unlistenFns.push(
+      await listen('inbox:batch-finished', (event) => {
+        onBatchFinished(event.payload)
+      })
+    )
+  } catch (err) {
+    console.warn('批量进度事件监听失败，回退轮询:', err)
+    startBatchPolling()
+  }
 })
 
 onUnmounted(() => {
   unlistenFns.forEach((fn) => fn())
+  if (batchPollTimer) {
+    clearInterval(batchPollTimer)
+    batchPollTimer = null
+  }
 })
 </script>
 
 <template>
   <div class="inbox-page">
-    <div class="toolbar">
-      <h3>📥 收件箱</h3>
-      <div class="toolbar-actions">
-        <el-button size="small" @click="importFile" :loading="processing">📎 导入文件</el-button>
-        <el-button size="small" @click="showAddNoteDialog = true">📝 添加笔记</el-button>
-        <el-button size="small" @click="loadItems">刷新</el-button>
+    <!-- 快速捕获条（设计哲学 §10.2：极简输入，回车即入袋） -->
+    <div class="capture-bar">
+      <textarea
+        v-model="quickCaptureText"
+        placeholder="有什么想法、材料、待办？先记下来，稍后厘清…（回车即入袋）"
+        @keydown.enter.exact.prevent="quickCapture"
+        rows="1"
+      />
+      <div class="capture-bar-tools">
+        <button class="capture-btn" @click="quickCapture" :disabled="!quickCaptureText.trim()">
+          快速捕获 <kbd>⌘I</kbd>
+        </button>
+        <button class="capture-btn" @click="importFile" title="导入文件">
+          <el-icon :size="13"><Paperclip /></el-icon> 文件
+        </button>
+        <button class="capture-btn" @click="pasteFromClipboard" title="粘贴剪贴板">
+          <el-icon :size="13"><DocumentCopy /></el-icon> 粘贴
+        </button>
+        <button class="capture-btn" @click="handleScreenshot" title="截屏捕获">
+          <el-icon :size="13"><Camera /></el-icon> 截屏
+        </button>
+        <button class="capture-btn" @click="showAddNoteDialog = true" title="添加笔记">
+          <el-icon :size="13"><EditPen /></el-icon> 笔记
+        </button>
+        <button
+          class="capture-btn voice-btn"
+          :class="{ recording: isRecording }"
+          :disabled="!micAvailable"
+          :title="micAvailable ? (isRecording ? '点击停止并保存' : '语音速记') : '麦克风不可用或无权限'"
+          @click="toggleVoiceNote"
+        >
+          <span v-if="isRecording" class="rec-dot"></span>
+          {{ isRecording ? `录音中 ${formatTime(recordingTime)}` : '语音' }}
+        </button>
+        <span v-if="!micAvailable" class="capture-hint">麦克风不可用，语音速记已禁用</span>
+        <span v-else class="capture-hint">也可直接拖文件到这里</span>
+      </div>
+    </div>
+
+    <!-- 收件箱状态概览 -->
+    <div class="inbox-hero">
+      <div class="inbox-hero-left">
+        <span class="inbox-hero-title">📥 收件箱 · 大口袋</span>
+        <span class="inbox-hero-sub">所有想法、材料先进口袋——先捕获，后厘清</span>
+      </div>
+      <div class="inbox-hero-stats">
+        <div class="hero-stat">
+          <span class="hero-stat-num red">{{ pendingItems.length }}</span>
+          <span class="hero-stat-label">待厘清</span>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-num">{{ filedItems.length }}</span>
+          <span class="hero-stat-label">已归档</span>
+        </div>
       </div>
     </div>
 
@@ -437,6 +702,47 @@ onUnmounted(() => {
       <div v-else class="drop-idle">
         <span class="drop-icon">📎</span>
         <span>拖拽文件到此处快速导入</span>
+      </div>
+    </div>
+
+    <!-- 批量 AI 分类 -->
+    <div class="batch-panel">
+      <div class="batch-main">
+        <div class="batch-header">
+          <span class="batch-title">批量 AI 分类</span>
+          <span v-if="!batch.running" class="batch-sub">待处理 {{ pendingItems.length }} 条</span>
+          <span v-else-if="batchPaused" class="batch-status paused">已暂停</span>
+          <span v-else class="batch-status">处理中</span>
+        </div>
+        <template v-if="batch.running">
+          <el-progress :percentage="batchPercent" :stroke-width="8" color="#4C8067" />
+          <div class="batch-detail">
+            <span>{{ batch.processed + batch.failed }} / {{ batch.total }}</span>
+            <span v-if="batch.failed > 0" class="batch-failed">失败 {{ batch.failed }}</span>
+            <span v-if="batch.currentItem" class="batch-current">正在处理：{{ batch.currentItem }}</span>
+            <span class="batch-active">并发 {{ batch.active }}</span>
+          </div>
+        </template>
+      </div>
+      <div class="batch-actions">
+        <el-button
+          v-if="!batch.running"
+          type="primary"
+          size="small"
+          :disabled="!pendingItems.length"
+          :loading="batchStarting"
+          @click="startBatch"
+        >
+          开始批量分类
+        </el-button>
+        <template v-else-if="!batchPaused">
+          <el-button size="small" @click="pauseBatch">暂停</el-button>
+          <el-button size="small" type="danger" plain @click="cancelBatch">取消</el-button>
+        </template>
+        <template v-else>
+          <el-button size="small" type="primary" @click="resumeBatch">恢复</el-button>
+          <el-button size="small" type="danger" plain @click="cancelBatch">取消</el-button>
+        </template>
       </div>
     </div>
 
@@ -589,6 +895,15 @@ onUnmounted(() => {
               >
                 🤖 {{ item.aiAnalyzed ? '查看AI分析' : 'AI 分析' }}
               </el-button>
+              <!-- 语音转写按钮（音频条目） -->
+              <el-button
+                v-if="isAudioItem(item)"
+                size="small"
+                :loading="!!transcribingIds[item.id]"
+                @click="transcribeItem(item)"
+              >
+                转写
+              </el-button>
               <el-button size="small" @click="dismissItem(item)">忽略</el-button>
             </div>
           </div>
@@ -680,25 +995,163 @@ onUnmounted(() => {
   margin: 0 auto;
 }
 
-.toolbar {
+/* 快速捕获条（设计哲学 §10.2） */
+.capture-bar {
+  background: #FFFFFF;
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.capture-bar textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 13.5px;
+  line-height: 1.6;
+  background: transparent;
+  color: #1F2430;
+  font-family: inherit;
+  min-height: 22px;
+}
+
+.capture-bar textarea::placeholder {
+  color: #9BA2AF;
+}
+
+.capture-bar-tools {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #EEF0F3;
 }
 
-.toolbar h3 {
-  margin: 0;
+.capture-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #E0E3E9;
+  background: #FFFFFF;
+  font-size: 12px;
+  color: #4B5160;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
 }
 
-.toolbar-actions {
+.capture-btn:hover {
+  border-color: #CDD2DB;
+  background: #F6F7F9;
+}
+
+.capture-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 语音速记录制态 */
+.voice-btn.recording {
+  border-color: #B4554F;
+  color: #B4554F;
+  background: #F6EDEC;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #B4554F;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.capture-btn kbd {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  border: 1px solid #E0E3E9;
+  border-radius: 3px;
+  padding: 0 4px;
+  background: #F6F7F9;
+}
+
+.capture-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #9BA2AF;
+}
+
+/* 收件箱状态概览 */
+.inbox-hero {
   display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #FFFFFF;
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  padding: 12px 18px;
+  margin-bottom: 12px;
+}
+
+.inbox-hero-left {
+  flex: 1;
+}
+
+.inbox-hero-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1F2430;
+  display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.inbox-hero-sub {
+  font-size: 12px;
+  color: #9BA2AF;
+  margin-top: 2px;
+}
+
+.inbox-hero-stats {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+}
+
+.hero-stat {
+  text-align: center;
+}
+
+.hero-stat-num {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'SF Mono', Menlo, monospace;
+  line-height: 1.1;
+  color: #1F2430;
+}
+
+.hero-stat-num.red {
+  color: #B4554F;
+}
+
+.hero-stat-label {
+  font-size: 11px;
+  color: #9BA2AF;
+  margin-top: 2px;
 }
 
 /* 拖拽上传区 */
 .drop-zone {
-  border: 2px dashed #dcdfe6;
+  border: 2px dashed #CDD2DB;
   border-radius: 8px;
   padding: 20px;
   text-align: center;
@@ -957,6 +1410,81 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 批量 AI 分类 */
+.batch-panel {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #FFFFFF;
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  padding: 12px 18px;
+  margin-bottom: 12px;
+}
+
+.batch-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.batch-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.batch-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1F2430;
+}
+
+.batch-sub {
+  font-size: 12px;
+  color: #9BA2AF;
+}
+
+.batch-status {
+  font-size: 12px;
+  color: #3E5C9A;
+}
+
+.batch-status.paused {
+  color: #B4554F;
+}
+
+.batch-detail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #9BA2AF;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.batch-failed {
+  color: #B4554F;
+}
+
+.batch-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  color: #4B5160;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* 确认弹窗 */

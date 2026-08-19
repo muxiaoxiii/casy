@@ -141,7 +141,8 @@ onUnmounted(() => { if (unlisten) unlisten() })
 .reminder-banner {
   position: fixed;
   top: 0;
-  left: var(--sidebar-width, 48px);
+  /* 侧栏折叠态宽 48px（App.vue）；不用 --sidebar-width（theme.css 中为 216px，会错位） */
+  left: 48px;
   right: 0;
   z-index: 2000;
   display: flex;

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useFiltersStore } from '../../../stores/filters'
 import {
   Plus, Check, Clock, Calendar, Star, Folder,
   ArrowRight, Delete, Edit, More, Refresh,
@@ -97,12 +98,13 @@ const priorityLabels = {
 
 // GTD 透视定义
 const perspectives = [
-  { key: 'inbox', label: '收件箱', icon: Box, color: '#909399' },
-  { key: 'next', label: '下一步行动', icon: ArrowRight, color: '#409EFF' },
-  { key: 'waiting', label: '等待', icon: Clock, color: '#E6A23C' },
-  { key: 'today', label: '今日', icon: Calendar, color: '#F56C6C' },
-  { key: 'review', label: '回顾', icon: View, color: '#67C23A' },
-  { key: 'someday', label: '某天', icon: Folder, color: '#909399' },
+  { key: 'inbox', label: '收件箱', icon: Box, color: '#9BA2AF', desc: '先捕获，稍后厘清' },
+  { key: 'today', label: '今天', icon: Calendar, color: '#B4554F', desc: '今日聚焦' },
+  { key: 'upcoming', label: '计划中', icon: Timer, color: '#3E5C9A', desc: '有 When 日期的任务' },
+  { key: 'next', label: '随时', icon: ArrowRight, color: '#4C8067', desc: '按上下文分组' },
+  { key: 'waiting', label: '等待', icon: Clock, color: '#B0823A', desc: '追踪委派' },
+  { key: 'review', label: '回顾', icon: RefreshRight, color: '#6C6A9C', desc: 'GTD Reflect' },
+  { key: 'someday', label: '某天', icon: Folder, color: '#9BA2AF', desc: '灵感池' },
 ]
 
 // 任务类型选项
@@ -143,11 +145,22 @@ const gtdTasks = computed(() => {
       return tasks.value.filter(t => t.startBucket === 'inbox' && !t.completed)
     
     case 'next':
-      return tasks.value.filter(t => 
-        !t.completed && 
-        t.taskType === 'action' && 
+      return tasks.value.filter(t =>
+        !t.completed &&
+        t.taskType === 'action' &&
         (t.blocked === 0 || !t.caseId)
       )
+
+    case 'upcoming':
+      return tasks.value.filter(t =>
+        !t.completed &&
+        t.taskType === 'action' &&
+        (t.startDate || t.dueDate || t.deadline)
+      ).sort((a, b) => {
+        const da = a.startDate || a.dueDate || a.deadline || '9999'
+        const db = b.startDate || b.dueDate || b.deadline || '9999'
+        return da.localeCompare(db)
+      })
     
     case 'waiting':
       return tasks.value.filter(t => 
@@ -181,9 +194,10 @@ const gtdStats = computed(() => {
   const today = new Date().toISOString().split('T')[0]
   return {
     inbox: tasks.value.filter(t => t.startBucket === 'inbox' && !t.completed).length,
+    today: tasks.value.filter(t => !t.completed && (t.startBucket === 'today' || (t.startDate && t.startDate <= today))).length,
+    upcoming: tasks.value.filter(t => !t.completed && t.taskType === 'action' && (t.startDate || t.dueDate || t.deadline)).length,
     next: tasks.value.filter(t => !t.completed && t.taskType === 'action' && (t.blocked === 0 || !t.caseId)).length,
     waiting: tasks.value.filter(t => !t.completed && t.taskType === 'waiting').length,
-    today: tasks.value.filter(t => !t.completed && (t.startBucket === 'today' || (t.startDate && t.startDate <= today))).length,
     review: tasks.value.filter(t => !t.completed && t.nextReviewDate && t.nextReviewDate <= today).length,
     someday: tasks.value.filter(t => !t.completed && t.startBucket === 'someday').length,
   }
@@ -194,6 +208,7 @@ const gtdStats = computed(() => {
 // ============================================================
 onMounted(() => {
   loadData()
+  filtersStore.loadFilters('tasks')
   // 从路由 query 恢复视图模式
   const urlParams = new URLSearchParams(window.location.search)
   if (urlParams.get('view') === 'gtd') {
@@ -239,7 +254,27 @@ async function loadAreas() {
 // 原有函数（保留）
 // ============================================================
 async function toggleComplete(task) {
-  const result = await tauriCallSafe('toggle_task', { id: task.id })
+  // 完成任务时可选填实际耗时（分钟）；取消/留空则不记录
+  let actualMinutes = null
+  if (!task.completed) {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        '实际耗时（分钟，可留空）',
+        `完成「${task.taskName}」`,
+        {
+          confirmButtonText: '完成',
+          cancelButtonText: '直接完成',
+          inputPlaceholder: task.estimatedMinutes ? `预估 ${task.estimatedMinutes} 分钟` : '如 45',
+          inputPattern: /^\d*$/,
+          inputErrorMessage: '请输入数字',
+        }
+      )
+      actualMinutes = value && /^\d+$/.test(value) ? parseInt(value, 10) : null
+    } catch {
+      actualMinutes = null // 用户选择直接完成
+    }
+  }
+  const result = await tauriCallSafe('toggle_task', { id: task.id, actualMinutes })
   if (result.ok) {
     task.completed = task.completed ? 0 : 1
     ElMessage.success(task.completed ? '已完成' : '已恢复')
@@ -393,6 +428,52 @@ function switchPerspective(key) {
   window.history.replaceState({}, '', url)
 }
 
+// ============================================================
+// 已保存筛选（设计哲学 §9：视图状态可保存复用，entity_type='tasks'）
+// ============================================================
+const filtersStore = useFiltersStore()
+const savedFilters = computed(() => filtersStore.filters)
+
+async function saveCurrentFilter() {
+  let name = ''
+  try {
+    const { value } = await ElMessageBox.prompt('为当前视图状态命名', '保存筛选', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputPlaceholder: '如：GTD-等待、四象限总览',
+    })
+    name = (value || '').trim()
+  } catch {
+    return // 用户取消
+  }
+  if (!name) return
+  const result = await filtersStore.saveFilter({
+    module: 'tasks',
+    name,
+    filter: { viewMode: viewMode.value, perspective: activePerspective.value },
+  })
+  if (result.ok) {
+    ElMessage.success('筛选已保存')
+  } else {
+    ElMessage.error(result.error || '保存失败')
+  }
+}
+
+function applySavedFilter(sf) {
+  const f = sf.filter || {}
+  if (f.viewMode && f.viewMode !== viewMode.value) switchViewMode(f.viewMode)
+  if (f.perspective && f.perspective !== activePerspective.value) switchPerspective(f.perspective)
+}
+
+async function deleteSavedFilter(sf) {
+  const result = await filtersStore.deleteFilter(sf.id)
+  if (result.ok) {
+    ElMessage.success('已删除')
+  } else {
+    ElMessage.error(result.error || '删除失败')
+  }
+}
+
 // 厘清任务
 function openTriage(task) {
   triagingTask.value = task
@@ -543,6 +624,24 @@ onUnmounted(() => {
       </div>
       
       <div class="toolbar-right">
+        <!-- 已保存筛选（设计哲学 §9） -->
+        <el-dropdown v-if="savedFilters.length > 0" trigger="click">
+          <el-button size="small">
+            已存筛选
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="sf in savedFilters" :key="sf.id">
+                <div class="saved-filter-item" @click="applySavedFilter(sf)">
+                  <span>{{ sf.name }}</span>
+                  <el-button size="small" type="danger" text @click.stop="deleteSavedFilter(sf)">删除</el-button>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button size="small" text type="primary" @click="saveCurrentFilter">保存筛选</el-button>
+
         <!-- 视图切换 -->
         <el-radio-group v-model="viewMode" size="small" @change="switchViewMode">
           <el-radio-button value="quadrant">
@@ -1082,6 +1181,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* 已保存筛选下拉项 */
+.saved-filter-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 140px;
 }
 
 /* GTD 透视标签 */

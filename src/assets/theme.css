@@ -1,84 +1,85 @@
 /* ── Casy 主题变量 ────────────────────────────────────────── *
  *
- * 按 docs/ui-design.md 设计规范落地
- * 法律工具：信息密度优先、克制用色、专业信任感
+ * 按 casy-design-philosophy.md 第十二章设计规范
+ * 默认主题：Slate 石墨蓝（低饱和稳重 · 专业信任感）
  * ──────────────────────────────────────────────────────────── */
 
 :root {
-  /* ── 品牌色 ───────────────────────────────────────────── */
-  --c-primary: #2563eb;
-  --c-primary-hover: #1d4ed8;
-  --c-primary-light: #eff6ff;
-  --c-primary-lighter: #dbeafe;
-  --c-primary-soft: #f5f8ff;
+  /* ── 品牌色（Slate 石墨蓝）────────────────────────── */
+  --c-primary: #3E5C9A;
+  --c-primary-hover: #334D82;
+  --c-primary-light: #EDF1F8;
+  --c-primary-lighter: #C3CFE3;
+  --c-primary-soft: #EDF1F8;
 
-  /* ── 中性灰阶（Tailwind 风格） ─────────────────────────── */
-  --gray-50:  #f9fafb;
-  --gray-100: #f3f4f6;
-  --gray-200: #e5e7eb;
-  --gray-300: #d1d5db;
-  --gray-400: #9ca3af;
-  --gray-500: #6b7280;
-  --gray-600: #4b5563;
+  /* ── 中性灰阶（Slate 风格）────────────────────────── */
+  --gray-50:  #F6F7F9;
+  --gray-100: #EEF0F3;
+  --gray-200: #E0E3E9;
+  --gray-300: #CDD2DB;
+  --gray-400: #9BA2AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5160;
   --gray-700: #374151;
-  --gray-800: #1f2937;
+  --gray-800: #1F2430;
   --gray-900: #111827;
 
-  /* ── 语义色 ───────────────────────────────────────────── */
-  --c-success: #10b981;
-  --c-success-light: #ecfdf5;
-  --c-warning: #f59e0b;
-  --c-warning-light: #fffbeb;
-  --c-danger: #ef4444;
-  --c-danger-light: #fef2f2;
-  --c-info: #6b7280;
-  --c-info-light: #f9fafb;
+  /* ── 语义色（克制用色）────────────────────────────── */
+  --c-success: #4C8067;
+  --c-success-light: #EDF3EF;
+  --c-warning: #B0823A;
+  --c-warning-light: #F7F1E3;
+  --c-danger: #B4554F;
+  --c-danger-light: #F6EDEC;
+  --c-info: #6C6A9C;
+  --c-info-light: #F0EFF6;
 
-  /* ── 文字色 ───────────────────────────────────────────── */
-  --c-text: var(--gray-700);
-  --c-text-regular: var(--gray-600);
-  --c-text-secondary: var(--gray-500);
-  --c-text-placeholder: var(--gray-400);
-  --c-text-heading: var(--gray-900);
+  /* ── 文字色 ───────────────────────────────────────── */
+  --c-text: #1F2430;
+  --c-text-regular: #4B5160;
+  --c-text-secondary: #9BA2AF;
+  --c-text-placeholder: #9BA2AF;
+  --c-text-heading: #1F2430;
 
-  /* ── 背景/边框 ────────────────────────────────────────── */
-  --c-bg: #ffffff;
-  --c-bg-page: var(--gray-50);
-  --c-bg-card: #ffffff;
-  --c-bg-sidebar: #ffffff;
-  --c-bg-hover: var(--gray-50);
-  --c-border: var(--gray-200);
-  --c-border-light: var(--gray-200);
-  --c-border-lighter: var(--gray-100);
+  /* ── 背景/边框 ────────────────────────────────────── */
+  --c-bg: #F6F7F9;
+  --c-bg-page: #F6F7F9;
+  --c-bg-card: #FFFFFF;
+  --c-bg-sidebar: #FFFFFF;
+  --c-bg-hover: #F0F2F5;
+  --c-border: #E0E3E9;
+  --c-border-light: #EEF0F3;
+  --c-border-lighter: #EEF0F3;
 
-  /* ── 圆角 ─────────────────────────────────────────────── */
+  /* ── 圆角 ─────────────────────────────────────────── */
   --c-radius-sm: 4px;
   --c-radius: 6px;
   --c-radius-lg: 8px;
   --c-radius-xl: 12px;
   --c-radius-full: 9999px;
 
-  /* ── 阴影 ─────────────────────────────────────────────── */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+  /* ── 阴影（克制）──────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(31,36,48,.05);
+  --shadow-md: 0 4px 12px rgba(31,36,48,.08);
+  --shadow-lg: 0 12px 32px rgba(31,36,48,.12);
+  --shadow-xl: 0 20px 25px rgba(31,36,48,.12);
 
-  /* ── 字体 ─────────────────────────────────────────────── */
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --font-sm: 13px;
-  --text-base: 14px;
-  --font-base: 14px;
-  --text-lg: 16px;
-  --font-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 24px;
-  --text-3xl: 32px;
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
+  /* ── 字体 ─────────────────────────────────────────── */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --font-sm: 12px;
+  --text-base: 13px;
+  --font-base: 13px;
+  --text-lg: 14px;
+  --font-lg: 14px;
+  --text-xl: 16px;
+  --text-2xl: 18px;
+  --text-3xl: 24px;
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+    'Noto Sans SC', 'Helvetica Neue', sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, monospace;
 
-  /* ── 间距（4px 基础） ─────────────────────────────────── */
+  /* ── 间距（4px 基础）──────────────────────────────── */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -92,154 +93,111 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* ── 侧边栏 ───────────────────────────────────────────── */
-  --sidebar-width: 48px;
-  --sidebar-width-expanded: 200px;
+  /* ── 侧边栏 ───────────────────────────────────────── */
+  --sidebar-width: 216px;
+  --sidebar-width-expanded: 216px;
 
-  /* ── Element Plus 变量覆盖 ─────────────────────────────── */
-  --el-color-primary: var(--c-primary);
-  --el-color-primary-light-3: #60a5fa;
-  --el-color-primary-light-5: #93c5fd;
-  --el-color-primary-light-7: #bfdbfe;
-  --el-color-primary-light-8: #dbeafe;
-  --el-color-primary-light-9: var(--c-primary-light);
-  --el-color-primary-dark-2: var(--c-primary-hover);
+  /* ── Element Plus 变量覆盖 ─────────────────────────── */
+  --el-color-primary: #3E5C9A;
+  --el-color-primary-light-3: #5A7AB5;
+  --el-color-primary-light-5: #8CA0C8;
+  --el-color-primary-light-7: #B3C3DB;
+  --el-color-primary-light-8: #C3CFE3;
+  --el-color-primary-light-9: #EDF1F8;
+  --el-color-primary-dark-2: #334D82;
 
-  --el-color-success: var(--c-success);
-  --el-color-warning: var(--c-warning);
-  --el-color-danger: var(--c-danger);
-  --el-color-info: var(--c-info);
+  --el-color-success: #4C8067;
+  --el-color-warning: #B0823A;
+  --el-color-danger: #B4554F;
+  --el-color-info: #6C6A9C;
 
-  --el-text-color-primary: var(--gray-800);
-  --el-text-color-regular: var(--gray-600);
-  --el-text-color-secondary: var(--gray-500);
-  --el-text-color-placeholder: var(--gray-400);
-  --el-text-color-disabled: var(--gray-300);
+  --el-text-color-primary: #1F2430;
+  --el-text-color-regular: #4B5160;
+  --el-text-color-secondary: #9BA2AF;
+  --el-text-color-placeholder: #9BA2AF;
+  --el-text-color-disabled: #CDD2DB;
 
-  --el-bg-color: var(--c-bg);
-  --el-bg-color-page: var(--c-bg-page);
-  --el-bg-color-overlay: #ffffff;
+  --el-bg-color: #FFFFFF;
+  --el-bg-color-page: #F6F7F9;
+  --el-bg-color-overlay: #FFFFFF;
 
-  --el-fill-color: var(--gray-100);
-  --el-fill-color-light: var(--gray-100);
-  --el-fill-color-lighter: var(--gray-50);
-  --el-fill-color-blank: #ffffff;
+  --el-fill-color: #EEF0F3;
+  --el-fill-color-light: #EEF0F3;
+  --el-fill-color-lighter: #F6F7F9;
+  --el-fill-color-blank: #FFFFFF;
 
-  --el-border-color: var(--gray-300);
-  --el-border-color-light: var(--gray-200);
-  --el-border-color-lighter: var(--gray-200);
-  --el-border-color-extra-light: var(--gray-100);
-  --el-border-color-hover: var(--gray-400);
+  --el-border-color: #CDD2DB;
+  --el-border-color-light: #E0E3E9;
+  --el-border-color-lighter: #E0E3E9;
+  --el-border-color-extra-light: #EEF0F3;
+  --el-border-color-hover: #9BA2AF;
 
-  --el-border-radius-base: var(--c-radius);
-  --el-border-radius-small: var(--c-radius-sm);
-  --el-border-radius-round: var(--c-radius-full);
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+  --el-border-radius-round: 9999px;
 
-  --el-font-size-base: var(--text-base);
-  --el-font-size-small: var(--text-sm);
-  --el-font-size-large: var(--text-lg);
+  --el-font-size-base: 13px;
+  --el-font-size-small: 12px;
+  --el-font-size-large: 14px;
 
-  --el-box-shadow: var(--shadow-sm);
-  --el-box-shadow-light: var(--shadow-sm);
-  --el-box-shadow-lighter: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --el-box-shadow-dark: var(--shadow-md);
+  --el-box-shadow: 0 1px 2px rgba(31,36,48,.05);
+  --el-box-shadow-light: 0 1px 2px rgba(31,36,48,.05);
+  --el-box-shadow-lighter: 0 1px 2px rgba(31,36,48,.03);
+  --el-box-shadow-dark: 0 4px 12px rgba(31,36,48,.08);
 }
 
 /* ── 全局字体 ─────────────────────────────────────────────── */
-
 body {
-  font-size: var(--text-base);
+  font-size: 13px;
   color: var(--c-text);
   background: var(--c-bg-page);
 }
 
 /* ── Element Plus 组件样式覆盖 ────────────────────────────── */
-
-/* 卡片：轻阴影 + 细边框 */
 .el-card {
-  border-radius: var(--c-radius-lg);
-  border: 1px solid var(--gray-200);
-  box-shadow: var(--shadow-sm) !important;
-  --el-card-border-color: var(--gray-200);
+  border-radius: 8px;
+  border: 1px solid #E0E3E9;
+  box-shadow: 0 1px 2px rgba(31,36,48,.05) !important;
+  --el-card-border-color: #E0E3E9;
 }
 
 .el-card__header {
-  border-bottom: 1px solid var(--gray-100);
+  border-bottom: 1px solid #EEF0F3;
   padding: 14px 16px;
 }
 
-.el-card__body {
-  padding: 16px;
-}
+.el-card__body { padding: 16px; }
 
-/* 弹窗 */
 .el-dialog {
-  border-radius: var(--c-radius-xl);
-  box-shadow: var(--shadow-xl) !important;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(31,36,48,.12) !important;
 }
 
-/* 按钮 */
 .el-button {
-  border-radius: var(--c-radius);
+  border-radius: 6px;
   font-weight: 500;
 }
 
 .el-button--primary {
-  --el-button-hover-bg-color: var(--c-primary-hover);
-  --el-button-hover-border-color: var(--c-primary-hover);
+  --el-button-hover-bg-color: #334D82;
+  --el-button-hover-border-color: #334D82;
 }
 
-/* 输入框 */
-.el-input__wrapper {
-  border-radius: var(--c-radius);
-}
+.el-input__wrapper { border-radius: 6px; }
 
-/* 表格 */
 .el-table {
-  --el-table-header-bg-color: var(--gray-50);
-  --el-table-header-text-color: var(--gray-600);
-  --el-table-border-color: var(--gray-100);
-  --el-table-row-hover-bg-color: var(--c-primary-soft);
+  --el-table-header-bg-color: #F6F7F9;
+  --el-table-header-text-color: #4B5160;
+  --el-table-border-color: #EEF0F3;
+  --el-table-row-hover-bg-color: #EDF1F8;
 }
 
-.el-table th.el-table__cell {
-  font-weight: 500;
-  font-size: var(--text-sm);
-}
+.el-table th.el-table__cell { font-weight: 500; font-size: 12px; }
 
-/* 表单 */
-.el-form-item__label {
-  font-size: var(--text-sm);
-  color: var(--gray-600);
-}
-
-/* 标签 */
-.el-tag {
-  font-size: var(--text-sm);
-  border-radius: var(--c-radius-sm);
-}
-
-/* 菜单 */
-.el-menu-item {
-  font-size: var(--text-sm);
-}
-
-/* 空状态 */
-.el-empty__description {
-  color: var(--gray-400);
-}
-
-/* 分页 */
-.el-pagination {
-  --el-pagination-button-bg-color: transparent;
-}
-
-/* Tab */
-.el-tabs__item {
-  font-size: var(--text-sm);
-}
-
-/* 选择器 */
-.el-select__wrapper {
-  border-radius: var(--c-radius);
-}
+.el-form-item__label { font-size: 12px; color: #4B5160; }
+.el-tag { font-size: 12px; border-radius: 4px; }
+.el-menu-item { font-size: 12px; }
+.el-empty__description { color: #9BA2AF; }
+.el-pagination { --el-pagination-button-bg-color: transparent; }
+.el-tabs__item { font-size: 12px; }
+.el-select__wrapper { border-radius: 6px; }

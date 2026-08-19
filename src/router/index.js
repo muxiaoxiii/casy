@@ -83,6 +83,18 @@ const routes = [
     meta: { title: '同步状态' },
   },
   {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('../modules/dashboard/DashboardView.vue'),
+    meta: { title: '数据看板' },
+  },
+  {
+    path: '/clients',
+    name: 'clients',
+    component: () => import('../modules/clients/views/ClientView.vue'),
+    meta: { title: '客户管理' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('../modules/settings/SettingsView.vue'),
@@ -99,6 +111,12 @@ const routes = [
     name: 'knowledge-style-guide',
     component: () => import('../modules/knowledge/views/KnowledgeStyleGuide.vue'),
     meta: { title: '文书风格指南' },
+  },
+  {
+    path: '/knowledge/graph',
+    name: 'knowledge-graph',
+    component: () => import('../modules/knowledge/views/KnowledgeGraphView.vue'),
+    meta: { title: '知识图谱' },
   },
   {
     path: '/ai',

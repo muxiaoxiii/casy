@@ -9,7 +9,7 @@ const settingsStore = useSettingsStore()
 
 // AI 状态：available / disabled / degraded
 const aiStatus = computed(() => {
-  const mode = settingsStore.aiMode
+  const mode = settingsStore.ai_mode
   if (mode === 'none') return 'disabled'
   if (mode === 'local' || mode === 'remote') return 'available'
   return 'disabled'
@@ -35,7 +35,7 @@ const dotClass = computed(() => {
 
 // 今日调用次数/配额
 const todayUsed = ref(0)
-const dailyLimit = computed(() => settingsStore.aiDailyLimit || 50)
+const dailyLimit = computed(() => settingsStore.ai_daily_limit || 50)
 const remaining = computed(() => Math.max(0, dailyLimit.value - todayUsed.value))
 
 // Popover 可见性
