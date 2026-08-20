@@ -852,10 +852,13 @@ pub struct QuickJudgeResult {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuickRecommendation {
+    /// 动作类型：file_to_case | create_task | create_deadline | save_knowledge | create_case | set_reminder
     pub action: String,
     pub target_case_id: Option<String>,
     pub target_case_name: Option<String>,
     pub target_folder: Option<String>,
+    /// 动作参数（如 create_task 的 taskName/dueDate；file_to_case 为 null）
+    pub intent: Option<serde_json::Value>,
     pub reason: String,
 }
 
@@ -865,23 +868,28 @@ pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, Stri
     run_blocking(move || {
         let conn = db::open_db()?;
 
-        // 读取收件项
-        let (title, source_path, ai_analyzed, ai_extracted): (Option<String>, Option<String>, i32, Option<String>) = conn
+        // 读取收件项（含内容文本，用于文本意图判断）
+        let (title, source_path, content_text, ai_analyzed, ai_extracted): (Option<String>, Option<String>, String, i32, Option<String>) = conn
             .query_row(
-                "SELECT title, source_path, ai_analyzed, ai_extracted FROM inbox_items WHERE id = ?1",
+                "SELECT title, source_path, COALESCE(content_text, ''), ai_analyzed, ai_extracted FROM inbox_items WHERE id = ?1",
                 rusqlite::params![id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .map_err(|_| anyhow::anyhow!("收件项不存在"))?;
 
-        let file_name = title.as_deref().unwrap_or("");
-        let file_size: u64 = source_path
-            .as_ref()
-            .and_then(|p| std::fs::metadata(p).ok())
-            .map(|m| m.len())
-            .unwrap_or(0);
-
-        let result = quick_judge(&conn, file_name, file_size, ai_analyzed != 0, ai_extracted.as_deref())?;
+        // 有源文件 → 文件归档意图；纯文本 → 文本意图判断（设计哲学 §10）
+        let result = if source_path.is_some() {
+            let file_name = title.as_deref().unwrap_or("");
+            let file_size: u64 = source_path
+                .as_ref()
+                .and_then(|p| std::fs::metadata(p).ok())
+                .map(|m| m.len())
+                .unwrap_or(0);
+            quick_judge(&conn, file_name, file_size, ai_analyzed != 0, ai_extracted.as_deref())?
+        } else {
+            let text = if content_text.trim().is_empty() { title.as_deref().unwrap_or("") } else { &content_text };
+            quick_judge_text(&conn, text)?
+        };
 
         // 缓存快速判断结果到 inbox_items
         conn.execute(
@@ -966,6 +974,7 @@ fn quick_judge(
             target_case_id: Some(case_id),
             target_case_name: Some(case_name),
             target_folder: Some(category_to_folder(&category)),
+            intent: None,
             reason: reasons.join("；"),
         })
         .collect();
@@ -982,6 +991,231 @@ fn quick_judge(
         ai_analyzed: already_analyzed,
     })
 }
+/// 文本意图判断（设计哲学 §10：捕获任意信息 → 判断意图 → 推荐按钮 → 自行推送）
+///
+/// 意图优先级：期限 > 任务 > 提醒 > 知识 > 新案件 > 兜底
+/// 推荐动作：create_deadline / create_task / set_reminder / save_knowledge / create_case
+fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<QuickJudgeResult> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(QuickJudgeResult {
+            category: "note".to_string(),
+            confidence: 0.0,
+            strength: "fallback".to_string(),
+            recommendations: vec![],
+            ai_available: false,
+            ai_analyzed: false,
+        });
+    }
+
+    let mut recommendations: Vec<QuickRecommendation> = Vec::new();
+
+    // 0) 关联案件：案号 / 当事人命中本地案件
+    let mut matched_case: Option<(String, String)> = None;
+    if let Some(cn) = extract_case_no_from_name(text) {
+        if let Ok(case_id) = conn.query_row(
+            "SELECT id FROM cases WHERE case_no LIKE ?1 LIMIT 1",
+            rusqlite::params![format!("%{}%", cn)],
+            |r| r.get::<_, String>(0),
+        ) {
+            let case_name: String = conn.query_row(
+                "SELECT COALESCE(display_name, case_name) FROM cases WHERE id = ?1",
+                rusqlite::params![case_id],
+                |r| r.get(0),
+            ).unwrap_or_default();
+            matched_case = Some((case_id, case_name));
+        }
+    }
+    if matched_case.is_none() {
+        for party in extract_parties_from_name(text) {
+            if let Ok((case_id, case_name)) = conn.query_row(
+                "SELECT id, COALESCE(display_name, case_name) FROM cases WHERE client_name LIKE ?1 OR opponent_name LIKE ?1 LIMIT 1",
+                rusqlite::params![format!("%{}%", party)],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            ) {
+                matched_case = Some((case_id, case_name));
+                break;
+            }
+        }
+    }
+
+    let due = extract_date_hint(text);
+    let mut intent_base = |action: &str, name: &str, reason: &str| -> QuickRecommendation {
+        let mut intent = serde_json::json!({ "name": truncate_text(text, 60) });
+        if let Some(d) = &due { intent["dueDate"] = serde_json::Value::String(d.clone()); }
+        if let Some(c) = &matched_case { intent["caseId"] = serde_json::Value::String(c.0.clone()); }
+        QuickRecommendation {
+            action: action.to_string(),
+            target_case_id: matched_case.as_ref().map(|c| c.0.clone()),
+            target_case_name: matched_case.as_ref().map(|c| c.1.clone()),
+            target_folder: None,
+            intent: Some(intent),
+            reason: reason.to_string(),
+        }
+    };
+
+    // 1) 期限意图
+    if ["截止", "到期", "期限", "届满", "失效", "最后一天", "提交日"].iter().any(|w| text.contains(w)) {
+        recommendations.push(intent_base("create_deadline", "", "文本含期限词（截止/到期/期限）"));
+    }
+
+    // 2) 任务意图
+    if ["需要", "要做", "尽快", "别忘了", "安排", "完成", "准备"].iter().any(|w| text.contains(w)) {
+        let mut rec = intent_base("create_task", "", "文本含行动词（需要/要做/尽快）");
+        if let Some(intent) = rec.intent.as_mut() {
+            intent["taskName"] = serde_json::Value::String(truncate_text(text, 60));
+        }
+        recommendations.push(rec);
+    }
+
+    // 3) 提醒意图
+    if ["提醒", "记得"].iter().any(|w| text.contains(w)) {
+        let mut rec = intent_base("set_reminder", "", "文本含提醒词（提醒/记得）");
+        if let Some(intent) = rec.intent.as_mut() {
+            intent["title"] = serde_json::Value::String(truncate_text(text, 60));
+            if let Some(d) = &due { intent["remindAt"] = serde_json::Value::String(d.clone()); }
+        }
+        recommendations.push(rec);
+    }
+
+    // 4) 知识意图
+    if ["笔记", "参考", "资料", "心得", "总结", "整理", "备忘", "要点"].iter().any(|w| text.contains(w)) {
+        recommendations.push(QuickRecommendation {
+            action: "save_knowledge".to_string(),
+            target_case_id: matched_case.as_ref().map(|c| c.0.clone()),
+            target_case_name: matched_case.as_ref().map(|c| c.1.clone()),
+            target_folder: None,
+            intent: Some(serde_json::json!({
+                "title": truncate_text(text, 60),
+                "content": text,
+                "category": "reference",
+            })),
+            reason: "文本含知识词（笔记/参考/资料）".to_string(),
+        });
+    }
+
+    // 5) 新案件意图
+    if ["收案", "委托", "新案件", "代理", "接案"].iter().any(|w| text.contains(w)) {
+        recommendations.push(QuickRecommendation {
+            action: "create_case".to_string(),
+            target_case_id: None,
+            target_case_name: None,
+            target_folder: None,
+            intent: Some(serde_json::json!({
+                "caseName": truncate_text(text, 60),
+            })),
+            reason: "文本含收案词（收案/委托/新案件）".to_string(),
+        });
+    }
+
+    // 6) 兜底：关联案件 → 转任务；否则 → 存知识
+    if recommendations.is_empty() {
+        if let Some((case_id, case_name)) = &matched_case {
+            recommendations.push(QuickRecommendation {
+                action: "create_task".to_string(),
+                target_case_id: Some(case_id.clone()),
+                target_case_name: Some(case_name.clone()),
+                target_folder: None,
+                intent: Some(serde_json::json!({
+                    "taskName": truncate_text(text, 60),
+                    "caseId": case_id,
+                })),
+                reason: "未识别明确意图，默认转为任务（关联案件）".to_string(),
+            });
+        } else {
+            recommendations.push(QuickRecommendation {
+                action: "save_knowledge".to_string(),
+                target_case_id: None,
+                target_case_name: None,
+                target_folder: None,
+                intent: Some(serde_json::json!({
+                    "title": truncate_text(text, 40),
+                    "content": text,
+                    "category": "reference",
+                })),
+                reason: "未识别明确意图，默认存入知识库".to_string(),
+            });
+        }
+    }
+
+    // 强度：有关联案件或 2+ 意图 → strong；有明确意图词 → candidate；兜底 → fallback
+    let primary = recommendations[0].action.clone();
+    let explicit = matches!(primary.as_str(), "create_deadline" | "create_task" | "set_reminder" | "create_case");
+    let confidence: f32 = if matched_case.is_some() || recommendations.len() >= 2 { 0.85 } else if explicit { 0.72 } else { 0.4 };
+    let strength = if confidence >= 0.7 { "strong" } else { "candidate" };
+
+    Ok(QuickJudgeResult {
+        category: primary,
+        confidence,
+        strength: strength.to_string(),
+        recommendations,
+        ai_available: true,
+        ai_analyzed: false,
+    })
+}
+
+/// 从文本提取日期提示（YYYY-MM-DD / MM-DD / 明天 / 后天）
+fn extract_date_hint(text: &str) -> Option<String> {
+    use chrono::{Duration, Local};
+    // YYYY-MM-DD / YYYY/M/D
+    if let Ok(full) = regex::Regex::new(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}") {
+        if let Some(m) = full.find(text) {
+            return normalize_date(m.as_str());
+        }
+    }
+    // MM-DD
+    if let Ok(md) = regex::Regex::new(r"\d{1,2}[-/]\d{1,2}") {
+        if let Some(m) = md.find(text) {
+            let parts: Vec<&str> = m.as_str().split(['-', '/']).collect();
+            if parts.len() == 2 {
+                if let (Ok(mm), Ok(dd)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    let now = Local::now();
+                    let this_year = chrono::NaiveDate::from_ymd_opt(now.year(), mm, dd);
+                    if let Some(date) = this_year {
+                        if date >= now.date_naive() {
+                            return Some(date.format("%Y-%m-%d").to_string());
+                        }
+                        if let Some(next) = chrono::NaiveDate::from_ymd_opt(now.year() + 1, mm, dd) {
+                            return Some(next.format("%Y-%m-%d").to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if text.contains("明天") {
+        return Some((Local::now().date_naive() + Duration::days(1)).format("%Y-%m-%d").to_string());
+    }
+    if text.contains("后天") {
+        return Some((Local::now().date_naive() + Duration::days(2)).format("%Y-%m-%d").to_string());
+    }
+    None
+}
+
+/// 规范化日期字符串为 YYYY-MM-DD
+fn normalize_date(s: &str) -> Option<String> {
+    let parts: Vec<&str> = s.split(['-', '/']).collect();
+    if parts.len() == 3 {
+        if let (Ok(y), Ok(m), Ok(d)) = (parts[0].parse::<i32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>()) {
+            if let Some(dt) = chrono::NaiveDate::from_ymd_opt(y, m, d) {
+                return Some(dt.format("%Y-%m-%d").to_string());
+            }
+        }
+    }
+    None
+}
+
+/// 截断文本（按字符，保留省略号）
+fn truncate_text(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count > max {
+        format!("{}…", s.chars().take(max).collect::<String>())
+    } else {
+        s.to_string()
+    }
+}
+
+
 /// 从文件名提取案号
 fn extract_case_no_from_name(file_name: &str) -> Option<String> {
     let re = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)].*?号").ok()?;
@@ -1206,86 +1440,266 @@ fn compute_sha256(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
 #[tauri::command]
 pub async fn confirm_inbox_action(
     inbox_item_id: String,
-    target_case_id: String,
-    target_category: String,
+    target_case_id: Option<String>,
+    target_category: Option<String>,
+    action: Option<String>,
+    intent: Option<serde_json::Value>,
     _app: tauri::AppHandle,
 ) -> Result<String, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
+        let now = db::now_local();
+        let action = action.unwrap_or_else(|| "file_to_case".to_string());
+        let intent = intent.unwrap_or_else(|| serde_json::json!({}));
 
-        // 获取收件项源文件路径
-        let source_path: Option<String> = conn.query_row(
-            "SELECT source_path FROM inbox_items WHERE id = ?1",
+        // 收件项内容（不同动作读取不同字段）
+        let (source_path, content_text): (Option<String>, String) = conn.query_row(
+            "SELECT source_path, COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
             rusqlite::params![inbox_item_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         ).map_err(|_| anyhow::anyhow!("收件项不存在"))?;
 
-        let source = source_path.ok_or_else(|| anyhow::anyhow!("收件项无源文件路径"))?;
+        let fallback_text = content_text;
 
-        // 执行安全拷贝（复用逻辑）
-        let source_path_obj = std::path::Path::new(&source);
-        let meta = std::fs::metadata(source_path_obj)
-            .map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
-        let file_size = meta.len();
+        let result_id = match action.as_str() {
+            // ── 文件归档（原有行为，向后兼容） ──
+            "file_to_case" => {
+                let target_case_id = target_case_id.ok_or_else(|| anyhow::anyhow!("归档动作需要目标案件"))?;
+                let target_category = target_category.unwrap_or_else(|| "07_其他".to_string());
+                let source = source_path.ok_or_else(|| anyhow::anyhow!("收件项无源文件路径"))?;
 
-        let folder_name: String = conn.query_row(
-            "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
-            rusqlite::params![target_case_id],
-            |r| r.get(0),
-        ).map_err(|_| anyhow::anyhow!("案件不存在"))?;
+                let source_path_obj = std::path::Path::new(&source);
+                let meta = std::fs::metadata(source_path_obj)
+                    .map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
+                let file_size = meta.len();
 
-        let cases_root = dirs::document_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("Casy")
-            .join("cases")
-            .join(&folder_name)
-            .join(&target_category);
-        std::fs::create_dir_all(&cases_root)?;
+                let folder_name: String = conn.query_row(
+                    "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
+                    rusqlite::params![target_case_id],
+                    |r| r.get(0),
+                ).map_err(|_| anyhow::anyhow!("案件不存在"))?;
 
-        let file_stem = source_path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-        let ext = source_path_obj.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let mut target_name = if ext.is_empty() { file_stem.to_string() } else { format!("{}.{}", file_stem, ext) };
-        let mut target = cases_root.join(&target_name);
-        let mut counter = 1u32;
-        while target.exists() {
-            target_name = if ext.is_empty() { format!("{}_{}", file_stem, counter) } else { format!("{}_{}.{}", file_stem, counter, ext) };
-            target = cases_root.join(&target_name);
-            counter += 1;
-        }
+                let cases_root = dirs::document_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("Casy")
+                    .join("cases")
+                    .join(&folder_name)
+                    .join(&target_category);
+                std::fs::create_dir_all(&cases_root)?;
 
-        // 快速路径
-        if file_size < 10 * 1024 * 1024 {
-            std::fs::copy(source_path_obj, &target)?;
-        } else {
-            std::fs::copy(source_path_obj, &target)?;
-            // 大文件也先走简单拷贝，后台校验在 copy_file_with_progress 中处理
-        }
+                let file_stem = source_path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+                let ext = source_path_obj.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let mut target_name = if ext.is_empty() { file_stem.to_string() } else { format!("{}.{}", file_stem, ext) };
+                let mut target = cases_root.join(&target_name);
+                let mut counter = 1u32;
+                while target.exists() {
+                    target_name = if ext.is_empty() { format!("{}_{}", file_stem, counter) } else { format!("{}_{}.{}", file_stem, counter, ext) };
+                    target = cases_root.join(&target_name);
+                    counter += 1;
+                }
 
-        let file_id = record_file(&conn, &target_case_id, &target, &target_category, source_path_obj)?;
+                std::fs::copy(source_path_obj, &target)?;
+                let file_id = record_file(&conn, &target_case_id, &target, &target_category, source_path_obj)?;
 
-        // 更新 inbox 状态为 filed
-        conn.execute(
-            "UPDATE inbox_items SET status = 'filed', linked_case_id = ?1, filed_to = ?2, filed_as = ?3, processed_at = ?4 WHERE id = ?5",
-            rusqlite::params![
-                target_case_id,
-                target.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-                target_name,
-                db::now_local(),
-                inbox_item_id,
-            ],
-        )?;
+                conn.execute(
+                    "UPDATE inbox_items SET status = 'filed', linked_case_id = ?1, filed_to = ?2, filed_as = ?3, processed_at = ?4 WHERE id = ?5",
+                    rusqlite::params![
+                        target_case_id,
+                        target.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                        target_name,
+                        db::now_local(),
+                        inbox_item_id,
+                    ],
+                )?;
 
-        // 写入推荐记录
-        let rec_id = db::new_id();
-        conn.execute(
-            "INSERT INTO inbox_recommendations (id, inbox_item_id, action, target_case_id, target_folder, reason, confidence, accepted)
-             VALUES (?1, ?2, 'file_to_case', ?3, ?4, '用户确认归档', 1.0, 1)",
-            rusqlite::params![rec_id, inbox_item_id, target_case_id, target_category],
-        )?;
+                record_recommendation(&conn, &inbox_item_id, "file_to_case", Some(&target_case_id), Some(&target_category), "用户确认归档", 1.0)?;
+                file_id
+            }
 
-        Ok(file_id)
+            // ── 转为任务 ──
+            "create_task" => {
+                let task_id = insert_task_from_intent(&conn, &intent, &fallback_text, "action", "anytime")?;
+                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
+                record_recommendation(&conn, &inbox_item_id, "create_task", intent["caseId"].as_str(), None, "用户确认转为任务", 1.0)?;
+                task_id
+            }
+
+            // ── 记为期限 ──
+            "create_deadline" => {
+                let task_id = insert_task_from_intent(&conn, &intent, &fallback_text, "action", "anytime")?;
+                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
+                record_recommendation(&conn, &inbox_item_id, "create_deadline", intent["caseId"].as_str(), None, "用户确认记为期限", 1.0)?;
+                task_id
+            }
+
+            // ── 设置提醒（今天进入视线） ──
+            "set_reminder" => {
+                let task_id = insert_task_from_intent(&conn, &intent, &fallback_text, "action", "today")?;
+                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
+                record_recommendation(&conn, &inbox_item_id, "set_reminder", intent["caseId"].as_str(), None, "用户确认设置提醒", 1.0)?;
+                task_id
+            }
+
+            // ── 存入知识库 ──
+            "save_knowledge" => {
+                let knowledge_id = insert_knowledge_from_intent(&conn, &intent, &fallback_text, now.clone())?;
+                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
+                record_recommendation(&conn, &inbox_item_id, "save_knowledge", None, None, "用户确认存入知识库", 1.0)?;
+                knowledge_id
+            }
+
+            // ── 新建案件 ──
+            "create_case" => {
+                let case_id = insert_case_from_intent(&conn, &intent, &fallback_text, now.clone())?;
+                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
+                record_recommendation(&conn, &inbox_item_id, "create_case", Some(&case_id), None, "用户确认新建案件", 1.0)?;
+                case_id
+            }
+
+            _ => return Err(anyhow::anyhow!("未知动作: {}", action).into()),
+        };
+
+        Ok(result_id)
     })
     .await
+}
+
+/// 根据意图数据插入任务（create_task / create_deadline / set_reminder 共用）
+fn insert_task_from_intent(
+    conn: &rusqlite::Connection,
+    intent: &serde_json::Value,
+    fallback_text: &str,
+    task_type: &str,
+    start_bucket: &str,
+) -> anyhow::Result<String> {
+    let id = db::new_id();
+    let now = db::now_local();
+    let task_name = intent["taskName"].as_str()
+        .or_else(|| intent["title"].as_str())
+        .or_else(|| intent["name"].as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| truncate_text(fallback_text, 60));
+    let due = intent["dueDate"].as_str().or_else(|| intent["remindAt"].as_str());
+    let case_id = intent["caseId"].as_str();
+
+    conn.execute(
+        "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
+         task_type, start_date, due_date, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
+         start_bucket, today_index, estimated_minutes, area_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+        rusqlite::params![
+            id,
+            case_id,
+            task_name,
+            fallback_text,
+            now,
+            due,
+            "normal",
+            "",
+            "",
+            task_type,
+            None::<String>,
+            due,
+            None::<String>,
+            None::<String>,
+            None::<String>,
+            0,
+            0,
+            0,
+            0,
+            start_bucket,
+            0,
+            None::<i64>,
+            None::<String>,
+            now,
+        ],
+    )?;
+
+    conn.execute(
+        "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, 'inbox')",
+        rusqlite::params![db::new_id(), id, now],
+    )?;
+
+    Ok(id)
+}
+
+/// 根据意图数据插入知识条目
+fn insert_knowledge_from_intent(
+    conn: &rusqlite::Connection,
+    intent: &serde_json::Value,
+    fallback_text: &str,
+    now: String,
+) -> anyhow::Result<String> {
+    let id = db::new_id();
+    let title = intent["title"].as_str().map(|s| s.to_string()).unwrap_or_else(|| truncate_text(fallback_text, 40));
+    let content = intent["content"].as_str().unwrap_or(fallback_text);
+    let category = intent["category"].as_str().unwrap_or("reference");
+    let case_id = intent["caseId"].as_str();
+
+    conn.execute(
+        "INSERT INTO knowledge_items (id, title, category, content, tags, source_type, source_id,
+         linked_case_id, law_name, article_no, effective_date, status, parent_id, block_type, created_at, updated_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)",
+        rusqlite::params![
+            id, title, category, content, None::<String>, "inbox", None::<String>,
+            case_id, None::<String>, None::<String>, None::<String>,
+            "active", None::<String>, "page", now,
+        ],
+    )?;
+    Ok(id)
+}
+
+/// 根据意图数据创建最小案件
+fn insert_case_from_intent(
+    conn: &rusqlite::Connection,
+    intent: &serde_json::Value,
+    fallback_text: &str,
+    now: String,
+) -> anyhow::Result<String> {
+    let id = db::new_id();
+    let case_name = intent["caseName"].as_str().map(|s| s.to_string()).unwrap_or_else(|| truncate_text(fallback_text, 40));
+    let client_name = intent["clientName"].as_str().unwrap_or("待定");
+    let track = intent["track"].as_str().unwrap_or("other");
+
+    conn.execute(
+        "INSERT INTO cases (id, track, case_name, client_name, opponent_name, case_status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, '', '进行中', ?5, ?5)",
+        rusqlite::params![id, track, case_name, client_name, now],
+    )?;
+    Ok(id)
+}
+
+/// 更新收件项状态
+fn mark_inbox_processed(
+    conn: &rusqlite::Connection,
+    inbox_item_id: &str,
+    status: &str,
+    now: String,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE inbox_items SET status = ?1, processed_at = ?2 WHERE id = ?3",
+        rusqlite::params![status, now, inbox_item_id],
+    )?;
+    Ok(())
+}
+
+/// 写入推荐采纳记录
+fn record_recommendation(
+    conn: &rusqlite::Connection,
+    inbox_item_id: &str,
+    action: &str,
+    case_id: Option<&str>,
+    folder: Option<&str>,
+    reason: &str,
+    confidence: f64,
+) -> anyhow::Result<()> {
+    let rec_id = db::new_id();
+    conn.execute(
+        "INSERT INTO inbox_recommendations (id, inbox_item_id, action, target_case_id, target_folder, reason, confidence, accepted)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
+        rusqlite::params![rec_id, inbox_item_id, action, case_id, folder, reason, confidence],
+    )?;
+    Ok(())
 }
 
 /// AI 分析（带缓存：ai_analyzed=1 直接返回缓存结果）

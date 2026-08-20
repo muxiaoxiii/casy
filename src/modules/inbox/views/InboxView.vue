@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { useInboxStore } from '../../../stores/inbox'
 import { useCapture } from '../composables/useCapture'
 import { useVoiceNote } from '../composables/useVoiceNote'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Connection, Paperclip, DocumentCopy, Camera, EditPen } from '@element-plus/icons-vue'
+import { Connection, Paperclip, DocumentCopy, Camera, EditPen, Folder, Finished, Calendar, Collection, Briefcase, Bell } from '@element-plus/icons-vue'
 
 const inboxStore = useInboxStore()
 const { captureScreenshot, captureClipboard, startClipboardMonitor } = useCapture()
@@ -38,13 +39,29 @@ const isDragging = ref(false)
 const quickCaptureText = ref('')
 let dragCounter = 0
 
-// v2.1: 推荐确认弹窗状态
+// v2.1: 推荐确认弹窗状态（设计哲学 §10：推荐动作 → 一键推送）
 const showConfirmDialog = ref(false)
 const confirmItem = ref(null)
+const confirmRecommendations = ref([])
+const confirmAction = ref('file_to_case')
 const confirmCaseId = ref('')
 const confirmFolder = ref('')
 const confirmFileName = ref('')
 const casesList = ref([])
+
+// 推荐动作元数据（意图 → 按钮/文案；后端 quick_judge 返回 action 字段）
+const ACTION_META = {
+  file_to_case: { label: '归入案件', icon: Folder, desc: (rec) => '归档到「' + (rec.targetCaseName || rec.targetCaseId || '案件') + '」的 ' + (rec.targetFolder || '07_其他') + ' 目录' },
+  create_task: { label: '转为任务', icon: Finished, desc: (rec) => '创建任务：' + (rec.intent?.taskName || rec.intent?.name || '') },
+  create_deadline: { label: '记为期限', icon: Calendar, desc: (rec) => '记期限：' + (rec.intent?.name || '') + (rec.intent?.dueDate ? '（' + rec.intent.dueDate + '）' : '') },
+  save_knowledge: { label: '存入知识库', icon: Collection, desc: (rec) => '存入知识库：' + (rec.intent?.title || '') },
+  create_case: { label: '新建案件', icon: Briefcase, desc: (rec) => '新建案件：' + (rec.intent?.caseName || '') },
+  set_reminder: { label: '设置提醒', icon: Bell, desc: (rec) => '设置提醒：' + (rec.intent?.title || '') + (rec.intent?.remindAt ? '（' + rec.intent.remindAt + '）' : '') },
+}
+
+function getActionMeta(action) {
+  return ACTION_META[action] || ACTION_META.file_to_case
+}
 
 // v2.1: 快速判断结果缓存
 const quickJudgeResults = ref({})
@@ -190,34 +207,39 @@ async function runAiAnalysis(item) {
 function openConfirmDialog(item) {
   const judge = quickJudgeResults.value[item.id]
   confirmItem.value = item
+  confirmRecommendations.value = judge?.recommendations || []
+  confirmAction.value = judge?.recommendations?.[0]?.action || 'file_to_case'
   confirmCaseId.value = judge?.recommendations?.[0]?.targetCaseId || item.aiSuggestedCaseId || ''
   confirmFolder.value = judge?.recommendations?.[0]?.targetFolder || '07_其他'
   confirmFileName.value = item.title || ''
   showConfirmDialog.value = true
 }
 
-// v2.1: 确认归档
+// v2.1: 确认推荐动作（设计哲学 §10：推荐按钮 → 一键自行推送）
 async function doConfirmArchive() {
-  if (!confirmCaseId.value) {
+  const rec = confirmRecommendations.value.find(r => r.action === confirmAction.value) || confirmRecommendations.value[0]
+  if (rec?.action === 'file_to_case' && !confirmCaseId.value) {
     ElMessage.warning('请选择案件')
     return
   }
   showConfirmDialog.value = false
   processing.value = true
 
-  const result = await tauriCallSafe('confirm_inbox_action', {
+  const result = await casyContext.inbox.confirmAction({
     inboxItemId: confirmItem.value.id,
-    targetCaseId: confirmCaseId.value,
-    targetCategory: confirmFolder.value,
+    targetCaseId: rec?.action === 'file_to_case' ? (confirmCaseId.value || rec?.targetCaseId) : null,
+    targetCategory: rec?.action === 'file_to_case' ? (confirmFolder.value || rec?.targetFolder) : null,
+    action: rec?.action || 'file_to_case',
+    intent: rec?.intent || null,
   })
   processing.value = false
   if (result.ok) {
-    ElMessage.success('已归档')
+    ElMessage.success(getActionMeta(rec?.action).label + '成功')
     await loadItems()
   }
 }
 
-// v2.1: 一键确认（strong 推荐直接执行）
+// v2.1: 一键确认（strong 推荐直接执行：按意图自行推送）
 async function quickConfirm(item) {
   const judge = quickJudgeResults.value[item.id]
   if (!judge?.recommendations?.length) {
@@ -226,14 +248,16 @@ async function quickConfirm(item) {
   }
   const rec = judge.recommendations[0]
   processing.value = true
-  const result = await tauriCallSafe('confirm_inbox_action', {
+  const result = await casyContext.inbox.confirmAction({
     inboxItemId: item.id,
-    targetCaseId: rec.targetCaseId,
-    targetCategory: rec.targetFolder || '07_其他',
+    targetCaseId: rec.targetCaseId || null,
+    targetCategory: rec.targetFolder || null,
+    action: rec.action,
+    intent: rec.intent || null,
   })
   processing.value = false
   if (result.ok) {
-    ElMessage.success('已归档')
+    ElMessage.success(getActionMeta(rec.action).label + '成功')
     await loadItems()
   }
 }
@@ -820,14 +844,12 @@ onUnmounted(() => {
                   :class="{ 'recommendation-default': idx === 0 && quickJudgeResults[item.id].strength === 'strong' }"
                 >
                   <span class="rec-icon">{{ idx === 0 && quickJudgeResults[item.id].strength === 'strong' ? '●' : '○' }}</span>
-                  <span class="rec-text">
-                    归档到「{{ rec.targetCaseName || rec.targetCaseId }}」的 {{ rec.targetFolder || '07_其他' }} 目录
-                  </span>
+                  <span class="rec-text">{{ getActionMeta(rec.action).desc(rec) }}</span>
                   <span class="rec-reason">{{ rec.reason }}</span>
                 </div>
               </div>
               <div v-else class="no-recommendation">
-                ⚠️ 未匹配到案件，请手动选择操作
+                未识别意图，请手动选择操作
               </div>
             </div>
 
@@ -874,7 +896,8 @@ onUnmounted(() => {
                 type="success"
                 @click="quickConfirm(item)"
               >
-                ✅ 确认归档
+                <el-icon :size="13"><component :is="getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).icon" /></el-icon>
+                {{ getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).label }}
               </el-button>
               <!-- Candidate/Fallback：打开确认弹窗 -->
               <el-button
@@ -883,7 +906,8 @@ onUnmounted(() => {
                 type="primary"
                 @click="openConfirmDialog(item)"
               >
-                📁 选择归档
+                <el-icon :size="13"><component :is="getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).icon" /></el-icon>
+                {{ getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).label }}
               </el-button>
               <!-- AI 分析按钮 -->
               <el-button
@@ -953,14 +977,30 @@ onUnmounted(() => {
     </el-dialog>
 
     <!-- v2.1: 推荐确认弹窗 -->
-    <el-dialog v-model="showConfirmDialog" title="确认归档" width="560">
+    <el-dialog v-model="showConfirmDialog" title="确认动作" width="560">
       <div v-if="confirmItem" class="confirm-dialog-content">
         <div class="confirm-file-info">
           <span class="confirm-icon">📄</span>
           <span class="confirm-filename">{{ confirmItem.title || '无标题' }}</span>
         </div>
 
-        <el-form label-width="60px" class="confirm-form">
+        <!-- 推荐动作选择（设计哲学 §10：判断意图 → 推荐按钮 → 确认推送） -->
+        <div v-if="confirmRecommendations.length > 0" class="confirm-actions">
+          <div
+            v-for="(rec, idx) in confirmRecommendations"
+            :key="idx"
+            class="confirm-action-item"
+            :class="{ active: confirmAction === rec.action }"
+            @click="confirmAction = rec.action"
+          >
+            <el-radio :model-value="confirmAction" :value="rec.action" class="confirm-action-radio">
+              <span class="action-label">{{ getActionMeta(rec.action).label }}</span>
+              <span class="action-desc">{{ getActionMeta(rec.action).desc(rec) }}</span>
+            </el-radio>
+          </div>
+        </div>
+
+        <el-form v-if="confirmAction === 'file_to_case'" label-width="60px" class="confirm-form">
           <el-form-item label="案件">
             <el-select v-model="confirmCaseId" filterable placeholder="选择案件" style="width: 100%;">
               <el-option
@@ -983,7 +1023,9 @@ onUnmounted(() => {
       </div>
       <template #footer>
         <el-button @click="showConfirmDialog = false">取消</el-button>
-        <el-button type="primary" :loading="processing" @click="doConfirmArchive">确认归档</el-button>
+        <el-button type="primary" :loading="processing" @click="doConfirmArchive">
+          {{ getActionMeta(confirmAction).label }}
+        </el-button>
       </template>
     </el-dialog>
   </div>

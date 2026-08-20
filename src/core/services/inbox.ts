@@ -33,4 +33,34 @@ export class InboxService extends Service {
   async dismiss(id: string): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe<void>('dismiss_inbox_item', { id })
   }
+
+  /** 即时意图判断（本地规则，0ms）：文件 → 归档推荐；文本 → 任务/期限/知识/案件/提醒推荐 */
+  async quickJudge(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('quick_judge_inbox_item', { id })
+  }
+
+  /** AI 分析（带缓存） */
+  async aiAnalyze(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('ai_analyze_inbox_item', { id })
+  }
+
+  /**
+   * 确认推荐动作并自行推送（设计哲学 §10：推荐按钮 → 一键落地）
+   * action: file_to_case | create_task | create_deadline | save_knowledge | create_case | set_reminder
+   */
+  async confirmAction(opts: {
+    inboxItemId: string
+    targetCaseId?: string | null
+    targetCategory?: string | null
+    action?: string
+    intent?: Record<string, unknown> | null
+  }): Promise<{ ok: boolean; data?: string; error?: string }> {
+    return tauriCallSafe<string>('confirm_inbox_action', {
+      inboxItemId: opts.inboxItemId,
+      targetCaseId: opts.targetCaseId ?? null,
+      targetCategory: opts.targetCategory ?? null,
+      action: opts.action ?? null,
+      intent: opts.intent ?? null,
+    })
+  }
 }

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 import type { InboxItem, InboxStatus } from '../types'
 
 interface InboxState {
@@ -29,7 +29,7 @@ export const useInboxStore = defineStore('inbox', {
   actions: {
     async loadItems(status: InboxStatus | null = null): Promise<void> {
       this.loading = true
-      const result = await tauriCallSafe<InboxItem[]>('list_inbox_items', { status })
+      const result = await casyContext.inbox.list(status || undefined)
       if (result.ok && result.data) {
         this.items = result.data
       }
@@ -46,14 +46,9 @@ export const useInboxStore = defineStore('inbox', {
       contentText?: string
       sourcePath?: string
       title?: string
-    }): Promise<ReturnType<typeof tauriCallSafe<InboxItem>>> {
+    }): Promise<{ ok: boolean; data?: InboxItem; error?: string }> {
       this.processing = true
-      const result = await tauriCallSafe<InboxItem>('add_inbox_item', {
-        sourceType,
-        contentText: contentText || null,
-        sourcePath: sourcePath || null,
-        title: title || null,
-      })
+      const result = await casyContext.inbox.add(sourceType, contentText, sourcePath)
       this.processing = false
       if (result.ok) {
         await this.loadItems()
@@ -61,9 +56,9 @@ export const useInboxStore = defineStore('inbox', {
       return result
     },
 
-    async processItem(id: string): Promise<ReturnType<typeof tauriCallSafe<unknown>>> {
+    async processItem(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
       this.processing = true
-      const result = await tauriCallSafe<unknown>('process_inbox_item', { id })
+      const result = await casyContext.inbox.process(id)
       this.processing = false
       if (result.ok) {
         await this.loadItems()
@@ -71,20 +66,16 @@ export const useInboxStore = defineStore('inbox', {
       return result
     },
 
-    async fileItem(itemId: string, caseId: string, category: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('file_inbox_item', {
-        itemId,
-        caseId,
-        category,
-      })
+    async fileItem(itemId: string, caseId: string, category: string): Promise<{ ok: boolean; error?: string }> {
+      const result = await casyContext.inbox.file(itemId, caseId, category)
       if (result.ok) {
         await this.loadItems()
       }
       return result
     },
 
-    async dismissItem(id: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('dismiss_inbox_item', { id })
+    async dismissItem(id: string): Promise<{ ok: boolean; error?: string }> {
+      const result = await casyContext.inbox.dismiss(id)
       if (result.ok) {
         await this.loadItems()
       }
