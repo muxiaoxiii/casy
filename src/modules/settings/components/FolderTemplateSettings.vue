@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Lock, Edit, Delete, Top, Bottom } from '@element-plus/icons-vue'
 
@@ -28,7 +28,7 @@ const caseTypeOptions = [
 
 async function loadTemplates() {
   loading.value = true
-  const result = await tauriCallSafe('list_folder_templates')
+  const result = await casyContext.settings.folderTemplates()
   loading.value = false
   if (result.ok) {
     templates.value = result.data || []
@@ -36,7 +36,7 @@ async function loadTemplates() {
 }
 
 async function loadNamingSettings() {
-  const result = await tauriCallSafe('get_folder_naming_settings')
+  const result = await casyContext.settings.folderNamingSettings()
   if (result.ok && result.data) {
     namingSettings.value = {
       folder_naming_date_format: result.data.folder_naming_date_format || 'YYYY-MM-DD',
@@ -109,9 +109,7 @@ async function saveTemplate() {
     ElMessage.warning('请输入模板名称')
     return
   }
-  const result = await tauriCallSafe('save_folder_template', {
-    data: editingTemplate.value,
-  })
+  const result = await casyContext.settings.saveFolderTemplate(editingTemplate.value)
   if (result.ok) {
     ElMessage.success(isNewTemplate.value ? '模板已创建' : '模板已保存')
     showEditor.value = false
@@ -135,9 +133,7 @@ async function deleteTemplate(tpl) {
   } catch {
     return
   }
-  const result = await tauriCallSafe('delete_folder_template', {
-    templateId: tpl.id,
-  })
+  const result = await casyContext.settings.deleteFolderTemplate(tpl.id)
   if (result.ok) {
     ElMessage.success('模板已删除')
     if (selectedTemplate.value?.id === tpl.id) {
@@ -151,9 +147,7 @@ async function deleteTemplate(tpl) {
 
 async function saveNamingSettings() {
   namingSaving.value = true
-  const result = await tauriCallSafe('save_folder_naming_settings', {
-    data: namingSettings.value,
-  })
+  const result = await casyContext.settings.saveFolderNamingSettings(namingSettings.value)
   namingSaving.value = false
   if (result.ok) {
     ElMessage.success('命名设置已保存')

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import { Plus, Delete, Edit, VideoPlay, RefreshRight, Bell } from '@element-plus/icons-vue'
 
@@ -22,16 +22,16 @@ const triggerTypeLabels = {
 const channelLabels = { local: '本地弹窗', system: '系统通知', feishu_message: '飞书消息', feishu_task: '飞书任务' }
 
 async function loadRules() {
-  const data = await tauriCall('list_reminder_rules')
-  if (data) rules.value = data
+  const res = await casyContext.reminder.rules()
+  if (res.ok && res.data) rules.value = res.data
 }
 async function loadLogs() {
-  const data = await tauriCall('get_reminder_log', { limit: 20 })
-  if (data) logs.value = data
+  const res = await casyContext.reminder.log(20)
+  if (res.ok && res.data) logs.value = res.data
 }
 async function checkEngine() {
   // 引擎是否在运行：通过启动命令幂等探测（已在运行则直接返回）
-  const res = await tauriCallSafe('start_reminder_engine', { intervalSecs: 300 })
+  const res = await casyContext.reminder.startEngine(300)
   engineRunning.value = res.ok
 }
 function openCreate() {
@@ -56,24 +56,24 @@ async function saveRule() {
     channels: JSON.stringify(form.value.channels),
   }
   if (editingRule.value) {
-    const res = await tauriCallSafe('update_reminder_rule', { id: editingRule.value.id, data: payload })
+    const res = await casyContext.reminder.updateRule(editingRule.value.id, payload)
     if (res.ok) ElMessage.success('规则已更新')
   } else {
-    const res = await tauriCallSafe('create_reminder_rule', { data: payload })
+    const res = await casyContext.reminder.createRule(payload)
     if (res.ok) ElMessage.success('规则已创建')
   }
   dialogVisible.value = false
   loadRules()
 }
 async function removeRule(id) {
-  const res = await tauriCallSafe('delete_reminder_rule', { id })
+  const res = await casyContext.reminder.removeRule(id)
   if (res.ok) {
     ElMessage.success('已删除')
     loadRules()
   }
 }
 async function testRule(rule) {
-  const res = await tauriCallSafe('test_reminder', {
+  const res = await casyContext.reminder.test({
     ruleId: rule.id,
     channel: 'local',
     message: `测试提醒：${rule.name}`,
@@ -81,7 +81,7 @@ async function testRule(rule) {
   if (res.ok) ElMessage.success('测试提醒已发送（本地弹窗）')
 }
 async function startEngine() {
-  const res = await tauriCallSafe('start_reminder_engine', { intervalSecs: 300 })
+  const res = await casyContext.reminder.startEngine(300)
   if (res.ok) {
     engineRunning.value = true
     ElMessage.success('提醒引擎已启动（每 5 分钟检查）')

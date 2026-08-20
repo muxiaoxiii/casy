@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { tauriCallSafe } from '../../../core/tauriBridge'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import { 
@@ -77,8 +76,8 @@ const statusSummary = computed(() => {
 async function loadAIData() {
   loading.value = true
   const [configResult, usageResult] = await Promise.all([
-    tauriCallSafe('get_ai_config'),
-    tauriCallSafe('get_ai_usage'),
+    casyContext.settings.aiConfig(),
+    casyContext.settings.aiUsage(),
   ])
 
   if (configResult.ok) {
@@ -124,7 +123,7 @@ function buildFallbackRecommendations() {
 
 async function loadRecommendations() {
   recommendLoading.value = true
-  const result = await tauriCallSafe('get_today_recommendations')
+  const result = await casyContext.ai.todayRecommendations()
   recommendLoading.value = false
   if (result.ok && result.data) {
     recommendations.value = result.data.recommendations || []
@@ -141,7 +140,7 @@ async function loadRecommendations() {
 
 /** 采纳推荐：记录决策 + 移入今日 */
 async function adoptRecommendation(rec) {
-  await tauriCallSafe('record_decision', {
+  await casyContext.ai.recordDecision({
     entityType: 'task',
     entityId: rec.taskId,
     decisionType: 'recommend_today',
@@ -160,7 +159,7 @@ async function adoptRecommendation(rec) {
 
 /** 拒绝推荐：记录决策 */
 async function rejectRecommendation(rec) {
-  const result = await tauriCallSafe('record_decision', {
+  const result = await casyContext.ai.recordDecision({
     entityType: 'task',
     entityId: rec.taskId,
     decisionType: 'recommend_today',
@@ -182,7 +181,7 @@ const learningDegraded = ref(false)
 const calibrating = ref(false)
 
 async function loadLearningAnalysis() {
-  const result = await tauriCallSafe('get_learning_analysis')
+  const result = await casyContext.ai.learningAnalysis()
   if (result.ok && result.data) {
     learningAnalysis.value = result.data
     learningDegraded.value = false
@@ -194,7 +193,7 @@ async function loadLearningAnalysis() {
 
 async function applyCalibration() {
   calibrating.value = true
-  const result = await tauriCallSafe('apply_learning_calibration')
+  const result = await casyContext.ai.applyCalibration()
   calibrating.value = false
   if (result.ok && result.data) {
     ElMessage.success(`已校准 ${result.data.calibratedCount} 条任务的预估耗时`)
@@ -217,7 +216,7 @@ const pendingMemories = ref([])
 const memoriesDegraded = ref(false)
 
 async function loadPendingMemories() {
-  const result = await tauriCallSafe('list_pending_memories')
+  const result = await casyContext.ai.pendingMemories()
   if (result.ok) {
     pendingMemories.value = result.data || []
     memoriesDegraded.value = false
@@ -228,7 +227,7 @@ async function loadPendingMemories() {
 }
 
 async function confirmMemory(item) {
-  const result = await tauriCallSafe('confirm_memory', { id: item.id, sinkToKnowledge: true })
+  const result = await casyContext.ai.confirmMemory(item.id, true)
   if (result.ok) {
     pendingMemories.value = pendingMemories.value.filter(m => m.id !== item.id)
     ElMessage.success('已采纳并沉淀到知识库')
@@ -238,7 +237,7 @@ async function confirmMemory(item) {
 }
 
 async function dismissMemory(item) {
-  const result = await tauriCallSafe('dismiss_memory', { id: item.id })
+  const result = await casyContext.ai.dismissMemory(item.id)
   if (result.ok) {
     pendingMemories.value = pendingMemories.value.filter(m => m.id !== item.id)
     ElMessage.info('已忽略')
@@ -260,7 +259,7 @@ const insightsDegraded = ref(false)
 const generatingInsights = ref(false)
 
 async function loadPendingInsights() {
-  const result = await tauriCallSafe('list_pending_insights')
+  const result = await casyContext.ai.pendingInsights()
   if (result.ok) {
     pendingInsights.value = result.data || []
     insightsDegraded.value = false
@@ -272,7 +271,7 @@ async function loadPendingInsights() {
 
 async function runInsightsAnalysis() {
   generatingInsights.value = true
-  const result = await tauriCallSafe('generate_insights_cmd')
+  const result = await casyContext.ai.generateInsights()
   generatingInsights.value = false
   if (result.ok && result.data) {
     const inserted = result.data.inserted ?? 0
@@ -285,7 +284,7 @@ async function runInsightsAnalysis() {
 }
 
 async function confirmInsight(item, sinkToKnowledge) {
-  const result = await tauriCallSafe('confirm_insight', { id: item.id, sinkToKnowledge })
+  const result = await casyContext.ai.confirmInsight(item.id, sinkToKnowledge)
   if (result.ok) {
     pendingInsights.value = pendingInsights.value.filter(i => i.id !== item.id)
     ElMessage.success(sinkToKnowledge ? '已采纳并沉淀到知识库' : '已确认')
@@ -296,7 +295,7 @@ async function confirmInsight(item, sinkToKnowledge) {
 }
 
 async function dismissInsight(item) {
-  const result = await tauriCallSafe('dismiss_insight', { id: item.id })
+  const result = await casyContext.ai.dismissInsight(item.id)
   if (result.ok) {
     pendingInsights.value = pendingInsights.value.filter(i => i.id !== item.id)
     ElMessage.info('已忽略')
@@ -326,7 +325,7 @@ const expandedSummaryId = ref(null)
 
 async function loadSummaries() {
   summariesLoading.value = true
-  const result = await tauriCallSafe('list_summaries', { summaryType: summaryTab.value, limit: 20 })
+  const result = await casyContext.ai.listSummaries(summaryTab.value, 20)
   summariesLoading.value = false
   if (result.ok) {
     summaries.value = result.data || []

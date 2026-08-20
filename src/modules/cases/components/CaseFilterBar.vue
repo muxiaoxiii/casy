@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { Download, Search, Filter, FolderChecked } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { useFiltersStore } from '../../../stores/filters'
 import type { CaseFilter, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus, TrackType, CaseStatus } from '../../../types'
 import {
@@ -220,7 +220,7 @@ async function remoteClientSearch(query: string) {
     return
   }
   clientLoading.value = true
-  const result = await tauriCallSafe<Array<{ clientName: string }>>('search_cases', { query })
+  const result = await casyContext.cases.search(query)
   if (result.ok && result.data) {
     // 从搜索结果中提取唯一的客户名
     const clients = [...new Set(result.data.map((c) => c.clientName).filter(Boolean))]

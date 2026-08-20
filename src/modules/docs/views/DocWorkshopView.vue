@@ -140,7 +140,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import LegalEditor from '../components/LegalEditor.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
 
@@ -189,7 +189,7 @@ const saveStatusText = computed(() => {
 // 加载草稿列表
 async function loadDrafts() {
   loading.value = true
-  const result = await tauriCallSafe('list_drafts', {})
+  const result = await casyContext.docs.listDrafts()
   if (result.ok) {
     drafts.value = result.data || []
   }
@@ -198,7 +198,7 @@ async function loadDrafts() {
 
 // 加载案件列表（用于关联选择）
 async function loadCases() {
-  const result = await tauriCallSafe('list_cases', { page: 1, perPage: 500 })
+  const result = await casyContext.cases.list({ page: 1, perPage: 500 })
   if (result.ok) {
     cases.value = result.data?.items || []
   }
@@ -212,7 +212,7 @@ async function selectDraft(id) {
   }
 
   currentDraftId.value = id
-  const result = await tauriCallSafe('get_draft', { id })
+  const result = await casyContext.docs.getDraft(id)
   if (result.ok) {
     currentDraft.value = result.data
     saveStatus.value = 'idle'
@@ -221,7 +221,7 @@ async function selectDraft(id) {
 
 // 新建草稿
 async function createNewDraft() {
-  const result = await tauriCallSafe('create_draft', {
+  const result = await casyContext.docs.createDraft({
     title: '未命名草稿',
     content: '',
   })
@@ -236,8 +236,7 @@ async function saveDraft() {
   if (!currentDraft.value) return
 
   saveStatus.value = 'saving'
-  const result = await tauriCallSafe('update_draft', {
-    id: currentDraft.value.id,
+  const result = await casyContext.docs.updateDraft(currentDraft.value.id, {
     title: currentDraft.value.title,
     content: currentDraft.value.content,
     status: currentDraft.value.status,
@@ -270,7 +269,7 @@ function scheduleSave() {
 
 // 删除草稿
 async function deleteDraft(id) {
-  const result = await tauriCallSafe('delete_draft', { id })
+  const result = await casyContext.docs.deleteDraft(id)
   if (result.ok) {
     if (currentDraftId.value === id) {
       currentDraftId.value = null
@@ -309,7 +308,7 @@ onMounted(async () => {
 // 模板选择回调：创建新草稿并切换到编辑模式
 async function onTemplateSelect(template) {
   // 创建新草稿，关联模板
-  const result = await tauriCallSafe('create_draft', {
+  const result = await casyContext.docs.createDraft({
     title: template.name,
     content: '',
     templatePath: template.path,

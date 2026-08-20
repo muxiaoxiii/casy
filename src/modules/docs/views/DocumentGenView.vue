@@ -179,7 +179,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, View, Download, EditPen } from '@element-plus/icons-vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import {
   useDocsyBridge,
   mapCaseToTemplate,
@@ -237,7 +237,7 @@ const filteredFieldRows = computed(() => {
 
 // 加载案件列表
 async function loadCases() {
-  const result = await tauriCallSafe('list_cases', { page: 1, perPage: 500 })
+  const result = await casyContext.cases.list({ page: 1, perPage: 500 })
   if (result.ok) {
     cases.value = result.data?.items || []
   }
@@ -287,7 +287,7 @@ async function handleGenerate() {
   }
 
   // 创建草稿
-  const draftResult = await tauriCallSafe('create_draft', {
+  const draftResult = await casyContext.docs.createDraft({
     title: `${selectedTemplate.value.name} - ${selectedCase.value?.caseName || ''}`,
     content: result.data.html,
     caseId: selectedCaseId.value,
@@ -326,7 +326,7 @@ async function handleExport() {
         type: 'success',
       })
       // 打开文件
-      await tauriCallSafe('open_path', { path: result.data.outputPath })
+      await casyContext.files.open(result.data.outputPath)
     } catch {
       // 用户取消，忽略
     }
@@ -339,7 +339,7 @@ async function handleExport() {
 async function handleCreateDraft() {
   if (!canGenerate.value) return
 
-  const draftResult = await tauriCallSafe('create_draft', {
+  const draftResult = await casyContext.docs.createDraft({
     title: `${selectedTemplate.value.name} - ${selectedCase.value?.caseName || ''}`,
     content: '',
     caseId: selectedCaseId.value,

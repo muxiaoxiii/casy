@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -21,9 +21,9 @@ const relationTypeMap = {
 // 加载所有案件
 async function loadCases() {
   loading.value = true
-  const result = await tauriCallSafe('list_cases', { filter: {} })
+  const result = await casyContext.cases.list({})
   if (result.ok) {
-    cases.value = result.data
+    cases.value = result.data?.items || []
   }
   loading.value = false
 }
@@ -32,7 +32,7 @@ async function loadCases() {
 async function loadAllRelations() {
   const allRelations = []
   for (const c of cases.value) {
-    const result = await tauriCallSafe('get_relations', { caseId: c.id })
+    const result = await casyContext.cases.relations(c.id)
     if (result.ok) {
       for (const rel of result.data) {
         // 避免重复（双向关系只记录一次）

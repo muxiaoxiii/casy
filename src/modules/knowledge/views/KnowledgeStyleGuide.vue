@@ -1,17 +1,16 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 
 const loading = ref(false)
 const knowledgeList = ref([])
 const activeStyle = ref('complaint')
 
-// 5 种文书风格定义
+// 5 种文书风格定义（视觉克制：无 emoji，颜色用现有语义色）
 const styles = [
   {
     key: 'complaint',
     label: '起诉状',
-    icon: '📜',
     color: '#409eff',
     features: [
       '诉讼请求明确、具体、可执行',
@@ -24,7 +23,6 @@ const styles = [
   {
     key: 'defense_brief',
     label: '代理词',
-    icon: '⚖️',
     color: '#67c23a',
     features: [
       '论证层次清晰，分点论述',
@@ -37,7 +35,6 @@ const styles = [
   {
     key: 'legal_opinion',
     label: '法律意见',
-    icon: '📋',
     color: '#e6a23c',
     features: [
       '结论先行，开门见山',
@@ -50,7 +47,6 @@ const styles = [
   {
     key: 'lawyer_letter',
     label: '律师函',
-    icon: '✉️',
     color: '#f56c6c',
     features: [
       '立场明确，不回避核心问题',
@@ -63,7 +59,6 @@ const styles = [
   {
     key: 'reply_brief',
     label: '答辩状',
-    icon: '🛡️',
     color: '#909399',
     features: [
       '逐项反驳对方诉讼请求',
@@ -83,7 +78,7 @@ const filteredKnowledge = computed(() => {
 
 async function loadKnowledge() {
   loading.value = true
-  const result = await tauriCallSafe('list_knowledge', { filter: {} })
+  const result = await casyContext.knowledge.list({ filter: {} })
   if (result.ok) {
     knowledgeList.value = result.data
   }
@@ -112,11 +107,11 @@ onMounted(() => {
 <template>
   <div class="style-guide-page">
     <div class="style-guide-header">
-      <h2>📝 文书风格指南</h2>
+      <h2>文书风格指南</h2>
       <p class="subtitle">每种文书风格的特征描述与知识条目库</p>
     </div>
 
-    <div class="style-guide-body">
+    <div class="style-guide-body" v-loading="loading">
       <!-- 左侧风格列表 -->
       <div class="style-nav">
         <div
@@ -126,7 +121,7 @@ onMounted(() => {
           :class="{ active: activeStyle === style.key }"
           @click="selectStyle(style.key)"
         >
-          <span class="style-icon">{{ style.icon }}</span>
+          <span class="style-dot" :style="{ backgroundColor: style.color }" />
           <span class="style-label">{{ style.label }}</span>
           <el-badge
             :value="knowledgeList.filter(k => k.category === style.key).length"
@@ -141,14 +136,13 @@ onMounted(() => {
         <el-card shadow="never">
           <template #header>
             <div class="detail-title" :style="{ borderLeftColor: currentStyle.color }">
-              <span class="detail-icon">{{ currentStyle.icon }}</span>
               <h3>{{ currentStyle.label }}</h3>
             </div>
           </template>
 
           <!-- 特征描述 -->
           <div class="section">
-            <h4>📋 风格特征</h4>
+            <h4>风格特征</h4>
             <ul class="feature-list">
               <li v-for="(feat, idx) in currentStyle.features" :key="idx">
                 {{ feat }}
@@ -158,7 +152,7 @@ onMounted(() => {
 
           <!-- 适用场景 -->
           <div class="section">
-            <h4>🎯 适用场景</h4>
+            <h4>适用场景</h4>
             <div class="scenario-tags">
               <el-tag
                 v-for="scene in currentStyle.scenarios"
@@ -174,7 +168,7 @@ onMounted(() => {
 
           <!-- 该风格下的知识条目 -->
           <div class="section">
-            <h4>📚 知识条目（{{ filteredKnowledge.length }}）</h4>
+            <h4>知识条目（{{ filteredKnowledge.length }}）</h4>
             <div v-if="filteredKnowledge.length === 0" class="empty-hint">
               暂无{{ currentStyle.label }}风格的知识条目。<br>
               在编辑器中选中文本，右键选择"标注：{{ currentStyle.label }}风格"即可入库。
@@ -263,8 +257,11 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.style-icon {
-  font-size: 18px;
+.style-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .style-label {
@@ -288,10 +285,6 @@ onMounted(() => {
   gap: 10px;
   border-left: 3px solid #409eff;
   padding-left: 12px;
-}
-
-.detail-icon {
-  font-size: 24px;
 }
 
 .detail-title h3 {

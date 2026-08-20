@@ -19,6 +19,8 @@ import { ReminderService } from './reminder'
 import { FilesService } from './files'
 import { SyncService } from './sync'
 import { SettingsService } from './settings'
+import { AiService } from './ai'
+import { DocsService } from './docs'
 
 declare module '../plugin/types' {
   interface CasyContext {
@@ -31,6 +33,8 @@ declare module '../plugin/types' {
     files: FilesService
     sync: SyncService
     settings: SettingsService
+    ai: AiService
+    docs: DocsService
   }
 }
 
@@ -48,6 +52,8 @@ export async function registerServices(): Promise<void> {
   casyContext.provide('reminder', new ReminderService(casyContext), ['cases', 'tasks', 'calendar'])
   casyContext.provide('files', new FilesService(casyContext), ['cases'])
   casyContext.provide('sync', new SyncService(casyContext), ['settings'])
+  casyContext.provide('ai', new AiService(casyContext), [])
+  casyContext.provide('docs', new DocsService(casyContext), [])
 
   casyContext.logger.info(
     '业务服务已注册: ' + casyContext.getServiceNames().join(', ')
@@ -64,4 +70,6 @@ export {
   FilesService,
   SyncService,
   SettingsService,
+  AiService,
+  DocsService,
 }

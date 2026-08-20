@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { tauriCallSafe, tauriCall } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bell, Warning, CircleCheck, View, Hide, RefreshRight, Timer, AlarmClock, Notification } from '@element-plus/icons-vue'
 
@@ -102,7 +102,7 @@ const tabs = [
 // ============================================================
 async function loadLogs() {
   loading.value = true
-  const res = await tauriCallSafe('get_reminder_log', { limit: 200 })
+  const res = await casyContext.reminder.log(200)
   if (res.ok && res.data) {
     logs.value = res.data
   } else {

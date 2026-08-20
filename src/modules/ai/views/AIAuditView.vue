@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import { Refresh, View, Filter } from '@element-plus/icons-vue'
 
@@ -65,7 +65,7 @@ const stats = computed(() => ({
 
 async function loadRuns() {
   loading.value = true
-  const result = await tauriCallSafe('get_ai_run_history', { limit: 200 })
+  const result = await casyContext.ai.runHistory(200)
   if (result.ok) {
     aiRuns.value = result.data || []
   } else {

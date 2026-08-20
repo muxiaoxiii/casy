@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
 
@@ -15,7 +15,7 @@ const holidaysImporting = ref(false)
 
 async function loadHolidaysSummary() {
   holidaysLoading.value = true
-  const result = await tauriCallSafe('get_holidays_summary')
+  const result = await casyContext.settings.holidaysSummary()
   holidaysLoading.value = false
   if (result.ok) {
     holidaysSummary.value = result.data
@@ -31,7 +31,7 @@ async function importHolidaysJson() {
   if (!selected) return
 
   holidaysImporting.value = true
-  const result = await tauriCallSafe('import_holidays_json', { jsonPath: selected })
+  const result = await casyContext.settings.importHolidaysJson(selected)
   holidaysImporting.value = false
 
   if (result.ok) {

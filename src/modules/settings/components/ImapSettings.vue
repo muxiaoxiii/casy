@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 
 const emailMonitoring = ref(false)
@@ -22,7 +22,7 @@ const imapSaving = ref(false)
 const imapAccounts = ref([])
 
 async function loadEmailStatus() {
-  const result = await tauriCallSafe('get_email_monitor_status')
+  const result = await casyContext.settings.emailMonitorStatus()
   if (result.ok) {
     emailMonitoring.value = result.data.running
     emailAccountCount.value = result.data.accountCount
@@ -30,7 +30,7 @@ async function loadEmailStatus() {
 }
 
 async function loadImapAccounts() {
-  const result = await tauriCallSafe('list_imap_accounts')
+  const result = await casyContext.settings.imapAccounts()
   if (result.ok) {
     imapAccounts.value = result.data || []
   }
@@ -42,7 +42,7 @@ async function saveImapAccount() {
     return
   }
   imapSaving.value = true
-  const result = await tauriCallSafe('configure_imap', { account: imapForm.value })
+  const result = await casyContext.settings.configureImap(imapForm.value)
   imapSaving.value = false
 
   if (result.ok) {
@@ -56,7 +56,7 @@ async function saveImapAccount() {
 }
 
 async function deleteImapAccount(email) {
-  const result = await tauriCallSafe('delete_imap_account', { emailAddress: email })
+  const result = await casyContext.settings.deleteImapAccount(email)
   if (result.ok) {
     ElMessage.success('已删除')
     await loadEmailStatus()
@@ -67,8 +67,9 @@ async function deleteImapAccount(email) {
 }
 
 async function toggleEmailMonitor() {
-  const cmd = emailMonitoring.value ? 'stop_email_monitor' : 'start_email_monitor'
-  const result = await tauriCallSafe(cmd)
+  const result = emailMonitoring.value
+    ? await casyContext.settings.stopEmailMonitor()
+    : await casyContext.settings.startEmailMonitor()
   if (result.ok) {
     emailMonitoring.value = !emailMonitoring.value
     ElMessage.success(result.data)

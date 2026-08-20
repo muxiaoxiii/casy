@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { safeListen } from './core/tauriEvents'
 import { ElMessage } from 'element-plus'
-import { tauriCallSafe } from './core/tauriBridge'
+import { casyContext } from './core/plugin/context'
 import ReminderToast from './shared/components/ReminderToast.vue'
 import ReminderBanner from './shared/components/ReminderBanner.vue'
 import DecisionReviewNotice from './shared/components/DecisionReviewNotice.vue'
@@ -74,7 +74,7 @@ const loadingStats = ref(false)
 async function loadTodayStats() {
   loadingStats.value = true
   try {
-    const result = await tauriCallSafe('get_today_stats', {})
+    const result = await casyContext.cases.todayStats()
     if (result.ok && result.data) {
       todayStats.value = result.data
     }
@@ -208,10 +208,7 @@ async function saveQuickCapture() {
   const text = quickCaptureText.value.trim()
   if (!text) return
   quickCaptureSaving.value = true
-  const result = await tauriCallSafe('add_inbox_item', {
-    sourceType: 'note',
-    contentText: text,
-  })
+  const result = await casyContext.inbox.add('note', text)
   quickCaptureSaving.value = false
   if (result.ok) {
     ElMessage.success('已捕获到收件箱')

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
 
@@ -31,7 +31,7 @@ async function sendTestInvitation() {
   }
   sendingTest.value = true
   const startIso = new Date(Date.now() + 60 * 60 * 1000).toISOString()
-  const result = await tauriCallSafe('send_ics_invitation_cmd', {
+  const result = await casyContext.calendar.sendIcsInvitation({
     to: settingsStore.smtp_user,
     subject: 'Casy 测试邀请',
     description: '这是一封来自 Casy 的 SMTP / ICS 配置测试邀请。',
@@ -84,7 +84,7 @@ async function saveCaldavConfig() {
 async function testCaldav() {
   caldavTesting.value = true
   caldavTestResult.value = null
-  const result = await tauriCallSafe('test_caldav_connection')
+  const result = await casyContext.calendar.testCaldavConnection()
   caldavTesting.value = false
   if (result.ok) {
     caldavTestResult.value = { ok: true, message: result.data || '连接成功' }
@@ -94,7 +94,7 @@ async function testCaldav() {
 }
 
 async function loadSyncStatus() {
-  const result = await tauriCallSafe('get_calendar_sync_status')
+  const result = await casyContext.calendar.calendarSyncStatus()
   if (result.ok && result.data) {
     syncStatus.value = result.data
     syncStatusError.value = false
@@ -106,7 +106,7 @@ async function loadSyncStatus() {
 
 async function syncNow() {
   syncing.value = true
-  const result = await tauriCallSafe('sync_reminders_to_calendar')
+  const result = await casyContext.calendar.syncRemindersToCalendar()
   syncing.value = false
   if (result.ok && result.data) {
     const r = result.data
@@ -145,7 +145,7 @@ const keychainStatus = ref(null)
 const keychainError = ref(false)
 
 onMounted(async () => {
-  const result = await tauriCallSafe('check_keychain_status')
+  const result = await casyContext.settings.keychainStatus()
   if (result.ok && result.data) {
     keychainStatus.value = result.data
     keychainError.value = false
@@ -211,7 +211,7 @@ function writeCreatedAt(item) {
 
 async function loadPendingWrites() {
   pendingWritesLoading.value = true
-  const result = await tauriCallSafe('list_mcp_pending_writes')
+  const result = await casyContext.settings.mcpPendingWrites()
   pendingWritesLoading.value = false
   if (result.ok) {
     pendingWrites.value = (result.data || []).filter(w => !w.status || w.status === 'pending')
@@ -223,7 +223,7 @@ async function loadPendingWrites() {
 
 async function approveWrite(item) {
   writeActionBusy.value = { ...writeActionBusy.value, [item.id]: 'approve' }
-  const result = await tauriCallSafe('approve_mcp_write', { id: item.id })
+  const result = await casyContext.settings.approveMcpWrite(item.id)
   writeActionBusy.value = { ...writeActionBusy.value, [item.id]: null }
   if (result.ok) {
     const d = result.data
@@ -237,7 +237,7 @@ async function approveWrite(item) {
 
 async function rejectWrite(item) {
   writeActionBusy.value = { ...writeActionBusy.value, [item.id]: 'reject' }
-  const result = await tauriCallSafe('reject_mcp_write', { id: item.id })
+  const result = await casyContext.settings.rejectMcpWrite(item.id)
   writeActionBusy.value = { ...writeActionBusy.value, [item.id]: null }
   if (result.ok) {
     ElMessage.info('已拒绝该写操作')

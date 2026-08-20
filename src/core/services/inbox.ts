@@ -63,4 +63,26 @@ export class InboxService extends Service {
       intent: opts.intent ?? null,
     })
   }
+
+  /** 语音转写（需 OpenAI 兼容 STT） */
+  async transcribeVoiceNote(inboxItemId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('transcribe_voice_note', { inboxItemId })
+  }
+
+  /** 批量 AI 处理队列控制 */
+  async startBatch(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('start_inbox_batch', {})
+  }
+  async pauseBatch(): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('pause_inbox_batch', {})
+  }
+  async resumeBatch(): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('resume_inbox_batch', {})
+  }
+  async cancelBatch(): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('cancel_inbox_batch', {})
+  }
+  async getBatchProgress(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('get_inbox_progress', {})
+  }
 }

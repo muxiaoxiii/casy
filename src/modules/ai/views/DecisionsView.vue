@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Filter, View } from '@element-plus/icons-vue'
 
@@ -85,7 +85,7 @@ const stats = computed(() => ({
 async function loadDecisions() {
   loading.value = true
   // 尝试调用后端命令，如果不存在则使用占位数据
-  const result = await tauriCallSafe('list_decisions', { limit: 200 })
+  const result = await casyContext.ai.listDecisions({ limit: 200 })
   if (result.ok) {
     decisions.value = result.data || []
   } else {
@@ -167,7 +167,7 @@ const recursiveResults = ref({})            // id -> { consistent, gaps, source 
 
 async function loadPendingReviews() {
   pendingLoading.value = true
-  const result = await tauriCallSafe('get_pending_decision_reviews')
+  const result = await casyContext.ai.pendingDecisionReviews()
   if (result.ok) {
     pendingReviews.value = result.data || []
   }
@@ -196,7 +196,7 @@ async function markReviewed(item, stillValid) {
   }
 
   reviewBusyId.value = item.id
-  const result = await tauriCallSafe('mark_decision_reviewed', { id: item.id, stillValid, note })
+  const result = await casyContext.ai.markDecisionReviewed(item.id, stillValid, note)
   reviewBusyId.value = null
 
   if (result.ok) {
@@ -212,7 +212,7 @@ async function markReviewed(item, stillValid) {
 /** L3 递归核对：AI 核对决策与案件状态的一致性，失败时降级为规则核对 */
 async function runRecursiveCheck(item) {
   recursiveCheckingId.value = item.id
-  const result = await tauriCallSafe('run_recursive_check', { decisionId: item.id })
+  const result = await casyContext.ai.runRecursiveCheck(item.id)
   recursiveCheckingId.value = null
 
   if (result.ok && result.data) {

@@ -20,4 +20,21 @@ export class ReminderService extends Service {
   async startEngine(intervalSecs?: number): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe<void>('start_reminder_engine', { intervalSecs: intervalSecs ?? 300 })
   }
+
+  async updateRule(id: string, data: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('update_reminder_rule', { id, data })
+  }
+
+  async removeRule(id: string): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('delete_reminder_rule', { id })
+  }
+
+  /** 发送本地测试提醒 */
+  async test(opts: { ruleId: string; channel: string; message: string }): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('test_reminder', {
+      ruleId: opts.ruleId,
+      channel: opts.channel,
+      message: opts.message,
+    })
+  }
 }

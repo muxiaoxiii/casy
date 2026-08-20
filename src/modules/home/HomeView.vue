@@ -13,7 +13,7 @@ import {
   CircleCheck,
   Star,
 } from '@element-plus/icons-vue'
-import { tauriCallSafe } from '../../core/tauriBridge'
+import { casyContext } from '../../core/plugin/context'
 import { useCasesStore } from '../../stores/cases'
 import { useTasksStore } from '../../stores/tasks'
 import { useCalendarStore } from '../../stores/calendar'
@@ -37,7 +37,7 @@ const today = new Date().toISOString().split('T')[0]
 const deadlineWarnings = ref([])
 
 async function loadDeadlineWarnings() {
-  const result = await tauriCallSafe('get_deadline_warnings_with_levels', {})
+  const result = await casyContext.calendar.deadlineWarningsWithLevels()
   if (result.ok && result.data) {
     deadlineWarnings.value = result.data
   }
@@ -72,7 +72,7 @@ const briefTime = computed(() => brief.value?.createdAt || brief.value?.date || 
 
 async function loadBrief() {
   briefLoading.value = true
-  const result = await tauriCallSafe('get_today_brief')
+  const result = await casyContext.calendar.todayBrief()
   briefLoading.value = false
   if (result.ok && result.data && extractBriefContent(result.data)) {
     brief.value = result.data
@@ -85,7 +85,7 @@ async function loadBrief() {
 
 async function regenerateBrief() {
   briefLoading.value = true
-  const result = await tauriCallSafe('generate_daily_brief_cmd')
+  const result = await casyContext.calendar.generateDailyBrief()
   briefLoading.value = false
   if (result.ok && result.data && extractBriefContent(result.data)) {
     brief.value = result.data
@@ -126,7 +126,7 @@ function renderMarkdown(md) {
 const homeRecommendations = ref([])
 
 async function loadHomeRecommendations() {
-  const result = await tauriCallSafe('get_today_recommendations')
+  const result = await casyContext.calendar.todayRecommendations()
   if (result.ok && result.data?.recommendations?.length) {
     homeRecommendations.value = result.data.recommendations.slice(0, 3)
   }

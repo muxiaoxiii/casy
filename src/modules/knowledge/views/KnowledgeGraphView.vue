@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 
 const router = useRouter()
 const loading = ref(false)
@@ -20,6 +20,13 @@ const labels = {
   knowledge: '知识',
   case: '案件',
   task: '任务',
+}
+
+const edgeLabels = {
+  linked_case: '关联案件',
+  references: '引用',
+  related: '相关',
+  parent: '父块',
 }
 
 const svgWidth = ref(800)
@@ -115,7 +122,7 @@ function layoutGraph(nodeList, edgeList, width, height) {
 async function loadGraph() {
   loading.value = true
   degraded.value = false
-  const result = await tauriCallSafe('get_knowledge_graph', { limit: 100 })
+  const result = await casyContext.knowledge.graph(100)
   loading.value = false
   if (result.ok && result.data) {
     nodes.value = (result.data.nodes || []).map(nd => ({ ...nd }))
@@ -223,7 +230,7 @@ function goToNode(node) {
           stroke-width="1.5"
           stroke-opacity="0.6"
         >
-          <title>{{ e.type }}</title>
+          <title>{{ edgeLabels[e.type] || e.type }}</title>
         </line>
 
         <!-- 节点 -->
@@ -247,7 +254,7 @@ function goToNode(node) {
             :dy="nodeRadius(nd) + 12"
             class="node-label"
           >{{ shortName(nd) }}</text>
-          <title>{{ nd.name }}</title>
+          <title>{{ labels[nd.type] || nd.type }} · {{ nd.name }}</title>
         </g>
       </svg>
       <div v-else-if="!loading && !degraded" class="graph-empty">

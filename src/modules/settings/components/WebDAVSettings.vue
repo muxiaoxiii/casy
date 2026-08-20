@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
 
@@ -24,7 +24,11 @@ async function saveWebdavConfig() {
 async function testWebdavConnection() {
   webdavTesting.value = true
   webdavStatus.value = null
-  const result = await tauriCallSafe('test_webdav_connection')
+  const result = await casyContext.sync.testWebdav(
+    settingsStore.webdavUrl,
+    settingsStore.webdavUsername,
+    settingsStore.webdavPassword
+  )
   webdavTesting.value = false
   if (result.ok) {
     webdavStatus.value = 'ok'

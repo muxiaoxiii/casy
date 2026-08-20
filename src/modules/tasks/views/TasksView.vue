@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge.js'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
@@ -256,21 +256,21 @@ async function loadData() {
 }
 
 async function loadTasks() {
-  const result = await tauriCallSafe('list_tasks', { filter: { completed: false } })
+  const result = await casyContext.tasks.list({ completed: false })
   if (result.ok) {
     tasks.value = result.data || []
   }
 }
 
 async function loadCases() {
-  const result = await tauriCallSafe('list_cases', { filter: {} })
+  const result = await casyContext.cases.list({})
   if (result.ok) {
     cases.value = result.data || []
   }
 }
 
 async function loadAreas() {
-  const result = await tauriCallSafe('list_areas', {})
+  const result = await casyContext.tasks.areas()
   if (result.ok) {
     areas.value = result.data || []
   }
@@ -281,7 +281,7 @@ async function loadAreas() {
 // ============================================================
 // 点击圆圈直接完成/恢复，不再弹确认框
 async function toggleComplete(task) {
-  const result = await tauriCallSafe('toggle_task', { id: task.id })
+  const result = await casyContext.tasks.toggle(task.id)
   if (result.ok) {
     task.completed = task.completed ? 0 : 1
     ElMessage.success(task.completed ? '已完成' : '已恢复')
@@ -291,7 +291,7 @@ async function toggleComplete(task) {
 async function deleteTask(task) {
   try {
     await ElMessageBox.confirm('确定删除此任务？', '确认', { type: 'warning' })
-    const result = await tauriCallSafe('delete_task', { id: task.id })
+    const result = await casyContext.tasks.remove(task.id)
     if (result.ok) {
       tasks.value = tasks.value.filter((t) => t.id !== task.id)
       ElMessage.success('已删除')
@@ -310,7 +310,7 @@ async function createTask() {
     ...newTask.value,
     startBucket: 'inbox', // 默认进收件箱
   }
-  const result = await tauriCallSafe('create_task', { data })
+  const result = await casyContext.tasks.create(data)
   if (result.ok) {
     ElMessage.success('任务已创建')
     showCreateDialog.value = false
@@ -358,7 +358,7 @@ async function saveTask() {
     ...editForm.value,
     flagged: editForm.value.flagged ? 1 : 0,
   }
-  const result = await tauriCallSafe('update_task', { data })
+  const result = await casyContext.tasks.update(data)
   savingTask.value = false
   if (result.ok) {
     ElMessage.success('任务已更新')
@@ -373,7 +373,7 @@ async function searchCases(query) {
     return
   }
   searchingCases.value = true
-  const result = await tauriCallSafe('search_cases', { query: query.trim(), limit: 10 })
+  const result = await casyContext.cases.search(query.trim())
   searchingCases.value = false
   if (result.ok) {
     caseSearchResults.value = result.data || []
@@ -492,7 +492,7 @@ async function submitTriage() {
     startBucket: triageForm.value.taskType === 'someday' ? 'someday' : 'anytime',
   }
   
-  const result = await tauriCallSafe('update_task', { data })
+  const result = await casyContext.tasks.update(data)
   if (result.ok) {
     ElMessage.success('已厘清')
     showTriageDialog.value = false
@@ -502,12 +502,10 @@ async function submitTriage() {
 
 // 移动到今日
 async function moveToToday(task) {
-  const result = await tauriCallSafe('update_task', {
-    data: {
-      id: task.id,
-      startBucket: 'today',
-      todayIndex: gtdStats.value.today,
-    }
+  const result = await casyContext.tasks.update({
+    id: task.id,
+    startBucket: 'today',
+    todayIndex: gtdStats.value.today,
   })
   if (result.ok) {
     ElMessage.success('已移至今日')
@@ -517,11 +515,9 @@ async function moveToToday(task) {
 
 // 标记为等待
 async function markAsWaiting(task) {
-  const result = await tauriCallSafe('update_task', {
-    data: {
-      id: task.id,
-      taskType: 'waiting',
-    }
+  const result = await casyContext.tasks.update({
+    id: task.id,
+    taskType: 'waiting',
   })
   if (result.ok) {
     ElMessage.success('已标记为等待')
@@ -683,7 +679,7 @@ async function quickCapture(forceToday = false) {
       taskType: 'action',
     }
   }
-  const result = await tauriCallSafe('create_task', { data })
+  const result = await casyContext.tasks.create(data)
   capturing.value = false
   if (result.ok) {
     ElMessage.success('已捕获')
@@ -712,12 +708,10 @@ function nextSundayStr() {
 
 // 标记已回顾：lastReviewDate=今天，nextReviewDate=下周日
 async function markReviewed(task) {
-  const result = await tauriCallSafe('update_task', {
-    data: {
-      id: task.id,
-      lastReviewDate: todayStr(),
-      nextReviewDate: nextSundayStr(),
-    },
+  const result = await casyContext.tasks.update({
+    id: task.id,
+    lastReviewDate: todayStr(),
+    nextReviewDate: nextSundayStr(),
   })
   if (result.ok) {
     ElMessage.success('已标记回顾')

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Edit, Calendar, Finished, Document,
@@ -205,7 +205,7 @@ async function loadCaseData() {
 }
 
 async function loadTypeMetrics() {
-  const result = await tauriCallSafe('get_case_type_metrics', { caseId: caseId.value })
+  const result = await casyContext.cases.caseTypeMetrics(caseId.value)
   if (result.ok && result.data) {
     typeMetrics.value = result.data
   } else {
@@ -214,7 +214,7 @@ async function loadTypeMetrics() {
 }
 
 async function loadCase() {
-  const result = await tauriCallSafe('get_case', { id: caseId.value })
+  const result = await casyContext.cases.get(caseId.value)
   if (result.ok) {
     caseData.value = result.data
     goalInput.value = result.data.caseGoal || ''
@@ -222,16 +222,14 @@ async function loadCase() {
 }
 
 async function loadTasks() {
-  const result = await tauriCallSafe('list_tasks', {
-    filter: { caseId: caseId.value }
-  })
+  const result = await casyContext.tasks.list({ caseId: caseId.value })
   if (result.ok) {
     tasks.value = result.data || []
   }
 }
 
 async function loadTimeline() {
-  const result = await tauriCallSafe('get_case_timeline', { caseId: caseId.value })
+  const result = await casyContext.cases.timeline(caseId.value)
   if (result.ok) {
     timeline.value = result.data || []
   }
@@ -243,7 +241,7 @@ async function loadKnowledge() {
 }
 
 async function loadFiles() {
-  const result = await tauriCallSafe('list_case_files', { caseId: caseId.value })
+  const result = await casyContext.files.list(caseId.value)
   if (result.ok) {
     files.value = result.data || []
   }
@@ -259,10 +257,7 @@ function goBack() {
 async function saveGoal() {
   if (!caseData.value) return
   
-  const result = await tauriCallSafe('update_case', {
-    id: caseId.value,
-    data: { caseGoal: goalInput.value }
-  })
+  const result = await casyContext.cases.update(caseId.value, { caseGoal: goalInput.value })
   
   if (result.ok) {
     caseData.value.caseGoal = goalInput.value
@@ -272,7 +267,7 @@ async function saveGoal() {
 }
 
 async function toggleTaskComplete(task) {
-  const result = await tauriCallSafe('toggle_task', { id: task.id })
+  const result = await casyContext.tasks.toggle(task.id)
   if (result.ok) {
     task.completed = task.completed ? 0 : 1
     ElMessage.success(task.completed ? '已完成' : '已恢复')
@@ -294,11 +289,9 @@ async function unlockNextTask(completedTask) {
   )
   
   if (nextTask) {
-    await tauriCallSafe('update_task', {
-      data: {
-        id: nextTask.id,
-        blocked: 0,
-      }
+    await casyContext.tasks.update({
+      id: nextTask.id,
+      blocked: 0,
     })
     nextTask.blocked = 0
     ElMessage.success(`已解锁：${nextTask.taskName}`)

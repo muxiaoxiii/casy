@@ -1,12 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
 import { casyContext } from '../../../core/plugin/context'
 import { useInboxStore } from '../../../stores/inbox'
 import { useCapture } from '../composables/useCapture'
 import { useVoiceNote } from '../composables/useVoiceNote'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Connection, Paperclip, DocumentCopy, Camera, EditPen, Folder, Finished, Calendar, Collection, Briefcase, Bell } from '@element-plus/icons-vue'
+import { Connection, Paperclip, DocumentCopy, Camera, EditPen, Folder, Finished, Calendar, Collection, Briefcase, Bell, Download } from '@element-plus/icons-vue'
 
 const inboxStore = useInboxStore()
 const { captureScreenshot, captureClipboard, startClipboardMonitor } = useCapture()
@@ -57,10 +56,29 @@ const ACTION_META = {
   save_knowledge: { label: '存入知识库', icon: Collection, desc: (rec) => '存入知识库：' + (rec.intent?.title || '') },
   create_case: { label: '新建案件', icon: Briefcase, desc: (rec) => '新建案件：' + (rec.intent?.caseName || '') },
   set_reminder: { label: '设置提醒', icon: Bell, desc: (rec) => '设置提醒：' + (rec.intent?.title || '') + (rec.intent?.remindAt ? '（' + rec.intent.remindAt + '）' : '') },
+  service_delivery: { label: '抓取送达文书', icon: Download, desc: (rec) => '抓取送达文书：' + (rec.intent?.caseNo || '') + '（' + (rec.intent?.recipientName || '收件人') + '）' },
 }
 
 function getActionMeta(action) {
   return ACTION_META[action] || ACTION_META.file_to_case
+}
+
+// 推荐列表：本地规则优先；本地 fallback 时用 AI 意图兜底（§10：AI 兜底增强）
+function getRecommendations(item) {
+  const judge = quickJudgeResults.value[item.id]
+  if (judge?.recommendations?.length) return judge.recommendations
+  const aiIntent = aiResults.value[item.id]?.intent
+  if (aiIntent?.action) {
+    return [{
+      action: aiIntent.action,
+      targetCaseId: item.aiSuggestedCaseId || null,
+      targetCaseName: item.aiSuggestedCaseName || null,
+      targetFolder: null,
+      intent: aiIntent,
+      reason: 'AI 识别为' + (aiIntent.docType || aiIntent.action),
+    }]
+  }
+  return []
 }
 
 // v2.1: 快速判断结果缓存
@@ -86,7 +104,7 @@ function isAudioItem(item) {
 async function transcribeItem(item) {
   if (transcribingIds.value[item.id]) return
   transcribingIds.value = { ...transcribingIds.value, [item.id]: true }
-  const result = await tauriCallSafe('transcribe_voice_note', { inboxItemId: item.id })
+  const result = await casyContext.inbox.transcribeVoiceNote(item.id)
   transcribingIds.value = { ...transcribingIds.value, [item.id]: false }
   if (result.ok) {
     ElMessage.success('转写完成')
@@ -160,7 +178,7 @@ onMounted(() => {
 
 async function loadItems() {
   loading.value = true
-  const result = await tauriCallSafe('list_inbox_items', { status: null })
+  const result = await casyContext.inbox.list()
   if (result.ok) {
     items.value = result.data || []
     // 对每个 pending 项运行快速判断
@@ -174,7 +192,7 @@ async function loadItems() {
 }
 
 async function loadCases() {
-  const result = await tauriCallSafe('list_cases', {})
+  const result = await casyContext.cases.list({})
   if (result.ok) {
     casesList.value = result.data || []
   }
@@ -182,7 +200,7 @@ async function loadCases() {
 
 // v2.1: 即时判断
 async function runQuickJudge(itemId) {
-  const result = await tauriCallSafe('quick_judge_inbox_item', { id: itemId })
+  const result = await casyContext.inbox.quickJudge(itemId)
   if (result.ok) {
     quickJudgeResults.value[itemId] = result.data
   }
@@ -191,7 +209,7 @@ async function runQuickJudge(itemId) {
 // v2.1: AI 分析（带缓存）
 async function runAiAnalysis(item) {
   processing.value = true
-  const result = await tauriCallSafe('ai_analyze_inbox_item', { id: item.id })
+  const result = await casyContext.inbox.aiAnalyze(item.id)
   processing.value = false
   if (result.ok) {
     aiResults.value[item.id] = result.data
@@ -207,8 +225,8 @@ async function runAiAnalysis(item) {
 function openConfirmDialog(item) {
   const judge = quickJudgeResults.value[item.id]
   confirmItem.value = item
-  confirmRecommendations.value = judge?.recommendations || []
-  confirmAction.value = judge?.recommendations?.[0]?.action || 'file_to_case'
+  confirmRecommendations.value = getRecommendations(item)
+  confirmAction.value = getRecommendations(item)[0]?.action || 'file_to_case'
   confirmCaseId.value = judge?.recommendations?.[0]?.targetCaseId || item.aiSuggestedCaseId || ''
   confirmFolder.value = judge?.recommendations?.[0]?.targetFolder || '07_其他'
   confirmFileName.value = item.title || ''
@@ -241,12 +259,12 @@ async function doConfirmArchive() {
 
 // v2.1: 一键确认（strong 推荐直接执行：按意图自行推送）
 async function quickConfirm(item) {
-  const judge = quickJudgeResults.value[item.id]
-  if (!judge?.recommendations?.length) {
+  const recs = getRecommendations(item)
+  if (!recs.length) {
     openConfirmDialog(item)
     return
   }
-  const rec = judge.recommendations[0]
+  const rec = recs[0]
   processing.value = true
   const result = await casyContext.inbox.confirmAction({
     inboxItemId: item.id,
@@ -266,10 +284,7 @@ async function quickConfirm(item) {
 async function quickCapture() {
   if (!quickCaptureText.value.trim()) return
   processing.value = true
-  const result = await tauriCallSafe('add_inbox_item', {
-    sourceType: 'note',
-    contentText: quickCaptureText.value,
-  })
+  const result = await casyContext.inbox.add('note', quickCaptureText.value)
   processing.value = false
   if (result.ok) {
     ElMessage.success('已捕获到收件箱')
@@ -295,11 +310,7 @@ async function pasteFromClipboard() {
     const text = await navigator.clipboard.readText()
     if (text && text.trim()) {
       processing.value = true
-      const result = await tauriCallSafe('add_inbox_item', {
-        sourceType: 'paste',
-        contentText: text,
-        title: '剪贴板内容',
-      })
+      const result = await casyContext.inbox.add('paste', text)
       processing.value = false
       if (result.ok) {
         ElMessage.success('剪贴板内容已捕获')
@@ -316,10 +327,7 @@ async function pasteFromClipboard() {
 async function addNote() {
   if (!newNote.value.trim()) return
   processing.value = true
-  const result = await tauriCallSafe('add_inbox_item', {
-    sourceType: 'note',
-    contentText: newNote.value,
-  })
+  const result = await casyContext.inbox.add('note', newNote.value)
   processing.value = false
   if (result.ok) {
     ElMessage.success('已添加到收件箱')
@@ -330,7 +338,7 @@ async function addNote() {
 }
 
 async function dismissItem(item) {
-  const result = await tauriCallSafe('dismiss_inbox_item', { id: item.id })
+  const result = await casyContext.inbox.dismiss(item.id)
   if (result.ok) {
     ElMessage.success('已忽略')
     await loadItems()
@@ -351,11 +359,7 @@ async function importFile() {
   const files = Array.isArray(selected) ? selected : [selected]
   processing.value = true
   for (const file of files) {
-    await tauriCallSafe('add_inbox_item', {
-      sourceType: 'file',
-      sourcePath: file,
-      title: file.split('/').pop(),
-    })
+    await casyContext.inbox.add('file', null, file)
   }
   processing.value = false
   ElMessage.success(`已导入 ${files.length} 个文件`)
@@ -448,7 +452,7 @@ function onBatchFinished(payload) {
 
 async function startBatch() {
   batchStarting.value = true
-  const result = await tauriCallSafe('start_inbox_batch')
+  const result = await casyContext.inbox.startBatch()
   batchStarting.value = false
   if (result.ok) {
     batchPaused.value = false
@@ -459,7 +463,7 @@ async function startBatch() {
 }
 
 async function pauseBatch() {
-  const result = await tauriCallSafe('pause_inbox_batch')
+  const result = await casyContext.inbox.pauseBatch()
   if (result.ok) {
     batchPaused.value = true
   } else {
@@ -468,7 +472,7 @@ async function pauseBatch() {
 }
 
 async function resumeBatch() {
-  const result = await tauriCallSafe('resume_inbox_batch')
+  const result = await casyContext.inbox.resumeBatch()
   if (result.ok) {
     batchPaused.value = false
   } else {
@@ -477,7 +481,7 @@ async function resumeBatch() {
 }
 
 async function cancelBatch() {
-  const result = await tauriCallSafe('cancel_inbox_batch')
+  const result = await casyContext.inbox.cancelBatch()
   if (result.ok) {
     batchPaused.value = false
   } else {
@@ -490,7 +494,7 @@ function startBatchPolling() {
   if (batchPollTimer) return
   let wasRunning = batch.value.running
   batchPollTimer = setInterval(async () => {
-    const result = await tauriCallSafe('get_inbox_progress')
+    const result = await casyContext.inbox.getBatchProgress()
     if (!result.ok) return
     const nowRunning = !!result.data?.running
     applyBatchProgress(result.data)
@@ -528,11 +532,7 @@ async function onDrop(e) {
   let count = 0
   for (const file of files) {
     const filePath = file.path || file.name
-    const result = await tauriCallSafe('add_inbox_item', {
-      sourceType: 'file',
-      sourcePath: filePath,
-      title: file.name,
-    })
+    const result = await casyContext.inbox.add('file', null, filePath)
     if (result.ok) count++
   }
   processing.value = false
@@ -580,11 +580,7 @@ onMounted(async () => {
         try {
           const text = await navigator.clipboard.readText()
           if (text && text.trim()) {
-            const result = await tauriCallSafe('add_inbox_item', {
-              sourceType: 'clipboard',
-              contentText: text,
-              title: '剪贴板内容',
-            })
+            const result = await casyContext.inbox.add('clipboard', text)
             if (result.ok) {
               ElMessage.success('剪贴板内容已添加到收件箱')
               await loadItems()
@@ -608,7 +604,7 @@ onMounted(async () => {
   }
 
   // 批量 AI 分类：先取一次当前进度（页面打开时批次可能已在跑）
-  const progressResult = await tauriCallSafe('get_inbox_progress')
+  const progressResult = await casyContext.inbox.getBatchProgress()
   if (progressResult.ok) applyBatchProgress(progressResult.data)
 
   // 批量进度事件监听；失败时回退 500ms 轮询
@@ -835,15 +831,15 @@ onUnmounted(() => {
                 </span>
               </div>
 
-              <!-- 推荐列表 -->
-              <div v-if="quickJudgeResults[item.id].recommendations?.length" class="recommendations">
+              <!-- 推荐列表（本地规则优先，AI 兜底） -->
+              <div v-if="getRecommendations(item).length" class="recommendations">
                 <div
-                  v-for="(rec, idx) in quickJudgeResults[item.id].recommendations"
+                  v-for="(rec, idx) in getRecommendations(item)"
                   :key="idx"
                   class="recommendation-item"
-                  :class="{ 'recommendation-default': idx === 0 && quickJudgeResults[item.id].strength === 'strong' }"
+                  :class="{ 'recommendation-default': idx === 0 && getStrength(quickJudgeResults[item.id]?.confidence ?? 0) === 'strong' }"
                 >
-                  <span class="rec-icon">{{ idx === 0 && quickJudgeResults[item.id].strength === 'strong' ? '●' : '○' }}</span>
+                  <span class="rec-icon">{{ idx === 0 && getStrength(quickJudgeResults[item.id]?.confidence ?? 0) === 'strong' ? '●' : '○' }}</span>
                   <span class="rec-text">{{ getActionMeta(rec.action).desc(rec) }}</span>
                   <span class="rec-reason">{{ rec.reason }}</span>
                 </div>
@@ -896,8 +892,8 @@ onUnmounted(() => {
                 type="success"
                 @click="quickConfirm(item)"
               >
-                <el-icon :size="13"><component :is="getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).icon" /></el-icon>
-                {{ getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).label }}
+                <el-icon :size="13"><component :is="getActionMeta(getRecommendations(item)[0]?.action).icon" /></el-icon>
+                {{ getActionMeta(getRecommendations(item)[0]?.action).label }}
               </el-button>
               <!-- Candidate/Fallback：打开确认弹窗 -->
               <el-button
@@ -906,8 +902,8 @@ onUnmounted(() => {
                 type="primary"
                 @click="openConfirmDialog(item)"
               >
-                <el-icon :size="13"><component :is="getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).icon" /></el-icon>
-                {{ getActionMeta(quickJudgeResults[item.id]?.recommendations?.[0]?.action).label }}
+                <el-icon :size="13"><component :is="getActionMeta(getRecommendations(item)[0]?.action).icon" /></el-icon>
+                {{ getActionMeta(getRecommendations(item)[0]?.action).label }}
               </el-button>
               <!-- AI 分析按钮 -->
               <el-button

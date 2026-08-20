@@ -16,7 +16,7 @@ import {
   CircleCheck,
 } from '@element-plus/icons-vue'
 import { useCasesStore } from '../../../stores/cases'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import type { Case, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus } from '../../../types'
 import {
@@ -200,14 +200,11 @@ async function onDragChange(columnKey: string, evt: Record<string, unknown>) {
   const statusField = getStatusFieldName()
 
   // 更新案件状态
-  const result = await tauriCallSafe('update_case', {
-    id: caseItem.id,
-    data: { [statusField]: newStatus },
-  })
+  const result = await casyContext.cases.update(caseItem.id, { [statusField]: newStatus })
 
   if (result.ok) {
     // 记录到 case_track_history
-    await tauriCallSafe('add_case_log', {
+    await casyContext.cases.addLog({
       caseId: caseItem.id,
       eventSummary: `看板拖拽: ${CASE_ROUTE_LABELS[activeRoute.value]}状态变更为「${getStatusLabel(caseItem)}」`,
       eventType: 'record',

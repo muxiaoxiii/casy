@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { tauriCallSafe } from '../../core/tauriBridge'
+import { casyContext } from '../../core/plugin/context'
 import {
   Briefcase, Clock, Warning, Folder, Calendar,
   DataBoard, PieChart, Histogram,
@@ -25,22 +25,19 @@ onMounted(async () => {
 })
 
 async function loadCases() {
-  const result = await tauriCallSafe('list_cases', { filter: {} })
+  const result = await casyContext.cases.list({})
   if (result.ok) cases.value = result.data?.items || []
 }
 
 async function loadTasks() {
   // 拉全部任务（含已完成），供趋势统计使用；展示统计时再按 completed 过滤
-  const result = await tauriCallSafe('list_tasks', { filter: {} })
+  const result = await casyContext.tasks.list({})
   if (result.ok) tasks.value = result.data || []
 }
 
 async function loadEvents() {
   const now = new Date()
-  const result = await tauriCallSafe('get_calendar_events', {
-    year: now.getFullYear(),
-    month: now.getMonth() + 1,
-  })
+  const result = await casyContext.calendar.events(now.getFullYear(), now.getMonth() + 1)
   if (result.ok) events.value = result.data || []
 }
 

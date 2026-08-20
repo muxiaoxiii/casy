@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage } from 'element-plus'
+import { casyContext } from '../../../core/plugin/context'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,6 +15,11 @@ const showVersionDialog = ref(false)
 const showDiffDialog = ref(false)
 const diffResult = ref(null)
 const selectedVersions = ref([])
+
+// 双链索引：案件名映射 + 任务列表（知识 ↔ 案件 ↔ 任务，§8.2 知识图谱）
+const caseList = ref([])
+const caseNameMap = ref({})
+const taskList = ref([])
 
 // 筛选条件
 const filter = ref({
@@ -75,17 +80,116 @@ const blockTypeLabels = {
   experience: '经验总结',
 }
 
+function getBlockTypeLabel(blockType) {
+  return blockTypeLabels[blockType] || blockType || '块'
+}
+
+// ============================================================
+// 双链：案件名 / 任务 / 父块 / 子块
+// ============================================================
+
+function getCaseName(caseId) {
+  if (!caseId) return ''
+  return caseNameMap.value[caseId] || caseId
+}
+
+function goToCase(caseId) {
+  if (!caseId) return
+  router.push({ name: 'case-detail', params: { id: caseId } })
+}
+
+function goToTask(taskId) {
+  if (!taskId) return
+  router.push({ name: 'tasks', query: { edit: taskId } })
+}
+
+// 任务索引：knowledgeId → 任务（引用本知识的任务）
+const tasksByKnowledge = computed(() => {
+  const map = {}
+  for (const t of taskList.value) {
+    if (t.knowledgeId) {
+      if (!map[t.knowledgeId]) map[t.knowledgeId] = []
+      map[t.knowledgeId].push(t)
+    }
+  }
+  return map
+})
+
+// 任务索引：caseId → 任务（关联案件下的任务）
+const tasksByCase = computed(() => {
+  const map = {}
+  for (const t of taskList.value) {
+    if (t.caseId) {
+      if (!map[t.caseId]) map[t.caseId] = []
+      map[t.caseId].push(t)
+    }
+  }
+  return map
+})
+
+// 当前条目的关联任务（引用本知识的 + 关联案件下的，去重）
+const linkedTasks = computed(() => {
+  const item = selectedItem.value
+  if (!item) return []
+  const seen = new Set()
+  const result = []
+  const push = (t) => {
+    if (!seen.has(t.id)) {
+      seen.add(t.id)
+      result.push(t)
+    }
+  }
+  for (const t of tasksByKnowledge.value[item.id] || []) push(t)
+  if (item.linkedCaseId) {
+    for (const t of tasksByCase.value[item.linkedCaseId] || []) push(t)
+  }
+  return result
+})
+
+// 子块数量（列表内由 parentId 直接统计）
+function childBlockCount(itemId) {
+  return knowledgeList.value.filter(k => k.parentId === itemId).length
+}
+
+// 父级条目（从已加载列表解析，避免额外请求）
+function getParentItem(item) {
+  if (!item || !item.parentId) return null
+  return knowledgeList.value.find(k => k.id === item.parentId) || null
+}
+
 // 跳转到父级条目（get_knowledge_with_blocks 返回 { item, blocks }）
 async function jumpToParent(parentId) {
-  const result = await tauriCallSafe('get_knowledge_with_blocks', { id: parentId })
+  const result = await casyContext.knowledge.getWithBlocks(parentId)
   if (result.ok && result.data?.item) {
     selectItem(result.data.item)
   }
 }
 
+// 跳转到子块：把块作为当前条目展开（含其自身的下级块）
+function selectBlock(block) {
+  selectItem(block)
+}
+
+// 加载案件名映射 + 任务列表（双链数据源）
+async function loadRelations() {
+  const [caseRes, taskRes] = await Promise.all([
+    casyContext.cases.list({}),
+    casyContext.tasks.list({}),
+  ])
+  if (caseRes.ok && caseRes.data?.items) {
+    caseList.value = caseRes.data.items
+    const map = {}
+    for (const c of caseRes.data.items) map[c.id] = c.caseName
+    caseNameMap.value = map
+  }
+  if (taskRes.ok && taskRes.data) {
+    taskList.value = taskRes.data
+  }
+}
+
 async function loadKnowledge() {
   loading.value = true
-  const result = await tauriCallSafe('list_knowledge', {
+  const result = await casyContext.knowledge.list({
     filter: {
       category: filter.value.category || null,
       search: filter.value.search || null,
@@ -99,7 +203,7 @@ async function loadKnowledge() {
 }
 
 async function loadVersions(itemId) {
-  const result = await tauriCallSafe('list_knowledge_versions', { itemId })
+  const result = await casyContext.knowledge.versions(itemId)
   if (result.ok) {
     versions.value = result.data
   }
@@ -129,7 +233,7 @@ const blocksWithDepth = computed(() => {
 
 async function loadBlocks(itemId) {
   blocksLoading.value = true
-  const result = await tauriCallSafe('get_knowledge_with_blocks', { id: itemId })
+  const result = await casyContext.knowledge.getWithBlocks(itemId)
   if (result.ok && result.data) {
     childBlocks.value = result.data.blocks || []
   } else {
@@ -149,15 +253,13 @@ async function confirmAddBlock() {
     return
   }
   addingBlock.value = true
-  const result = await tauriCallSafe('create_knowledge', {
-    data: {
-      title: addBlockForm.value.title.trim(),
-      category: selectedItem.value?.category || 'reference',
-      content: addBlockForm.value.content || '',
-      parentId: selectedItem.value?.id || null,
-      blockType: 'block',
-      status: 'current',
-    },
+  const result = await casyContext.knowledge.create({
+    title: addBlockForm.value.title.trim(),
+    category: selectedItem.value?.category || 'reference',
+    content: addBlockForm.value.content || '',
+    parentId: selectedItem.value?.id || null,
+    blockType: 'block',
+    status: 'current',
   })
   addingBlock.value = false
   if (result.ok) {
@@ -169,10 +271,6 @@ async function confirmAddBlock() {
   }
 }
 
-function getBlockTypeLabel(blockType) {
-  return blockTypeLabels[blockType] || blockType || '块'
-}
-
 function selectItem(item) {
   if (!item) return
   selectedItem.value = item
@@ -180,6 +278,48 @@ function selectItem(item) {
   loadVersions(item.id)
   loadBlocks(item.id)
 }
+
+// ============================================================
+// 快速捕获（§10.2 先捕获后整理：文本 + 职能分类 + 可选关联案件）
+// ============================================================
+const captureText = ref('')
+const captureCategory = ref('reference')
+const captureCaseId = ref('')
+const quickCapturing = ref(false)
+
+const caseOptions = computed(() => caseList.value.map(c => ({ id: c.id, name: c.caseName })))
+
+async function submitQuickCapture() {
+  const text = captureText.value.trim()
+  if (!text) {
+    ElMessage.warning('请输入要捕获的内容')
+    return
+  }
+  quickCapturing.value = true
+  const result = await casyContext.knowledge.create({
+    title: text.substring(0, 50),
+    category: captureCategory.value || 'reference',
+    content: text,
+    linkedCaseId: captureCaseId.value || null,
+    status: 'current',
+    sourceType: 'quick-capture',
+  })
+  quickCapturing.value = false
+  if (result.ok) {
+    ElMessage.success('已捕获到知识库')
+    captureText.value = ''
+    captureCaseId.value = ''
+    await loadKnowledge()
+    const created = knowledgeList.value.find(k => k.id === result.data)
+    if (created) selectItem(created)
+  } else {
+    ElMessage.error(result.error || '捕获失败')
+  }
+}
+
+// ============================================================
+// 版本历史 / 差异对比
+// ============================================================
 
 async function showVersionHistory() {
   if (!selectedItem.value) {
@@ -193,10 +333,7 @@ async function showVersionHistory() {
 async function compareWithCurrent(versionId) {
   if (!selectedItem.value) return
 
-  const result = await tauriCallSafe('diff_knowledge_with_current', {
-    versionId,
-    itemId: selectedItem.value.id,
-  })
+  const result = await casyContext.knowledge.diffWithCurrent(versionId, selectedItem.value.id)
   if (result.ok) {
     diffResult.value = result.data
     showDiffDialog.value = true
@@ -211,10 +348,10 @@ async function compareVersions() {
     return
   }
 
-  const result = await tauriCallSafe('diff_knowledge_versions', {
-    versionId1: selectedVersions.value[0],
-    versionId2: selectedVersions.value[1],
-  })
+  const result = await casyContext.knowledge.diffVersions(
+    selectedVersions.value[0],
+    selectedVersions.value[1]
+  )
   if (result.ok) {
     diffResult.value = result.data
     showDiffDialog.value = true
@@ -242,6 +379,7 @@ function formatDate(dateStr) {
 
 onMounted(async () => {
   await loadKnowledge()
+  await loadRelations()
   // 支持从知识图谱跳转定位：/knowledge?select=<id>
   const selectId = route.query.select
   if (selectId) {
@@ -266,6 +404,29 @@ onMounted(async () => {
         />
         <el-button type="primary" @click="loadKnowledge">搜索</el-button>
       </div>
+    </div>
+
+    <!-- 快速捕获（§10.2）：文本 + 职能分类 + 可选关联案件，回车入库 -->
+    <div class="quick-capture">
+      <el-input
+        v-model="captureText"
+        placeholder="快速捕获：输入任意片段，回车存入知识库"
+        clearable
+        @keyup.enter="submitQuickCapture"
+      />
+      <el-select v-model="captureCategory" style="width: 110px" placeholder="职能">
+        <el-option v-for="cat in categories" :key="cat.value" :label="cat.label" :value="cat.value" />
+      </el-select>
+      <el-select
+        v-model="captureCaseId"
+        placeholder="关联案件（可选）"
+        clearable
+        filterable
+        style="width: 200px"
+      >
+        <el-option v-for="c in caseOptions" :key="c.id" :label="c.name" :value="c.id" />
+      </el-select>
+      <el-button type="primary" :loading="quickCapturing" @click="submitQuickCapture">捕获</el-button>
     </div>
 
     <!-- 职能标签页 -->
@@ -293,8 +454,8 @@ onMounted(async () => {
           @current-change="selectItem"
           style="width: 100%"
         >
-          <el-table-column prop="title" label="标题" min-width="200" />
-          <el-table-column prop="category" label="职能" width="100">
+          <el-table-column prop="title" label="标题" min-width="180" />
+          <el-table-column prop="category" label="职能" width="90">
             <template #default="{ row }">
               <el-tag
                 size="small"
@@ -305,8 +466,27 @@ onMounted(async () => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="lawName" label="法律名称" width="150" />
-          <el-table-column prop="updatedAt" label="更新时间" width="150">
+          <el-table-column label="关联" width="190">
+            <template #default="{ row }">
+              <div class="rel-cell">
+                <el-link
+                  v-if="row.linkedCaseId"
+                  type="primary"
+                  :underline="false"
+                  @click.stop="goToCase(row.linkedCaseId)"
+                >
+                  {{ getCaseName(row.linkedCaseId) }}
+                </el-link>
+                <span v-else class="rel-empty">-</span>
+                <span class="rel-counts">
+                  <span v-if="childBlockCount(row.id) > 0">子块 {{ childBlockCount(row.id) }}</span>
+                  <span v-if="(tasksByKnowledge[row.id] || []).length > 0">任务 {{ tasksByKnowledge[row.id].length }}</span>
+                </span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="lawName" label="法律名称" width="140" />
+          <el-table-column prop="updatedAt" label="更新时间" width="140">
             <template #default="{ row }">
               {{ formatDate(row.updatedAt) }}
             </template>
@@ -323,7 +503,7 @@ onMounted(async () => {
               <div class="detail-actions">
                 <el-button size="small" @click="openAddBlockDialog">添加子块</el-button>
                 <el-button type="primary" size="small" @click="showVersionHistory">
-                  📜 版本历史
+                  版本历史
                 </el-button>
               </div>
             </div>
@@ -343,16 +523,62 @@ onMounted(async () => {
             <el-descriptions-item label="法律名称">{{ selectedItem.lawName || '-' }}</el-descriptions-item>
             <el-descriptions-item label="条款号">{{ selectedItem.articleNo || '-' }}</el-descriptions-item>
             <el-descriptions-item label="生效日期">{{ selectedItem.effectiveDate || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="关联案件">{{ selectedItem.linkedCaseId || '-' }}</el-descriptions-item>
             <el-descriptions-item label="块类型" v-if="selectedItem.blockType">
               <el-tag size="small" type="info">{{ blockTypeLabels[selectedItem.blockType] || selectedItem.blockType }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="父级条目" v-if="selectedItem.parentId">
-              <el-link type="primary" @click="jumpToParent(selectedItem.parentId)">
-                {{ selectedItem.parentTitle || selectedItem.parentId }}
-              </el-link>
-            </el-descriptions-item>
           </el-descriptions>
+
+          <!-- 双链展示：知识 ↔ 案件 ↔ 任务（§8.2 知识图谱） -->
+          <div class="links-section">
+            <h4>关联</h4>
+            <div class="links-grid">
+              <div class="link-item">
+                <span class="link-label">关联案件</span>
+                <el-link
+                  v-if="selectedItem.linkedCaseId"
+                  type="primary"
+                  :underline="false"
+                  @click="goToCase(selectedItem.linkedCaseId)"
+                >
+                  {{ getCaseName(selectedItem.linkedCaseId) }}
+                </el-link>
+                <span v-else class="rel-empty">无</span>
+              </div>
+              <div class="link-item">
+                <span class="link-label">关联任务</span>
+                <span v-if="linkedTasks.length" class="task-links">
+                  <el-link
+                    v-for="t in linkedTasks"
+                    :key="t.id"
+                    type="success"
+                    :underline="false"
+                    @click="goToTask(t.id)"
+                  >
+                    {{ t.taskName }}
+                  </el-link>
+                </span>
+                <span v-else class="rel-empty">无</span>
+              </div>
+              <div class="link-item" v-if="getParentItem(selectedItem)">
+                <span class="link-label">父块</span>
+                <el-link type="primary" :underline="false" @click="jumpToParent(selectedItem.parentId)">
+                  {{ getParentItem(selectedItem).title }}
+                </el-link>
+              </div>
+              <div class="link-item">
+                <span class="link-label">子块</span>
+                <el-link
+                  v-if="childBlockCount(selectedItem.id) > 0"
+                  type="info"
+                  :underline="false"
+                  @click="selectBlock(knowledgeList.find(k => k.parentId === selectedItem.id))"
+                >
+                  {{ childBlockCount(selectedItem.id) }} 个
+                </el-link>
+                <span v-else class="rel-empty">无</span>
+              </div>
+            </div>
+          </div>
 
           <div class="content-section">
             <h4>内容</h4>
@@ -368,7 +594,7 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- 子块树 -->
+          <!-- 子块树（点击子块可跳转展开） -->
           <div v-if="blocksLoading || childBlocks.length > 0" class="blocks-section" v-loading="blocksLoading">
             <h4>子块</h4>
             <div
@@ -376,6 +602,7 @@ onMounted(async () => {
               :key="block.id"
               class="block-item"
               :style="{ paddingLeft: (block.depth * 16) + 'px' }"
+              @click="selectBlock(block)"
             >
               <div class="block-head">
                 <el-tag size="small" type="info">{{ getBlockTypeLabel(block.blockType) }}</el-tag>
@@ -496,7 +723,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .knowledge-header h2 {
@@ -506,6 +733,21 @@ onMounted(async () => {
 .header-actions {
   display: flex;
   gap: 12px;
+}
+
+/* 快速捕获条 */
+.quick-capture {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
+
+.quick-capture .el-input {
+  flex: 1;
 }
 
 /* 职能标签页 */
@@ -588,6 +830,65 @@ onMounted(async () => {
   gap: 8px;
 }
 
+/* 列表关联单元格 */
+.rel-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.rel-counts {
+  display: flex;
+  gap: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.rel-empty {
+  color: #c0c4cc;
+}
+
+/* 双链展示区 */
+.links-section {
+  margin-top: 16px;
+}
+
+.links-section h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.links-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.link-label {
+  flex-shrink: 0;
+  width: 64px;
+  color: #909399;
+}
+
+.task-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
 /* 子块树 */
 .blocks-section {
   margin-top: 16px;
@@ -602,6 +903,11 @@ onMounted(async () => {
 .block-item {
   padding: 8px 0 8px 0;
   border-bottom: 1px solid #f0f2f5;
+  cursor: pointer;
+}
+
+.block-item:hover {
+  background: #f5f7fa;
 }
 
 .block-item:last-child {

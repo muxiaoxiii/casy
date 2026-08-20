@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 
 // === 飞书导入 (legacy JSON dump) ===
@@ -17,7 +17,7 @@ async function importFeishuData() {
 
   importing.value = true
   importResult.value = null
-  const result = await tauriCallSafe('import_feishu_data', { jsonPath: selected })
+  const result = await casyContext.sync.importFeishuData(selected)
   importing.value = false
 
   if (result.ok) {
@@ -72,7 +72,7 @@ const importResult2 = ref(null)
 const incrementalSince = ref('')
 
 async function loadSyncInfo() {
-  const result = await tauriCallSafe('get_feishu_sync_info')
+  const result = await casyContext.sync.feishuSyncInfo()
   if (result.ok) {
     syncInfo.value = result.data
     if (result.data.appToken) feishuAppToken.value = result.data.appToken
@@ -85,10 +85,7 @@ async function saveCredentials() {
     return
   }
   configuring.value = true
-  const result = await tauriCallSafe('configure_feishu', {
-    appId: feishuAppId.value.trim(),
-    appSecret: feishuAppSecret.value.trim(),
-  })
+  const result = await casyContext.sync.configureFeishu(feishuAppId.value.trim(), feishuAppSecret.value.trim())
   configuring.value = false
 
   if (result.ok) {
@@ -103,7 +100,7 @@ async function saveCredentials() {
 async function testConnection() {
   testing.value = true
   connectionStatus.value = null
-  const result = await tauriCallSafe('test_feishu_connection')
+  const result = await casyContext.sync.testFeishuConnection()
   testing.value = false
 
   if (result.ok) {
@@ -123,9 +120,7 @@ async function discoverTables() {
   }
   discovering.value = true
   discoveredTables.value = []
-  const result = await tauriCallSafe('feishu_list_tables', {
-    appToken: feishuAppToken.value.trim(),
-  })
+  const result = await casyContext.sync.feishuListTables(feishuAppToken.value.trim())
   discovering.value = false
 
   if (result.ok) {
@@ -140,10 +135,7 @@ async function loadTableFields(tableId) {
   selectedTableId.value = tableId
   loadingFields.value = true
   selectedTableFields.value = []
-  const result = await tauriCallSafe('feishu_list_fields', {
-    appToken: feishuAppToken.value.trim(),
-    tableId,
-  })
+  const result = await casyContext.sync.feishuListFields(feishuAppToken.value.trim(), tableId)
   loadingFields.value = false
 
   if (result.ok) {
@@ -230,11 +222,7 @@ async function compareSchema() {
   }
   comparingTable.value = true
   schemaDiff.value = null
-  const result = await tauriCallSafe('feishu_compare_table', {
-    appToken: feishuAppToken.value.trim(),
-    tableId: selectedTableId.value,
-    localTable: localTable.value,
-  })
+  const result = await casyContext.sync.feishuCompareTable(feishuAppToken.value.trim(), selectedTableId.value, localTable.value)
   comparingTable.value = false
 
   if (result.ok) {
@@ -258,12 +246,7 @@ async function compareRecords() {
   }
   comparingRecords.value = true
   recordDiff.value = null
-  const result = await tauriCallSafe('feishu_compare_records', {
-    appToken: feishuAppToken.value.trim(),
-    tableId: selectedTableId.value,
-    localTable: localTable.value,
-    matchField: matchField.value,
-  })
+  const result = await casyContext.sync.feishuCompareRecords(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, matchField.value)
   comparingRecords.value = false
 
   if (result.ok) {
@@ -300,7 +283,7 @@ async function saveMappings() {
     isLink: m.isLink ? 1 : 0,
     isLookup: m.isLookup ? 1 : 0,
   }))
-  const result = await tauriCallSafe('feishu_save_mappings', { mappingsJson: payload })
+  const result = await casyContext.sync.feishuSaveMappings(payload)
   savingMappings.value = false
 
   if (result.ok) {
@@ -327,12 +310,7 @@ async function doImportAll() {
     isFormula: m.isFormula,
     isLink: m.isLink,
   }))
-  const result = await tauriCallSafe('feishu_import_all', {
-    appToken: feishuAppToken.value.trim(),
-    tableId: selectedTableId.value,
-    localTable: localTable.value,
-    mappingsJson: payload,
-  })
+  const result = await casyContext.sync.feishuImportAll(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, payload)
   importAllLoading.value = false
 
   if (result.ok) {
@@ -364,13 +342,7 @@ async function doImportIncremental() {
     isFormula: m.isFormula,
     isLink: m.isLink,
   }))
-  const result = await tauriCallSafe('feishu_import_incremental', {
-    appToken: feishuAppToken.value.trim(),
-    tableId: selectedTableId.value,
-    localTable: localTable.value,
-    sinceTimestamp: incrementalSince.value,
-    mappingsJson: payload,
-  })
+  const result = await casyContext.sync.feishuImportIncremental(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, incrementalSince.value, payload)
   importAllLoading.value = false
 
   if (result.ok) {

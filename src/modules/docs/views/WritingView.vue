@@ -7,7 +7,7 @@ import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import Highlight from '@tiptap/extension-highlight'
 import { useCasesStore } from '../../../stores/cases'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import CopilotSidebar from '../components/CopilotSidebar.vue'
 import { useCopilot } from '../composables/useCopilot.js'
@@ -132,7 +132,7 @@ async function loadCaseData() {
 
 // 加载案件列表供选择
 async function loadCasesList() {
-  const result = await tauriCallSafe('list_cases', { filter: { page: 1, perPage: 200 } })
+  const result = await casyContext.cases.list({ page: 1, perPage: 200 })
   if (result.ok) {
     casesList.value = result.data.items || []
   }
@@ -170,9 +170,9 @@ async function saveDraft() {
 
   let result
   if (draftId.value) {
-    result = await tauriCallSafe('update_draft', { id: draftId.value, data: payload })
+    result = await casyContext.docs.updateDraft(draftId.value, payload)
   } else {
-    result = await tauriCallSafe('create_draft', { data: payload })
+    result = await casyContext.docs.createDraft(payload)
     if (result.ok && result.data?.id) {
       draftId.value = result.data.id
     }
@@ -186,7 +186,7 @@ async function saveDraft() {
 
 // 加载已有草稿
 async function loadDraft(id) {
-  const result = await tauriCallSafe('get_draft', { id })
+  const result = await casyContext.docs.getDraft(id)
   if (result.ok && result.data) {
     draftId.value = result.data.id
     draftTitle.value = result.data.title || '未命名文档'
@@ -237,19 +237,17 @@ async function doCapture() {
   if (!captureDialog.text) return
   captureDialog.capturing = true
 
-  const result = await tauriCallSafe('create_knowledge', {
-    data: {
-      title: captureDialog.title,
-      category: captureDialog.category,
-      content: captureDialog.text,
-      tags: captureDialog.tags || null,
-      sourceType: 'editor',
-      sourceId: draftId.value || null,
-      linkedCaseId: caseId.value || null,
-      lawName: captureDialog.lawName || null,
-      articleNo: captureDialog.articleNo || null,
-      status: 'current',
-    },
+  const result = await casyContext.knowledge.create({
+    title: captureDialog.title,
+    category: captureDialog.category,
+    content: captureDialog.text,
+    tags: captureDialog.tags || null,
+    sourceType: 'editor',
+    sourceId: draftId.value || null,
+    linkedCaseId: caseId.value || null,
+    lawName: captureDialog.lawName || null,
+    articleNo: captureDialog.articleNo || null,
+    status: 'current',
   })
 
   captureDialog.capturing = false

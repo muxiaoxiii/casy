@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { User } from '@element-plus/icons-vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const router = useRouter()
@@ -42,7 +42,7 @@ onMounted(async () => {
 })
 
 async function loadClients() {
-  const result = await tauriCallSafe('list_cases', { filter: {} })
+  const result = await casyContext.cases.list({})
   if (result.ok && result.data) {
     // 按客户聚合
     const clientMap = {}
@@ -63,7 +63,7 @@ async function selectClient(client) {
   clientCases.value = client.cases
 
   // 一次拉取全部任务，前端按案件过滤（避免逐案件 N+1 调用）
-  const result = await tauriCallSafe('list_tasks', { filter: {} })
+  const result = await casyContext.tasks.list({})
   if (result.ok && result.data) {
     const caseIds = new Set(client.cases.map(c => c.id))
     clientTasks.value = result.data.filter(t => caseIds.has(t.caseId))

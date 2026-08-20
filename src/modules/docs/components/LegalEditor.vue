@@ -113,7 +113,7 @@ import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import { CaseFieldSuggestion } from '../composables/caseFieldSuggestion.js'
 import { LegalProvisionSuggestion } from '../composables/legalProvisionSuggestion.js'
@@ -227,19 +227,17 @@ async function doCapture() {
   if (!captureDialog.text) return
   captureDialog.capturing = true
 
-  const result = await tauriCallSafe('create_knowledge', {
-    data: {
-      title: captureDialog.title,
-      category: captureDialog.category,
-      content: captureDialog.text,
-      tags: captureDialog.tags || null,
-      sourceType: 'editor',
-      sourceId: props.sourceId || null,
-      linkedCaseId: props.caseId || null,
-      lawName: captureDialog.lawName || null,
-      articleNo: captureDialog.articleNo || null,
-      status: 'current',
-    },
+  const result = await casyContext.knowledge.create({
+    title: captureDialog.title,
+    category: captureDialog.category,
+    content: captureDialog.text,
+    tags: captureDialog.tags || null,
+    sourceType: 'editor',
+    sourceId: props.sourceId || null,
+    linkedCaseId: props.caseId || null,
+    lawName: captureDialog.lawName || null,
+    articleNo: captureDialog.articleNo || null,
+    status: 'current',
   })
 
   captureDialog.capturing = false

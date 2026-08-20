@@ -1078,6 +1078,22 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
         recommendations.push(rec);
     }
 
+    // 3.5) 法院送达短信意图（zxfw.court.gov.cn 链接 → 抓取送达文书）
+    if let Some(delivery) = detect_service_delivery(text) {
+        recommendations.push(QuickRecommendation {
+            action: "service_delivery".to_string(),
+            target_case_id: delivery.matched_case_id.clone(),
+            target_case_name: delivery.matched_case_name.clone(),
+            target_folder: None,
+            intent: Some(serde_json::json!({
+                "caseNo": delivery.case_no,
+                "serviceUrl": delivery.service_url,
+                "recipientName": delivery.recipient_name,
+            })),
+            reason: "检测到法院送达短信链接（zxfw.court.gov.cn）".to_string(),
+        });
+    }
+
     // 4) 知识意图
     if ["笔记", "参考", "资料", "心得", "总结", "整理", "备忘", "要点"].iter().any(|w| text.contains(w)) {
         recommendations.push(QuickRecommendation {
@@ -1556,6 +1572,25 @@ pub async fn confirm_inbox_action(
                 case_id
             }
 
+            // ── 抓取送达文书（zxfw 短信链接 → 下载 PDF 到 Casy/inbox） ──
+            "service_delivery" => {
+                let url = intent["serviceUrl"].as_str().ok_or_else(|| anyhow::anyhow!("送达链接缺失"))?;
+                let case_id = intent["caseId"].as_str().or_else(|| intent["matchedCaseId"].as_str()).map(|s| s.to_string());
+                let rt = tokio::runtime::Runtime::new()?;
+                let download = rt.block_on(download_service_delivery(url.to_string(), case_id.clone().unwrap_or_default()))
+                    .map_err(|e| anyhow::anyhow!("下载送达文书失败: {}", e))?;
+                // 关联案件（若已匹配）
+                if let Some(cid) = &case_id {
+                    conn.execute(
+                        "UPDATE inbox_items SET linked_case_id = ?1 WHERE id = ?2",
+                        rusqlite::params![cid, inbox_item_id],
+                    )?;
+                }
+                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
+                record_recommendation(&conn, &inbox_item_id, "service_delivery", case_id.as_deref(), None, "用户确认抓取送达文书", 1.0)?;
+                serde_json::to_string(&download).unwrap_or_default()
+            }
+
             _ => return Err(anyhow::anyhow!("未知动作: {}", action).into()),
         };
 
@@ -1709,19 +1744,20 @@ pub async fn ai_analyze_inbox_item(id: String) -> Result<serde_json::Value, Stri
         let conn = db::open_db()?;
 
         // 检查缓存
-        let (ai_analyzed, ai_extracted, content_text): (i32, Option<String>, String) = conn.query_row(
-            "SELECT ai_analyzed, ai_extracted, COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
+        let (ai_analyzed, ai_extracted, ai_category, content_text): (i32, Option<String>, Option<String>, String) = conn.query_row(
+            "SELECT ai_analyzed, ai_extracted, ai_category, COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
             rusqlite::params![id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         ).map_err(|_| anyhow::anyhow!("收件项不存在"))?;
 
-        // 如果已分析过，直接返回缓存
+        // 如果已分析过，直接返回缓存（含 AI 意图）
         if ai_analyzed == 1 && ai_extracted.is_some() {
             let cached: serde_json::Value = serde_json::from_str(&ai_extracted.unwrap_or_default())
                 .unwrap_or(serde_json::json!({}));
             return Ok(serde_json::json!({
                 "cached": true,
                 "result": cached,
+                "intent": ai_category.as_deref().and_then(ai_category_to_intent),
                 "message": "已分析过，结果如下（缓存）"
             }));
         }
@@ -1761,9 +1797,29 @@ pub async fn ai_analyze_inbox_item(id: String) -> Result<serde_json::Value, Stri
             "category": category,
             "confidence": confidence,
             "extracted": extracted,
+            "intent": ai_category_to_intent(&category),
         }))
     })
     .await
+}
+
+/// AI 文档分类 → 推荐动作（本地规则兜底之外的 AI 兜底增强，§10）
+/// 法律文书类（传票/通知/判决等）→ 归入案件；委托指示 → 转为任务；其余 None（留给本地规则）
+fn ai_category_to_intent(category: &str) -> Option<serde_json::Value> {
+    match category {
+        "summons" | "hearing_notice" | "judgment" | "complaint" | "defense" | "correspondence" | "opposing_counsel" => {
+            Some(serde_json::json!({
+                "action": "file_to_case",
+                "docType": category,
+            }))
+        }
+        "client_instruction" => {
+            Some(serde_json::json!({
+                "action": "create_task",
+            }))
+        }
+        _ => None,
+    }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -26,4 +26,9 @@ export class TasksService extends Service {
   async remove(id: string): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe<void>('delete_task', { id })
   }
+
+  /** GTD 领域列表 */
+  async areas(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('list_areas', {})
+  }
 }

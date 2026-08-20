@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
@@ -46,11 +46,10 @@ async function loadCase() {
 async function loadFiles() {
   if (!caseId.value) return
   filesLoading.value = true
-  const params = { caseId: caseId.value }
-  if (activeCategory.value !== 'all') {
-    params.category = activeCategory.value
-  }
-  const result = await tauriCallSafe('list_case_files', params)
+  const result = await casyContext.files.list(
+    caseId.value,
+    activeCategory.value !== 'all' ? activeCategory.value : undefined
+  )
   if (result.ok) {
     files.value = result.data || []
   }
@@ -70,12 +69,11 @@ async function uploadFile() {
 
   for (const filePath of paths) {
     const fileName = filePath.split('/').pop() || filePath.split('\\').pop()
-    const result = await tauriCallSafe('add_case_file', {
-      caseId: caseId.value,
-      fileName,
+    const result = await casyContext.files.add(
+      caseId.value,
       filePath,
-      category: activeCategory.value === 'all' ? 'other' : activeCategory.value,
-    })
+      activeCategory.value === 'all' ? 'other' : activeCategory.value
+    )
     if (!result.ok) {
       ElMessage.error(`上传失败: ${fileName}`)
     }
@@ -98,7 +96,7 @@ async function deleteFile(file) {
     return
   }
 
-  const result = await tauriCallSafe('delete_case_file', { id: file.id })
+  const result = await casyContext.files.remove(file.id)
   if (result.ok) {
     ElMessage.success('已删除')
     await loadFiles()

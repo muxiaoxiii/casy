@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // 同步状态
@@ -43,7 +43,7 @@ const feishuSyncInfo = ref({
 
 async function loadSyncStatus() {
   loading.value = true
-  const result = await tauriCallSafe('get_sync_status')
+  const result = await casyContext.sync.status()
   if (result.ok && result.data) {
     syncStatus.value = result.data
   }
@@ -51,7 +51,7 @@ async function loadSyncStatus() {
 }
 
 async function loadFeishuSyncInfo() {
-  const result = await tauriCallSafe('get_feishu_sync_info')
+  const result = await casyContext.sync.feishuSyncInfo()
   if (result.ok) {
     feishuSyncInfo.value = result.data
   }
@@ -65,11 +65,11 @@ async function testWebdav() {
   }
   webdavTesting.value = true
   webdavTestResult.value = null
-  const result = await tauriCallSafe('test_webdav_connection', {
-    url: webdavForm.value.url,
-    username: webdavForm.value.username,
-    password: webdavForm.value.password,
-  })
+  const result = await casyContext.sync.testWebdav(
+    webdavForm.value.url,
+    webdavForm.value.username,
+    webdavForm.value.password
+  )
   webdavTesting.value = false
   if (result.ok) {
     webdavTestResult.value = result.data
@@ -90,11 +90,11 @@ async function checkWebdavSync() {
     return
   }
   webdavSyncing.value = true
-  const result = await tauriCallSafe('webdav_startup_sync', {
-    url: webdavForm.value.url,
-    username: webdavForm.value.username,
-    password: webdavForm.value.password,
-  })
+  const result = await casyContext.sync.startupSync(
+    webdavForm.value.url,
+    webdavForm.value.username,
+    webdavForm.value.password
+  )
   webdavSyncing.value = false
 
   if (result.ok) {
@@ -126,11 +126,11 @@ async function doWebdavPush() {
     return
   }
   webdavSyncing.value = true
-  const result = await tauriCallSafe('webdav_push', {
-    url: webdavForm.value.url,
-    username: webdavForm.value.username,
-    password: webdavForm.value.password,
-  })
+  const result = await casyContext.sync.push(
+    webdavForm.value.url,
+    webdavForm.value.username,
+    webdavForm.value.password
+  )
   webdavSyncing.value = false
 
   if (result.ok) {
@@ -148,11 +148,11 @@ async function doWebdavPull() {
     return
   }
   webdavSyncing.value = true
-  const result = await tauriCallSafe('webdav_pull', {
-    url: webdavForm.value.url,
-    username: webdavForm.value.username,
-    password: webdavForm.value.password,
-  })
+  const result = await casyContext.sync.pull(
+    webdavForm.value.url,
+    webdavForm.value.username,
+    webdavForm.value.password
+  )
   webdavSyncing.value = false
 
   if (result.ok) {
@@ -166,11 +166,11 @@ async function doWebdavPull() {
 // 冲突解决：保留本地
 async function resolveKeepLocal() {
   conflictState.value.resolving = true
-  const result = await tauriCallSafe('webdav_resolve_keep_local', {
-    url: webdavForm.value.url,
-    username: webdavForm.value.username,
-    password: webdavForm.value.password,
-  })
+  const result = await casyContext.sync.resolveKeepLocal(
+    webdavForm.value.url,
+    webdavForm.value.username,
+    webdavForm.value.password
+  )
   conflictState.value.resolving = false
   conflictState.value.show = false
 
@@ -185,11 +185,11 @@ async function resolveKeepLocal() {
 // 冲突解决：保留远程
 async function resolveKeepRemote() {
   conflictState.value.resolving = true
-  const result = await tauriCallSafe('webdav_resolve_keep_remote', {
-    url: webdavForm.value.url,
-    username: webdavForm.value.username,
-    password: webdavForm.value.password,
-  })
+  const result = await casyContext.sync.resolveKeepRemote(
+    webdavForm.value.url,
+    webdavForm.value.username,
+    webdavForm.value.password
+  )
   conflictState.value.resolving = false
   conflictState.value.show = false
 
@@ -208,10 +208,10 @@ async function doFeishuPull() {
     return
   }
   feishuPulling.value = true
-  const result = await tauriCallSafe('sync_feishu_pull', {
-    appToken: feishuSyncInfo.value.appToken,
-    tableId: feishuSyncInfo.value.tableId,
-  })
+  const result = await casyContext.sync.feishuPull(
+    feishuSyncInfo.value.appToken,
+    feishuSyncInfo.value.tableId
+  )
   feishuPulling.value = false
   if (result.ok) {
     ElMessage.success(`拉取完成：${result.data.pulled} 条`)
@@ -229,10 +229,10 @@ async function doFeishuPush() {
     return
   }
   feishuPushing.value = true
-  const result = await tauriCallSafe('sync_feishu_push', {
-    appToken: feishuSyncInfo.value.appToken,
-    tableId: feishuSyncInfo.value.tableId,
-  })
+  const result = await casyContext.sync.feishuPush(
+    feishuSyncInfo.value.appToken,
+    feishuSyncInfo.value.tableId
+  )
   feishuPushing.value = false
   if (result.ok) {
     ElMessage.success(`推送完成：${result.data.pushed} 条`)

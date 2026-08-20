@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
-import { tauriCallSafe } from '../../../core/tauriBridge'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CaseFilterBar from '../components/CaseFilterBar.vue'
 import CaseGroupPanel from '../components/CaseGroupPanel.vue'
@@ -115,15 +115,12 @@ const exporting = ref(false)
 async function exportCases() {
   exporting.value = true
   try {
-    const result = await tauriCallSafe('export_cases', {
-      format: 'csv',
-      filter: {
-        track: casesStore.filter.track || null,
-        client: casesStore.filter.client || null,
-        court: casesStore.filter.court || null,
-        status: casesStore.filter.status || null,
-        search: casesStore.filter.search || null,
-      },
+    const result = await casyContext.cases.exportCases('csv', {
+      track: casesStore.filter.track || null,
+      client: casesStore.filter.client || null,
+      court: casesStore.filter.court || null,
+      status: casesStore.filter.status || null,
+      search: casesStore.filter.search || null,
     })
     if (result.ok) {
       ElMessage.success(`已导出到: ${result.data}`)
