@@ -21,15 +21,26 @@ const tasksStore = useTasksStore()
 
 const route = useRoute()
 
-// 工具统计
+// 工具统计（插件系统异步初始化，就绪后刷新）
+const tools = ref([])
 const toolStats = computed(() => {
-  const tools = casyContext.getTools()
   const categories = {}
-  tools.forEach(t => {
+  tools.value.forEach(t => {
     const cat = t.category || 'other'
     categories[cat] = (categories[cat] || 0) + 1
   })
-  return { total: tools.length, categories }
+  return { total: tools.value.length, categories }
+})
+
+function refreshTools() {
+  tools.value = casyContext.getTools()
+}
+
+onMounted(() => {
+  refreshTools()
+  casyContext.on('plugins:ready', () => refreshTools())
+  // 防御：插件可能已在挂载前就绪（事件已错过），延迟兜底刷新一次
+  setTimeout(refreshTools, 600)
 })
 
 // 支持从外部跳转定位 tab（如决策复核横幅 → /ai?tab=decisions）
@@ -711,7 +722,7 @@ onMounted(async () => {
             
             <div class="tool-list">
               <div 
-                v-for="tool in casyContext.getTools()" 
+                v-for="tool in tools" 
                 :key="tool.name"
                 class="tool-item"
               >

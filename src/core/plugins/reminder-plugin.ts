@@ -64,10 +64,12 @@ export class ReminderPlugin implements CasyPlugin {
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('create_reminder_rule', {
-          name: params.name,
-          trigger_type: params.triggerType,
-          trigger_value: params.triggerValue,
-          channels: params.channels || '["local"]',
+          data: {
+            name: params.name,
+            triggerType: params.triggerType,
+            triggerValue: params.triggerValue,
+            channels: params.channels || '["local"]',
+          },
         })
         return result
       },
@@ -109,7 +111,7 @@ export class ReminderPlugin implements CasyPlugin {
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('start_reminder_engine', { 
-          interval_secs: params.intervalSeconds || 300 
+          intervalSecs: params.intervalSeconds || 300 
         })
         return result
       },

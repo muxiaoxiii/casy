@@ -6,6 +6,19 @@
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
 
+/** 从设置中读取 WebDAV 凭据（settings 表 snake_case 键） */
+async function getWebdavCredentials() {
+  const { tauriCallSafe } = await import('../../core/tauriBridge')
+  const res = await tauriCallSafe('get_settings', {})
+  if (!res.ok || !res.data) return null
+  const s = res.data
+  const url = s.webdav_url || s.webdavUrl
+  const username = s.webdav_username || s.webdavUsername
+  const password = s.webdav_password || s.webdavPassword
+  if (!url || !username || !password) return null
+  return { url, username, password }
+}
+
 export class SyncPlugin implements CasyPlugin {
   name = 'sync'
   version = '1.0.0'
@@ -50,7 +63,9 @@ export class SyncPlugin implements CasyPlugin {
       parameters: { type: 'object', properties: {} },
       execute: async () => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('test_webdav_connection', {})
+        const creds = await getWebdavCredentials()
+        if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
+        const result = await tauriCallSafe('test_webdav_connection', creds)
         return result
       },
     }
@@ -76,7 +91,9 @@ export class SyncPlugin implements CasyPlugin {
         }
         
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('manual_sync_push', {})
+        const creds = await getWebdavCredentials()
+        if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
+        const result = await tauriCallSafe('webdav_push', creds)
         return result
       },
     }
@@ -102,7 +119,9 @@ export class SyncPlugin implements CasyPlugin {
         }
         
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('manual_sync_pull', {})
+        const creds = await getWebdavCredentials()
+        if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
+        const result = await tauriCallSafe('webdav_pull', creds)
         return result
       },
     }

@@ -41,7 +41,7 @@ export class FilesPlugin implements CasyPlugin {
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('list_case_files', { 
-          case_id: params.caseId 
+          caseId: params.caseId 
         })
         return result
       },
@@ -65,9 +65,10 @@ export class FilesPlugin implements CasyPlugin {
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('add_case_file', {
-          case_id: params.caseId,
-          file_path: params.filePath,
-          category: params.category,
+          caseId: params.caseId,
+          fileName: params.fileName || (params.filePath ? params.filePath.split('/').pop() : ''),
+          filePath: params.filePath,
+          category: params.category || '',
         })
         return result
       },
@@ -101,10 +102,7 @@ export class FilesPlugin implements CasyPlugin {
         }
         
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('delete_case_file', {
-          case_id: params.caseId,
-          file_id: params.fileId,
-        })
+        const result = await tauriCallSafe('delete_case_file', { id: params.fileId })
         return result
       },
     }

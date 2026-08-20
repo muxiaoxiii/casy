@@ -20,7 +20,8 @@ const inputMessage = ref('')
 const loading = ref(false)
 const showToolCalls = ref(false)
 
-// 可用模型
+// 可用提供商与模型（来自插件系统，初始化完成后自动刷新）
+const providers = ref([])
 const availableModels = ref([])
 const selectedProvider = ref('ollama')
 const selectedModel = ref('qwen2.5:14b')
@@ -38,31 +39,52 @@ const toolDefinitions = computed(() => {
 onMounted(() => {
   loadModels()
   addSystemMessage()
+  // 插件系统异步初始化：就绪后刷新提供商/模型 + 重建欢迎语（避免时序竞态）
+  const off = casyContext.on('plugins:ready', () => {
+    loadModels()
+    // 若欢迎语还是空工具清单，则重建
+    if (messages.value.length === 1 && messages.value[0].role === 'system') {
+      messages.value[0].content = buildIntro()
+    }
+  })
+  setTimeout(() => {
+    loadModels()
+    off()
+  }, 800)
 })
 
 // ============================================================
 // 函数
 // ============================================================
 function loadModels() {
-  const providers = casyContext.getProviders()
-  availableModels.value = providers.flatMap(p => 
+  const list = casyContext.getProviders()
+  providers.value = list.map(p => ({ id: p.id, name: p.name, mode: p.mode }))
+  availableModels.value = list.flatMap(p => 
     p.models.map(m => ({
       provider: p.name,
       model: m.id,
-      label: `${p.name}/${m.name}`,
+      label: p.name + '/' + m.name,
     }))
   )
+  // 保证选中的模型存在于当前列表
+  if (availableModels.value.length > 0 && !availableModels.value.some(m => m.model === selectedModel.value)) {
+    selectedModel.value = availableModels.value[0].model
+  }
+}
+
+function buildIntro() {
+  const tools = casyContext.getToolDefinitions()
+  const toolLines = tools.map(t => `- ${t.name}: ${t.description}`).join('\n')
+  return '我是 Casy AI 助手，可以帮你查询案件、管理任务、搜索知识库。\n\n' +
+    '我可以调用以下工具：\n' +
+    (toolLines || '（工具加载中…）') + '\n\n' +
+    '请告诉我你需要什么帮助。'
 }
 
 function addSystemMessage() {
   messages.value.push({
     role: 'system',
-    content: `我是 Casy AI 助手，可以帮你查询案件、管理任务、搜索知识库。
-
-我可以调用以下工具：
-${toolDefinitions.value.map(t => `- ${t.name}: ${t.description}`).join('\n')}
-
-请告诉我你需要什么帮助。`,
+    content: buildIntro(),
     timestamp: new Date(),
   })
 }
@@ -123,9 +145,10 @@ async function sendMessage() {
     }
   } catch (error) {
     console.error('AI error:', error)
+    const msg = error instanceof Error ? error.message : String(error)
     messages.value.push({
       role: 'assistant',
-      content: `抱歉，发生了错误：${error.message}`,
+      content: '抱歉，发生了错误：' + msg,
       timestamp: new Date(),
     })
   } finally {
@@ -165,12 +188,15 @@ function clearChat() {
         <el-select 
           v-model="selectedProvider" 
           size="small" 
-          style="width: 100px"
+          style="width: 120px"
           placeholder="提供商"
         >
-          <el-option label="Ollama" value="ollama" />
-          <el-option label="OpenAI" value="openai" />
-          <el-option label="DeepSeek" value="deepseek" />
+          <el-option
+            v-for="p in providers"
+            :key="p.id"
+            :label="p.name"
+            :value="p.id"
+          />
         </el-select>
         
         <el-select 

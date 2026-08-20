@@ -76,9 +76,9 @@ export class InboxPlugin implements CasyPlugin {
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('add_inbox_item', {
-          content_text: params.content,
-          source_type: params.sourceType || 'text',
-          source_path: params.sourcePath,
+          sourceType: params.sourceType || 'text',
+          contentText: params.content,
+          sourcePath: params.sourcePath,
         })
         return result
       },
@@ -122,8 +122,8 @@ export class InboxPlugin implements CasyPlugin {
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('file_inbox_item', {
-          id: params.id,
-          case_id: params.caseId,
+          itemId: params.id,
+          caseId: params.caseId,
           category: params.category,
         })
         return result

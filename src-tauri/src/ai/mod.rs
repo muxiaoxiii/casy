@@ -22,6 +22,18 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 // ============================================================
+// 多轮对话消息（AI 聊天面板 / 工具调用循环）
+// ============================================================
+
+/// 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+// ============================================================
 // Prompt 模板
 // ============================================================
 
@@ -390,6 +402,25 @@ pub trait AiBackend: Send + Sync {
         let _ = (system_prompt, user_prompt);
         anyhow::bail!("当前 AI 后端不支持自由对话")
     }
+
+    /// 多轮对话（AI 聊天面板 / 工具调用循环的原始通道）
+    /// 默认实现：取 system 消息 + 拼接其余消息，退化到 chat_completion
+    async fn chat_messages(&self, messages: &[ChatMessage]) -> Result<String> {
+        let system = messages
+            .iter()
+            .find(|m| m.role == "system")
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        let user = messages
+            .iter()
+            .filter(|m| m.role != "system")
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("
+
+");
+        self.chat_completion(system, &user).await
+    }
 }
 
 // ============================================================
@@ -550,6 +581,30 @@ impl AiBackend for OllamaBackend {
     async fn chat_completion(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         self.chat(system_prompt, user_prompt).await
     }
+
+    /// 多轮对话：Ollama /api/chat 原生支持 messages 数组
+    async fn chat_messages(&self, messages: &[ChatMessage]) -> Result<String> {
+        let url = format!("{}/api/chat", self.base_url);
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "messages": messages
+                .iter()
+                .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+                .collect::<Vec<_>>(),
+            "stream": false
+        });
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("Ollama API 错误: {}", resp.status());
+        }
+        let result: serde_json::Value = resp.json().await?;
+        Ok(result["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string())
+    }
 }
 
 // ============================================================
@@ -694,6 +749,41 @@ impl AiBackend for OpenAiBackend {
 
     async fn chat_completion(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         self.chat_with_max_tokens(system_prompt, user_prompt, 2000).await
+    }
+
+    /// 多轮对话：OpenAI /chat/completions 原生支持 messages 数组
+    async fn chat_messages(&self, messages: &[ChatMessage]) -> Result<String> {
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "messages": messages
+                .iter()
+                .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+                .collect::<Vec<_>>(),
+            "temperature": 0.3,
+            "max_tokens": 2000
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("OpenAI API 错误 {}: {}", status, body_text);
+        }
+
+        let result: serde_json::Value = resp.json().await?;
+        Ok(result["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string())
     }
 }
 
@@ -1040,6 +1130,86 @@ pub async fn get_ai_usage() -> Result<serde_json::Value, String> {
         "dailyLimit": limit,
         "remaining": if limit == 0 { u64::MAX } else { limit.saturating_sub(used) },
     }))
+}
+
+/// 通用多轮对话（AI 聊天面板 / 工具调用循环的原始通道）
+///
+/// - 支持 mode / api_url / model 覆盖（前端面板切换提供商/模型，不改全局配置）
+/// - 过 ai_runs 审计（input/output SHA256 脱敏，§11.9 模型可见即记录）
+/// - 过每日限额（TokenBudget）
+#[tauri::command]
+pub async fn ai_chat(
+    messages: Vec<ChatMessage>,
+    purpose: Option<String>,
+    mode: Option<String>,
+    api_url: Option<String>,
+    model: Option<String>,
+) -> Result<String, String> {
+    let budget = get_token_budget();
+    if !budget.check_quota().await.map_err(|e| e.to_string())? {
+        return Err("AI 调用已达每日限额".to_string());
+    }
+
+    // 覆盖配置（不改写全局设置）
+    let mut config = load_ai_config();
+    if let Some(m) = mode {
+        if m == "noop" || m == "none" {
+            return Err("未配置 AI 后端，请先在设置中配置（Ollama 或 OpenAI 兼容 API）".to_string());
+        }
+        config.mode = m;
+    }
+    if let Some(u) = api_url {
+        if !u.trim().is_empty() {
+            config.api_url = Some(u);
+        }
+    }
+    if let Some(m) = model {
+        if !m.trim().is_empty() {
+            config.model = Some(m);
+        }
+    }
+
+    let provider = config.mode.clone();
+    let model_name = config.model.clone().unwrap_or_default();
+    let purpose = purpose.unwrap_or_else(|| "ai_chat".to_string());
+
+    // input_hash（脱敏入库，§11.9）
+    use sha2::Digest;
+    let input_text = messages
+        .iter()
+        .map(|m| format!("{}:{}", m.role, m.content))
+        .collect::<Vec<_>>()
+        .join("
+");
+    let input_hash = hex::encode(sha2::Sha256::digest(input_text.as_bytes()));
+
+    let backend = create_backend(&config);
+    let result = backend.chat_messages(&messages).await;
+
+    // 审计（失败不阻塞主流程）
+    let (status, output_hash, error_msg) = match &result {
+        Ok(text) => {
+            let h = hex::encode(sha2::Sha256::digest(text.as_bytes()));
+            ("completed", Some(h), None)
+        }
+        Err(e) => ("failed", None, Some(e.to_string())),
+    };
+    if let Err(e) = crate::commands::ai_routes::log_ai_run(
+        &provider,
+        &model_name,
+        &purpose,
+        Some("v1"),
+        &input_hash,
+        output_hash.as_deref(),
+        status,
+        error_msg.as_deref(),
+    ) {
+        log::warn!("AI 审计日志写入失败: {}", e);
+    }
+
+    let text = result.map_err(|e| e.to_string())?;
+    let _ = budget.consume().await;
+    Ok(text)
 }
 
 /// AI 写作辅助：根据意图、上下文、知识库和风格生成写作建议

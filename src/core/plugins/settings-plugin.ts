@@ -54,7 +54,7 @@ export class SettingsPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('save_settings', { data: params.data })
+        const result = await tauriCallSafe('save_settings', { settings: params.data })
         return result
       },
     }
@@ -83,8 +83,8 @@ export class SettingsPlugin implements CasyPlugin {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
         const result = await tauriCallSafe('configure_ai', {
           mode: params.mode,
-          endpoint: params.endpoint,
-          api_key: params.apiKey,
+          apiUrl: params.endpoint,
+          apiKey: params.apiKey,
           model: params.model,
         })
         return result

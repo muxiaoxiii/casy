@@ -137,7 +137,7 @@ export class TasksPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('update_task', { id: params.id, data: params.data })
+        const result = await tauriCallSafe('update_task', { data: { ...params.data, id: params.id } })
         return result
       },
     }

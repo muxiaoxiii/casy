@@ -79,10 +79,7 @@ export class KnowledgePlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('search_knowledge', { 
-          keyword: params.query,
-          limit: params.limit || 10,
-        })
+        const result = await tauriCallSafe('search_knowledge', { query: params.query })
         return result
       },
     }

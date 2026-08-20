@@ -201,7 +201,7 @@ export class CasesPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('search_cases', { keyword: params.keyword })
+        const result = await tauriCallSafe('search_cases', { query: params.keyword })
         return result
       },
     }
