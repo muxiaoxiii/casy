@@ -4,7 +4,7 @@
 
 Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：动态字段、跨类型筛选、期限引擎、多通道提醒、知识库、文书生成、大口袋收件箱。
 
-**v3.0 架构**：采用插件化架构（借鉴 Cordis + DeepSeek Harness），每个业务模块是独立插件，AI 能力以工具/技能形式接入。详见 `docs/archive/architecture-v3.md` 与 `docs/archive/architecture-plugin-system.md`（已归档，现行唯一总纲为 `docs/casy-design-philosophy.md`）。
+**架构**：cordis 风格内核（借鉴 DeepSeek Harness / @deepseek-ai/cordis）——Context 服务解析 + Service 注入 + Fiber 生命周期，9+ 个业务服务（ctx.cases / ctx.tasks / ...）构成数据通路：视图 → ctx 服务 → tauriBridge → Rust 命令（写入口唯一）。AI 能力以工具/技能形式接入。现行唯一总纲为 docs/casy-design-philosophy.md。
 
 ---
 
@@ -16,7 +16,7 @@ Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：
 | 前端 | Vue 3 + Element Plus + Pinia + Vue Router（TypeScript） |
 | 编辑器 | TipTap (ProseMirror) |
 | 后端 | Rust |
-| 数据库 | SQLite (SQLCipher 加密) + FTS5 全文搜索（Schema v9） |
+| 数据库 | SQLite (SQLCipher 加密) + FTS5 全文搜索（Schema v13，含任务时间点 due_time） |
 | 公式引擎 | Rust nom 解析器 |
 | 同步 | WebDAV + 飞书 Bitable API |
 | 提醒 | 本地弹窗 + macOS 通知 + 飞书消息 + 飞书任务（R1-R4 分级预警） |
@@ -33,7 +33,7 @@ Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：
 - **收件箱（大口袋）** — 多入口 + AI 分类 + 推荐面板 + 安全拷贝 + 卷宗管理
 - **文书工坊** — TipTap 编辑器 + Copilot 知识检索侧栏 + AI 写作辅助
 - **知识库** — CRUD + FTS5 + 语义向量检索 + 风格标注
-- **任务管理** — 四象限 + 庭审准备模板 + 飞书任务同步
+- **任务管理** — 7 透视工作台（收件箱/今天/计划中/随时/等待/回顾/某天）+ 自然语言快速捕获 + 顺序项目 + Review 闭环 + 具体时间点
 - **日历** — 月视图 + 法定节假日 + 期限计算
 
 ### 全局能力
@@ -70,7 +70,7 @@ Casy/
 ├── src/                    # Vue 前端
 │   ├── modules/            # 功能模块
 │   │   ├── cases/          # 案件管理（列表/详情/看板/关系图）
-│   │   ├── tasks/          # 任务管理（四象限 + GTD 透视）
+│   │   ├── tasks/          # 任务管理（7 透视 + 自然语言捕获）
 │   │   ├── calendar/       # 日历（月视图 + Forecast）
 │   │   ├── inbox/          # 收件箱（大口袋）
 │   │   ├── docs/           # 文书工坊（编辑器+Copilot）
@@ -81,7 +81,7 @@ Casy/
 │   │   ├── sync/           # 同步状态
 │   │   ├── settings/       # 设置（飞书/AI/WebDAV/IMAP/提醒）
 │   │   └── home/           # 首页 Dashboard
-│   ├── core/               # tauriBridge + plugins（v3.0 插件化架构）
+│   ├── core/               # tauriBridge + services（cordis 数据通路）+ plugins
 │   │   └── plugins/        # 9 个业务插件 + CasyContext 容器
 │   ├── stores/             # Pinia Stores（TypeScript）
 │   ├── shared/             # 共享组件（AIStatusBadge/ReminderToast/...）
@@ -90,11 +90,9 @@ Casy/
 ├── docs/                   # 设计文档
 │   ├── casy-design-philosophy.md # ★ 设计哲学（唯一总纲：原则/模块蓝图/UI 规范/路线图）
 │   ├── devlog/             # 开发日志
-│   └── archive/            # 归档文档（架构文档/模块文档/调研/旧版设计）
+│   └── archive/            # 数据模型口径（architecture.md）+ 法条依据 + feishu 数据
 ├── designs/                # UI 设计稿（11 张屏幕 PNG+SVG + HTML 原型）
-├── Casy-SPEC.md            # 综合技术规格
-├── Casy-STATUS.md          # 项目状态（v0.2.0 历史）
-├── Casy-STATUS-v3.md       # 项目状态 v3.0（当前）
+├── Casy-STATUS-v3.md       # 项目状态（当前）
 └── README.md               # 本文件
 ```
 
@@ -106,7 +104,7 @@ Casy/
 README.md（你在这里）
   ├─ docs/casy-design-philosophy.md ← 设计哲学（唯一总纲：八大原则、模块蓝图、UI 规范、路线图）
   ├─ docs/devlog/                   ← 开发日志（按日期 + TODO.md 待办清单）
-  └─ docs/archive/                  ← 归档文档（历史架构/模块设计/调研，含 architecture*.md、casy-todo/、modules/）
+  └─ docs/archive/                  ← 数据模型口径（architecture.md，被设计哲学引用）+ 法条依据 + feishu-base 数据
 ```
 
 ---
@@ -162,5 +160,6 @@ npm run tauri build
 
 ## 附录 B：改动登记
 
+- 2026-08-20 — **文档清理与更新**：删除过时文档（Casy-SPEC / Casy-STATUS v0.2 / log / prompt / 全部旧规格与旧架构设计 / 过时的对标落实方案），docs 精简为「设计哲学（唯一总纲）+ devlog（开发日志）+ archive（数据模型口径 / 法条依据 / 飞书数据）」；README 与 Casy-STATUS-v3 同步最新状态（cordis 内核、7 透视、schema v13、时间模型、提醒交接、数据链）。
 - 2026-08-19 — **插件系统补齐为真实实现**（架构收口）：`src/core/plugin/` 从占位符重写为真实容器（types.ts 新建、context.ts 真实 CasyContext、initializer.ts 安装 9 插件 38 工具 + 注册 AI 提供商），`src/core/ai/tool-caller.ts` 实现多轮对话 + 工具调用循环；后端新增 `ai_chat` 多轮对话命令（过 ai_runs 审计 + 每日限额）；修复 AI 对话面板运行即崩；浏览器预览模式补 ai_chat mock。详见 `docs/devlog/2026-08-19-plugin-real.md`。
 - 2026-08-18 — v3.0 文档同步：项目指标刷新（43.3k 行 / 148 命令 / 44 组件 / 9 插件 / 38 工具），项目结构补全 ai/reminder/core/plugins/types 模块，文档层级补 architecture-v3 与 architecture-plugin-system，新增 designs/ 与 Casy-STATUS-v3.md。详见 `docs/devlog/2026-08-18.md`。

@@ -203,8 +203,8 @@
 
 ### 5.2 数据库版本
 
-- Schema 版本：9
-- 迁移方式：增量迁移
+- Schema 版本：13（v9 GTD 字段 → v10 saved_filters → v11 知识块级化/报表叙事 → v12 MCP 写队列 → v13 任务时间点 due_time）
+- 迁移方式：增量迁移 + 条件补列（幂等）
 
 ---
 
@@ -213,11 +213,10 @@
 | 文档 | 说明 |
 |------|------|
 | `docs/casy-design-philosophy.md` | 设计哲学（唯一总纲） |
-| `docs/archive/architecture-v3.md` | v3.0 架构设计文档（已归档） |
-| `docs/archive/architecture-plugin-system.md` | 插件系统详细设计（已归档） |
-| `docs/archive/architecture.md` | v2.11 架构文档（已归档） |
-| `docs/archive/casy-todo/` | 模块设计文档（已归档） |
-| `docs/devlog/` | 开发日志 |
+| `docs/archive/architecture.md` | 数据模型口径（§5，被设计哲学引用） |
+| `docs/archive/期限规则修正方案.md` | 法定期限法条依据 |
+| `docs/archive/feishu-base/` | 飞书多维表格数据快照 |
+| `docs/devlog/` | 开发日志（最新为 2026-08-20 系列） |
 
 ---
 
