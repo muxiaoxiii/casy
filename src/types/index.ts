@@ -272,6 +272,7 @@ export interface Task {
   taskType: TaskType
   startDate: string | null         // When
   dueDate: string | null           // Deadline
+  dueTime: string | null           // 具体时间点 HH:MM（设计哲学 §7 时间分配）
   waitingFor: string | null        // 等谁
   followUpDate: string | null      // 跟进日期
   context: Context | null          // @办公室 等

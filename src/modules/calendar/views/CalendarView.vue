@@ -786,12 +786,26 @@ function getWeekDay(dayIndex) {
 
 function getWeekDayHourEvents(date, hour) {
   const dateStr = formatDate(date)
-  return events.value.filter(e => {
+  const evs = events.value.filter(e => {
     if (e.date !== dateStr) return false
     if (!e.time) return false
     const eHour = parseInt(e.time.split(':')[0])
     return eHour === hour
   })
+  // 综合显示：同时列出该时刻的有具体时间点的任务（设计哲学 §7：日历+待办合一）
+  const dayTasks = tasksForDay(date).filter(t => {
+    if (!t.dueTime) return false
+    const tHour = parseInt(t.dueTime.split(':')[0])
+    return tHour === hour
+  })
+  return [...evs, ...dayTasks.map(t => ({
+    id: 'task-' + t.id,
+    isTask: true,
+    task: t,
+    title: t.taskName,
+    time: t.dueTime || '',
+    date: dateStr,
+  }))]
 }
 
 /**
@@ -808,6 +822,25 @@ function onDragStart(task, event) {
 function onDragOver(dateStr, event) {
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
+}
+
+// 拖拽到时间点（设计哲学 §7.3：拖到时间轴某时刻 = 改日期 + 时间）
+async function onDropToTime(dateStr, hour) {
+  if (!draggedTask.value) return
+  const task = draggedTask.value
+  const timeStr = String(hour).padStart(2, '0') + ':00'
+  if (task.dueDate === dateStr && (task.dueTime || '00:00').slice(0, 2) === String(hour).padStart(2, '0')) return
+  const result = await casyContext.tasks.update({
+    id: task.id,
+    dueDate: dateStr,
+    deadline: dateStr,
+    dueTime: timeStr,
+  })
+  if (result.ok) {
+    ElMessage.success('已改期到 ' + dateStr + ' ' + timeStr)
+    await Promise.all([loadTasks(), loadTodayTasks()])
+  }
+  draggedTask.value = null
 }
 
 async function onDrop(dateStr, event) {
@@ -942,7 +975,7 @@ async function onDrop(dateStr, event) {
               class="event-badge task"
               :title="task.taskName"
             >
-              <span class="event-text">{{ task.taskName }}</span>
+              <span class="event-text">{{ task.dueTime ? task.dueTime + ' ' : '' }}{{ task.taskName }}</span>
             </div>
 
             <!-- 更多提示 -->
@@ -1065,11 +1098,17 @@ async function onDrop(dateStr, event) {
               v-for="ev in getWeekDayHourEvents(getWeekDay(day), hour)"
               :key="ev.id"
               class="week-event"
-              :style="{ borderLeftColor: getEventColor(ev), background: getEventBgColor(ev) }"
+              :class="{ 'week-event-task': ev.isTask }"
+              :style="{ borderLeftColor: ev.isTask ? '#3E5C9A' : getEventColor(ev), background: ev.isTask ? '#EFF4FC' : getEventBgColor(ev) }"
             >
               <span class="week-event-title">{{ ev.title }}</span>
               <span class="week-event-time">{{ ev.time }}</span>
             </div>
+            <div
+              class="week-dropzone"
+              @dragover.prevent
+              @drop.prevent="onDropToTime(formatDate(getWeekDay(day)), hour)"
+            />
           </div>
         </div>
       </div>
@@ -1293,6 +1332,22 @@ async function onDrop(dateStr, event) {
 
 
 <style scoped>
+/* 周视图任务（综合显示：日历+待办合一） */
+.week-event-task {
+  cursor: pointer;
+}
+.week-event-task .week-event-title {
+  font-weight: 500;
+}
+/* 时间轴放置区（拖任务到时间点） */
+.week-dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+.week-cell {
+  position: relative;
+}
 .calendar-page {
   max-width: 1200px;
   margin: 0 auto;

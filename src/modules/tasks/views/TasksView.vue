@@ -360,6 +360,7 @@ function openDrawer(task) {
     taskType: task.taskType || 'action',
     startDate: task.startDate || '',
     dueDate: task.dueDate || task.deadline || '',
+    dueTime: task.dueTime || '',
     waitingFor: task.waitingFor || '',
     followUpDate: task.followUpDate || '',
     context: task.context || '',
@@ -499,6 +500,7 @@ function openTriage(task) {
     areaId: task.areaId || '',
     startDate: task.startDate || '',
     dueDate: task.dueDate || task.deadline || '',
+    dueTime: task.dueTime || '',
     context: task.context || '',
   }
   showTriageDialog.value = true
@@ -514,6 +516,7 @@ async function submitTriage() {
     areaId: triageForm.value.areaId || null,
     startDate: triageForm.value.startDate || null,
     dueDate: triageForm.value.dueDate || null,
+    dueTime: triageForm.value.dueTime || null,
     context: triageForm.value.context || null,
     startBucket: triageForm.value.taskType === 'someday' ? 'someday' : 'anytime',
   }
@@ -705,6 +708,7 @@ async function quickCapture(forceToday = false) {
       taskName: parsed ? parsed.taskName : text,
       startDate: todayStr(),
       dueDate: todayStr(),
+      dueTime: parsed?.dueTime || null,
       startBucket: 'today',
       taskType: 'action',
     }
@@ -713,6 +717,7 @@ async function quickCapture(forceToday = false) {
       taskName: parsed.taskName,
       startDate: parsed.startDate,
       dueDate: parsed.dueDate,
+      dueTime: parsed.dueTime || null,
       startBucket: parsed.startBucket,
       taskType: 'action',
     }
@@ -948,7 +953,7 @@ onUnmounted(() => {
                   <!-- 截止日期 -->
                   <span v-if="task.dueDate || task.deadline" class="meta-item deadline" :class="{ overdue: isOverdue(task.dueDate || task.deadline) }">
                     <el-icon><Calendar /></el-icon>
-                    {{ formatDate(task.dueDate || task.deadline) }}
+                    {{ formatDate(task.dueDate || task.deadline) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
                   </span>
                   
                   <!-- 预计耗时 -->
@@ -1186,6 +1191,9 @@ onUnmounted(() => {
           <el-form-item label="截止日期" style="flex: 1;">
             <el-date-picker v-model="triageForm.dueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
           </el-form-item>
+          <el-form-item v-if="triageForm.dueDate" label="时间点" style="flex: 1;">
+            <el-time-select v-model="triageForm.dueTime" start="00:00" step="00:30" end="23:30" placeholder="具体时间" style="width: 100%" />
+          </el-form-item>
         </div>
         
         <el-form-item label="上下文">
@@ -1230,6 +1238,9 @@ onUnmounted(() => {
           </el-form-item>
           <el-form-item label="截止日期" style="flex: 1;">
             <el-date-picker v-model="editForm.dueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+          </el-form-item>
+          <el-form-item v-if="editForm.dueDate" label="时间点" style="flex: 1;">
+            <el-time-select v-model="editForm.dueTime" start="00:00" step="00:30" end="23:30" placeholder="具体时间" style="width: 100%" />
           </el-form-item>
         </div>
         

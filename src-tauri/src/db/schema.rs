@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 12;
+pub const CURRENT_SCHEMA_VERSION: i64 = 13;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -636,6 +636,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("10", MIGRATION_V10_SQL),
     ("11", MIGRATION_V11_SQL),
     ("12", MIGRATION_V12_SQL),
+    ("13", MIGRATION_V13_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1778,6 +1779,13 @@ pub const MIGRATION_V11_SQL: &str = r#"
 SELECT 1;
 "#;
 
+/// 版本 13: 任务具体时间点（设计哲学 §7 时间分配：due_time HH:MM）
+/// 幂等说明：ADD COLUMN 在 run_migrations 的条件补列段执行（PRAGMA 探测），
+/// 此处只推进版本号，避免重复迁移时 duplicate column。
+pub const MIGRATION_V13_SQL: &str = r#"
+-- tasks.due_time 由条件补列段添加（幂等）
+"#;
+
 /// 版本 12: MCP 写操作待确认队列（设计哲学 §11.11 安全约束）
 ///
 /// 外部 AI 经 MCP 通道发起的写操作不直接执行，先落队等待应用内确认；
@@ -1896,6 +1904,18 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
     if !ss_cols.iter().any(|c| c == "narrative_source") {
         conn.execute_batch("ALTER TABLE smart_summaries ADD COLUMN narrative_source TEXT DEFAULT 'rule';")?;
         log::info!("Added narrative_source column to smart_summaries (rule/ai)");
+    }
+
+    // v13：tasks.due_time（具体时间点，旧库保护）
+    let task_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(tasks)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !task_cols.iter().any(|c| c == "due_time") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN due_time TEXT;")?;
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_due_time ON tasks(due_time);")?;
+        log::info!("Added due_time column to tasks (v13 time model)");
     }
 
     // L3 递归确认（§11.5）：task_events.event_type CHECK 扩展 'recursion_gap'，task_id 可空
