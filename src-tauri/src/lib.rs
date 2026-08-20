@@ -271,9 +271,43 @@ fn recalc_all_deadlines() -> anyhow::Result<usize> {
     let warnings = engine.generate_all_warnings(&conn)?;
     let count = warnings.len();
 
+    // 逾期行为事件（设计哲学 §11.9：overdue 事件支撑延期模式分析，去重按天）
+    if let Ok(today) = chrono::Local::now().format("%Y-%m-%d").to_string().parse::<String>() {
+        let _ = record_overdue_events(&conn, &today);
+    }
+
     log::debug!("期限重算完成，共 {} 条预警", count);
 
     Ok(count)
+}
+
+/// 为逾期未完成任务写 overdue 行为事件（同日去重）
+fn record_overdue_events(conn: &rusqlite::Connection, today: &str) -> anyhow::Result<usize> {
+    let overdue_tasks: Vec<(String, String)> = conn
+        .prepare("SELECT id, due_date FROM tasks WHERE completed = 0 AND due_date IS NOT NULL AND due_date < ?1")?
+        .query_map(rusqlite::params![today], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut written = 0;
+    for (task_id, due_date) in overdue_tasks {
+        let already: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM task_events WHERE task_id = ?1 AND event_type = 'overdue' AND date(occurred_at) = ?2",
+            rusqlite::params![task_id, today],
+            |r| r.get(0),
+        )?;
+        if already == 0 {
+            let payload = serde_json::json!({ "dueDate": due_date });
+            conn.execute(
+                "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'overdue', ?3, ?4, 'system')",
+                rusqlite::params![db::new_id(), task_id, db::now_local(), serde_json::to_string(&payload).unwrap_or_default()],
+            )?;
+            written += 1;
+        }
+    }
+    if written > 0 {
+        log::info!("逾期行为事件已记录: {} 条", written);
+    }
+    Ok(written)
 }
 
 /// 计算到下一个触发点的等待时长

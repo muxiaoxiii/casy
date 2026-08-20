@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { safeListen } from '../../core/tauriEvents'
+import { casyContext } from '../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import { Bell, Check, Clock } from '@element-plus/icons-vue'
 
@@ -34,7 +35,7 @@ async function setupListener() {
       const payload = event.payload
       const msg = typeof payload === 'string' ? payload : payload?.message
       if (!msg) return
-      queue.value.push({ message: msg, at: payload?.at || '' })
+      queue.value.push({ message: msg, at: payload?.at || '', taskId: payload?.taskId || null, reminderLogId: payload?.reminderLogId || null })
       if (!visible.value) showNext()
       // 同时给一条系统级提示（不阻塞）
       ElMessage({
@@ -50,10 +51,23 @@ async function setupListener() {
 function snooze() {
   visible.value = false
   ElMessage.info('已稍后提醒（本地）')
+  recordFeedback('snoozed')
 }
 function dismiss() {
   visible.value = false
   current.value = null
+  recordFeedback('dismissed')
+}
+
+// 提醒处理反馈回收 → reminded 行为事件（支撑"懂你的节奏"学习）
+function recordFeedback(status) {
+  const item = current.value
+  if (!item) return
+  casyContext.reminder.recordFeedback({
+    reminderLogId: item.reminderLogId || null,
+    taskId: item.taskId || null,
+    status,
+  })
 }
 
 onMounted(setupListener)

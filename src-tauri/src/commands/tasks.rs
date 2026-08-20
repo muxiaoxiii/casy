@@ -226,6 +226,59 @@ pub async fn delete_task(id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 任务"稍后提醒"（设计哲学 §5.4 / §11.9：推迟任务并记录 snoozed 行为事件）
+/// option: tonight / tomorrow / weekend / next_week / custom（+new_due_date）
+#[tauri::command]
+pub async fn snooze_task(
+    id: String,
+    option: Option<String>,
+    new_due_date: Option<String>,
+) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let now = db::now_local();
+        use chrono::{Datelike, Duration, Local};
+        let today = Local::now().date_naive();
+
+        // 计算新日期
+        let (new_date, label) = match option.as_deref() {
+            Some("tonight") => (today.to_string(), "今晚".to_string()),
+            Some("tomorrow") => ((today + Duration::days(1)).to_string(), "明天".to_string()),
+            Some("weekend") => {
+                let days_to_sat = (6 - today.weekday().num_days_from_monday() + 7) % 7;
+                ((today + Duration::days(days_to_sat as i64)).to_string(), "周末".to_string())
+            }
+            Some("next_week") => ((today + Duration::days(7)).to_string(), "下周".to_string()),
+            _ => {
+                let d = new_due_date.unwrap_or_else(|| today.to_string());
+                (d, "自定义".to_string())
+            }
+        };
+
+        // 更新任务：到期日 = 新日期；今天 → today 桶，其他 → upcoming
+        let is_today = new_date == today.to_string();
+        let bucket = if is_today { "today" } else { "upcoming" };
+        conn.execute(
+            "UPDATE tasks SET due_date = ?1, start_date = ?1, start_bucket = ?2 WHERE id = ?3",
+            rusqlite::params![new_date, bucket, id],
+        )?;
+
+        // 写 snoozed 行为事件（支撑"懂你的节奏/模式"学习）
+        let payload = serde_json::json!({
+            "option": option.unwrap_or_else(|| "custom".to_string()),
+            "newDueDate": new_date,
+            "label": label,
+        });
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'snoozed', ?3, ?4, 'user')",
+            rusqlite::params![db::new_id(), id, now, serde_json::to_string(&payload).unwrap_or_default()],
+        )?;
+
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
     run_blocking(move || {

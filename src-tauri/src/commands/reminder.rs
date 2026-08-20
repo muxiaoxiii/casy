@@ -467,14 +467,14 @@ fn dispatch_reminder_at(
         }
     }
 
-    let result = send_via_channel(conn, rule_id, case_id, channel, message, level, cal_ctx);
+    let log_id = db::new_id();
+
+    let result = send_via_channel(conn, rule_id, case_id, task_id, Some(&log_id), channel, message, level, cal_ctx);
 
     let status = match result {
         Ok(_) => "sent",
         Err(_) => "failed",
     };
-
-    let log_id = db::new_id();
     let entry = ReminderLogEntry {
         id: log_id.clone(),
         rule_id: rule_id.to_string(),
@@ -511,13 +511,15 @@ fn send_via_channel(
     conn: &Connection,
     rule_id: &str,
     case_id: Option<&str>,
+    task_id: Option<&str>,
+    reminder_log_id: Option<&str>,
     channel: &str,
     message: &str,
     level: &str,
     cal_ctx: Option<&CalendarJobCtx>,
 ) -> Result<()> {
     match channel {
-        "local" => send_local_notification(message),
+        "local" => send_local_notification(message, task_id, reminder_log_id),
         "system" => send_system_notification(message),
         "calendar" => dispatch_calendar_channel(conn, rule_id, case_id, message, level, cal_ctx),
         "feishu_message" => {
@@ -705,7 +707,7 @@ fn dispatch_due_local_jobs(conn: &Connection) -> Result<Vec<ReminderLogEntry>> {
         // entity_type='task' 时 entity_id 即 task_id；case_id 无法从作业还原，记 NULL
         let task_id = (entity_type == "task").then_some(entity_id.as_str());
 
-        let result = send_via_channel(conn, &rule_id, None, &channel, &message, &level, None);
+        let result = send_via_channel(conn, &rule_id, None, None, None, &channel, &message, &level, None);
 
         let (job_status, last_error) = match &result {
             Ok(_) => ("sent", None),
@@ -769,17 +771,17 @@ fn dispatch_calendar_channel(
 ) -> Result<()> {
     if !crate::sync::caldav::calendar_sync_enabled(conn) {
         log::info!("[提醒-日历] 日历同步未启用，回退本地提醒");
-        return send_local_notification(message);
+        return send_local_notification(message, None, None);
     }
 
     let Some(ctx) = cal_ctx else {
         log::warn!("[提醒-日历] 缺少实体上下文，回退本地提醒");
-        return send_local_notification(message);
+        return send_local_notification(message, None, None);
     };
 
     let Some(dtstart) = super::caldav::parse_due_morning(&ctx.due_date) else {
         log::warn!("[提醒-日历] 无法解析截止日期 {}，回退本地提醒", ctx.due_date);
-        return send_local_notification(message);
+        return send_local_notification(message, None, None);
     };
 
     let summary = masked_calendar_summary(conn, case_id, &ctx.title);
@@ -912,14 +914,16 @@ fn already_sent(
 // 通道实现
 // ============================================================
 
-pub(crate) fn send_local_notification(message: &str) -> Result<()> {
-    // 向前端 emit 事件（弹提醒面板），并记录日志
+pub(crate) fn send_local_notification(message: &str, task_id: Option<&str>, reminder_log_id: Option<&str>) -> Result<()> {
+    // 向前端 emit 事件（弹提醒面板，带实体上下文供反馈回收），并记录日志
     log::info!("[提醒-本地弹窗] {}", message.replace('\n', " | "));
 
     if let Some(handle) = crate::get_app_handle() {
         let _ = handle.emit("reminder:triggered", serde_json::json!({
             "message": message,
             "at": crate::db::now_local(),
+            "taskId": task_id,
+            "reminderLogId": reminder_log_id,
         }));
     }
 
@@ -1107,7 +1111,7 @@ pub async fn test_reminder(
         for channel in &channels {
             match channel.as_str() {
                 "local" => {
-                    let _ = send_local_notification(&test_msg);
+                    let _ = send_local_notification(&test_msg, None, None);
                 }
                 "system" => {
                     let _ = send_system_notification(&test_msg);
@@ -1440,6 +1444,46 @@ pub async fn get_deadline_warnings_with_levels() -> Result<Vec<DeadlineWarning>,
         }
 
         Ok(warnings)
+    })
+    .await
+}
+
+/// 提醒处理反馈回收（设计哲学 §11.2：提醒不是终点，反馈回收到行为数据）
+/// status: handled（已处理）/ dismissed（忽略）/ snoozed（稍后）
+/// 写 reminded 事件到 task_events，支撑"懂你的节奏"（何时提醒最有效）学习
+#[tauri::command]
+pub async fn record_reminder_feedback(
+    reminder_log_id: Option<String>,
+    task_id: Option<String>,
+    status: String,
+) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let now = db::now_local();
+
+        // 更新 reminder_log 状态（snoozed 在现有枚举内）
+        if let Some(log_id) = &reminder_log_id {
+            if status == "snoozed" {
+                let _ = conn.execute(
+                    "UPDATE reminder_log SET status = 'snoozed' WHERE id = ?1",
+                    rusqlite::params![log_id],
+                );
+            }
+        }
+
+        // 写 reminded 行为事件（task_events，支撑提醒时机学习）
+        if let Some(tid) = task_id {
+            let payload = serde_json::json!({
+                "status": status,
+                "reminderLogId": reminder_log_id,
+            });
+            conn.execute(
+                "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'reminded', ?3, ?4, 'user')",
+                rusqlite::params![db::new_id(), tid, now, serde_json::to_string(&payload).unwrap_or_default()],
+            )?;
+        }
+
+        Ok(())
     })
     .await
 }

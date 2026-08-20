@@ -121,7 +121,7 @@ pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
                 None => {
                     update_job_status(&p.job_id, "delivery_unknown", None, Some(&e.to_string()));
                     log::warn!("[日历同步] 作业 {} 投递结果不明: {}", p.job_id, e);
-                    let _ = super::reminder::send_local_notification(&p.fallback_message);
+                    let _ = super::reminder::send_local_notification(&p.fallback_message, None, None);
                     "delivery_unknown"
                 }
             }
@@ -130,7 +130,7 @@ pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
             update_job_status(&p.job_id, "sync_failed", None, Some(&e.to_string()));
             log::error!("[日历同步] 作业 {} 同步失败: {}", p.job_id, e);
             // 同步失败不阻塞提醒：回退本地通知（执行方互斥：仅在未 synced 时发）
-            let _ = super::reminder::send_local_notification(&p.fallback_message);
+            let _ = super::reminder::send_local_notification(&p.fallback_message, None, None);
             "sync_failed"
         }
     }

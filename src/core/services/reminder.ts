@@ -37,4 +37,13 @@ export class ReminderService extends Service {
       message: opts.message,
     })
   }
+
+  /** 提醒处理反馈（写 reminded 行为事件，支撑"懂你的节奏"学习） */
+  async recordFeedback(opts: { reminderLogId?: string | null; taskId?: string | null; status: string }): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('record_reminder_feedback', {
+      reminderLogId: opts.reminderLogId ?? null,
+      taskId: opts.taskId ?? null,
+      status: opts.status,
+    })
+  }
 }

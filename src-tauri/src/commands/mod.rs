@@ -77,6 +77,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::create_task,
         tasks::toggle_task,
         tasks::delete_task,
+        tasks::snooze_task,
         tasks::update_task,
         tasks::generate_hearing_prep_tasks,
         calendar::get_calendar_events,
@@ -195,6 +196,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         reminder::delete_reminder_rule,
         reminder::test_reminder,
         reminder::start_reminder_engine,
+        reminder::record_reminder_feedback,
         reminder::get_reminder_log,
         // 分级预警 R1-R4（设计哲学 §11.2）
         reminder::get_deadline_warnings_with_levels,

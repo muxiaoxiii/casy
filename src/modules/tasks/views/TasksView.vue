@@ -281,10 +281,36 @@ async function loadAreas() {
 // ============================================================
 // 点击圆圈直接完成/恢复，不再弹确认框
 async function toggleComplete(task) {
+  if (!task.completed) {
+    // 完成时可选填实际耗时（设计哲学 §11.6：校准时间预估的数据来源）
+    try {
+      const { value } = await ElMessageBox.prompt('实际耗时（分钟，可留空直接完成）', '完成任务', {
+        inputType: 'number',
+        confirmButtonText: '完成',
+        cancelButtonText: '直接完成',
+        inputPlaceholder: '可选，用于校准预估',
+      })
+      const mins = value ? parseInt(value, 10) : null
+      const result = await casyContext.tasks.toggle(task.id, Number.isFinite(mins) && mins !== null ? mins : null)
+      if (result.ok) {
+        task.completed = 1
+        ElMessage.success('已完成' + (mins ? '（' + mins + ' 分钟）' : ''))
+      }
+      return
+    } catch {
+      // 取消/关闭 → 直接完成（不带耗时）
+      const result = await casyContext.tasks.toggle(task.id)
+      if (result.ok) {
+        task.completed = 1
+        ElMessage.success('已完成')
+      }
+      return
+    }
+  }
   const result = await casyContext.tasks.toggle(task.id)
   if (result.ok) {
-    task.completed = task.completed ? 0 : 1
-    ElMessage.success(task.completed ? '已完成' : '已恢复')
+    task.completed = 0
+    ElMessage.success('已恢复')
   }
 }
 
@@ -577,6 +603,25 @@ function openFollowUp(task) {
   openDrawer(task)
   // 可以设置一个标志，让编辑抽屉知道是催办操作
   // 这里简单处理，直接打开编辑抽屉
+}
+
+// 稍后提醒选项（设计哲学 §5.4：推迟任务并记录 snoozed 行为事件）
+const snoozeOptions = [
+  { value: 'tonight', label: '今晚' },
+  { value: 'tomorrow', label: '明天' },
+  { value: 'weekend', label: '周末' },
+  { value: 'next_week', label: '下周' },
+]
+
+async function snoozeTask(task, option) {
+  const label = snoozeOptions.find(o => o.value === option)?.label || option
+  const result = await casyContext.tasks.snooze(task.id, option)
+  if (result.ok) {
+    ElMessage.success('已稍后到' + label)
+    await loadTasks()
+  } else {
+    ElMessage.error(result.error || '操作失败')
+  }
 }
 
 // ============================================================
@@ -986,6 +1031,15 @@ onUnmounted(() => {
                         :icon="Clock"
                       >
                         标记等待
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        v-for="s in snoozeOptions"
+                        :key="s.value"
+                        @click="snoozeTask(task, s.value)"
+                        :icon="Clock"
+                        divided
+                      >
+                        稍后：{{ s.label }}
                       </el-dropdown-item>
                       <el-dropdown-item 
                         @click="deleteTask(task)" 

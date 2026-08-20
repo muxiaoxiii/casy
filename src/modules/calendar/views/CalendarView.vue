@@ -608,49 +608,168 @@ const forecastGroups = computed(() => {
   return groups
 })
 
-// 今日时间轴（右栏）
+// ============================================================
+// 今日时间分配网格（右栏 · 设计哲学 §7.2 时间块分区）
+// 时间块：上午 06-12 / 下午 12-18 / 晚上 18-22 / 其他 22-06
+// 无时间的弹性任务进"弹性"分区（单独一块，视觉与硬性区分）
+// ============================================================
 const todayLabel = computed(() => {
   const d = new Date()
   return `${d.getMonth() + 1}月${d.getDate()}日 周${weekDays[d.getDay() === 0 ? 6 : d.getDay() - 1]}`
 })
 
+const TIME_BLOCKS = [
+  { key: 'morning', label: '上午', range: '06:00-12:00' },
+  { key: 'afternoon', label: '下午', range: '12:00-18:00' },
+  { key: 'evening', label: '晚上', range: '18:00-22:00' },
+  { key: 'other', label: '其他', range: '22:00-06:00' },
+]
+
+/** 时间字符串 → 时间块；无时间或解析失败 → 弹性分区 */
+function timeBlockFor(timeStr) {
+  if (!timeStr) return 'flex'
+  const m = String(timeStr).match(/(\d{1,2})[:：](\d{2})/)
+  if (!m) return 'flex'
+  const h = parseInt(m[1], 10)
+  if (h >= 6 && h < 12) return 'morning'
+  if (h >= 12 && h < 18) return 'afternoon'
+  if (h >= 18 && h < 22) return 'evening'
+  return 'other' // 22:00-06:00
+}
+
+/**
+ * 解析自然语言建日程写入任务名的前缀时间（"14:00 会议" → 14:00），
+ * 让带时间的弹性任务也能落进对应时间块；解析失败视为未定时。
+ */
+function extractTaskTime(name) {
+  const m = String(name || '').match(/^(\d{1,2})[:：](\d{2})\s+(\S.*)$/)
+  if (!m) return null
+  const h = parseInt(m[1], 10)
+  const min = parseInt(m[2], 10)
+  if (h > 23 || min > 59) return null
+  return {
+    time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
+    rest: m[3],
+  }
+}
+
+/** 当日硬性日程（开庭/口审/期限 events + 今日到期的期限预警） */
 const todayHardItems = computed(() => {
   const ds = todayStr()
   const items = []
+  let idx = 0
   for (const e of events.value) {
     if (e.date !== ds) continue
     const isHard = e.type === 'court' || e.type === 'hearing'
     const isDeadline = e.type?.startsWith('deadline')
     if (!isHard && !isDeadline) continue
     items.push({
+      uid: 'evt-' + (e.id || idx++),
       title: e.title,
       time: e.time || null,
       caseName: e.caseName || '',
+      kind: 'hard',
       color: getEventColor(e),
+      done: false,
       daysLeft: null,
+      minutes: null,
+      todayIndex: 0,
+      task: null,
     })
   }
-  // 今日到期的期限预警
   for (const w of deadlineWarnings.value) {
     const n = normalizeWarning(w)
     if (n.date === ds) {
-      items.push({ title: n.title, time: null, caseName: n.caseName, color: COLORS.due, daysLeft: n.daysLeft })
+      items.push({
+        uid: 'warn-' + (n.caseId || n.title),
+        title: n.title,
+        time: null,
+        caseName: n.caseName,
+        kind: 'hard',
+        color: COLORS.due,
+        done: false,
+        daysLeft: n.daysLeft,
+        minutes: null,
+        todayIndex: 0,
+        task: null,
+      })
     }
   }
-  items.sort((a, b) => {
-    const ta = a.time || '99:99'
-    const tb = b.time || '99:99'
-    return ta < tb ? -1 : ta > tb ? 1 : 0
-  })
   return items
 })
 
-const todayFlexTasks = computed(() => {
-  return [...todayTasks.value].sort((a, b) => {
-    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1
-    return (a.todayIndex || 0) - (b.todayIndex || 0)
+/** 当日弹性任务（startBucket=today；task 保留原引用供拖拽/点击） */
+const todayFlexItems = computed(() => {
+  return todayTasks.value.map(t => {
+    const parsed = extractTaskTime(t.taskName)
+    return {
+      uid: 'task-' + t.id,
+      title: parsed ? parsed.rest : t.taskName,
+      time: parsed ? parsed.time : null,
+      caseName: t.caseName || '',
+      kind: 'flex',
+      color: COLORS.plan,
+      done: !!t.completed,
+      daysLeft: null,
+      minutes: t.estimatedMinutes || null,
+      todayIndex: t.todayIndex || 0,
+      task: t,
+    }
   })
 })
+
+/** 时间块分区网格：4 个时段块 + 1 个弹性块，块内按时间排序 */
+const todayBlocks = computed(() => {
+  const blocks = [
+    ...TIME_BLOCKS.map(b => ({ ...b, items: [] })),
+    { key: 'flex', label: '弹性', range: '未定时', items: [] },
+  ]
+
+  for (const item of [...todayHardItems.value, ...todayFlexItems.value]) {
+    const key = timeBlockFor(item.time)
+    blocks.find(b => b.key === key)?.items.push(item)
+  }
+
+  for (const block of blocks) {
+    block.items.sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1 // 已完成排后
+      if (block.key === 'flex') {
+        // 弹性分区：硬性（期限）优先，其余按今日序号
+        if (a.kind !== b.kind) return a.kind === 'hard' ? -1 : 1
+        return (a.todayIndex || 0) - (b.todayIndex || 0)
+      }
+      // 时段块内按时间排序
+      const ta = a.time || '99:99'
+      const tb = b.time || '99:99'
+      return ta < tb ? -1 : ta > tb ? 1 : 0
+    })
+  }
+  return blocks
+})
+
+/** 硬性日程占据的时间块（仅时段块） */
+const hardOccupiedBlocks = computed(() => {
+  return TIME_BLOCKS
+    .filter(b => todayBlocks.value.find(x => x.key === b.key)?.items.some(i => i.kind === 'hard'))
+    .map(b => b.key)
+})
+
+/** 时间分配提示（§7.3）：硬性占 ≥2 个时段块 → 推荐空块 */
+const allocationTip = computed(() => {
+  const occupied = hardOccupiedBlocks.value
+  if (occupied.length < 2) return null
+  const free = TIME_BLOCKS.find(b => !occupied.includes(b.key))
+  if (free) return `今日硬性日程密集，弹性任务建议安排在${free.label}`
+  return '今日硬性日程密集，各时间块均有硬性安排，弹性任务建议择日再排'
+})
+
+/** 时间槽标签：优先时间，其次预计分钟/剩余天数 */
+function itemTimeLabel(item) {
+  if (item.time) return item.time
+  if (item.minutes) return `${item.minutes}m`
+  if (item.daysLeft !== null && item.daysLeft !== undefined) return `${item.daysLeft}天`
+  return '--:--'
+}
 
 /**
  * 周视图：获取某天某小时的事件
@@ -1096,51 +1215,47 @@ async function onDrop(dateStr, event) {
         </div>
       </div>
 
-      <!-- 右栏：当日时间轴（硬性日程 + 弹性任务） -->
+      <!-- 右栏：当日时间分配网格（§7.2 时间块分区，硬性/弹性视觉分区） -->
       <div class="forecast-right">
         <div class="forecast-timeline">
           <div class="forecast-section-header">
-            <h3>今日时间轴</h3>
+            <h3>今日时间分配</h3>
             <span class="forecast-today-date">{{ todayLabel }}</span>
           </div>
 
-          <!-- 硬性日程 -->
-          <div class="timeline-section">
-            <div class="timeline-section-label hard">
-              <el-icon><Bell /></el-icon> 硬性日程
-              <span class="timeline-count">{{ todayHardItems.length }}</span>
+          <!-- 时间分配提示（§7.3）：硬性占满多个时间块 → 推荐空块 -->
+          <div v-if="allocationTip" class="timeline-tip">
+            {{ allocationTip }}
+          </div>
+
+          <!-- 时间块分区网格（§7.2）：上午/下午/晚上/其他 + 弹性 -->
+          <div
+            v-for="block in todayBlocks"
+            :key="block.key"
+            :class="['timeline-section', { 'flex-section': block.key === 'flex' }]"
+          >
+            <div class="timeline-section-label" :class="block.key">
+              <span class="block-name">{{ block.label }}</span>
+              <span class="block-range">{{ block.range }}</span>
+              <span class="timeline-count" :class="{ 'has-items': block.items.length > 0 }">
+                {{ block.items.length }}
+              </span>
             </div>
             <div
-              v-for="(item, idx) in todayHardItems"
-              :key="'h' + idx"
-              class="timeline-slot hard"
+              v-for="item in block.items"
+              :key="item.uid"
+              :class="['timeline-slot', item.kind, { done: item.done }]"
+              :draggable="!!item.task"
+              @dragstart="item.task && onDragStart(item.task, $event)"
+              @click="item.task && router.push({ name: 'tasks', query: { edit: item.task.id } })"
             >
-              <span class="timeline-time">{{ item.time || '--:--' }}</span>
+              <span class="timeline-time">{{ itemTimeLabel(item) }}</span>
               <span class="timeline-title">{{ item.title }}</span>
               <span v-if="item.caseName" class="timeline-case">{{ item.caseName }}</span>
             </div>
-            <div v-if="todayHardItems.length === 0" class="timeline-empty">今日无开庭/口审/期限</div>
-          </div>
-
-          <!-- 弹性任务 -->
-          <div class="timeline-section">
-            <div class="timeline-section-label flex">
-              <el-icon><Finished /></el-icon> 弹性任务
-              <span class="timeline-count">{{ todayFlexTasks.length }}</span>
+            <div v-if="block.items.length === 0" class="timeline-empty">
+              {{ block.key === 'flex' ? '今日暂无弹性任务' : '本块无安排' }}
             </div>
-            <div
-              v-for="task in todayFlexTasks"
-              :key="task.id"
-              :class="['timeline-slot', 'flex', { done: task.completed }]"
-              draggable="true"
-              @dragstart="onDragStart(task, $event)"
-              @click="router.push({ name: 'tasks', query: { edit: task.id } })"
-            >
-              <span class="timeline-time">{{ task.estimatedMinutes ? `${task.estimatedMinutes}m` : '--' }}</span>
-              <span class="timeline-title">{{ task.taskName }}</span>
-              <span v-if="task.caseName" class="timeline-case">{{ task.caseName }}</span>
-            </div>
-            <div v-if="todayFlexTasks.length === 0" class="timeline-empty">今日暂无弹性任务</div>
           </div>
 
           <div class="forecast-tip">
@@ -1985,6 +2100,35 @@ async function onDrop(dateStr, event) {
 
 .timeline-section-label.hard { color: #B4554F; }
 .timeline-section-label.flex { color: #3E5C9A; }
+
+/* 时间块分区（§7.2）：块范围 / 计数 / 弹性分区底色 */
+.timeline-section-label .block-range {
+  font-size: 10px;
+  font-weight: 400;
+  color: #9BA2AF;
+  font-family: var(--font-mono, monospace);
+}
+
+.timeline-section.flex-section {
+  background: #FBFBFD;
+}
+
+.timeline-count.has-items {
+  color: #3E5C9A;
+  background: #EDF1F8;
+}
+
+/* 时间分配提示（§7.3） */
+.timeline-tip {
+  margin: 10px 16px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #B0823A;
+  background: #F7F1E3;
+  border-left: 3px solid #B0823A;
+}
 
 .timeline-count {
   margin-left: auto;

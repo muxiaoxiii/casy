@@ -31,4 +31,9 @@ export class TasksService extends Service {
   async areas(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return tauriCallSafe<unknown>('list_areas', {})
   }
+
+  /** 稍后提醒（写 snoozed 行为事件，支撑"懂你的节奏"学习） */
+  async snooze(id: string, option: string, newDueDate?: string | null): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('snooze_task', { id, option, newDueDate: newDueDate ?? null })
+  }
 }
