@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 import type { CalendarEvent } from '../types'
 
 interface CalendarState {
@@ -33,10 +33,7 @@ export const useCalendarStore = defineStore('calendar', {
       this.loading = true
       if (year) this.currentYear = year
       if (month) this.currentMonth = month
-      const result = await tauriCallSafe<CalendarEvent[]>('get_calendar_events', {
-        year: this.currentYear,
-        month: this.currentMonth,
-      })
+      const result = await casyContext.calendar.events(this.currentYear, this.currentMonth)
       if (result.ok && result.data) {
         this.events = result.data
       }

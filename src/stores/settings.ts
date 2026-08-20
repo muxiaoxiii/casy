@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 
 // 设置键与后端 settings 表一致（snake_case，见 ai/mod.rs load_ai_config）
 // loading 是本地 UI 状态，不参与持久化
@@ -17,7 +17,7 @@ export const useSettingsStore = defineStore('settings', {
   actions: {
     async load() {
       this.loading = true
-      const result = await tauriCallSafe('get_settings', {})
+      const result = await casyContext.settings.get()
       if (result.ok && result.data) {
         // 防止历史脏数据里的 loading 等键覆盖本地状态
         const { loading: _ignored, ...settings } = result.data
@@ -29,7 +29,7 @@ export const useSettingsStore = defineStore('settings', {
     async save() {
       // 只发送设置键，剔除 loading 等本地状态
       const { loading, ...settings } = this.$state
-      const result = await tauriCallSafe('save_settings', { settings })
+      const result = await casyContext.settings.save(settings)
       return result
     },
   },

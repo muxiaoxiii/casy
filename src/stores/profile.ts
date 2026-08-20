@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 
 // ============================================================
 // 律师画像（get_lawyer_profile / save_lawyer_profile）
@@ -37,7 +37,7 @@ export const useProfileStore = defineStore('profile', {
     },
 
     async load() {
-      const result = await tauriCallSafe('get_lawyer_profile', {})
+      const result = await casyContext.settings.profile()
       if (result.ok && result.data) {
         this._apply(result.data)
       }
@@ -46,7 +46,7 @@ export const useProfileStore = defineStore('profile', {
     },
 
     async save(profile) {
-      const result = await tauriCallSafe('save_lawyer_profile', { profile })
+      const result = await casyContext.settings.saveProfile({ ...profile })
       if (result.ok) {
         this._apply(profile)
       }

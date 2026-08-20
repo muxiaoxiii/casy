@@ -34,4 +34,28 @@ export class SettingsService extends Service {
     if (!url || !username || !password) return null
     return { url, username, password }
   }
+
+  // ── 保存的筛选器（filters store 使用） ──
+
+  async savedFilters(module: string): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+    return tauriCallSafe<unknown[]>('list_saved_filters', { module })
+  }
+
+  async saveFilter(filter: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('save_filter', { filter })
+  }
+
+  async deleteFilter(id: string): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('delete_filter', { id })
+  }
+
+  // ── 律师画像（profile store 使用） ──
+
+  async profile(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+    return tauriCallSafe<Record<string, unknown>>('get_lawyer_profile', {})
+  }
+
+  async saveProfile(profile: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('save_lawyer_profile', { profile })
+  }
 }

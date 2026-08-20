@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 
 export interface SavedFilter {
   id: string
@@ -22,15 +22,15 @@ export const useFiltersStore = defineStore('filters', () => {
 
   async function loadFilters(module: string) {
     loading.value = true
-    const result = await tauriCallSafe('list_saved_filters', { module })
+    const result = await casyContext.settings.savedFilters(module)
     if (result.ok && result.data) {
-      filters.value = result.data
+      filters.value = result.data as SavedFilter[]
     }
     loading.value = false
   }
 
   async function saveFilter(filter: Omit<SavedFilter, 'id' | 'createdAt'>) {
-    const result = await tauriCallSafe('save_filter', { filter })
+    const result = await casyContext.settings.saveFilter({ ...filter })
     if (result.ok) {
       await loadFilters(filter.module)
     }
@@ -38,7 +38,7 @@ export const useFiltersStore = defineStore('filters', () => {
   }
 
   async function deleteFilter(id: string) {
-    const result = await tauriCallSafe('delete_filter', { id })
+    const result = await casyContext.settings.deleteFilter(id)
     if (result.ok) {
       filters.value = filters.value.filter(f => f.id !== id)
     }

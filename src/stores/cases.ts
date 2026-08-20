@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 import { notifyDataChange } from '../core/autoPush'
 import type {
   Case,
@@ -113,24 +113,22 @@ export const useCasesStore = defineStore('cases', {
   actions: {
     async loadCases(): Promise<void> {
       this.loading = true
-      const result = await tauriCallSafe<CaseListResponse>('list_cases', {
-        filter: {
-          track: this.filter.track || null,
-          client: this.filter.client || null,
-          court: this.filter.court || null,
-          status: this.filter.status || null,
-          search: this.filter.search || null,
-          sortBy: this.filter.sortBy,
-          dateFrom: this.filter.dateFrom || null,
-          dateTo: this.filter.dateTo || null,
-          page: this.page,
-          perPage: this.perPage,
-          // 新状态机筛选
-          civilStatus: this.filter.civilStatus || null,
-          invalidationStatus: this.filter.invalidationStatus || null,
-          adminStatus: this.filter.adminStatus || null,
-          caseRoute: this.filter.caseRoute || null,
-        },
+      const result = await casyContext.cases.list({
+        track: this.filter.track || null,
+        client: this.filter.client || null,
+        court: this.filter.court || null,
+        status: this.filter.status || null,
+        search: this.filter.search || null,
+        sortBy: this.filter.sortBy,
+        dateFrom: this.filter.dateFrom || null,
+        dateTo: this.filter.dateTo || null,
+        page: this.page,
+        perPage: this.perPage,
+        // 新状态机筛选
+        civilStatus: this.filter.civilStatus || null,
+        invalidationStatus: this.filter.invalidationStatus || null,
+        adminStatus: this.filter.adminStatus || null,
+        caseRoute: this.filter.caseRoute || null,
       })
       if (result.ok && result.data) {
         this.cases = result.data.items || []
@@ -139,16 +137,16 @@ export const useCasesStore = defineStore('cases', {
       this.loading = false
     },
 
-    async loadCase(id: string): Promise<ReturnType<typeof tauriCallSafe<Case>>> {
-      const result = await tauriCallSafe<Case>('get_case', { id })
+    async loadCase(id: string): Promise<{ ok: boolean; data?: Case; error?: string }> {
+      const result = await casyContext.cases.get(id)
       if (result.ok && result.data) {
         this.currentCase = result.data
       }
       return result
     },
 
-    async createCase(data: CreateCaseInput): Promise<ReturnType<typeof tauriCallSafe<Case>>> {
-      const result = await tauriCallSafe<Case>('create_case', { data })
+    async createCase(data: CreateCaseInput): Promise<{ ok: boolean; data?: Case; error?: string }> {
+      const result = await casyContext.cases.create({ ...data })
       if (result.ok) {
         await this.loadCases()
         await this.loadStats()
@@ -157,8 +155,8 @@ export const useCasesStore = defineStore('cases', {
       return result
     },
 
-    async updateCase(id: string, data: UpdateCaseInput): Promise<ReturnType<typeof tauriCallSafe<Case>>> {
-      const result = await tauriCallSafe<Case>('update_case', { id, data })
+    async updateCase(id: string, data: UpdateCaseInput): Promise<{ ok: boolean; data?: Case; error?: string }> {
+      const result = await casyContext.cases.update(id, { ...data })
       if (result.ok && result.data) {
         const idx = this.cases.findIndex((c) => c.id === id)
         if (idx >= 0) this.cases[idx] = { ...this.cases[idx], ...result.data }
@@ -170,8 +168,8 @@ export const useCasesStore = defineStore('cases', {
       return result
     },
 
-    async deleteCase(id: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('delete_case', { id })
+    async deleteCase(id: string): Promise<{ ok: boolean; error?: string }> {
+      const result = await casyContext.cases.remove(id)
       if (result.ok) {
         await this.loadCases()
         await this.loadStats()
@@ -180,8 +178,8 @@ export const useCasesStore = defineStore('cases', {
       return result
     },
 
-    async searchCases(query: string): Promise<ReturnType<typeof tauriCallSafe<Case[]>>> {
-      const result = await tauriCallSafe<Case[]>('search_cases', { query })
+    async searchCases(query: string): Promise<{ ok: boolean; data?: Case[]; error?: string }> {
+      const result = await casyContext.cases.search(query)
       if (result.ok && result.data) {
         this.cases = result.data
       }
@@ -189,14 +187,14 @@ export const useCasesStore = defineStore('cases', {
     },
 
     async loadStats(): Promise<void> {
-      const result = await tauriCallSafe<CaseStats>('case_stats')
+      const result = await casyContext.cases.stats()
       if (result.ok && result.data) {
-        this.stats = result.data
+        this.stats = result.data as CaseStats
       }
     },
 
     async loadDashboard(): Promise<void> {
-      const result = await tauriCallSafe<DashboardStats>('get_dashboard_stats')
+      const result = await casyContext.calendar.dashboardStats()
       if (result.ok && result.data) {
         this.dashboard = result.data
       }

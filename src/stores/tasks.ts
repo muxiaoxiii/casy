@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
 import type { Task, TaskPriority, TaskType, Context, StartBucket } from '../types'
 
 // ============================================================
@@ -140,13 +140,11 @@ export const useTasksStore = defineStore('tasks', {
     
     async loadTasks(): Promise<void> {
       this.loading = true
-      const result = await tauriCallSafe<GTDTask[]>('list_tasks', {
-        filter: {
-          completed: this.filter.completed || null,
-          caseId: this.filter.caseId || null,
-          areaId: this.filter.areaId || null,
-          taskType: this.filter.taskType || null,
-        },
+      const result = await casyContext.tasks.list({
+        completed: this.filter.completed || null,
+        caseId: this.filter.caseId || null,
+        areaId: this.filter.areaId || null,
+        taskType: this.filter.taskType || null,
       })
       if (result.ok && result.data) {
         this.tasks = result.data
@@ -158,24 +156,24 @@ export const useTasksStore = defineStore('tasks', {
     // CRUD 操作
     // ============================================================
     
-    async createTask(data: Partial<GTDTask>): Promise<ReturnType<typeof tauriCallSafe<GTDTask>>> {
-      const result = await tauriCallSafe<GTDTask>('create_task', { data })
+    async createTask(data: Partial<GTDTask>): Promise<{ ok: boolean; data?: GTDTask; error?: string }> {
+      const result = await casyContext.tasks.create({ ...data })
       if (result.ok) {
         await this.loadTasks()
       }
       return result
     },
 
-    async updateTask(data: Partial<GTDTask> & { id: string }): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('update_task', { data })
+    async updateTask(data: Partial<GTDTask> & { id: string }): Promise<{ ok: boolean; error?: string }> {
+      const result = await casyContext.tasks.update({ ...data })
       if (result.ok) {
         await this.loadTasks()
       }
       return result
     },
 
-    async toggleTask(id: string, actualMinutes?: number | null): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('toggle_task', { id, actualMinutes: actualMinutes ?? null })
+    async toggleTask(id: string, actualMinutes?: number | null): Promise<{ ok: boolean; error?: string }> {
+      const result = await casyContext.tasks.toggle(id, actualMinutes)
       if (result.ok) {
         const task = this.tasks.find(t => t.id === id)
         if (task) task.completed = task.completed ? 0 : 1
@@ -183,8 +181,8 @@ export const useTasksStore = defineStore('tasks', {
       return result
     },
 
-    async deleteTask(id: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
-      const result = await tauriCallSafe<void>('delete_task', { id })
+    async deleteTask(id: string): Promise<{ ok: boolean; error?: string }> {
+      const result = await casyContext.tasks.remove(id)
       if (result.ok) {
         this.tasks = this.tasks.filter(t => t.id !== id)
       }
@@ -205,7 +203,7 @@ export const useTasksStore = defineStore('tasks', {
       startDate?: string
       dueDate?: string
       context?: Context
-    }): Promise<ReturnType<typeof tauriCallSafe<void>>> {
+    }): Promise<{ ok: boolean; error?: string }> {
       const updateData: any = {
         id: taskId,
         taskType: data.taskType,
@@ -223,7 +221,7 @@ export const useTasksStore = defineStore('tasks', {
     /**
      * 移动到今日列表
      */
-    async moveToToday(taskId: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
+    async moveToToday(taskId: string): Promise<{ ok: boolean; error?: string }> {
       return await this.updateTask({
         id: taskId,
         startBucket: 'today',
@@ -234,7 +232,7 @@ export const useTasksStore = defineStore('tasks', {
     /**
      * 标记为等待
      */
-    async markAsWaiting(taskId: string, waitingFor?: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
+    async markAsWaiting(taskId: string, waitingFor?: string): Promise<{ ok: boolean; error?: string }> {
       return await this.updateTask({
         id: taskId,
         taskType: 'waiting',
@@ -245,7 +243,7 @@ export const useTasksStore = defineStore('tasks', {
     /**
      * 标记旗标
      */
-    async toggleFlag(taskId: string): Promise<ReturnType<typeof tauriCallSafe<void>>> {
+    async toggleFlag(taskId: string): Promise<{ ok: boolean; error?: string }> {
       const task = this.tasks.find(t => t.id === taskId)
       if (!task) return { ok: false, error: 'Task not found' }
       
