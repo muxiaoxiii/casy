@@ -39,11 +39,7 @@ export class CalendarPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_calendar_events', {
-          year: params.year || new Date().getFullYear(),
-          month: params.month || new Date().getMonth() + 1,
-        })
+        const result = await ctx.calendar.events(params.year, params.month)
         return result
       },
     }
@@ -56,8 +52,7 @@ export class CalendarPlugin implements CasyPlugin {
       category: 'calendar',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_deadline_warnings', {})
+        const result = await ctx.calendar.deadlineWarnings()
         return result
       },
     }
@@ -70,8 +65,7 @@ export class CalendarPlugin implements CasyPlugin {
       category: 'calendar',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_dashboard_stats', {})
+        const result = await ctx.calendar.dashboardStats()
         return result
       },
     }

@@ -6,19 +6,6 @@
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
 
-/** 从设置中读取 WebDAV 凭据（settings 表 snake_case 键） */
-async function getWebdavCredentials() {
-  const { tauriCallSafe } = await import('../../core/tauriBridge')
-  const res = await tauriCallSafe('get_settings', {})
-  if (!res.ok || !res.data) return null
-  const s = res.data
-  const url = s.webdav_url || s.webdavUrl
-  const username = s.webdav_username || s.webdavUsername
-  const password = s.webdav_password || s.webdavPassword
-  if (!url || !username || !password) return null
-  return { url, username, password }
-}
-
 export class SyncPlugin implements CasyPlugin {
   name = 'sync'
   version = '1.0.0'
@@ -48,8 +35,7 @@ export class SyncPlugin implements CasyPlugin {
       category: 'sync',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_sync_status', {})
+        const result = await ctx.sync.status()
         return result
       },
     }
@@ -62,10 +48,9 @@ export class SyncPlugin implements CasyPlugin {
       category: 'sync',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const creds = await getWebdavCredentials()
+        const creds = await ctx.settings.webdavCredentials()
         if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
-        const result = await tauriCallSafe('test_webdav_connection', creds)
+        const result = await ctx.sync.testWebdav(creds.url, creds.username, creds.password)
         return result
       },
     }
@@ -90,10 +75,9 @@ export class SyncPlugin implements CasyPlugin {
           return { ok: false, error: '用户取消操作' }
         }
         
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const creds = await getWebdavCredentials()
+        const creds = await ctx.settings.webdavCredentials()
         if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
-        const result = await tauriCallSafe('webdav_push', creds)
+        const result = await ctx.sync.push(creds.url, creds.username, creds.password)
         return result
       },
     }
@@ -118,10 +102,9 @@ export class SyncPlugin implements CasyPlugin {
           return { ok: false, error: '用户取消操作' }
         }
         
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const creds = await getWebdavCredentials()
+        const creds = await ctx.settings.webdavCredentials()
         if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
-        const result = await tauriCallSafe('webdav_pull', creds)
+        const result = await ctx.sync.pull(creds.url, creds.username, creds.password)
         return result
       },
     }

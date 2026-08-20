@@ -57,8 +57,7 @@ export class KnowledgePlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('list_knowledge', { filter: params.filter || {} })
+        const result = await ctx.knowledge.list(params.filter || {})
         return result
       },
     }
@@ -78,8 +77,7 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['query'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('search_knowledge', { query: params.query })
+        const result = await ctx.knowledge.search(params.query)
         return result
       },
     }
@@ -104,8 +102,7 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['title', 'content'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('create_knowledge', { data: params })
+        const result = await ctx.knowledge.create(params)
         return result
       },
     }
@@ -125,11 +122,7 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('update_knowledge', { 
-          id: params.id, 
-          data: params.data 
-        })
+        const result = await ctx.knowledge.update(params.id, params.data)
         return result
       },
     }
@@ -160,8 +153,7 @@ export class KnowledgePlugin implements CasyPlugin {
           return { ok: false, error: '用户取消操作' }
         }
         
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('delete_knowledge', { id: params.id })
+        const result = await ctx.knowledge.remove(params.id)
         return result
       },
     }

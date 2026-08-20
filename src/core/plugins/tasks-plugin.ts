@@ -57,8 +57,7 @@ export class TasksPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('list_tasks', { filter: params.filter || {} })
+        const result = await ctx.tasks.list(params.filter || {})
         return result
       },
     }
@@ -83,8 +82,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['taskName'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('create_task', { data: params })
+        const result = await ctx.tasks.create(params)
         
         // 触发事件
         if (result.ok) {
@@ -109,8 +107,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('toggle_task', { id: params.id })
+        const result = await ctx.tasks.toggle(params.id)
         
         // 触发事件
         if (result.ok) {
@@ -136,8 +133,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('update_task', { data: { ...params.data, id: params.id } })
+        const result = await ctx.tasks.update({ ...params.data, id: params.id })
         return result
       },
     }
@@ -156,8 +152,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('delete_task', { id: params.id })
+        const result = await ctx.tasks.remove(params.id)
         return result
       },
     }

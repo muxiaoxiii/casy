@@ -39,10 +39,7 @@ export class FilesPlugin implements CasyPlugin {
         required: ['caseId'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('list_case_files', { 
-          caseId: params.caseId 
-        })
+        const result = await ctx.files.list(params.caseId)
         return result
       },
     }
@@ -63,13 +60,7 @@ export class FilesPlugin implements CasyPlugin {
         required: ['caseId', 'filePath'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('add_case_file', {
-          caseId: params.caseId,
-          fileName: params.fileName || (params.filePath ? params.filePath.split('/').pop() : ''),
-          filePath: params.filePath,
-          category: params.category || '',
-        })
+        const result = await ctx.files.add(params.caseId, params.filePath, params.category)
         return result
       },
     }
@@ -101,8 +92,7 @@ export class FilesPlugin implements CasyPlugin {
           return { ok: false, error: '用户取消操作' }
         }
         
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('delete_case_file', { id: params.fileId })
+        const result = await ctx.files.remove(params.fileId)
         return result
       },
     }

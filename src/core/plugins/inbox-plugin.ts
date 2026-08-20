@@ -46,10 +46,7 @@ export class InboxPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('list_inbox_items', { 
-          status: params.status || 'all' 
-        })
+        const result = await ctx.inbox.list(params.status)
         return result
       },
     }
@@ -74,12 +71,7 @@ export class InboxPlugin implements CasyPlugin {
         required: ['content'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('add_inbox_item', {
-          sourceType: params.sourceType || 'text',
-          contentText: params.content,
-          sourcePath: params.sourcePath,
-        })
+        const result = await ctx.inbox.add(params.sourceType || 'text', params.content, params.sourcePath)
         return result
       },
     }
@@ -98,8 +90,7 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('process_inbox_item', { id: params.id })
+        const result = await ctx.inbox.process(params.id)
         return result
       },
     }
@@ -120,12 +111,7 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id', 'caseId'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('file_inbox_item', {
-          itemId: params.id,
-          caseId: params.caseId,
-          category: params.category,
-        })
+        const result = await ctx.inbox.file(params.id, params.caseId, params.category)
         return result
       },
     }
@@ -144,8 +130,7 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('dismiss_inbox_item', { id: params.id })
+        const result = await ctx.inbox.dismiss(params.id)
         return result
       },
     }

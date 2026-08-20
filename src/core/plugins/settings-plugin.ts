@@ -33,8 +33,7 @@ export class SettingsPlugin implements CasyPlugin {
       category: 'settings',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_settings', {})
+        const result = await ctx.settings.get()
         return result
       },
     }
@@ -53,8 +52,7 @@ export class SettingsPlugin implements CasyPlugin {
         required: ['data'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('save_settings', { settings: params.data })
+        const result = await ctx.settings.save(params.data)
         return result
       },
     }
@@ -80,8 +78,7 @@ export class SettingsPlugin implements CasyPlugin {
         required: ['mode'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('configure_ai', {
+        const result = await ctx.settings.configureAi({
           mode: params.mode,
           apiUrl: params.endpoint,
           apiKey: params.apiKey,

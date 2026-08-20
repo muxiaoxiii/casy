@@ -102,6 +102,68 @@ export type CasyEventHandler = (payload: unknown) => void
 // ============================================================
 // 上下文（容器）—— 9 个业务插件 + AI 工具循环的唯一入口
 // ============================================================
+// ============================================================
+// cordis 风格内核（对标 DeepSeek Harness / @deepseek-ai/cordis）
+// 数据通路：视图 → ctx 服务（Service 注入）→ tauriBridge → Rust 命令
+// ============================================================
+
+/** 服务依赖声明：插件/服务启动前必须已注册的服务名 */
+export type InjectKey = string
+
+/**
+ * 业务服务基类（数据通路的节点）
+ *
+ * 每个业务模块一个 Service，注册到 Context 后可通过 ctx.<name> 访问：
+ *   ctx.cases.list() / ctx.tasks.create() / ...
+ * 服务内部封装 tauriBridge 调用（写入口唯一，双路径铁律）。
+ */
+export abstract class Service {
+  /** 声明依赖：启动本服务前必须已注册的服务名 */
+  static inject: InjectKey[] = []
+
+  constructor(public readonly ctx: CasyContext) {}
+
+  /** 服务初始化（可选覆写） */
+  async setup(): Promise<void> {}
+
+  /** 服务卸载清理（可选覆写） */
+  async dispose(): Promise<void> {}
+}
+
+/**
+ * Fiber——插件/服务的生命周期单元（对标 cordis Fiber）
+ *
+ * 插件启动返回 Fiber；dispose() 时自动执行其 effects（事件监听、定时器等），
+ * 避免卸载插件后残留监听器。
+ */
+export interface Fiber {
+  /** 作用域名称（插件名/服务名） */
+  name: string
+  /** 注册一个清理函数，dispose 时执行 */
+  effect(cleanup: () => void): void
+  /** 已注册的清理函数数量（调试用） */
+  readonly effectCount: number
+  /** 是否已释放 */
+  readonly disposed: boolean
+  /** 释放：按注册逆序执行所有清理函数 */
+  dispose(): void
+}
+
+/** 日志记录器（对标 cordis logger） */
+export interface CasyLogger {
+  info(message: string, ...args: unknown[]): void
+  warn(message: string, ...args: unknown[]): void
+  error(message: string, ...args: unknown[]): void
+}
+
+/** 服务提供器：把一个 Service 实例注册到 ctx.<name> */
+export interface ServiceProvider {
+  name: string
+  service: Service
+  /** 依赖的服务名（服务未就绪则拒绝注册） */
+  inject: InjectKey[]
+}
+
 
 export interface CasyContext {
   // ── 插件管理 ──
@@ -146,4 +208,27 @@ export interface CasyContext {
     userPolicy?: ConfirmLevel
   }): ConfirmLevel
   requestConfirm(req: ConfirmRequest): Promise<boolean>
+
+  // ── cordis 风格：服务注入（数据通路） ──
+  /** 注册服务：ctx.<name> 可访问 */
+  provide(name: string, service: Service, inject?: InjectKey[]): void
+  /** 卸载服务 */
+  unprovide(name: string): void
+  /** 取服务实例；未注册返回 undefined */
+  getService<T extends Service>(name: string): T | undefined
+  /** 已注册的服务名列表 */
+  getServiceNames(): string[]
+
+  // ── cordis 风格：Fiber 生命周期 ──
+  /** 启动一个插件（返回 Fiber；dispose 时自动清理 effects） */
+  plugin(plugin: CasyPlugin): Promise<Fiber>
+  /** 在指定 Fiber 作用域注册清理函数（默认当前活跃 fiber） */
+  effect(cleanup: () => void): void
+  /** 创建子作用域 Fiber（隔离 effects，dispose 不触碰父级） */
+  fork(name: string): Fiber
+
+  // ── cordis 风格：Logger ──
+  logger: CasyLogger
+  /** 获取带作用域名的 logger */
+  getLogger(scope: string): CasyLogger
 }

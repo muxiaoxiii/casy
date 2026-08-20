@@ -59,8 +59,7 @@ export class CasesPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         // 调用 Tauri 命令
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('list_cases', { filter: params.filter || {} })
+        const result = await ctx.cases.list(params.filter || {})
         return result
       },
     }
@@ -79,8 +78,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_case', { id: params.id })
+        const result = await ctx.cases.get(params.id)
         return result
       },
     }
@@ -103,8 +101,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['caseName', 'clientName'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('create_case', { data: params })
+        const result = await ctx.cases.create(params)
         
         // 触发事件
         if (result.ok) {
@@ -130,8 +127,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('update_case', { id: params.id, data: params.data })
+        const result = await ctx.cases.update(params.id, params.data)
         
         // 触发事件
         if (result.ok) {
@@ -174,8 +170,7 @@ export class CasesPlugin implements CasyPlugin {
           }
         }
         
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('delete_case', { id: params.id })
+        const result = await ctx.cases.remove(params.id)
         
         // 触发事件
         if (result.ok) {
@@ -200,8 +195,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['keyword'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('search_cases', { query: params.keyword })
+        const result = await ctx.cases.search(params.keyword)
         return result
       },
     }

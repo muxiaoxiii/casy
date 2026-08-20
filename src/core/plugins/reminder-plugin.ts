@@ -35,8 +35,7 @@ export class ReminderPlugin implements CasyPlugin {
       category: 'reminder',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('list_reminder_rules', {})
+        const result = await ctx.reminder.rules()
         return result
       },
     }
@@ -62,14 +61,11 @@ export class ReminderPlugin implements CasyPlugin {
         required: ['name', 'triggerType'],
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('create_reminder_rule', {
-          data: {
-            name: params.name,
-            triggerType: params.triggerType,
-            triggerValue: params.triggerValue,
-            channels: params.channels || '["local"]',
-          },
+        const result = await ctx.reminder.createRule({
+          name: params.name,
+          triggerType: params.triggerType,
+          triggerValue: params.triggerValue,
+          channels: params.channels || '["local"]',
         })
         return result
       },
@@ -88,10 +84,7 @@ export class ReminderPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('get_reminder_log', { 
-          limit: params.limit || 50 
-        })
+        const result = await ctx.reminder.log(params.limit)
         return result
       },
     }
@@ -109,10 +102,7 @@ export class ReminderPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const { tauriCallSafe } = await import('../../core/tauriBridge')
-        const result = await tauriCallSafe('start_reminder_engine', { 
-          intervalSecs: params.intervalSeconds || 300 
-        })
+        const result = await ctx.reminder.startEngine(params.intervalSeconds)
         return result
       },
     }

@@ -10,6 +10,7 @@
  */
 
 import { casyContext } from './context'
+import { registerServices } from '../services'
 import {
   CasesPlugin,
   TasksPlugin,
@@ -93,6 +94,9 @@ async function registerProviders(): Promise<void> {
  * 初始化插件系统：安装全部业务插件 + 注册 AI 提供商
  */
 export async function initializePluginSystem(): Promise<void> {
+  // 0. 业务服务（数据通路：ctx.cases / ctx.tasks / ...）
+  await registerServices()
+
   // 1. 业务插件（9 个）
   const plugins = [
     new CasesPlugin(),

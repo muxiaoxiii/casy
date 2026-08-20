@@ -33,6 +33,8 @@
 
 > **2026-08-19 架构收口**：v3.0 插件系统此前是"文档声称已完成、代码为占位符"（context/initializer/tool-caller 均为 TODO 空壳，AI 对话面板因此运行即崩）。
 > 本轮已补齐为真实可运行实现，并对齐设计哲学 §11.11（智伴层组件化）与 §原则六（双路径铁律）。
+> **2026-08-19 二次升级（对标 DSH cordis 内核）**：Context 升级为 cordis 风格——Proxy 服务解析（`ctx.cases` 等）、Fiber 生命周期（dispose 自动清理 effects）、作用域事件、`inject` 依赖声明、Logger；
+> 新增 `src/core/services/` 9 个业务 Service（cases/tasks/knowledge/calendar/inbox/reminder/files/sync/settings），数据通路 = 视图/插件 → ctx 服务 → tauriBridge → Rust 命令（插件零直接 tauri 调用）。详见 `docs/devlog/2026-08-19-cordis-kernel.md`。
 
 ### 2.1 核心容器（CasyContext）— `src/core/plugin/context.ts`（真实实现）
 
