@@ -10,7 +10,7 @@ use super::run_blocking;
 use crate::db;
 use crate::sync::caldav::{self, CalDavClient};
 use anyhow::Result;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rusqlite::params;
 use serde::Serialize;
 
@@ -42,11 +42,21 @@ pub(crate) fn alarm_minutes_for_level(level: &str) -> i64 {
     }
 }
 
-/// 截止日期 → 当天 09:00（本地浮动时间）
+/// 截止日期 → 当天 09:00（本地浮动时间，无具体时间点时的默认）
 pub(crate) fn parse_due_morning(due_date: &str) -> Option<NaiveDateTime> {
-    NaiveDate::parse_from_str(due_date, "%Y-%m-%d")
-        .ok()?
-        .and_hms_opt(9, 0, 0)
+    parse_due_datetime(due_date, None)
+}
+
+/// 截止日期 + 具体时间点 → 提醒日历事件时间（设计哲学 §7/§11.2：交接真实时间点）
+/// due_time（HH:MM）优先；无则默认 09:00（与旧行为一致）
+pub(crate) fn parse_due_datetime(due_date: &str, due_time: Option<&str>) -> Option<NaiveDateTime> {
+    let date = NaiveDate::parse_from_str(due_date, "%Y-%m-%d").ok()?;
+    if let Some(t) = due_time {
+        if let Ok(time) = NaiveTime::parse_from_str(t, "%H:%M") {
+            return Some(date.and_time(time));
+        }
+    }
+    date.and_hms_opt(9, 0, 0)
 }
 
 /// 打开 CalDAV 客户端（配置缺失返回 Err）

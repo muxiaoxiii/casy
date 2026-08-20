@@ -19,6 +19,8 @@ pub struct CalendarJobCtx {
     pub entity_id: String,
     /// YYYY-MM-DD
     pub due_date: String,
+    /// HH:MM 具体时间点（任务/庭审有则用，无则默认 09:00）
+    pub due_time: Option<String>,
     /// 期限名 / 庭审名 / 任务名
     pub title: String,
 }
@@ -213,6 +215,7 @@ fn check_deadline_rules(
                     entity_type: "deadline",
                     entity_id: deadline_id.clone(),
                     due_date: due_date_str.clone(),
+                    due_time: None,
                     title: deadline_name.clone(),
                 };
                 let entry = dispatch_reminder(
@@ -288,6 +291,7 @@ fn check_hearing_rules(
                     entity_type: "hearing",
                     entity_id: hearing_id.clone(),
                     due_date: hearing_date_str.clone(),
+                    due_time: None,
                     title: hearing_label.clone(),
                 };
                 let entry = dispatch_reminder(
@@ -316,7 +320,7 @@ fn check_task_rules(
     let mut triggered = Vec::new();
 
     let mut stmt = conn.prepare(
-        "SELECT t.id, t.case_id, t.task_name, t.deadline, COALESCE(c.case_name, '')
+        "SELECT t.id, t.case_id, t.task_name, t.deadline, t.due_time, COALESCE(c.case_name, '')
          FROM tasks t
          LEFT JOIN cases c ON c.id = t.case_id
          WHERE t.completed = 0 AND t.deadline IS NOT NULL AND t.deadline != ''",
@@ -328,12 +332,13 @@ fn check_task_rules(
             row.get::<_, Option<String>>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
 
     for row in rows {
-        let (task_id, case_id, task_name, deadline_str, case_name) = row?;
+        let (task_id, case_id, task_name, deadline_str, task_due_time, case_name) = row?;
         let Ok(deadline) = NaiveDate::parse_from_str(&deadline_str, "%Y-%m-%d") else {
             continue;
         };
@@ -372,6 +377,7 @@ fn check_task_rules(
                     entity_type: "task",
                     entity_id: task_id.clone(),
                     due_date: deadline_str.clone(),
+                    due_time: task_due_time.clone(),
                     title: task_name.clone(),
                 };
                 let entry = dispatch_reminder(
@@ -521,7 +527,7 @@ fn send_via_channel(
     match channel {
         "local" => send_local_notification(message, task_id, reminder_log_id),
         "system" => send_system_notification(message),
-        "calendar" => dispatch_calendar_channel(conn, rule_id, case_id, message, level, cal_ctx),
+        "calendar" => dispatch_calendar_channel(conn, rule_id, case_id, message, level, cal_ctx, None),
         "feishu_message" => {
             // 异步发送飞书消息（不阻塞引擎循环）
             let msg = message.to_string();
@@ -768,6 +774,7 @@ fn dispatch_calendar_channel(
     message: &str,
     level: &str,
     cal_ctx: Option<&CalendarJobCtx>,
+    job_id: Option<&str>,
 ) -> Result<()> {
     if !crate::sync::caldav::calendar_sync_enabled(conn) {
         log::info!("[提醒-日历] 日历同步未启用，回退本地提醒");
@@ -779,7 +786,7 @@ fn dispatch_calendar_channel(
         return send_local_notification(message, None, None);
     };
 
-    let Some(dtstart) = super::caldav::parse_due_morning(&ctx.due_date) else {
+    let Some(dtstart) = super::caldav::parse_due_datetime(&ctx.due_date, ctx.due_time.as_deref()) else {
         log::warn!("[提醒-日历] 无法解析截止日期 {}，回退本地提醒", ctx.due_date);
         return send_local_notification(message, None, None);
     };
@@ -791,14 +798,23 @@ fn dispatch_calendar_channel(
     );
     let alarm_minutes = super::caldav::alarm_minutes_for_level(level);
 
-    // ICS UID = reminder_jobs.id（不可变），PUT 同 UID 天然幂等
-    let job_id = db::new_id();
+    // ICS UID = reminder_jobs.id（不可变）；job_id 复用 → PUT 同 UID 天然幂等（设置即交接/改期联动）
+    let job_id = match job_id {
+        Some(j) => j.to_string(),
+        None => db::new_id(),
+    };
     let account = db::get_setting(conn, "caldav_user").ok().flatten();
 
     conn.execute(
         "INSERT INTO reminder_jobs (id, rule_id, entity_type, entity_id, channel, executor,
            scheduled_at, calendar_account, content, masked_content, due_snapshot, offset_snapshot, status)
-         VALUES (?1, ?2, ?3, ?4, 'calendar', 'calendar', datetime('now','localtime'), ?5, ?6, ?7, ?8, ?9, 'pending')",
+         VALUES (?1, ?2, ?3, ?4, 'calendar', 'calendar', datetime('now','localtime'), ?5, ?6, ?7, ?8, ?9, 'pending')
+         ON CONFLICT(id) DO UPDATE SET
+           content = excluded.content,
+           masked_content = excluded.masked_content,
+           due_snapshot = excluded.due_snapshot,
+           offset_snapshot = excluded.offset_snapshot,
+           status = 'pending'",
         params![
             job_id,
             rule_id,
@@ -827,6 +843,52 @@ fn dispatch_calendar_channel(
     });
 
     log::info!("[提醒-日历] 已创建同步作业并入队");
+    Ok(())
+}
+
+/// 设置即交接（设计哲学 §11.2）：任务带截止日期 → 立即创建/更新 CalDAV 提醒事件
+/// - 幂等：按任务查已有 calendar job，复用 job_id（同 UID PUT 更新，不产生重复事件）
+/// - 无 task_due/task_overdue 日历规则时跳过；未启用日历同步时跳过
+pub(crate) fn sync_task_reminder_calendar(
+    conn: &Connection,
+    task_id: &str,
+    due_date: &str,
+    due_time: Option<&str>,
+    task_name: &str,
+    case_id: Option<&str>,
+) -> Result<()> {
+    use crate::sync::caldav::calendar_sync_enabled;
+    if !calendar_sync_enabled(conn) {
+        return Ok(());
+    }
+
+    // 找启用的 task 日历规则（没有则跳过——用户未配置任务提醒规则则不做外部交接）
+    let rule_id: Option<String> = conn.query_row(
+        "SELECT id FROM reminder_rules WHERE trigger_type IN ('task_due','task_overdue') AND enabled = 1 AND channels LIKE '%calendar%' LIMIT 1",
+        [],
+        |r| r.get(0),
+    ).ok();
+    let Some(rule_id) = rule_id else { return Ok(()); };
+
+    // 幂等：复用已存在的 task calendar job（UID = job_id）
+    let existing: Option<String> = conn.query_row(
+        "SELECT id FROM reminder_jobs WHERE entity_type = 'task' AND entity_id = ?1 AND executor = 'calendar' AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1",
+        rusqlite::params![task_id],
+        |r| r.get(0),
+    ).ok();
+
+    let cal_ctx = CalendarJobCtx {
+        entity_type: "task",
+        entity_id: task_id.to_string(),
+        due_date: due_date.to_string(),
+        due_time: due_time.map(|s| s.to_string()),
+        title: task_name.to_string(),
+    };
+    let message = format!("任务: {}\n截止日期: {}", task_name, due_date);
+
+    // level：任务提醒默认 R2（明确），交接到外部日历由服务商按时推送
+    dispatch_calendar_channel(conn, &rule_id, case_id, &message, "R2", Some(&cal_ctx), existing.as_deref())?;
+    log::info!("[提醒-日历] 任务 {} 提醒已交接（设置即同步）", task_name);
     Ok(())
 }
 
@@ -1722,6 +1784,7 @@ mod tests {
             entity_type: "deadline",
             entity_id: "d1".to_string(),
             due_date: "2026-08-20".to_string(),
+            due_time: None,
             title: "测试期限".to_string(),
         }
     }

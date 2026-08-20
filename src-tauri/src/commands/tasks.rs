@@ -150,6 +150,18 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
             rusqlite::params![db::new_id(), id, now],
         )?;
 
+        // 设置即交接（设计哲学 §11.2）：任务带截止日期 + 日历同步启用 → 立即同步提醒到外部日历
+        if let Some(due) = data["dueDate"].as_str().or(data["deadline"].as_str()) {
+            let _ = crate::commands::reminder::sync_task_reminder_calendar(
+                &conn,
+                &id,
+                due,
+                data["dueTime"].as_str(),
+                data["taskName"].as_str().unwrap_or(""),
+                data["caseId"].as_str(),
+            );
+        }
+
         Ok(serde_json::json!({ "id": id }))
     })
     .await
@@ -365,6 +377,18 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
             "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'moved', ?3, ?4, 'user')",
             rusqlite::params![db::new_id(), id, now, serde_json::to_string(&data).unwrap_or_default()],
         )?;
+
+        // 改期联动（设计哲学 §11.2）：due_date/due_time 变化 → 重新同步 CalDAV（同 UID 幂等更新）
+        if let Some(due) = data["dueDate"].as_str().or(data["deadline"].as_str()) {
+            let _ = crate::commands::reminder::sync_task_reminder_calendar(
+                &conn,
+                &id,
+                due,
+                data["dueTime"].as_str(),
+                data["taskName"].as_str().unwrap_or(""),
+                data["caseId"].as_str(),
+            );
+        }
 
         Ok(())
     })
