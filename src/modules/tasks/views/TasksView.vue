@@ -9,6 +9,7 @@ import {
   Box, List, Timer, Collection, Lock
 } from '@element-plus/icons-vue'
 import { useTasksStore } from '../../../stores/tasks'
+import PerspectiveManager from '../components/PerspectiveManager.vue'
 
 // ============================================================
 // 原有状态（保留）
@@ -48,6 +49,7 @@ const editForm = ref({
   taskType: 'action',
   startDate: '',
   dueDate: '',
+  dueTime: '',
   waitingFor: '',
   followUpDate: '',
   context: '',
@@ -55,6 +57,8 @@ const editForm = ref({
   areaId: '',
   estimatedMinutes: null,
   startBucket: 'anytime',
+  // 时间块排程（设计哲学 §7.2）
+  timeBlock: '', // morning/afternoon/evening/night/flex
 })
 const savingTask = ref(false)
 const caseSearchQuery = ref('')
@@ -82,6 +86,47 @@ const triageForm = ref({
   dueDate: '',
   context: '',
 })
+
+// 时间日志对话框（设计哲学 §11.9：流畅记录实际耗时）
+const showTimeLogDialog = ref(false)
+const timeLogTask = ref(null)
+const timeLogMinutes = ref('')
+
+async function submitTimeLog() {
+  const task = timeLogTask.value
+  if (!task) return
+  const mins = timeLogMinutes.value ? parseInt(timeLogMinutes.value, 10) : null
+  const result = await casyContext.tasks.toggle(task.id, Number.isFinite(mins) && mins !== null ? mins : null)
+  if (result.ok) {
+    task.completed = 1
+    ElMessage.success('已完成' + (mins ? '（' + mins + ' 分钟）' : ''))
+    showTimeLogDialog.value = false
+    timeLogTask.value = null
+    timeLogMinutes.value = ''
+    // 如果有解锁的下一个任务，提示用户
+    await loadTasks()
+  }
+}
+
+function skipTimeLog() {
+  const task = timeLogTask.value
+  if (!task) return
+  casyContext.tasks.toggle(task.id).then(result => {
+    if (result.ok) {
+      task.completed = 1
+      ElMessage.success('已完成')
+      showTimeLogDialog.value = false
+      timeLogTask.value = null
+      timeLogMinutes.value = ''
+      loadTasks()
+    }
+  })
+}
+
+// 自定义透视管理（设计哲学 §5.2）
+const showPerspectiveManager = ref(false)
+const editingPerspective = ref(null)
+const customPerspectives = computed(() => tasksStore.customPerspectives)
 
 // ============================================================
 // 原有常量（保留）
@@ -141,11 +186,18 @@ const gtdTasks = computed(() => {
       return tasks.value.filter(t => t.startBucket === 'inbox' && !t.completed)
     
     case 'next':
-      return tasks.value.filter(t =>
-        !t.completed &&
-        t.taskType === 'action' &&
-        (t.blocked === 0 || !t.caseId)
-      )
+      // 下一步行动：严格区分案件内/外（设计哲学 §5.2）
+      // - 有案件的 action：只有 blocked=0 的才算"下一步"
+      // - 无案件的 action：全部算"下一步"
+      return tasks.value.filter(t => {
+        if (t.completed || t.taskType !== 'action') return false
+        if (t.caseId) {
+          // 有案件：必须是 unlocked（blocked=0）
+          return t.blocked === 0
+        }
+        // 无案件：全部算下一步
+        return true
+      })
 
     case 'upcoming':
       return tasks.value.filter(t =>
@@ -243,6 +295,11 @@ onMounted(() => {
   } else if (tasksStore.activePerspective) {
     activePerspective.value = tasksStore.activePerspective
   }
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 async function loadData() {
@@ -283,30 +340,14 @@ async function loadAreas() {
 async function toggleComplete(task) {
   if (!task.completed) {
     // 完成时可选填实际耗时（设计哲学 §11.6：校准时间预估的数据来源）
-    try {
-      const { value } = await ElMessageBox.prompt('实际耗时（分钟，可留空直接完成）', '完成任务', {
-        inputType: 'number',
-        confirmButtonText: '完成',
-        cancelButtonText: '直接完成',
-        inputPlaceholder: '可选，用于校准预估',
-      })
-      const mins = value ? parseInt(value, 10) : null
-      const result = await casyContext.tasks.toggle(task.id, Number.isFinite(mins) && mins !== null ? mins : null)
-      if (result.ok) {
-        task.completed = 1
-        ElMessage.success('已完成' + (mins ? '（' + mins + ' 分钟）' : ''))
-      }
-      return
-    } catch {
-      // 取消/关闭 → 直接完成（不带耗时）
-      const result = await casyContext.tasks.toggle(task.id)
-      if (result.ok) {
-        task.completed = 1
-        ElMessage.success('已完成')
-      }
-      return
-    }
+    // 使用轻量弹窗，不阻断流程
+    showTimeLogDialog.value = true
+    timeLogTask.value = task
+    // 如果有预估时间，预填充
+    timeLogMinutes.value = task.estimatedMinutes || ''
+    return
   }
+  // 恢复任务
   const result = await casyContext.tasks.toggle(task.id)
   if (result.ok) {
     task.completed = 0
@@ -368,6 +409,7 @@ function openDrawer(task) {
     areaId: task.areaId || '',
     estimatedMinutes: task.estimatedMinutes || null,
     startBucket: task.startBucket || 'anytime',
+    timeBlock: task.timeBlock || '',
   }
   caseSearchQuery.value = ''
   caseSearchResults.value = []
@@ -443,6 +485,41 @@ function switchPerspective(key) {
   // 更新 URL
   const url = new URL(window.location)
   window.history.replaceState({}, '', url)
+}
+
+function openCreatePerspective() {
+  editingPerspective.value = null
+  showPerspectiveManager.value = true
+}
+
+function handlePerspectiveCommand(command, perspective) {
+  if (command === 'edit') {
+    editingPerspective.value = perspective
+    showPerspectiveManager.value = true
+  } else if (command === 'delete') {
+    ElMessageBox.confirm('确定删除此透视？', '确认', {
+      type: 'warning',
+    }).then(() => {
+      tasksStore.deleteCustomPerspective(perspective.id)
+      ElMessage.success('透视已删除')
+    }).catch(() => {})
+  }
+}
+
+function handlePerspectiveSave(data) {
+  if (editingPerspective.value) {
+    tasksStore.updateCustomPerspective(editingPerspective.value.id, data)
+    ElMessage.success('透视已更新')
+  } else {
+    tasksStore.saveCustomPerspective(data)
+    ElMessage.success('透视已创建')
+  }
+  showPerspectiveManager.value = false
+  editingPerspective.value = null
+}
+
+function getCustomPerspectiveCount(perspectiveId) {
+  return tasksStore.getTasksByCustomPerspective(perspectiveId).length
 }
 
 // ============================================================
@@ -780,14 +857,6 @@ function handleKeydown(e) {
   }
 }
 
-onMounted(() => {
-  document.addEventListener('keydown', handleKeydown)
-})
-
-import { onUnmounted } from 'vue'
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeydown)
-})
 </script>
 
 <template>
@@ -848,6 +917,7 @@ onUnmounted(() => {
 
     <!-- GTD 透视标签（唯一视图模式） -->
     <div class="perspective-tabs">
+      <!-- 内置透视 -->
       <div
         v-for="p in perspectives"
         :key="p.key"
@@ -859,6 +929,39 @@ onUnmounted(() => {
         <span class="tab-count" :style="{ backgroundColor: p.color }">
           {{ gtdStats[p.key] }}
         </span>
+      </div>
+      
+      <!-- 自定义透视 -->
+      <div
+        v-for="cp in customPerspectives"
+        :key="cp.id"
+        :class="['tab-item', 'custom-perspective', { active: activePerspective === cp.id }]"
+        @click="switchPerspective(cp.id)"
+      >
+        <span class="tab-icon">{{ cp.icon || '📋' }}</span>
+        <span class="tab-label">{{ cp.name }}</span>
+        <span class="tab-count" :style="{ backgroundColor: cp.color || '#409eff' }">
+          {{ getCustomPerspectiveCount(cp.id) }}
+        </span>
+        <el-dropdown trigger="click" @command="(cmd) => handlePerspectiveCommand(cmd, cp)" @click.stop>
+          <el-icon class="perspective-more"><More /></el-icon>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="edit">
+                <el-icon><Edit /></el-icon> 编辑
+              </el-dropdown-item>
+              <el-dropdown-item command="delete" divided>
+                <el-icon><Delete /></el-icon> 删除
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+      
+      <!-- 创建透视按钮 -->
+      <div class="tab-item create-perspective" @click="openCreatePerspective">
+        <el-icon :size="14"><Plus /></el-icon>
+        <span class="tab-label">新建透视</span>
       </div>
     </div>
     <!-- 加载骨架 -->
@@ -1286,6 +1389,17 @@ onUnmounted(() => {
           </el-select>
         </el-form-item>
         
+        <!-- 时间块排程（设计哲学 §7.2） -->
+        <el-form-item label="时间块">
+          <el-select v-model="editForm.timeBlock" clearable placeholder="选择时间块（可选）" style="width: 100%">
+            <el-option label="🌅 上午 (08:00-12:00)" value="morning" />
+            <el-option label="☀️ 下午 (12:00-18:00)" value="afternoon" />
+            <el-option label="🌙 晚上 (18:00-22:00)" value="evening" />
+            <el-option label="🌃 深夜 (22:00-06:00)" value="night" />
+            <el-option label="🔄 弹性（任意时间）" value="flex" />
+          </el-select>
+        </el-form-item>
+        
         <el-form-item>
           <el-checkbox v-model="editForm.flagged">标记为重要</el-checkbox>
         </el-form-item>
@@ -1296,6 +1410,45 @@ onUnmounted(() => {
         <el-button type="primary" :loading="savingTask" @click="saveTask">保存</el-button>
       </template>
     </el-drawer>
+    
+    <!-- 透视管理对话框 -->
+    <PerspectiveManager
+      v-model:visible="showPerspectiveManager"
+      :perspective="editingPerspective"
+      @save="handlePerspectiveSave"
+    />
+    
+    <!-- 时间日志轻量弹窗（设计哲学 §11.9：流畅记录实际耗时） -->
+    <el-dialog
+      v-model="showTimeLogDialog"
+      title="记录耗时"
+      width="360px"
+      :show-close="false"
+      :close-on-click-modal="false"
+      append-to-body
+    >
+      <div style="text-align: center; padding: 8px 0;">
+        <p style="margin: 0 0 16px; color: #666; font-size: 14px;">
+          「{{ timeLogTask?.taskName }}」用了多久？
+        </p>
+        <el-input-number
+          v-model="timeLogMinutes"
+          :min="1"
+          :max="480"
+          placeholder="分钟"
+          style="width: 160px;"
+          size="large"
+          @keydown.enter="submitTimeLog"
+        />
+        <p v-if="timeLogTask?.estimatedMinutes" style="margin: 8px 0 0; font-size: 12px; color: #999;">
+          预估 {{ timeLogTask.estimatedMinutes }} 分钟
+        </p>
+      </div>
+      <template #footer>
+        <el-button text @click="skipTimeLog">跳过</el-button>
+        <el-button type="primary" @click="submitTimeLog">完成</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1376,6 +1529,37 @@ onUnmounted(() => {
 .tab-item.active {
   background: #EFF6FF;
   color: #2563EB;
+}
+
+/* 自定义透视样式 */
+.tab-item.custom-perspective {
+  position: relative;
+}
+
+.tab-item.custom-perspective .tab-icon {
+  font-size: 14px;
+}
+
+.tab-item.custom-perspective .perspective-more {
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  cursor: pointer;
+}
+
+.tab-item.custom-perspective:hover .perspective-more {
+  opacity: 1;
+}
+
+.tab-item.create-perspective {
+  border: 1px dashed #d0d0d0;
+  color: #909399;
+  cursor: pointer;
+}
+
+.tab-item.create-perspective:hover {
+  border-color: #409eff;
+  color: #409eff;
 }
 
 .tab-label {

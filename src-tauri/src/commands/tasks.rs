@@ -1,5 +1,6 @@
 use super::run_blocking;
 use crate::db;
+use chrono::Datelike;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,14 +110,53 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         let id = db::new_id();
         let now = db::now_local();
 
+        // 自动设置 Review 周期：默认下周日（设计哲学 §5.4）
+        let next_review = {
+            let d = chrono::Local::now().naive_local().date();
+            let day = d.weekday().num_days_from_sunday();
+            let diff = (7 - day) % 7;
+            let diff = if diff == 0 { 7 } else { diff };
+            (d + chrono::Duration::days(diff as i64)).format("%Y-%m-%d").to_string()
+        };
+
+        // ── 案件级顺序项目自动继承（设计哲学 §3.3）─────────────────────
+        // 如果关联案件设置了 sequential=1，新任务自动继承 sequential
+        let case_id = data["caseId"].as_str();
+        let (mut sequential, mut blocked, mut sequence_order) = (
+            data["sequential"].as_i64().unwrap_or(0),
+            data["blocked"].as_i64().unwrap_or(0),
+            data["sequenceOrder"].as_i64().unwrap_or(0),
+        );
+
+        if let Some(cid) = case_id {
+            let case_seq: Option<i32> = conn.query_row(
+                "SELECT sequential FROM cases WHERE id = ?1",
+                rusqlite::params![cid],
+                |row| row.get(0),
+            ).ok();
+            if case_seq == Some(1) && sequential == 0 {
+                sequential = 1;
+                // 第一个 sequential 任务不阻塞，后续自动阻塞
+                let existing_count: i32 = conn.query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND sequential = 1 AND completed = 0",
+                    rusqlite::params![cid],
+                    |row| row.get(0),
+                ).unwrap_or(0);
+                if existing_count > 0 {
+                    blocked = 1;
+                }
+                sequence_order = existing_count as i64;
+            }
+        }
+
         conn.execute(
             "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note, 
              task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
-             start_bucket, today_index, estimated_minutes, area_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             rusqlite::params![
                 id,
-                data["caseId"].as_str(),
+                case_id,
                 data["taskName"].as_str().unwrap_or(""),
                 data["description"].as_str().unwrap_or(""),
                 data["createdDate"].as_str().unwrap_or(&now),
@@ -133,13 +173,14 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
                 data["followUpDate"].as_str(),
                 data["context"].as_str(),
                 data["flagged"].as_i64().unwrap_or(0),
-                data["sequential"].as_i64().unwrap_or(0),
-                data["blocked"].as_i64().unwrap_or(0),
-                data["sequenceOrder"].as_i64().unwrap_or(0),
+                sequential,
+                blocked,
+                sequence_order,
                 data["startBucket"].as_str().unwrap_or("anytime"),
                 data["todayIndex"].as_i64().unwrap_or(0),
                 data["estimatedMinutes"].as_i64(),
                 data["areaId"].as_str(),
+                data["nextReviewDate"].as_str().unwrap_or(&next_review),
                 now,
             ],
         )?;
@@ -170,7 +211,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
 #[tauri::command]
 pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), String> {
     let task_id = id.clone();
-    let completed_now = run_blocking(move || {
+    let unlock_result = run_blocking(move || {
         let conn = db::open_db()?;
         let now = db::now_local();
 
@@ -207,14 +248,61 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
             rusqlite::params![db::new_id(), id, event_type, now, payload],
         )?;
 
-        Ok(new_status == 1)
+        // ── 顺序项目自动解锁（设计哲学 §3.3 / §5.4）─────────────────────
+        // 如果完成的是一个 sequential 任务，在同一事务内解锁下一个
+        let mut unlocked_task_id: Option<String> = None;
+        if new_status == 1 {
+            let task_info: Option<(String, i32, Option<String>)> = conn.query_row(
+                "SELECT id, sequence_order, case_id FROM tasks WHERE id = ?1 AND sequential = 1",
+                rusqlite::params![id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?, row.get::<_, Option<String>>(2)?)),
+            ).ok();
+
+            if let Some((_, seq_order, case_id)) = task_info {
+                // 找到同案件（或无案件）中 sequence_order 更大的下一个 blocked 任务
+                let next_task_id: Option<String> = if let Some(cid) = case_id {
+                    conn.query_row(
+                        "SELECT id FROM tasks WHERE case_id = ?1 AND sequential = 1 AND blocked = 1 AND sequence_order > ?2 ORDER BY sequence_order ASC LIMIT 1",
+                        rusqlite::params![cid, seq_order],
+                        |row| row.get(0),
+                    ).ok()
+                } else {
+                    conn.query_row(
+                        "SELECT id FROM tasks WHERE case_id IS NULL AND sequential = 1 AND blocked = 1 AND sequence_order > ?1 ORDER BY sequence_order ASC LIMIT 1",
+                        rusqlite::params![seq_order],
+                        |row| row.get(0),
+                    ).ok()
+                };
+
+                if let Some(next_id) = next_task_id {
+                    conn.execute(
+                        "UPDATE tasks SET blocked = 0 WHERE id = ?1",
+                        rusqlite::params![&next_id],
+                    )?;
+                    // 记录解锁事件
+                    conn.execute(
+                        "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'moved', ?3, ?4, 'system')",
+                        rusqlite::params![db::new_id(), &next_id, &now, serde_json::json!({"fromBlocked":1,"toBlocked":0,"reason":"sequential_unlock"}).to_string()],
+                    )?;
+                    unlocked_task_id = Some(next_id);
+                }
+            }
+        }
+
+        Ok((new_status == 1, unlocked_task_id))
     })
     .await?;
+
+    let completed_now = unlock_result.0;
+    let unlocked_id = unlock_result.1;
 
     // 任务完成后撤销其提醒作业（含已同步到日历的事件，避免误提醒）
     if completed_now {
         if let Err(e) = super::caldav::cancel_jobs_for_entity("task", &task_id).await {
             log::warn!("任务完成后撤销提醒作业失败 (task {}): {}", task_id, e);
+        }
+        if let Some(ref uid) = unlocked_id {
+            log::info!("顺序项目已自动解锁: {}", uid);
         }
     }
 
@@ -330,9 +418,10 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 today_index = COALESCE(?15, today_index),
                 estimated_minutes = ?16,
                 area_id = ?17,
-                updated_at = ?18,
-                actual_minutes = COALESCE(?19, actual_minutes)
-             WHERE id = ?18",
+                time_block = ?18,
+                updated_at = ?19,
+                actual_minutes = COALESCE(?20, actual_minutes)
+             WHERE id = ?19",
             rusqlite::params![
                 data["taskName"].as_str(),
                 data["description"].as_str(),
@@ -351,6 +440,7 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 data["todayIndex"].as_i64(),
                 data["estimatedMinutes"].as_i64(),
                 data["areaId"].as_str(),
+                data["timeBlock"].as_str(),
                 now,
                 id,
                 data["actualMinutes"].as_i64(),

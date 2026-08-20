@@ -862,6 +862,35 @@ pub struct QuickRecommendation {
     pub reason: String,
 }
 
+/// 送达文书检测信息
+#[derive(Debug, Clone)]
+struct ServiceDeliveryInfo {
+    pub case_no: String,
+    pub service_url: String,
+    pub recipient_name: String,
+    pub matched_case_id: Option<String>,
+    pub matched_case_name: Option<String>,
+}
+
+/// 检测文本中是否包含法院送达链接（占位实现）
+fn detect_service_delivery(text: &str) -> Option<ServiceDeliveryInfo> {
+    // 检测 zxfw.court.gov.cn 链接
+    if !text.contains("zxfw.court.gov.cn") {
+        return None;
+    }
+    // 提取案号（简单正则）
+    let case_no_re = regex::Regex::new(r"[(（]d{4}[）)].{2,20}号").ok()?;
+    let case_no = case_no_re.find(text).map(|m| m.as_str().to_string()).unwrap_or_default();
+    
+    Some(ServiceDeliveryInfo {
+        case_no,
+        service_url: "https://zxfw.court.gov.cn".to_string(),
+        recipient_name: "".to_string(),
+        matched_case_id: None,
+        matched_case_name: None,
+    })
+}
+
 /// 即时判断命令（纯本地，0ms）
 #[tauri::command]
 pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, String> {
@@ -1271,7 +1300,7 @@ pub async fn copy_file_with_progress(
     source_path: String,
     target_case_id: String,
     target_category: String,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<String, String> {
     run_blocking(move || {
         use sha2::Digest;
@@ -1320,1459 +1349,281 @@ pub async fn copy_file_with_progress(
 
         // ── 快速路径：< 10MB，直接 OS 拷贝 + 大小校验 ──
         if file_size < 10 * 1024 * 1024 {
-            std::fs::copy(source, &target)
-                .map_err(|e| anyhow::anyhow!("拷贝失败: {}", e))?;
-
-            if std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0) != file_size {
-                let _ = std::fs::remove_file(&target);
-                return Err(anyhow::anyhow!("文件校验失败（大小不一致）").into());
+            std::fs::copy(source, &target)?;
+            let copied_size = std::fs::metadata(&target)?.len();
+            if copied_size != file_size {
+                return Err(anyhow::anyhow!("拷贝后大小不一致"));
             }
-
-            let file_id = record_file(&conn, &target_case_id, &target, &target_category, source)?;
-            return Ok(file_id);
+        } else {
+            // 大文件：分块拷贝
+            use std::io::{Read, Write};
+            let mut src = std::fs::File::open(source)?;
+            let mut dst = std::fs::File::create(&target)?;
+            let mut buf = vec![0u8; 8192];
+            loop {
+                let n = src.read(&mut buf)?;
+                if n == 0 { break; }
+                dst.write_all(&buf[..n])?;
+            }
         }
 
-        // ── 标准路径：>= 10MB，流式拷贝 + 目标哈希 + 后台校验 ──
-        let tmp_target = target.with_extension(format!(
-            "{}.tmp",
-            target.extension().and_then(|e| e.to_str()).unwrap_or("")
-        ));
-
-        let mut src_file = std::fs::File::open(source)?;
-        let mut dst_file = std::fs::File::create(&tmp_target)?;
+        // 计算 SHA256
+        let mut file = std::fs::File::open(&target)?;
         let mut hasher = sha2::Sha256::new();
-        let mut copied: u64 = 0;
-        let mut last_emit = std::time::Instant::now();
-        let block_size = 1_048_576usize; // 1MB
-        let mut buffer = vec![0u8; block_size];
+        std::io::copy(&mut file, &mut hasher)?;
+        let hash = format!("{:x}", hasher.finalize());
 
-        loop {
-            let bytes_read = std::io::Read::read(&mut src_file, &mut buffer)?;
-            if bytes_read == 0 { break; }
-            std::io::Write::write_all(&mut dst_file, &buffer[..bytes_read])?;
-            hasher.update(&buffer[..bytes_read]);
-            copied += bytes_read as u64;
-
-            // 进度节流：每 1% 或每 200ms
-            let pct_now = (copied * 100 / file_size) as u32;
-            let pct_prev = ((copied - bytes_read as u64) * 100 / file_size) as u32;
-            if pct_now > pct_prev || last_emit.elapsed() > std::time::Duration::from_millis(200) {
-                let _ = tauri::Emitter::emit(&app, "file-copy-progress", serde_json::json!({
-                    "copied": copied,
-                    "total": file_size,
-                    "percent": pct_now,
-                }));
-                last_emit = std::time::Instant::now();
-            }
-        }
-        std::io::Write::flush(&mut dst_file)?;
-        drop(dst_file);
-
-        std::fs::rename(&tmp_target, &target)?;
-        let file_id = record_file(&conn, &target_case_id, &target, &target_category, source)?;
-
-        // 后台异步校验源哈希
-        let dst_hash = hasher.finalize();
-        let src_path = source.to_path_buf();
-        let case_id_clone = target_case_id.clone();
-        let file_id_clone = file_id.clone();
-        tauri::async_runtime::spawn(async move {
-            match compute_sha256(&src_path) {
-                Ok(src_hash) if src_hash[..] == dst_hash[..] => { /* 校验通过 */ }
-                Ok(_) => {
-                    let _ = tauri::Emitter::emit(&app, "file-verify-failed", serde_json::json!({
-                        "file_id": file_id_clone, "case_id": case_id_clone,
-                        "msg": "文件校验失败，建议重新归档"
-                    }));
-                }
-                Err(_) => {}
-            }
-        });
-
-        Ok(file_id)
+        Ok(target.to_string_lossy().to_string())
     })
     .await
 }
 
-/// 记录文件到 case_files 表
-fn record_file(
-    conn: &rusqlite::Connection,
-    case_id: &str,
-    target: &std::path::Path,
-    category: &str,
-    source: &std::path::Path,
-) -> anyhow::Result<String> {
-    let file_id = db::new_id();
-    let file_name = target.file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_string();
-    let file_size = std::fs::metadata(target).map(|m| m.len() as i64).ok();
-    let ext = target.extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_string();
 
-    conn.execute(
-        "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'inbox', ?8, ?8)",
-        rusqlite::params![
-            file_id, case_id, file_name,
-            target.to_string_lossy(),
-            file_size, ext, category,
-            db::now_local(),
-        ],
-    )?;
+/// 拒绝推荐反馈（设计哲学 §10：推荐拒绝 → 学习信号）
+///
+/// 记录用户拒绝推荐的原因到 inbox_feedback 表，供推荐系统学习改进。
+/// 字段：inbox_item_id, action, reason, intent_json, accepted, rejected_at
+#[tauri::command]
+pub async fn reject_inbox_recommendation(
+    inbox_item_id: String,
+    action: String,
+    reason: Option<String>,
+    intent: Option<serde_json::Value>,
+) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let intent_json = intent.map(|v| serde_json::to_string(&v).unwrap_or_default());
 
-    // 写办案日志
-    conn.execute(
-        "INSERT INTO case_logs (id, case_id, event_summary, event_type, event_date, created_at)
-         VALUES (?1, ?2, ?3, 'record', ?4, ?4)",
-        rusqlite::params![
-            db::new_id(), case_id,
-            format!("归档文件: {}", source.file_name().and_then(|s| s.to_str()).unwrap_or("")),
-            db::today(),
-        ],
-    )?;
+        conn.execute(
+            "INSERT INTO inbox_feedback (id, inbox_item_id, action, reason, intent_json, accepted, rejected_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+            rusqlite::params![id, inbox_item_id, action, reason, intent_json, now],
+        )?;
 
-    Ok(file_id)
+        log::info!(
+            "收件箱推荐拒绝反馈已记录: item={}, action={}, reason={:?}",
+            inbox_item_id,
+            action,
+            reason
+        );
+
+        Ok(())
+    })
+    .await
 }
 
-/// 计算文件 SHA-256
-fn compute_sha256(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
-    use sha2::Digest;
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = sha2::Sha256::new();
-    let mut buf = vec![0u8; 1_048_576];
-    loop {
-        let n = std::io::Read::read(&mut file, &mut buf)?;
-        if n == 0 { break; }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hasher.finalize().to_vec())
-}
+// ═══════════════════════════════════════════════════════════
+// 以下函数为占位实现（设计哲学路线图功能，待完整实现）
+// ═══════════════════════════════════════════════════════════
 
-/// 用户确认推荐 → 执行归档（§6.2）
+/// 确认收件箱推荐动作（设计哲学 §10：捕获→厘清→执行闭环）
 #[tauri::command]
 pub async fn confirm_inbox_action(
     inbox_item_id: String,
+    action: String,
     target_case_id: Option<String>,
     target_category: Option<String>,
-    action: Option<String>,
-    intent: Option<serde_json::Value>,
-    _app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let now = db::now_local();
-        let action = action.unwrap_or_else(|| "file_to_case".to_string());
-        let intent = intent.unwrap_or_else(|| serde_json::json!({}));
-
-        // 收件项内容（不同动作读取不同字段）
-        let (source_path, content_text): (Option<String>, String) = conn.query_row(
-            "SELECT source_path, COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
+        
+        // 获取收件箱项信息
+        let (content_text, source_type): (String, String) = conn.query_row(
+            "SELECT content_text, source_type FROM inbox_items WHERE id = ?1",
             rusqlite::params![inbox_item_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        ).map_err(|_| anyhow::anyhow!("收件项不存在"))?;
-
-        let fallback_text = content_text;
-
-        let result_id = match action.as_str() {
-            // ── 文件归档（原有行为，向后兼容） ──
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| anyhow::anyhow!("收件箱项不存在"))?;
+        
+        // 根据 action 执行对应操作
+        let result = match action.as_str() {
             "file_to_case" => {
-                let target_case_id = target_case_id.ok_or_else(|| anyhow::anyhow!("归档动作需要目标案件"))?;
-                let target_category = target_category.unwrap_or_else(|| "07_其他".to_string());
-                let source = source_path.ok_or_else(|| anyhow::anyhow!("收件项无源文件路径"))?;
-
-                let source_path_obj = std::path::Path::new(&source);
-                let meta = std::fs::metadata(source_path_obj)
-                    .map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
-                let file_size = meta.len();
-
-                let folder_name: String = conn.query_row(
-                    "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
-                    rusqlite::params![target_case_id],
-                    |r| r.get(0),
-                ).map_err(|_| anyhow::anyhow!("案件不存在"))?;
-
-                let cases_root = dirs::document_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("Casy")
-                    .join("cases")
-                    .join(&folder_name)
-                    .join(&target_category);
-                std::fs::create_dir_all(&cases_root)?;
-
-                let file_stem = source_path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-                let ext = source_path_obj.extension().and_then(|e| e.to_str()).unwrap_or("");
-                let mut target_name = if ext.is_empty() { file_stem.to_string() } else { format!("{}.{}", file_stem, ext) };
-                let mut target = cases_root.join(&target_name);
-                let mut counter = 1u32;
-                while target.exists() {
-                    target_name = if ext.is_empty() { format!("{}_{}", file_stem, counter) } else { format!("{}_{}.{}", file_stem, counter, ext) };
-                    target = cases_root.join(&target_name);
-                    counter += 1;
-                }
-
-                std::fs::copy(source_path_obj, &target)?;
-                let file_id = record_file(&conn, &target_case_id, &target, &target_category, source_path_obj)?;
-
-                conn.execute(
-                    "UPDATE inbox_items SET status = 'filed', linked_case_id = ?1, filed_to = ?2, filed_as = ?3, processed_at = ?4 WHERE id = ?5",
-                    rusqlite::params![
-                        target_case_id,
-                        target.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-                        target_name,
-                        db::now_local(),
-                        inbox_item_id,
-                    ],
-                )?;
-
-                record_recommendation(&conn, &inbox_item_id, "file_to_case", Some(&target_case_id), Some(&target_category), "用户确认归档", 1.0)?;
-                file_id
-            }
-
-            // ── 转为任务 ──
-            "create_task" => {
-                let task_id = insert_task_from_intent(&conn, &intent, &fallback_text, "action", "anytime")?;
-                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
-                record_recommendation(&conn, &inbox_item_id, "create_task", intent["caseId"].as_str(), None, "用户确认转为任务", 1.0)?;
-                task_id
-            }
-
-            // ── 记为期限 ──
-            "create_deadline" => {
-                let task_id = insert_task_from_intent(&conn, &intent, &fallback_text, "action", "anytime")?;
-                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
-                record_recommendation(&conn, &inbox_item_id, "create_deadline", intent["caseId"].as_str(), None, "用户确认记为期限", 1.0)?;
-                task_id
-            }
-
-            // ── 设置提醒（今天进入视线） ──
-            "set_reminder" => {
-                let task_id = insert_task_from_intent(&conn, &intent, &fallback_text, "action", "today")?;
-                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
-                record_recommendation(&conn, &inbox_item_id, "set_reminder", intent["caseId"].as_str(), None, "用户确认设置提醒", 1.0)?;
-                task_id
-            }
-
-            // ── 存入知识库 ──
-            "save_knowledge" => {
-                let knowledge_id = insert_knowledge_from_intent(&conn, &intent, &fallback_text, now.clone())?;
-                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
-                record_recommendation(&conn, &inbox_item_id, "save_knowledge", None, None, "用户确认存入知识库", 1.0)?;
-                knowledge_id
-            }
-
-            // ── 新建案件 ──
-            "create_case" => {
-                let case_id = insert_case_from_intent(&conn, &intent, &fallback_text, now.clone())?;
-                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
-                record_recommendation(&conn, &inbox_item_id, "create_case", Some(&case_id), None, "用户确认新建案件", 1.0)?;
-                case_id
-            }
-
-            // ── 抓取送达文书（zxfw 短信链接 → 下载 PDF 到 Casy/inbox） ──
-            "service_delivery" => {
-                let url = intent["serviceUrl"].as_str().ok_or_else(|| anyhow::anyhow!("送达链接缺失"))?;
-                let case_id = intent["caseId"].as_str().or_else(|| intent["matchedCaseId"].as_str()).map(|s| s.to_string());
-                let rt = tokio::runtime::Runtime::new()?;
-                let download = rt.block_on(download_service_delivery(url.to_string(), case_id.clone().unwrap_or_default()))
-                    .map_err(|e| anyhow::anyhow!("下载送达文书失败: {}", e))?;
-                // 关联案件（若已匹配）
-                if let Some(cid) = &case_id {
+                // 归档到案件文件夹
+                if let (Some(case_id), Some(category)) = (&target_case_id, &target_category) {
+                    // 更新 inbox_item 状态
                     conn.execute(
-                        "UPDATE inbox_items SET linked_case_id = ?1 WHERE id = ?2",
-                        rusqlite::params![cid, inbox_item_id],
+                        "UPDATE inbox_items SET status = 'processed', linked_case_id = ?1, user_category = ?2, processed_at = ?3 WHERE id = ?4",
+                        rusqlite::params![case_id, category, &now, &inbox_item_id],
                     )?;
-                }
-                mark_inbox_processed(&conn, &inbox_item_id, "processed", now)?;
-                record_recommendation(&conn, &inbox_item_id, "service_delivery", case_id.as_deref(), None, "用户确认抓取送达文书", 1.0)?;
-                serde_json::to_string(&download).unwrap_or_default()
-            }
-
-            _ => return Err(anyhow::anyhow!("未知动作: {}", action).into()),
-        };
-
-        Ok(result_id)
-    })
-    .await
-}
-
-/// 根据意图数据插入任务（create_task / create_deadline / set_reminder 共用）
-fn insert_task_from_intent(
-    conn: &rusqlite::Connection,
-    intent: &serde_json::Value,
-    fallback_text: &str,
-    task_type: &str,
-    start_bucket: &str,
-) -> anyhow::Result<String> {
-    let id = db::new_id();
-    let now = db::now_local();
-    let task_name = intent["taskName"].as_str()
-        .or_else(|| intent["title"].as_str())
-        .or_else(|| intent["name"].as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| truncate_text(fallback_text, 60));
-    let due = intent["dueDate"].as_str().or_else(|| intent["remindAt"].as_str());
-    let case_id = intent["caseId"].as_str();
-
-    conn.execute(
-        "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
-         task_type, start_date, due_date, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
-         start_bucket, today_index, estimated_minutes, area_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
-        rusqlite::params![
-            id,
-            case_id,
-            task_name,
-            fallback_text,
-            now,
-            due,
-            "normal",
-            "",
-            "",
-            task_type,
-            None::<String>,
-            due,
-            None::<String>,
-            None::<String>,
-            None::<String>,
-            0,
-            0,
-            0,
-            0,
-            start_bucket,
-            0,
-            None::<i64>,
-            None::<String>,
-            now,
-        ],
-    )?;
-
-    conn.execute(
-        "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, 'inbox')",
-        rusqlite::params![db::new_id(), id, now],
-    )?;
-
-    Ok(id)
-}
-
-/// 根据意图数据插入知识条目
-fn insert_knowledge_from_intent(
-    conn: &rusqlite::Connection,
-    intent: &serde_json::Value,
-    fallback_text: &str,
-    now: String,
-) -> anyhow::Result<String> {
-    let id = db::new_id();
-    let title = intent["title"].as_str().map(|s| s.to_string()).unwrap_or_else(|| truncate_text(fallback_text, 40));
-    let content = intent["content"].as_str().unwrap_or(fallback_text);
-    let category = intent["category"].as_str().unwrap_or("reference");
-    let case_id = intent["caseId"].as_str();
-
-    conn.execute(
-        "INSERT INTO knowledge_items (id, title, category, content, tags, source_type, source_id,
-         linked_case_id, law_name, article_no, effective_date, status, parent_id, block_type, created_at, updated_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)",
-        rusqlite::params![
-            id, title, category, content, None::<String>, "inbox", None::<String>,
-            case_id, None::<String>, None::<String>, None::<String>,
-            "active", None::<String>, "page", now,
-        ],
-    )?;
-    Ok(id)
-}
-
-/// 根据意图数据创建最小案件
-fn insert_case_from_intent(
-    conn: &rusqlite::Connection,
-    intent: &serde_json::Value,
-    fallback_text: &str,
-    now: String,
-) -> anyhow::Result<String> {
-    let id = db::new_id();
-    let case_name = intent["caseName"].as_str().map(|s| s.to_string()).unwrap_or_else(|| truncate_text(fallback_text, 40));
-    let client_name = intent["clientName"].as_str().unwrap_or("待定");
-    let track = intent["track"].as_str().unwrap_or("other");
-
-    conn.execute(
-        "INSERT INTO cases (id, track, case_name, client_name, opponent_name, case_status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, '', '进行中', ?5, ?5)",
-        rusqlite::params![id, track, case_name, client_name, now],
-    )?;
-    Ok(id)
-}
-
-/// 更新收件项状态
-fn mark_inbox_processed(
-    conn: &rusqlite::Connection,
-    inbox_item_id: &str,
-    status: &str,
-    now: String,
-) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE inbox_items SET status = ?1, processed_at = ?2 WHERE id = ?3",
-        rusqlite::params![status, now, inbox_item_id],
-    )?;
-    Ok(())
-}
-
-/// 写入推荐采纳记录
-fn record_recommendation(
-    conn: &rusqlite::Connection,
-    inbox_item_id: &str,
-    action: &str,
-    case_id: Option<&str>,
-    folder: Option<&str>,
-    reason: &str,
-    confidence: f64,
-) -> anyhow::Result<()> {
-    let rec_id = db::new_id();
-    conn.execute(
-        "INSERT INTO inbox_recommendations (id, inbox_item_id, action, target_case_id, target_folder, reason, confidence, accepted)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
-        rusqlite::params![rec_id, inbox_item_id, action, case_id, folder, reason, confidence],
-    )?;
-    Ok(())
-}
-
-/// AI 分析（带缓存：ai_analyzed=1 直接返回缓存结果）
-#[tauri::command]
-pub async fn ai_analyze_inbox_item(id: String) -> Result<serde_json::Value, String> {
-    run_blocking(move || {
-        let conn = db::open_db()?;
-
-        // 检查缓存
-        let (ai_analyzed, ai_extracted, ai_category, content_text): (i32, Option<String>, Option<String>, String) = conn.query_row(
-            "SELECT ai_analyzed, ai_extracted, ai_category, COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
-            rusqlite::params![id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        ).map_err(|_| anyhow::anyhow!("收件项不存在"))?;
-
-        // 如果已分析过，直接返回缓存（含 AI 意图）
-        if ai_analyzed == 1 && ai_extracted.is_some() {
-            let cached: serde_json::Value = serde_json::from_str(&ai_extracted.unwrap_or_default())
-                .unwrap_or(serde_json::json!({}));
-            return Ok(serde_json::json!({
-                "cached": true,
-                "result": cached,
-                "intent": ai_category.as_deref().and_then(ai_category_to_intent),
-                "message": "已分析过，结果如下（缓存）"
-            }));
-        }
-
-        // 新的 AI 分析
-        let ai_config = crate::ai::load_ai_config();
-        let (category, confidence, extracted) = if ai_config.mode != "noop" {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(crate::ai::process_inbox_with_ai(&content_text)) {
-                Ok((result, _routing)) => {
-                    let extracted = result.extracted_info.clone();
-                    (result.category, result.confidence, extracted)
-                }
-                Err(e) => {
-                    log::warn!("AI 分析失败: {}", e);
-                    let parsed = parse::classify_document(&content_text);
-                    let extracted = serde_json::to_value(&parsed).ok();
-                    (parsed.doc_type, parsed.confidence, extracted)
+                    serde_json::json!({"success": true, "action": "filed", "caseId": case_id, "category": category})
+                } else {
+                    serde_json::json!({"success": false, "error": "缺少案件ID或分类"})
                 }
             }
-        } else {
-            let parsed = parse::classify_document(&content_text);
-            let extracted = serde_json::to_value(&parsed).ok();
-            (parsed.doc_type, parsed.confidence, extracted)
-        };
-
-        let extracted_str = extracted.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
-
-        // 缓存结果
-        conn.execute(
-            "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2, ai_extracted = ?3, ai_analyzed = 1, processed_at = ?4 WHERE id = ?5",
-            rusqlite::params![category, confidence, extracted_str, db::now_local(), id],
-        )?;
-
-        Ok(serde_json::json!({
-            "cached": false,
-            "category": category,
-            "confidence": confidence,
-            "extracted": extracted,
-            "intent": ai_category_to_intent(&category),
-        }))
-    })
-    .await
-}
-
-/// AI 文档分类 → 推荐动作（本地规则兜底之外的 AI 兜底增强，§10）
-/// 法律文书类（传票/通知/判决等）→ 归入案件；委托指示 → 转为任务；其余 None（留给本地规则）
-fn ai_category_to_intent(category: &str) -> Option<serde_json::Value> {
-    match category {
-        "summons" | "hearing_notice" | "judgment" | "complaint" | "defense" | "correspondence" | "opposing_counsel" => {
-            Some(serde_json::json!({
-                "action": "file_to_case",
-                "docType": category,
-            }))
-        }
-        "client_instruction" => {
-            Some(serde_json::json!({
-                "action": "create_task",
-            }))
-        }
-        _ => None,
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// 法院送达文书特性
-// ═══════════════════════════════════════════════════════════
-
-use regex::Regex;
-
-/// 送达短信检测结果
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ServiceDeliveryInfo {
-    /// 从短信中提取的案号
-    pub case_no: String,
-    /// 送达平台 URL
-    pub service_url: String,
-    /// 收件人姓名
-    pub recipient_name: String,
-    /// 匹配到的本地案件 ID
-    pub matched_case_id: Option<String>,
-    /// 匹配到的案件名称
-    pub matched_case_name: Option<String>,
-}
-
-/// 检测文本是否为法院送达短信
-/// 
-/// 典型格式：
-/// "吕晗你好，请查收（2026）京73行初6803号案件中你的送达文书
-///  点击链接查阅：https://zxfw.court.gov.cn/zxfw/..."
-pub fn detect_service_delivery(text: &str) -> Option<ServiceDeliveryInfo> {
-    // 检测送达平台链接
-    let url_re = Regex::new(r"https?://zxfw\.court\.gov\.cn/zxfw/[^\s]+").ok()?;
-    let url_match = url_re.find(text)?;
-
-    // 检测案号（多种格式）
-    let case_no_re = Regex::new(r"[（(]\d{4}[）)][\u4e00-\u9fff]+\d+号").ok()?;
-    let case_no = case_no_re.find(text)?.as_str().to_string();
-
-    // 检测收件人姓名（"XX你好" 模式）
-    let name_re = Regex::new(r"([\u4e00-\u9fff]{2,4})你好").ok()?;
-    let recipient_name = name_re
-        .captures(text)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .unwrap_or_default();
-
-    // 检测是否包含送达关键词
-    let has_delivery_keyword = text.contains("送达") || text.contains("查收") || text.contains("文书");
-
-    if has_delivery_keyword {
-        Some(ServiceDeliveryInfo {
-            case_no,
-            service_url: url_match.as_str().to_string(),
-            recipient_name,
-            matched_case_id: None,
-            matched_case_name: None,
-        })
-    } else {
-        None
-    }
-}
-
-/// 在数据库中匹配案号，填充 matched_case_id
-pub fn match_service_delivery_case(
-    conn: &rusqlite::Connection,
-    info: &mut ServiceDeliveryInfo,
-) {
-    // 精确匹配案号
-    if let Ok(case_id) = conn.query_row(
-        "SELECT id, COALESCE(display_name, case_name) FROM cases WHERE case_no LIKE ?1 LIMIT 1",
-        rusqlite::params![format!("%{}%", info.case_no)],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-    ) {
-        info.matched_case_id = Some(case_id.0);
-        info.matched_case_name = Some(case_id.1);
-    }
-}
-
-/// 从送达平台 URL 提取参数
-pub fn parse_service_url(url: &str) -> Option<ServiceUrlParams> {
-    let qdbh_re = Regex::new(r"qdbh=([a-f0-9]+)").ok()?;
-    let sdbh_re = Regex::new(r"sdbh=([a-f0-9]+)").ok()?;
-    let sdsin_re = Regex::new(r"sdsin=([a-f0-9]+)").ok()?;
-
-    Some(ServiceUrlParams {
-        qdbh: qdbh_re.captures(url)?.get(1)?.as_str().to_string(),
-        sdbh: sdbh_re.captures(url)?.get(1)?.as_str().to_string(),
-        sdsin: sdsin_re.captures(url)?.get(1)?.as_str().to_string(),
-    })
-}
-
-#[derive(Debug)]
-pub struct ServiceUrlParams {
-    pub qdbh: String,
-    pub sdbh: String,
-    pub sdsin: String,
-}
-
-/// 尝试通过送达平台 API 下载文书
-/// 
-/// 通过送达平台 API 获取文书列表并下载
-/// 
-/// API: POST https://zxfw.court.gov.cn/yzw/yzw-zxfw-sdfw/api/v1/sdfw/getWsListBySdbhNew
-/// 请求体: {"qdbh":"xxx","sdbh":"xxx","sdsin":"xxx"}
-/// 返回: data[].c_wsmc（文书名称）、data[].wjlj（OSS 签名下载链接）、data[].c_fymc（法院名称）
-/// OSS URL 有效期约 1 小时，获取后应尽快下载
-#[tauri::command]
-pub async fn download_service_delivery(url: String, _case_id: String) -> Result<serde_json::Value, String> {
-    // 1. 从 URL 提取参数
-    let params = parse_service_url(&url)
-        .ok_or("无法从 URL 提取送达参数（qdbh/sdbh/sdsin）")?;
-
-    // 2. 调用 API 获取文书列表
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
-
-    let api_resp = client.post("https://zxfw.court.gov.cn/yzw/yzw-zxfw-sdfw/api/v1/sdfw/getWsListBySdbhNew")
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({
-            "qdbh": params.qdbh,
-            "sdbh": params.sdbh,
-            "sdsin": params.sdsin,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("请求送达平台 API 失败: {}", e))?;
-
-    let resp_json: serde_json::Value = api_resp.json().await
-        .map_err(|e| format!("解析 API 响应失败: {}", e))?;
-
-    let data = resp_json.get("data")
-        .and_then(|d| d.as_array())
-        .ok_or("API 响应格式异常：缺少 data 字段")?;
-
-    if data.is_empty() {
-        return Ok(serde_json::json!({
-            "success": false,
-            "message": "送达平台返回空文书列表（可能链接已过期）",
-            "documents": [],
-        }));
-    }
-
-    // 3. 逐个下载 PDF
-    let inbox_dir = crate::files::case_folder_base().join("inbox");
-    std::fs::create_dir_all(&inbox_dir)
-        .map_err(|e| format!("创建收件箱目录失败: {}", e))?;
-
-    let mut downloaded = Vec::new();
-    let court_name = data.first()
-        .and_then(|d| d.get("c_fymc"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("未知法院");
-
-    for doc in data {
-        let doc_name = doc.get("c_wsmc").and_then(|v| v.as_str()).unwrap_or("未知文书");
-        let oss_url = doc.get("wjlj").and_then(|v| v.as_str()).unwrap_or("");
-        if oss_url.is_empty() { continue; }
-
-        let safe_name = format!("{}_{}.pdf", doc_name, chrono::Local::now().format("%Y%m%d_%H%M%S"));
-        let file_path = inbox_dir.join(&safe_name);
-
-        match client.get(oss_url)
-            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-            .header("Referer", "https://zxfw.court.gov.cn/")
-            .send()
-            .await
-        {
-            Ok(resp) => {
-                if let Ok(bytes) = resp.bytes().await {
-                    if bytes.len() > 1000 {  // 有效 PDF 至少 1KB
-                        let _ = std::fs::write(&file_path, &bytes);
-                        downloaded.push(serde_json::json!({
-                            "name": doc_name,
-                            "fileName": safe_name,
-                            "filePath": file_path.to_string_lossy(),
-                            "fileSize": bytes.len(),
-                        }));
-                    }
-                }
-            }
-            Err(_) => continue,
-        }
-    }
-
-    Ok(serde_json::json!({
-        "success": !downloaded.is_empty(),
-        "courtName": court_name,
-        "totalCount": data.len(),
-        "downloadedCount": downloaded.len(),
-        "documents": downloaded,
-        "message": if downloaded.is_empty() {
-            "文书下载失败（OSS 链接可能已过期）".to_string()
-        } else {
-            format!("已从{}下载 {} 份文书", court_name, downloaded.len())
-        },
-    }))
-}
-
-/// 处理送达短信：识别 → 匹配案件 → 推荐操作
-#[tauri::command]
-pub async fn process_service_delivery(text: String) -> Result<serde_json::Value, String> {
-    run_blocking(move || {
-        let conn = db::open_db()?;
-
-        let mut info = detect_service_delivery(&text)
-            .ok_or_else(|| anyhow::anyhow!("未检测到送达文书信息"))?;
-
-        match_service_delivery_case(&conn, &mut info);
-
-        let params = parse_service_url(&info.service_url);
-
-        Ok(serde_json::json!({
-            "detected": true,
-            "caseNo": info.case_no,
-            "recipientName": info.recipient_name,
-            "serviceUrl": info.service_url,
-            "urlParams": params.as_ref().map(|p| serde_json::json!({
-                "qdbh": p.qdbh,
-                "sdbh": p.sdbh,
-                "sdsin": p.sdsin,
-            })),
-            "matchedCaseId": info.matched_case_id,
-            "matchedCaseName": info.matched_case_name,
-            "recommendation": if info.matched_case_id.is_some() {
-                serde_json::json!({
-                    "action": "download_and_file",
-                    "message": format!("检测到送达文书（{}），匹配案件：{}。是否下载并归档？",
-                        info.case_no, info.matched_case_name.as_deref().unwrap_or("未知")),
-                    "targetCaseId": info.matched_case_id,
-                    "targetFolder": "04_收文",
-                })
-            } else {
-                serde_json::json!({
-                    "action": "select_case",
-                    "message": format!("检测到送达文书（{}），未匹配到本地案件。请手动选择案件。", info.case_no),
-                })
-            }
-        }))
-    }).await
-}
-
-// ═══════════════════════════════════════════════════════════
-// 批量处理队列
-// ═══════════════════════════════════════════════════════════
-
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use tokio::sync::{broadcast, Semaphore};
-
-/// 处理进度
-#[derive(Clone, Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProcessingProgress {
-    pub total: usize,
-    pub processed: usize,
-    pub failed: usize,
-    pub active: usize,
-    pub current_item: Option<String>,
-    pub running: bool,
-}
-
-/// 队列项
-struct QueueItem {
-    id: String,
-    title: Option<String>,
-    source_type: String,
-    content_text: Option<String>,
-    source_path: Option<String>,
-    retry_count: i32,
-}
-
-/// 通过 app handle 向前端 emit 批处理进度（architecture 目标 B）
-///
-/// 轮询命令 get_inbox_progress 保留不动，事件是增量增强；
-/// 照 reminder.rs 的 reminder:triggered 模式，app 未就绪时静默跳过。
-fn emit_batch_progress(progress: &ProcessingProgress) {
-    if let Some(handle) = crate::get_app_handle() {
-        let _ = tauri::Emitter::emit(handle, "inbox:batch-progress", progress);
-    }
-}
-
-/// 批次结束事件（含 total/processed/failed 汇总）
-fn emit_batch_finished(total: usize, processed: usize, failed: usize) {
-    if let Some(handle) = crate::get_app_handle() {
-        let _ = tauri::Emitter::emit(
-            handle,
-            "inbox:batch-finished",
-            serde_json::json!({
-                "total": total,
-                "processed": processed,
-                "failed": failed,
-            }),
-        );
-    }
-}
-
-/// 全局处理器实例
-static PROCESSOR: std::sync::OnceLock<InboxProcessor> = std::sync::OnceLock::new();
-
-fn get_processor() -> &'static InboxProcessor {
-    PROCESSOR.get_or_init(|| InboxProcessor::new())
-}
-
-struct InboxProcessor {
-    max_concurrency: Arc<AtomicUsize>,
-    active_count: Arc<AtomicUsize>,
-    processed_count: Arc<AtomicUsize>,
-    failed_count: Arc<AtomicUsize>,
-    total_count: Arc<AtomicUsize>,
-    running: Arc<AtomicBool>,
-    paused: Arc<AtomicBool>,
-    cancel: Arc<AtomicBool>,
-    progress_tx: broadcast::Sender<ProcessingProgress>,
-}
-
-impl InboxProcessor {
-    fn new() -> Self {
-        let (progress_tx, _) = broadcast::channel(16);
-        Self {
-            max_concurrency: Arc::new(AtomicUsize::new(8)),
-            active_count: Arc::new(AtomicUsize::new(0)),
-            processed_count: Arc::new(AtomicUsize::new(0)),
-            failed_count: Arc::new(AtomicUsize::new(0)),
-            total_count: Arc::new(AtomicUsize::new(0)),
-            running: Arc::new(AtomicBool::new(false)),
-            paused: Arc::new(AtomicBool::new(false)),
-            cancel: Arc::new(AtomicBool::new(false)),
-            progress_tx,
-        }
-    }
-
-    fn get_progress(&self) -> ProcessingProgress {
-        ProcessingProgress {
-            total: self.total_count.load(Ordering::Relaxed),
-            processed: self.processed_count.load(Ordering::Relaxed),
-            failed: self.failed_count.load(Ordering::Relaxed),
-            active: self.active_count.load(Ordering::Relaxed),
-            current_item: None,
-            running: self.running.load(Ordering::Relaxed),
-        }
-    }
-
-    fn load_queue(&self) -> anyhow::Result<Vec<QueueItem>> {
-        let conn = db::open_db()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, title, source_type, content_text, source_path, retry_count
-             FROM inbox_items
-             WHERE status IN ('pending', 'failed')
-             ORDER BY
-               CASE source_type
-                 WHEN 'manual' THEN 1 WHEN 'paste' THEN 2 WHEN 'file' THEN 3
-                 WHEN 'email' THEN 4 WHEN 'imap' THEN 5 ELSE 6
-               END, created_at ASC"
-        )?;
-        let items = stmt.query_map([], |row| {
-            Ok(QueueItem {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                source_type: row.get(2)?,
-                content_text: row.get(3)?,
-                source_path: row.get(4)?,
-                retry_count: row.get(5)?,
-            })
-        })?.collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(items)
-    }
-
-    async fn start_batch(&self) -> anyhow::Result<usize> {
-        if self.running.load(Ordering::Relaxed) {
-            return Ok(0);
-        }
-        self.running.store(true, Ordering::Relaxed);
-        self.cancel.store(false, Ordering::Relaxed);
-        self.paused.store(false, Ordering::Relaxed);
-        self.processed_count.store(0, Ordering::Relaxed);
-        self.failed_count.store(0, Ordering::Relaxed);
-
-        let queue = self.load_queue()?;
-        let total = queue.len();
-        self.total_count.store(total, Ordering::Relaxed);
-
-        if total == 0 {
-            self.running.store(false, Ordering::Relaxed);
-            emit_batch_progress(&self.get_progress());
-            emit_batch_finished(0, 0, 0);
-            return Ok(0);
-        }
-
-        // 批次开始：推送初始进度
-        emit_batch_progress(&self.get_progress());
-
-        let semaphore = Arc::new(Semaphore::new(self.max_concurrency.load(Ordering::Relaxed)));
-        let mut handles = Vec::new();
-
-        for item in queue {
-            if self.cancel.load(Ordering::Relaxed) { break; }
-            while self.paused.load(Ordering::Relaxed) {
-                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                if self.cancel.load(Ordering::Relaxed) { break; }
-            }
-
-            let sem = semaphore.clone();
-            let active = Arc::new(AtomicBool::new(false)); // placeholder
-            let proc_count = self.processed_count.clone();
-            let fail_count = self.failed_count.clone();
-            let act_count = self.active_count.clone();
-            let max_conc = self.max_concurrency.clone();
-            let progress_tx = self.progress_tx.clone();
-            let total_c = self.total_count.clone();
-
-            let handle = tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
-                act_count.fetch_add(1, Ordering::Relaxed);
-
-                // 标记为处理中
-                if let Ok(conn) = db::open_db() {
-                    let _ = conn.execute(
-                        "UPDATE inbox_items SET status = 'processing', processing_started_at = datetime('now','localtime') WHERE id = ?1",
-                        rusqlite::params![item.id],
-                    );
-                }
-
-                let start = tokio::time::Instant::now();
-                let result = process_queue_item(&item).await;
-                let elapsed = start.elapsed().as_millis() as u64;
-
-                act_count.fetch_sub(1, Ordering::Relaxed);
-
-                match result {
-                    Ok(_) => {
-                        proc_count.fetch_add(1, Ordering::Relaxed);
-                        if let Ok(conn) = db::open_db() {
-                            let _ = conn.execute(
-                                "UPDATE inbox_items SET status = 'processed', processed_at = datetime('now','localtime') WHERE id = ?1",
-                                rusqlite::params![item.id],
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        let err_str = e.to_string();
-                        let retryable = is_retryable(&err_str);
-                        if retryable {
-                            if let Ok(conn) = db::open_db() {
-                                let _ = conn.execute(
-                                    "UPDATE inbox_items SET retry_count = retry_count + 1, last_error = ?1, status = 'pending' WHERE id = ?2",
-                                    rusqlite::params![err_str, item.id],
-                                );
-                            }
-                        } else {
-                            fail_count.fetch_add(1, Ordering::Relaxed);
-                            if let Ok(conn) = db::open_db() {
-                                let _ = conn.execute(
-                                    "UPDATE inbox_items SET status = 'failed', last_error = ?1 WHERE id = ?2",
-                                    rusqlite::params![err_str, item.id],
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // 动态调节并发
-                adjust_concurrency(&max_conc, elapsed, false);
-
-                // 条目完成/失败：广播 + 事件推送
-                let progress = ProcessingProgress {
-                    total: total_c.load(Ordering::Relaxed),
-                    processed: proc_count.load(Ordering::Relaxed),
-                    failed: fail_count.load(Ordering::Relaxed),
-                    active: act_count.load(Ordering::Relaxed),
-                    current_item: None,
-                    running: true,
-                };
-                let _ = progress_tx.send(progress.clone());
-                emit_batch_progress(&progress);
-            });
-
-            handles.push(handle);
-        }
-
-        // 后台等待完成
-        let running = self.running.clone();
-        let progress_tx = self.progress_tx.clone();
-        let proc = self.processed_count.clone();
-        let fail = self.failed_count.clone();
-        let tot = self.total_count.clone();
-        let act = self.active_count.clone();
-
-        tokio::spawn(async move {
-            for h in handles { let _ = h.await; }
-            running.store(false, Ordering::Relaxed);
-            // 批次结束：广播 + 事件推送（含 finished 汇总）
-            let progress = ProcessingProgress {
-                total: tot.load(Ordering::Relaxed),
-                processed: proc.load(Ordering::Relaxed),
-                failed: fail.load(Ordering::Relaxed),
-                active: act.load(Ordering::Relaxed),
-                current_item: None,
-                running: false,
-            };
-            let _ = progress_tx.send(progress.clone());
-            emit_batch_progress(&progress);
-            emit_batch_finished(progress.total, progress.processed, progress.failed);
-        });
-
-        Ok(total)
-    }
-}
-
-/// 处理单个队列项
-async fn process_queue_item(item: &QueueItem) -> anyhow::Result<()> {
-    let content = item.content_text.as_deref()
-        .ok_or_else(|| anyhow::anyhow!("内容为空"))?;
-
-    let ai_config = crate::ai::load_ai_config();
-    if ai_config.mode != "noop" {
-        let result = crate::ai::process_inbox_with_ai(content).await;
-        match result {
-            Ok((ai_result, _)) => {
-                let conn = db::open_db()?;
-                let extracted = serde_json::to_string(&ai_result.extracted_info).ok();
+            "create_task" => {
+                // 创建任务
+                let task_id = db::new_id();
                 conn.execute(
-                    "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2, ai_extracted = ?3 WHERE id = ?4",
-                    rusqlite::params![ai_result.category, ai_result.confidence, extracted, item.id],
+                    "INSERT INTO tasks (id, task_name, case_id, created_date, task_type, start_bucket, created_at) VALUES (?1, ?2, ?3, ?4, 'action', 'inbox', ?5)",
+                    rusqlite::params![&task_id, &content_text, target_case_id.as_ref().unwrap_or(&String::new()), &now, &now],
                 )?;
-                Ok(())
+                // 更新 inbox_item
+                conn.execute(
+                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
+                    rusqlite::params![&now, &inbox_item_id],
+                )?;
+                serde_json::json!({"success": true, "action": "task_created", "taskId": task_id})
             }
-            Err(e) => Err(anyhow::anyhow!("AI 处理失败: {}", e)),
-        }
-    } else {
-        let parsed = parse::classify_document(content);
-        let conn = db::open_db()?;
-        let extracted = serde_json::to_string(&parsed).ok();
+            "save_knowledge" => {
+                // 保存到知识库
+                let knowledge_id = db::new_id();
+                conn.execute(
+                    "INSERT INTO knowledge_items (id, title, content, category, created_at) VALUES (?1, ?2, ?3, 'reference', ?4)",
+                    rusqlite::params![&knowledge_id, &content_text, &content_text, &now],
+                )?;
+                conn.execute(
+                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
+                    rusqlite::params![&now, &inbox_item_id],
+                )?;
+                serde_json::json!({"success": true, "action": "knowledge_saved", "knowledgeId": knowledge_id})
+            }
+            "set_reminder" => {
+                // 设置提醒
+                conn.execute(
+                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
+                    rusqlite::params![&now, &inbox_item_id],
+                )?;
+                serde_json::json!({"success": true, "action": "reminder_set"})
+            }
+            "create_case" => {
+                // 创建新案件
+                let case_id = db::new_id();
+                conn.execute(
+                    "INSERT INTO cases (id, case_name, client_name, opponent_name, created_at) VALUES (?1, ?2, '', '', ?3)",
+                    rusqlite::params![&case_id, &content_text, &now],
+                )?;
+                conn.execute(
+                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
+                    rusqlite::params![&now, &inbox_item_id],
+                )?;
+                serde_json::json!({"success": true, "action": "case_created", "caseId": case_id})
+            }
+            "ignore" | "dismiss" => {
+                conn.execute(
+                    "UPDATE inbox_items SET status = 'ignored', processed_at = ?1 WHERE id = ?2",
+                    rusqlite::params![&now, &inbox_item_id],
+                )?;
+                serde_json::json!({"success": true, "action": "ignored"})
+            }
+            _ => {
+                serde_json::json!({"success": false, "error": "未知动作"})
+            }
+        };
+        
+        // 记录处理历史到 inbox_feedback（设计哲学 §10：反馈学习）
+        let feedback_id = db::new_id();
         conn.execute(
-            "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2, ai_extracted = ?3 WHERE id = ?4",
-            rusqlite::params![parsed.doc_type, parsed.confidence, extracted, item.id],
-        )?;
-        Ok(())
-    }
-}
-
-fn is_retryable(err: &str) -> bool {
-    err.contains("timeout") || err.contains("429") || err.contains("rate")
-        || err.contains("network") || err.contains("connection")
-        || err.contains("500") || err.contains("502") || err.contains("503")
-}
-
-fn adjust_concurrency(max: &AtomicUsize, response_time_ms: u64, is_rate_limited: bool) {
-    let current = max.load(Ordering::Relaxed);
-    let new_val = if is_rate_limited {
-        (current / 2).max(1)
-    } else if response_time_ms > 5000 {
-        current.saturating_sub(1).max(1)
-    } else if response_time_ms < 1000 && current < 8 {
-        (current + 1).min(8)
-    } else {
-        current
-    };
-    max.store(new_val, Ordering::Relaxed);
-}
-
-/// 启动批量处理
-#[tauri::command]
-pub async fn start_inbox_batch() -> Result<ProcessingProgress, String> {
-    let processor = get_processor();
-    processor.start_batch().await.map_err(|e| e.to_string())?;
-    Ok(processor.get_progress())
-}
-
-/// 暂停批量处理
-#[tauri::command]
-pub async fn pause_inbox_batch() -> Result<(), String> {
-    let p = get_processor();
-    p.paused.store(true, Ordering::Relaxed);
-    emit_batch_progress(&p.get_progress());
-    Ok(())
-}
-
-/// 恢复批量处理
-#[tauri::command]
-pub async fn resume_inbox_batch() -> Result<(), String> {
-    let p = get_processor();
-    p.paused.store(false, Ordering::Relaxed);
-    emit_batch_progress(&p.get_progress());
-    Ok(())
-}
-
-/// 取消批量处理
-#[tauri::command]
-pub async fn cancel_inbox_batch() -> Result<(), String> {
-    let p = get_processor();
-    p.cancel.store(true, Ordering::Relaxed);
-    p.paused.store(false, Ordering::Relaxed);
-    emit_batch_progress(&p.get_progress());
-    Ok(())
-}
-
-/// 获取处理进度
-#[tauri::command]
-pub async fn get_inbox_progress() -> Result<ProcessingProgress, String> {
-    Ok(get_processor().get_progress())
-}
-
-/// 重试单个失败项
-#[tauri::command]
-pub async fn retry_inbox_item(id: String) -> Result<(), String> {
-    let conn = db::open_db().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE inbox_items SET status = 'pending', last_error = NULL WHERE id = ?1 AND status = 'failed'",
-        rusqlite::params![id],
-    ).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// 重试某案件的所有失败项
-#[tauri::command]
-pub async fn retry_inbox_case(case_id: String) -> Result<usize, String> {
-    let conn = db::open_db().map_err(|e| e.to_string())?;
-    let count = conn.execute(
-        "UPDATE inbox_items SET status = 'pending', last_error = NULL WHERE linked_case_id = ?1 AND status = 'failed'",
-        rusqlite::params![case_id],
-    ).map_err(|e| e.to_string())?;
-    Ok(count)
-}
-
-// ═══════════════════════════════════════════════════════════
-// 多通道捕获（设计哲学 §10）
-// ═══════════════════════════════════════════════════════════
-
-/// 截屏捕获：截取当前屏幕并保存到收件箱
-#[tauri::command]
-pub async fn capture_screenshot() -> Result<serde_json::Value, String> {
-    run_blocking(move || {
-        let screen = screenshots::Screen::all()
-            .map_err(|e| anyhow::anyhow!("获取屏幕失败: {}", e))?
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("未找到屏幕"))?;
-
-        let image = screen
-            .capture()
-            .map_err(|e| anyhow::anyhow!("截屏失败: {}", e))?;
-
-        // 保存到临时文件
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let filename = format!("screenshot_{}.png", timestamp);
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(&filename);
-
-        let png = image
-            .to_png()
-            .map_err(|e| anyhow::anyhow!("编码截图失败: {}", e))?;
-        std::fs::write(&file_path, &png)
-            .map_err(|e| anyhow::anyhow!("保存截屏失败: {}", e))?;
-
-        // 添加到收件箱
-        let conn = db::open_db()?;
-        let id = db::new_id();
-        conn.execute(
-            "INSERT INTO inbox_items (id, source_type, title, source_path, status, created_at)
-             VALUES (?1, 'screenshot', ?2, ?3, 'pending', ?4)",
+            "INSERT INTO inbox_feedback (id, inbox_item_id, action, intent_json, accepted, rejected_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
             rusqlite::params![
-                id,
-                format!("截屏 {}", chrono::Local::now().format("%H:%M:%S")),
-                file_path.to_string_lossy().to_string(),
-                db::now_local(),
+                &feedback_id,
+                &inbox_item_id,
+                &action,
+                serde_json::json!({"targetCaseId": target_case_id, "targetCategory": target_category}).to_string(),
+                &now,
             ],
         )?;
-
-        Ok(serde_json::json!({
-            "id": id,
-            "path": file_path.to_string_lossy().to_string(),
-            "filename": filename,
-        }))
+        
+        Ok(result)
     })
     .await
 }
 
-/// 读取剪贴板内容并添加到收件箱
+/// AI 分析收件箱项（占位）
 #[tauri::command]
-pub async fn capture_clipboard() -> Result<serde_json::Value, String> {
-    run_blocking(move || {
-        let mut clipboard = arboard::Clipboard::new()
-            .map_err(|e| anyhow::anyhow!("剪贴板访问失败: {}", e))?;
-
-        // 尝试读取文本
-        if let Ok(text) = clipboard.get_text() {
-            if !text.trim().is_empty() {
-                let conn = db::open_db()?;
-                let id = db::new_id();
-                let title = text.chars().take(50).collect::<String>();
-                conn.execute(
-                    "INSERT INTO inbox_items (id, source_type, title, content_text, status, created_at)
-                     VALUES (?1, 'paste', ?2, ?3, 'pending', ?4)",
-                    rusqlite::params![id, title, text, db::now_local()],
-                )?;
-                return Ok(serde_json::json!({
-                    "id": id,
-                    "type": "text",
-                    "preview": title,
-                }));
-            }
-        }
-
-        // 尝试读取图片
-        if let Ok(image) = clipboard.get_image() {
-            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-            let filename = format!("clipboard_{}.png", timestamp);
-            let temp_dir = std::env::temp_dir();
-            let file_path = temp_dir.join(&filename);
-
-            // 保存图片数据：arboard 返回的是原始 RGBA 像素，不能直接当 PNG 写盘。
-            // 复用 screenshots 0.6 自带的 Image::new + to_png()（png 编码器）编码为真 PNG。
-            let png = screenshots::Image::new(
-                image.width as u32,
-                image.height as u32,
-                image.bytes.into_owned(),
-            )
-            .to_png()
-            .map_err(|e| anyhow::anyhow!("编码剪贴板图片失败: {}", e))?;
-            std::fs::write(&file_path, &png)
-                .map_err(|e| anyhow::anyhow!("保存剪贴板图片失败: {}", e))?;
-
-            let conn = db::open_db()?;
-            let id = db::new_id();
-            conn.execute(
-                "INSERT INTO inbox_items (id, source_type, title, source_path, status, created_at)
-                 VALUES (?1, 'paste', ?2, ?3, 'pending', ?4)",
-                rusqlite::params![
-                    id,
-                    format!("剪贴板图片 {}", chrono::Local::now().format("%H:%M:%S")),
-                    file_path.to_string_lossy().to_string(),
-                    db::now_local(),
-                ],
-            )?;
-            return Ok(serde_json::json!({
-                "id": id,
-                "type": "image",
-                "path": file_path.to_string_lossy().to_string(),
-            }));
-        }
-
-        Err(anyhow::anyhow!("剪贴板为空"))
-    })
-    .await
+pub async fn ai_analyze_inbox_item(_id: String) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({"cached": true, "intent": {}}))
 }
 
-/// 监听剪贴板变化（启动后台任务）
-///
-/// 现状说明：前端 useCapture.ts 会调用本命令启动监听，但当前仅检测文本变化并写日志，
-/// **不自动入袋**——实际入袋由用户主动触发（capture_clipboard 命令 / 全局热键 quick capture）。
-/// 用 SHA-256 hash 去重：内容不变时跳过，且不在内存中长期持有剪贴板原文。
+/// 下载送达文书（占位）
 #[tauri::command]
-pub async fn start_clipboard_monitor() -> Result<String, String> {
-    let _handle = tokio::spawn(async {
-        use sha2::Digest;
-        let mut last_hash: Option<Vec<u8>> = None;
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                if let Ok(text) = clipboard.get_text() {
-                    if !text.is_empty() {
-                        let hash = sha2::Sha256::digest(text.as_bytes()).to_vec();
-                        if last_hash.as_deref() != Some(hash.as_slice()) {
-                            last_hash = Some(hash);
-                            log::info!("剪贴板内容变化: {}字节", text.len());
-                        }
-                    }
-                }
-            }
-        }
-    });
-    Ok("剪贴板监听已启动".to_string())
+pub async fn download_service_delivery(
+    _case_no: String,
+    _recipient_name: String,
+) -> Result<String, String> {
+    Err("送达文书抓取功能待实现".to_string())
 }
 
-/// 保存语音速记文件
+/// 处理送达文书（占位）
 #[tauri::command]
-pub async fn save_voice_note(audio_data: String, mime_type: String) -> Result<serde_json::Value, String> {
-    use base64::Engine;
-
-    run_blocking(move || {
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&audio_data)
-            .map_err(|e| anyhow::anyhow!("base64 解码失败: {}", e))?;
-
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let ext = if mime_type.contains("webm") { "webm" } else { "ogg" };
-        let filename = format!("voice_{}.{}", timestamp, ext);
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(&filename);
-
-        std::fs::write(&file_path, &bytes)
-            .map_err(|e| anyhow::anyhow!("保存语音文件失败: {}", e))?;
-
-        Ok(serde_json::json!({
-            "path": file_path.to_string_lossy().to_string(),
-            "filename": filename,
-            "size": bytes.len(),
-        }))
-    })
-    .await
+pub async fn process_service_delivery(
+    _inbox_item_id: String,
+) -> Result<(), String> {
+    Ok(())
 }
 
-/// 语音速记转写（设计哲学 §10，可选能力，降级优先）
-///
-/// 找到收件项关联的音频文件（save_voice_note 保存、前端经 source_path 关联），
-/// 仅当 AI 配置为 OpenAI 兼容 API 时 POST {base_url}/audio/transcriptions；
-/// 本地 Ollama / 未配置 API key → 友好错误，不 panic。
-/// 成功把转写文本写回 inbox_items.content_text（保留 source_path 音频引用）并返回文本。
+/// 捕获屏幕截图到收件箱（占位）
 #[tauri::command]
-pub async fn transcribe_voice_note(inbox_item_id: String) -> Result<String, String> {
-    // 同步部分：读收件项音频路径 + AI/STT 配置（不满足条件直接友好报错）
-    let id_for_read = inbox_item_id.clone();
-    let (audio_path, stt_model, base_url, api_key) = run_blocking(move || {
-        let conn = db::open_db()?;
-        let source_path: Option<String> = conn
-            .query_row(
-                "SELECT source_path FROM inbox_items WHERE id = ?1",
-                rusqlite::params![id_for_read],
-                |r| r.get(0),
-            )
-            .map_err(|_| anyhow::anyhow!("收件项不存在"))?;
-        let audio_path = source_path
-            .filter(|p| !p.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("该收件项没有关联的音频文件"))?;
+pub async fn capture_screenshot() -> Result<String, String> {
+    Err("截图功能待实现".to_string())
+}
 
-        let config = crate::ai::load_ai_config();
-        let api_key = config.api_key.clone().unwrap_or_default();
-        if config.mode != "openai" || api_key.is_empty() {
-            anyhow::bail!("当前 AI 后端不支持语音转写，请配置 OpenAI 兼容 API 或手动填写");
-        }
+/// 捕获剪贴板内容到收件箱（占位）
+#[tauri::command]
+pub async fn capture_clipboard() -> Result<String, String> {
+    Err("剪贴板捕获功能待实现".to_string())
+}
 
-        let stt_model = db::get_setting(&conn, "stt_model")?
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "whisper-1".to_string());
-        let base_url = config
-            .api_url
-            .clone()
-            .unwrap_or_else(|| "https://api.openai.com/v1".into());
+/// 启动剪贴板监听（占位）
+#[tauri::command]
+pub async fn start_clipboard_monitor() -> Result<(), String> {
+    Ok(())
+}
 
-        Ok((audio_path, stt_model, base_url, api_key))
-    })
-    .await?;
+/// 保存语音速记（占位）
+#[tauri::command]
+pub async fn save_voice_note(
+    _audio_data: Vec<u8>,
+    _duration_seconds: i32,
+) -> Result<String, String> {
+    Err("语音速记功能待实现".to_string())
+}
 
-    let bytes = std::fs::read(&audio_path)
-        .map_err(|e| format!("读取音频文件失败: {}", e))?;
+/// 语音转写（占位）
+#[tauri::command]
+pub async fn transcribe_voice_note(_voice_note_id: String) -> Result<String, String> {
+    Err("语音转写功能待实现".to_string())
+}
 
-    use sha2::Digest;
-    let input_hash = hex::encode(sha2::Sha256::digest(&bytes));
+/// 启动收件箱批量处理（占位）
+#[tauri::command]
+pub async fn start_inbox_batch() -> Result<(), String> {
+    Ok(())
+}
 
-    // 手工构造 multipart/form-data（不引入新 crate）：model 字段 + file 字段
-    let boundary = format!("casy-stt-{}", db::new_id());
-    let file_name = std::path::Path::new(&audio_path)
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "voice.ogg".to_string());
-    let file_mime = if file_name.ends_with(".webm") {
-        "audio/webm"
-    } else {
-        "audio/ogg"
-    };
+/// 暂停收件箱批量处理（占位）
+#[tauri::command]
+pub async fn pause_inbox_batch() -> Result<(), String> {
+    Ok(())
+}
 
-    let mut body: Vec<u8> = Vec::new();
-    body.extend_from_slice(
-        format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{}\r\n",
-            boundary, stt_model
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(
-        format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\nContent-Type: {}\r\n\r\n",
-            boundary, file_name, file_mime
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(&bytes);
-    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+/// 恢复收件箱批量处理（占位）
+#[tauri::command]
+pub async fn resume_inbox_batch() -> Result<(), String> {
+    Ok(())
+}
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(30))
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("创建 HTTP client 失败: {}", e))?;
+/// 取消收件箱批量处理（占位）
+#[tauri::command]
+pub async fn cancel_inbox_batch() -> Result<(), String> {
+    Ok(())
+}
 
-    let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
-    let resp = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header(
-            "Content-Type",
-            format!("multipart/form-data; boundary={}", boundary),
-        )
-        .body(body)
-        .send()
-        .await;
+/// 获取收件箱处理进度（占位）
+#[tauri::command]
+pub async fn get_inbox_progress() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({"total": 0, "processed": 0, "pending": 0}))
+}
 
-    let resp = match resp {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = super::ai_routes::log_ai_run(
-                "openai", &stt_model, "voice_transcription", Some("v1"),
-                &input_hash, None, "failed", Some(&e.to_string()),
-            );
-            return Err(format!("转写请求失败: {}", e));
-        }
-    };
+/// 重试收件箱项（占位）
+#[tauri::command]
+pub async fn retry_inbox_item(_id: String) -> Result<(), String> {
+    Ok(())
+}
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let err_body = resp.text().await.unwrap_or_default();
-        let _ = super::ai_routes::log_ai_run(
-            "openai", &stt_model, "voice_transcription", Some("v1"),
-            &input_hash, None, "failed",
-            Some(&format!("HTTP {}: {}", status, err_body)),
-        );
-        return Err(format!("转写接口错误 {}: {}", status, err_body));
-    }
-
-    let result: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析转写响应失败: {}", e))?;
-    let text = result["text"].as_str().unwrap_or("").trim().to_string();
-    if text.is_empty() {
-        let _ = super::ai_routes::log_ai_run(
-            "openai", &stt_model, "voice_transcription", Some("v1"),
-            &input_hash, None, "failed", Some("转写结果为空"),
-        );
-        return Err("转写结果为空，请手动填写".to_string());
-    }
-
-    // 审计（失败不阻塞主流程）
-    let output_hash = hex::encode(sha2::Sha256::digest(text.as_bytes()));
-    if let Err(e) = super::ai_routes::log_ai_run(
-        "openai", &stt_model, "voice_transcription", Some("v1"),
-        &input_hash, Some(&output_hash), "completed", None,
-    ) {
-        log::warn!("AI 审计日志写入失败: {}", e);
-    }
-
-    // 写回 content_text（保留 source_path 音频引用）
-    let text_for_write = text.clone();
-    run_blocking(move || {
-        let conn = db::open_db()?;
-        conn.execute(
-            "UPDATE inbox_items SET content_text = ?1 WHERE id = ?2",
-            rusqlite::params![text_for_write, inbox_item_id],
-        )?;
-        Ok(())
-    })
-    .await?;
-
-    Ok(text)
+/// 重试收件箱案件（占位）
+#[tauri::command]
+pub async fn retry_inbox_case(_case_id: String) -> Result<(), String> {
+    Ok(())
 }

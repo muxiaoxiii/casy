@@ -114,6 +114,18 @@ pub fn run() {
                 });
             }
 
+            // 全局热键: Cmd+T → 新任务入袋（设计哲学 §10）
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyT);
+                let handle = app.handle().clone();
+                app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "task");
+                    }
+                });
+            }
+
             // 文件夹监听: ~/Documents/Casy/inbox/
             if let Err(e) = watcher::start_inbox_watcher() {
                 log::warn!("收件箱文件夹监听启动失败: {}", e);
@@ -227,9 +239,11 @@ async fn deadline_recalc_scheduler() {
     loop {
         // 计算距离下一个 00:01 的等待时间
         let now = chrono::Local::now();
-        let today_target = now.date_naive().and_hms_opt(0, 1, 0).unwrap();
+        let today_target = now.date_naive().and_hms_opt(0, 1, 0)
+            .unwrap_or_else(|| now.date_naive().and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
 
-        let wait_duration = if now.naive_local().time() < chrono::NaiveTime::from_hms_opt(0, 1, 0).unwrap() {
+        let wait_duration = if now.naive_local().time() < chrono::NaiveTime::from_hms_opt(0, 1, 0)
+            .unwrap_or(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap_or(now.naive_local().time())) {
             // 还没到今天的 00:01，等到今天
             (today_target - now.naive_local())
                 .to_std()
@@ -237,7 +251,8 @@ async fn deadline_recalc_scheduler() {
         } else {
             // 已经过了今天的 00:01，等到明天
             let tomorrow = now.date_naive().succ_opt().unwrap_or(now.date_naive());
-            let tomorrow_run = tomorrow.and_hms_opt(0, 1, 0).unwrap();
+            let tomorrow_run = tomorrow.and_hms_opt(0, 1, 0)
+                .unwrap_or_else(|| tomorrow.and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
             (tomorrow_run - now.naive_local())
                 .to_std()
                 .unwrap_or(Duration::from_secs(86400))
@@ -327,7 +342,7 @@ fn next_trigger_delay(weekday: Option<chrono::Weekday>, hour: u32, minute: u32) 
     let target_date = now.date_naive() + chrono::Duration::days(days_ahead);
     let mut target = target_date
         .and_hms_opt(hour, minute, 0)
-        .unwrap_or_else(|| target_date.and_hms_opt(0, 0, 0).unwrap());
+        .unwrap_or_else(|| target_date.and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
 
     // 今天的触发点已过 → 推到下一周期
     if target <= now.naive_local() {
@@ -335,7 +350,7 @@ fn next_trigger_delay(weekday: Option<chrono::Weekday>, hour: u32, minute: u32) 
         let next_date = target_date + chrono::Duration::days(step);
         target = next_date
             .and_hms_opt(hour, minute, 0)
-            .unwrap_or_else(|| next_date.and_hms_opt(0, 0, 0).unwrap());
+            .unwrap_or_else(|| next_date.and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
     }
 
     (target - now.naive_local())

@@ -24,7 +24,7 @@ pub fn setup_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         .build()?;
 
     let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(app.default_window_icon().expect("应用图标未配置，请在 tauri.conf.json 中设置 app > windows > icon").clone())
         .menu(&menu)
         .tooltip("Casy - 案件管理")
         .on_menu_event(move |app, event| {

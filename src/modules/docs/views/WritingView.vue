@@ -6,6 +6,9 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import Highlight from '@tiptap/extension-highlight'
+import BlockReference from '../extensions/BlockReference.ts'
+import WikiLink from '../extensions/WikiLink.ts'
+import WikiLinkSuggestion from '../extensions/WikiLinkSuggestion.ts'
 import { useCasesStore } from '../../../stores/cases'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
@@ -49,10 +52,52 @@ const editor = useEditor({
     Underline,
     Highlight,
     Placeholder.configure({ placeholder: '开始撰写法律文书...' }),
+    BlockReference,
+    WikiLink,
+    WikiLinkSuggestion.configure({
+      search: async (query) => {
+        // 搜索知识库
+        const result = await casyContext.knowledge.search(query, 10)
+        if (result.ok && result.data) {
+          return result.data.map((item) => ({
+            id: item.id,
+            title: item.title,
+            category: item.category,
+          }))
+        }
+        return []
+      },
+      onSelect: (item) => {
+        // 插入 wikiLink
+        editor.value?.chain().focus()
+          .insertContent(`[[${item.title}]]`)
+          .setWikiLink(item.id, item.title)
+          .run()
+        ElMessage.success(`已链接到知识：${item.title}`)
+      },
+    }),
   ],
   onUpdate: ({ editor }) => {
     // 内容变化时触发自动保存
     scheduleAutoSave()
+    
+    // ── 双向链接 [[ ]] 自动识别（设计哲学 §8.2）───────
+    const text = editor.getText()
+    const wikiPattern = /[[(.+?)]]/g
+    let match
+    const matches = []
+    while ((match = wikiPattern.exec(text)) !== null) {
+      matches.push({ text: match[0], title: match[1], index: match.index })
+    }
+    
+    // 如果检测到 [[标题]] 且未被标记为 wikiLink，自动转换
+    if (matches.length > 0 && !editor.isActive('wikiLink')) {
+      // 简单处理：将第一个 [[标题]] 转换为 wikiLink
+      // 实际实现需要更精确的字符位置映射
+      const firstMatch = matches[0]
+      // 这里仅做标记，完整实现需要 ProseMirror 位置映射
+      console.log('检测到双向链接:', firstMatch.title)
+    }
   },
   onSelectionUpdate: ({ editor }) => {
     // 光标移动时自动检索相关知识（防抖）
@@ -747,4 +792,132 @@ onBeforeUnmount(() => {
   border-bottom: 2px dashed #409eff;
   padding: 0 2px;
 }
+/* ============================================================
+ * 块引用样式（设计哲学 §9.3）
+ * ============================================================ */
+:deep(.block-reference) {
+  display: inline-block;
+  background: #f0f7ff;
+  border: 1px solid #b3d8ff;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin: 0 2px;
+  cursor: pointer;
+  transition: all 0.2s;
+  vertical-align: baseline;
+  font-size: 0.9em;
+}
+
+:deep(.block-reference:hover) {
+  background: #d9ecff;
+  border-color: #409eff;
+}
+
+:deep(.block-reference.is-loading) {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+:deep(.block-reference.is-error) {
+  background: #fef0f0;
+  border-color: #fbc4c4;
+  color: #f56c6c;
+}
+
+:deep(.block-ref-loading),
+:deep(.block-ref-error) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+:deep(.block-ref-content) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+:deep(.block-ref-header) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+:deep(.block-ref-icon) {
+  font-size: 1em;
+}
+
+:deep(.block-ref-title) {
+  font-weight: 500;
+  color: #409eff;
+}
+
+:deep(.block-ref-type) {
+  font-size: 0.8em;
+  color: #909399;
+  background: #f4f4f5;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+:deep(.block-ref-body) {
+  display: none; /* 内联引用不显示正文，悬浮时可扩展 */
+}
+
+/* ── WikiLink 自动补全样式 ── */
+:deep(.wiki-link-suggestions) {
+  position: absolute;
+  background: white;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 1000;
+  min-width: 240px;
+  padding: 4px 0;
+}
+
+:deep(.wiki-link-item) {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s;
+}
+
+:deep(.wiki-link-item:hover),
+:deep(.wiki-link-item.selected) {
+  background: #f5f7fa;
+}
+
+:deep(.wiki-link-item .title) {
+  font-weight: 500;
+  color: #303133;
+}
+
+:deep(.wiki-link-item .category) {
+  font-size: 12px;
+  color: #909399;
+  margin-left: auto;
+  background: #f4f4f5;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+/* ── wikiLink mark 样式 ── */
+:deep(.wiki-link) {
+  color: #409eff;
+  text-decoration: none;
+  border-bottom: 1px dashed #409eff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+:deep(.wiki-link:hover) {
+  background: #ecf5ff;
+  border-bottom-style: solid;
+}
+
 </style>

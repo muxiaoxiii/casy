@@ -8,10 +8,34 @@ import type { Task, TaskPriority, TaskType, Context, StartBucket } from '../type
 export type { TaskType, Context, StartBucket }
 export type GTDTask = Task
 
+/**
+ * 自定义透视配置（设计哲学 §5.2 透视保存）
+ */
+export interface CustomPerspective {
+  id: string
+  name: string
+  icon?: string
+  color?: string
+  filters: {
+    taskType?: TaskType | null
+    priority?: TaskPriority | null
+    context?: Context | null
+    caseId?: string | null
+    areaId?: string | null
+    flagged?: boolean | null
+    completed?: boolean
+    dateRange?: 'overdue' | 'today' | 'week' | 'month' | null
+  }
+  sortBy?: 'dueDate' | 'priority' | 'createdAt' | 'todayIndex'
+  sortOrder?: 'asc' | 'desc'
+  createdAt: string
+}
+
 export interface TasksState {
   tasks: GTDTask[]
   loading: boolean
   activePerspective: string
+  customPerspectives: CustomPerspective[]
   filter: {
     completed: boolean
     caseId: string | null
@@ -28,6 +52,7 @@ export const useTasksStore = defineStore('tasks', {
     tasks: [],
     loading: false,
     activePerspective: 'inbox',
+    customPerspectives: [],
     filter: {
       completed: false,
       caseId: null,
@@ -311,6 +336,136 @@ export const useTasksStore = defineStore('tasks', {
       const today = new Date()
       const followUp = new Date(task.followUpDate)
       return Math.ceil((today.getTime() - followUp.getTime()) / (1000 * 60 * 60 * 24))
+    },
+
+    // ============================================================
+    // 自定义透视管理（设计哲学 §5.2）
+    // ============================================================
+
+    /**
+     * 加载自定义透视（从 localStorage）
+     */
+    loadCustomPerspectives(): void {
+      try {
+        const stored = localStorage.getItem('casy_custom_perspectives')
+        if (stored) {
+          this.customPerspectives = JSON.parse(stored)
+        }
+      } catch (e) {
+        console.error('Failed to load custom perspectives:', e)
+      }
+    },
+
+    /**
+     * 保存自定义透视（到 localStorage）
+     */
+    saveCustomPerspective(perspective: Omit<CustomPerspective, 'id' | 'createdAt'>): CustomPerspective {
+      const newPerspective: CustomPerspective = {
+        ...perspective,
+        id: 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        createdAt: new Date().toISOString(),
+      }
+      this.customPerspectives.push(newPerspective)
+      this._persistPerspectives()
+      return newPerspective
+    },
+
+    /**
+     * 更新自定义透视
+     */
+    updateCustomPerspective(id: string, updates: Partial<CustomPerspective>): void {
+      const index = this.customPerspectives.findIndex(p => p.id === id)
+      if (index >= 0) {
+        this.customPerspectives[index] = { ...this.customPerspectives[index], ...updates }
+        this._persistPerspectives()
+      }
+    },
+
+    /**
+     * 删除自定义透视
+     */
+    deleteCustomPerspective(id: string): void {
+      this.customPerspectives = this.customPerspectives.filter(p => p.id !== id)
+      this._persistPerspectives()
+      // 如果删除的是当前激活的透视，切换到收件箱
+      if (this.activePerspective === id) {
+        this.activePerspective = 'inbox'
+      }
+    },
+
+    /**
+     * 获取自定义透视的任务
+     */
+    getTasksByCustomPerspective(perspectiveId: string): GTDTask[] {
+      const perspective = this.customPerspectives.find(p => p.id === perspectiveId)
+      if (!perspective) return []
+
+      let tasks = [...this.tasks]
+
+      // 应用过滤器
+      const { filters } = perspective
+      if (filters.completed === false || filters.completed === undefined) {
+        tasks = tasks.filter(t => !t.completed)
+      }
+      if (filters.taskType) {
+        tasks = tasks.filter(t => t.taskType === filters.taskType)
+      }
+      if (filters.priority) {
+        tasks = tasks.filter(t => t.priority === filters.priority)
+      }
+      if (filters.context) {
+        tasks = tasks.filter(t => t.context === filters.context)
+      }
+      if (filters.caseId) {
+        tasks = tasks.filter(t => t.caseId === filters.caseId)
+      }
+      if (filters.areaId) {
+        tasks = tasks.filter(t => t.areaId === filters.areaId)
+      }
+      if (filters.flagged === true) {
+        tasks = tasks.filter(t => t.flagged)
+      }
+
+      // 日期范围过滤
+      const today = new Date().toISOString().split('T')[0]
+      if (filters.dateRange === 'overdue') {
+        tasks = tasks.filter(t => t.dueDate && t.dueDate < today)
+      } else if (filters.dateRange === 'today') {
+        tasks = tasks.filter(t => t.dueDate === today || t.startBucket === 'today')
+      } else if (filters.dateRange === 'week') {
+        const weekEnd = new Date()
+        weekEnd.setDate(weekEnd.getDate() + 7)
+        const weekEndStr = weekEnd.toISOString().split('T')[0]
+        tasks = tasks.filter(t => t.dueDate && t.dueDate >= today && t.dueDate <= weekEndStr)
+      } else if (filters.dateRange === 'month') {
+        const monthEnd = new Date()
+        monthEnd.setMonth(monthEnd.getMonth() + 1)
+        const monthEndStr = monthEnd.toISOString().split('T')[0]
+        tasks = tasks.filter(t => t.dueDate && t.dueDate >= today && t.dueDate <= monthEndStr)
+      }
+
+      // 排序
+      if (perspective.sortBy) {
+        const order = perspective.sortOrder === 'desc' ? -1 : 1
+        tasks.sort((a, b) => {
+          const aVal = a[perspective.sortBy] || ''
+          const bVal = b[perspective.sortBy] || ''
+          return aVal.localeCompare(bVal) * order
+        })
+      }
+
+      return tasks
+    },
+
+    /**
+     * 持久化透视到 localStorage
+     */
+    _persistPerspectives(): void {
+      try {
+        localStorage.setItem('casy_custom_perspectives', JSON.stringify(this.customPerspectives))
+      } catch (e) {
+        console.error('Failed to persist custom perspectives:', e)
+      }
     },
   },
 })

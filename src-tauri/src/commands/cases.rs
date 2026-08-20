@@ -206,9 +206,11 @@ pub async fn get_dashboard_stats() -> Result<DashboardStats, String> {
             .naive_local()
             .date()
             .checked_sub_signed(chrono::Duration::days(7))
-            .unwrap()
-            .format("%Y-%m-%d")
-            .to_string();
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| {
+                log::warn!("日期计算溢出，回退到 1970-01-01");
+                "1970-01-01".to_string()
+            });
 
         let recent_activities = query_recent_activities(&conn, &seven_days_ago)?;
 

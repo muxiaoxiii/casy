@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 13;
+pub const CURRENT_SCHEMA_VERSION: i64 = 14;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -352,6 +352,24 @@ CREATE INDEX IF NOT EXISTS idx_inbox_category ON inbox_items(ai_category);
 CREATE INDEX IF NOT EXISTS idx_inbox_case ON inbox_items(linked_case_id);
 
 -- ============================================================
+-- 收件箱推荐反馈（设计哲学 §10：推荐拒绝 → 学习信号）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS inbox_feedback (
+  id              TEXT PRIMARY KEY,
+  inbox_item_id   TEXT NOT NULL REFERENCES inbox_items(id) ON DELETE CASCADE,
+  action          TEXT NOT NULL,
+  reason          TEXT,
+  intent_json     TEXT,
+  accepted        INTEGER DEFAULT 1 CHECK(accepted IN (0, 1)),
+  rejected_at     TEXT DEFAULT (datetime('now','localtime')),
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_feedback_item ON inbox_feedback(inbox_item_id);
+CREATE INDEX IF NOT EXISTS idx_inbox_feedback_action ON inbox_feedback(action);
+CREATE INDEX IF NOT EXISTS idx_inbox_feedback_accepted ON inbox_feedback(accepted);
+
+-- ============================================================
 -- 案卷文件
 -- ============================================================
 CREATE TABLE IF NOT EXISTS case_files (
@@ -637,6 +655,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("11", MIGRATION_V11_SQL),
     ("12", MIGRATION_V12_SQL),
     ("13", MIGRATION_V13_SQL),
+    ("14", MIGRATION_V14_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1786,6 +1805,27 @@ pub const MIGRATION_V13_SQL: &str = r#"
 -- tasks.due_time 由条件补列段添加（幂等）
 "#;
 
+/// 版本 14: 收件箱推荐反馈（设计哲学 §10：推荐拒绝 → 学习信号）
+pub const MIGRATION_V14_SQL: &str = r#"
+-- ============================================================
+-- inbox_feedback（收件箱推荐反馈）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS inbox_feedback (
+  id              TEXT PRIMARY KEY,
+  inbox_item_id   TEXT NOT NULL REFERENCES inbox_items(id) ON DELETE CASCADE,
+  action          TEXT NOT NULL,
+  reason          TEXT,
+  intent_json     TEXT,
+  accepted        INTEGER DEFAULT 1 CHECK(accepted IN (0, 1)),
+  rejected_at     TEXT DEFAULT (datetime('now','localtime')),
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_feedback_item ON inbox_feedback(inbox_item_id);
+CREATE INDEX IF NOT EXISTS idx_inbox_feedback_action ON inbox_feedback(action);
+CREATE INDEX IF NOT EXISTS idx_inbox_feedback_accepted ON inbox_feedback(accepted);
+"#;
+
 /// 版本 12: MCP 写操作待确认队列（设计哲学 §11.11 安全约束）
 ///
 /// 外部 AI 经 MCP 通道发起的写操作不直接执行，先落队等待应用内确认；
@@ -1916,6 +1956,13 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         conn.execute_batch("ALTER TABLE tasks ADD COLUMN due_time TEXT;")?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_due_time ON tasks(due_time);")?;
         log::info!("Added due_time column to tasks (v13 time model)");
+    }
+
+    // v15：tasks.time_block（时间块排程，设计哲学 §7.2）
+    if !task_cols.iter().any(|c| c == "time_block") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN time_block TEXT CHECK(time_block IN ('morning','afternoon','evening','night','flex',NULL));")?;
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_time_block ON tasks(time_block);")?;
+        log::info!("Added time_block column to tasks (v15 time block scheduling)");
     }
 
     // L3 递归确认（§11.5）：task_events.event_type CHECK 扩展 'recursion_gap'，task_id 可空

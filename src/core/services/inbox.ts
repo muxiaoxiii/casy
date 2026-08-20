@@ -69,6 +69,26 @@ export class InboxService extends Service {
     return tauriCallSafe<unknown>('transcribe_voice_note', { inboxItemId })
   }
 
+  /**
+   * 拒绝推荐反馈（设计哲学 §10：推荐拒绝 → 记录学习信号）
+   * 
+   * 记录用户拒绝推荐的原因，供推荐系统学习改进。
+   * 后端 reject_inbox_recommendation 写入 inbox_feedback 表。
+   */
+  async rejectRecommendation(opts: {
+    inboxItemId: string
+    action: string
+    reason?: string
+    intent?: Record<string, unknown> | null
+  }): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('reject_inbox_recommendation', {
+      inboxItemId: opts.inboxItemId,
+      action: opts.action,
+      reason: opts.reason ?? null,
+      intent: opts.intent ?? null,
+    })
+  }
+
   /** 批量 AI 处理队列控制 */
   async startBatch(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return tauriCallSafe<unknown>('start_inbox_batch', {})

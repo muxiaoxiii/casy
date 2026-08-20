@@ -305,13 +305,46 @@ async function dismissInsight(item) {
   }
 }
 
-/** sourceRef 为 JSON [{table, id}]，显示为「表名:记录」 */
-function insightSourceLabel(sourceRef) {
+/** sourceRef 为 JSON [{table, id}]，返回可点击的来源对象数组 */
+function insightSourceRefs(sourceRef) {
   const refs = Array.isArray(sourceRef) ? sourceRef : sourceRef ? [sourceRef] : []
   return refs
-    .map(r => (r && r.table ? `${r.table}:${r.id ?? ''}` : null))
+    .map(r => {
+      if (!r || !r.table) return null
+      // 映射表名到路由
+      const routeMap = {
+        cases: { name: 'case-detail', params: { id: r.id } },
+        tasks: { name: 'tasks', query: { edit: r.id } },
+        knowledge_items: { name: 'knowledge' },
+        decisions: { name: 'ai', query: { tab: 'decisions' } },
+      }
+      return {
+        label: `${r.table}:${r.id ?? ''}`,
+        route: routeMap[r.table] || null,
+        table: r.table,
+        id: r.id,
+      }
+    })
     .filter(Boolean)
-    .join('、')
+}
+
+/** 兼容旧代码的字符串版本 */
+function insightSourceLabel(sourceRef) {
+  return insightSourceRefs(sourceRef).map(r => r.label).join('、')
+}
+
+/** 点击来源跳转到原始数据 */
+function navigateToSource(source) {
+  if (!source || !source.route) return
+  if (source.table === 'cases') {
+    router.push({ name: 'case-detail', params: { id: source.id } })
+  } else if (source.table === 'tasks') {
+    router.push({ name: 'tasks', query: { edit: source.id } })
+  } else if (source.table === 'knowledge_items') {
+    router.push({ name: 'knowledge' })
+  } else if (source.table === 'decisions') {
+    router.push({ name: 'ai', query: { tab: 'decisions' } })
+  }
 }
 
 // ============================================================
@@ -608,8 +641,19 @@ onMounted(async () => {
                     <div class="recommend-reason">{{ ins.content }}</div>
                     <div class="recommend-reason">
                       置信度 {{ Math.round((ins.confidence || 0) * 100) }}%
-                      <template v-if="insightSourceLabel(ins.sourceRef)">
-                        · 来源 {{ insightSourceLabel(ins.sourceRef) }}
+                      <template v-if="insightSourceRefs(ins.sourceRef).length">
+                        · 来源
+                        <template v-for="(src, idx) in insightSourceRefs(ins.sourceRef)" :key="idx">
+                          <el-link
+                            v-if="src.route"
+                            type="primary"
+                            :underline="false"
+                            style="font-size: 12px; vertical-align: baseline;"
+                            @click="navigateToSource(src)"
+                          >{{ src.label }}</el-link>
+                          <span v-else style="font-size: 12px;">{{ src.label }}</span>
+                          <span v-if="idx < insightSourceRefs(ins.sourceRef).length - 1">、</span>
+                        </template>
                       </template>
                     </div>
                   </div>

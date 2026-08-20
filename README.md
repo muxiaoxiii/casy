@@ -4,7 +4,7 @@
 
 Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：动态字段、跨类型筛选、期限引擎、多通道提醒、知识库、文书生成、大口袋收件箱。
 
-**架构**：cordis 风格内核（借鉴 DeepSeek Harness / @deepseek-ai/cordis）——Context 服务解析 + Service 注入 + Fiber 生命周期，9+ 个业务服务（ctx.cases / ctx.tasks / ...）构成数据通路：视图 → ctx 服务 → tauriBridge → Rust 命令（写入口唯一）。AI 能力以工具/技能形式接入。现行唯一总纲为 docs/casy-design-philosophy.md。
+**架构**：cordis 风格内核（借鉴 DeepSeek Harness / @deepseek-ai/cordis）——Context 服务解析 + Service 注入 + Fiber 生命周期，9+ 个业务服务（ctx.cases / ctx.tasks / ...）构成数据通路：视图 → ctx 服务 → tauriBridge → Rust 命令（写入口唯一）。AI 能力以工具/技能形式接入。现行产品设计基准为 docs/casy-product-design-v3.md（v2.4 归档于 docs/casy-design-philosophy.md）。
 
 ---
 

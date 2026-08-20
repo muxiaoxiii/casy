@@ -233,6 +233,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         inbox::start_clipboard_monitor,
         inbox::save_voice_note,
         inbox::transcribe_voice_note,
+        inbox::reject_inbox_recommendation,
         // 日志调试命令
         get_log_dir,
         get_recent_logs,

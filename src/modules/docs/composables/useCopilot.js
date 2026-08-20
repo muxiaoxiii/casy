@@ -200,10 +200,23 @@ export function useCopilot(editorRef, options = {}) {
    * 插入引用脚注（来源 + 案号）
    * @param {Object} item - 知识条目
    */
+  /**
+   * 插入块引用（设计哲学 §9.3）
+   * 
+   * 如果知识条目有 id，使用 TipTap 块引用扩展插入可交互的引用节点；
+   * 否则回退到文本引用。
+   */
   function insertCitation(item) {
     const editor = editorRef.value
     if (!editor) return
 
+    // 如果有知识条目 ID，使用块引用节点
+    if (item.id) {
+      editor.chain().focus().insertBlockReference(item.id, null).run()
+      return
+    }
+
+    // 回退到文本引用（法条等）
     let citation = ''
     if (item.lawName && item.articleNo) {
       citation = `《${item.lawName}》${item.articleNo}`

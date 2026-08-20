@@ -1,0 +1,1856 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Casy UI 设计稿 · v2 秩序版</title>
+<style>
+/* ============ Design Tokens · Slate 主题（哲学 12.2） ============ */
+:root{
+  --bg:#F6F7F9;            /* 应用底色 */
+  --surface:#FFFFFF;       /* 卡片 / 面板 */
+  --border:#E4E7EB;        /* 1px 边框 */
+  --border-strong:#CCD0D8;
+  --text-1:#1F2430;        /* 标题 */
+  --text-2:#4B5160;        /* 正文 */
+  --text-3:#9BA2AF;        /* 辅助 */
+  --primary:#3E5C9A;       /* Slate 主色：强调/选中/主要操作 */
+  --primary-weak:#EDEEF5;  /* 选中底色 */
+  --primary-border:#C2CBE8;
+  --danger:#B4554F;        /* 逾期 / 硬性日程 */
+  --danger-weak:#F7EFEE;
+  --amber:#B0823A;         /* 即将到期 / 等待 */
+  --amber-weak:#F6F3EA;
+  --green:#4C8067;         /* 完成 / 成长 */
+  --green-weak:#EDF4F0;
+  --purple:#6C6A9C;        /* 无效轨 / 探索型 */
+  --purple-weak:#EDECF5;
+  --radius-card:8px;       /* 哲学：8px 卡片 */
+  --radius-btn:6px;        /* 6px 按钮 */
+  --radius-input:4px;      /* 4px 输入框 */
+  --mono:"SF Mono",Menlo,Consolas,monospace;
+  --shadow:0 1px 3px rgba(20,24,35,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#E9EBEF;color:var(--text-1);font-size:13px;-webkit-font-smoothing:antialiased;overflow:hidden}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#D4D8DE;border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ============ 顶部页面切换器（设计稿工具条） ============ */
+.viewbar{position:fixed;top:0;left:0;right:0;height:42px;background:#171B26;display:flex;align-items:center;gap:3px;padding:0 10px;z-index:1000;overflow-x:auto}
+.viewbar .vb-brand{color:#fff;font-weight:700;font-size:12.5px;margin-right:10px;white-space:nowrap;display:flex;align-items:center;gap:7px}
+.viewbar .vb-brand .dot{width:18px;height:18px;border-radius:5px;background:var(--primary);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff}
+.viewbar button{background:transparent;border:1px solid transparent;color:#9BA2AF;font-size:11.5px;padding:4px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;font-family:inherit}
+.viewbar button:hover{color:#fff;background:#262C3B}
+.viewbar button.active{background:var(--primary);color:#fff}
+.viewbar .spacer{flex:1}
+.viewbar .vb-hint{color:#565E70;font-size:10.5px;white-space:nowrap}
+
+/* ============ App 壳（全局侧边栏 + 顶栏，只写一份） ============ */
+.app{position:fixed;top:42px;left:0;right:0;bottom:0;background:var(--bg);display:flex}
+.app .sb{width:212px;height:100%;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:10px 8px;flex-shrink:0;z-index:5}
+.app .main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+
+/* 侧边栏：徽标 */
+.sb .logo{height:38px;display:flex;align-items:center;gap:9px;padding:0 8px;margin-bottom:6px}
+.sb .logo .mark{width:26px;height:26px;border-radius:7px;background:var(--primary);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff}
+.sb .logo .name{font-size:15px;font-weight:700;color:var(--text-1);letter-spacing:-.2px}
+/* 侧边栏：分组（三层架构 · 哲学第四章） */
+.sb .nav-group{font-size:10.5px;font-weight:600;color:var(--text-3);padding:10px 10px 4px;letter-spacing:.4px}
+.sb .nav-item{display:flex;align-items:center;gap:9px;height:32px;padding:0 10px;border-radius:6px;color:var(--text-2);font-size:13px;cursor:pointer;margin-bottom:1px;border:1px solid transparent}
+.sb .nav-item .ico{width:15px;height:15px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:currentColor}
+.sb .nav-item .ico svg{width:15px;height:15px}
+.sb .nav-item:hover{background:#F3F4F7}
+.sb .nav-item.active{background:var(--primary-weak);color:var(--primary);font-weight:600;border-color:var(--primary-border)}
+.sb .nav-item .badge{margin-left:auto;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;background:var(--amber);padding:0 5px}
+.sb .nav-item .badge.red{background:var(--danger)}
+.sb .spacer{flex:1}
+.sb .ai-status{display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;font-size:11px;color:var(--text-2);margin-bottom:2px}
+.sb .ai-status .dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
+.sb .ai-status .dot.amber{background:var(--amber)}
+.sb .user{display:flex;align-items:center;gap:9px;height:42px;padding:0 8px;border-top:1px solid var(--border)}
+.sb .user .avatar{width:26px;height:26px;border-radius:50%;background:var(--primary-weak);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--primary);flex-shrink:0}
+.sb .user .info{display:flex;flex-direction:column;gap:1px;min-width:0}
+.sb .user .info .n{font-size:12.5px;font-weight:600;color:var(--text-1)}
+.sb .user .info .s{font-size:10.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 顶栏：标题 + 今日面板 + 搜索 + 捕获 */
+.topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 20px;flex-shrink:0;background:var(--surface)}
+.topbar .t{font-size:14px;font-weight:700;color:var(--text-1)}
+.topbar .t .sub{font-size:11px;font-weight:400;color:var(--text-3);margin-left:8px}
+.topbar .today-btn{display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:var(--radius-btn);border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px;color:var(--text-2);font-family:inherit}
+.topbar .today-btn:hover{border-color:var(--primary-border);color:var(--primary)}
+.topbar .today-btn .t-dot{width:6px;height:6px;border-radius:50%;background:var(--danger)}
+.topbar .today-btn .t-dot.amber{background:var(--amber)}
+.topbar .search{width:280px;height:30px;border:1px solid var(--border);border-radius:var(--radius-btn);display:flex;align-items:center;padding:0 10px;gap:8px;color:var(--text-3);font-size:12.5px;background:var(--surface)}
+.topbar .search .kbd{margin-left:auto;font-size:10px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:var(--mono)}
+.topbar .actions{margin-left:auto;display:flex;gap:8px}
+.btn{height:30px;padding:0 14px;border-radius:var(--radius-btn);border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);background:var(--surface);cursor:pointer;font-family:inherit}
+.btn:hover{border-color:var(--border-strong)}
+.btn.primary{background:var(--primary);color:#fff;border-color:transparent}
+.btn.primary:hover{background:#36507F}
+.btn.danger{background:var(--danger);color:#fff;border-color:transparent}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--text-2)}
+.btn-ghost:hover{background:#F3F4F7}
+
+/* ============ 内容区 ============ */
+.content{flex:1;overflow-y:auto;padding:20px;min-height:0}
+.page{display:none}
+.page.active{display:block}
+
+/* 卡片体系（统一：8px 圆角 + 1px 边框 + 14px 内距，哲学 12.2） */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);display:flex;flex-direction:column;padding:14px;min-width:0}
+.card .ch{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.card .ch .t{font-size:13px;font-weight:600;color:var(--text-1);letter-spacing:-.1px}
+.card .ch .s{margin-left:auto;font-size:11px;color:var(--text-3)}
+.card .sep{height:1px;background:var(--border);margin:10px 0}
+.vstack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.hstack{display:flex;gap:14px;min-width:0}
+
+/* 标签（药丸形，语义色 —— 颜色只表语义） */
+.tag{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;letter-spacing:.2px}
+.tag.blue{background:var(--primary-weak);color:var(--primary)}
+.tag.purple{background:var(--purple-weak);color:var(--purple)}
+.tag.green{background:var(--green-weak);color:var(--green)}
+.tag.amber{background:var(--amber-weak);color:var(--amber)}
+.tag.red{background:var(--danger-weak);color:var(--danger)}
+.tag.gray{background:#F0F1F3;color:var(--text-2)}
+.tag.outline{background:transparent;border:1px solid var(--border);color:var(--text-2)}
+.tag.solid-blue{background:var(--primary);color:#fff}
+.tag.solid-green{background:var(--green);color:#fff}
+
+/* 行 / 勾选框 / 圆点 */
+.row{display:flex;align-items:center;gap:10px;min-height:36px}
+.row .time{width:44px;font-family:var(--mono);font-size:12px;color:var(--text-1);flex-shrink:0}
+.check{width:15px;height:15px;border:1.5px solid #C6CAD1;border-radius:4px;flex-shrink:0;background:var(--surface)}
+.check.done{background:var(--green);border-color:var(--green);position:relative}
+.check.done::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.circle{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.circle.red{background:var(--danger)}.circle.blue{background:var(--primary)}.circle.amber{background:var(--amber)}
+.circle.green{background:var(--green)}.circle.purple{background:var(--purple)}.circle.gray{background:#C4C8CE}
+
+/* 进度条 */
+.progress{height:5px;border-radius:3px;background:#EDEEF0;overflow:hidden}
+.progress .fill{height:100%;border-radius:3px;background:var(--amber)}
+.progress .fill.blue{background:var(--primary)}.progress .fill.green{background:var(--green)}.progress .fill.gray{background:#C4C8CE}
+
+/* 按钮小 / 输入框 / 开关 */
+.btn-sm{display:inline-flex;align-items:center;justify-content:center;height:24px;padding:0 9px;border-radius:var(--radius-btn);font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font-family:inherit}
+.btn-sm.primary{background:var(--primary);color:#fff;border-color:transparent}
+.input{height:32px;border:1px solid var(--border);border-radius:var(--radius-input);background:#F7F8FA;display:flex;align-items:center;padding:0 9px;font-size:13px;color:var(--text-1)}
+.input.placeholder{color:var(--text-3)}
+.switch{width:34px;height:19px;border-radius:10px;background:var(--primary);position:relative;flex-shrink:0}
+.switch::after{content:"";position:absolute;top:2px;right:2px;width:15px;height:15px;border-radius:50%;background:#fff}
+.chip{display:inline-flex;align-items:center;gap:6px;height:27px;padding:0 11px;border-radius:999px;border:1px solid var(--border);font-size:12px;color:var(--text-2);cursor:pointer;background:var(--surface)}
+.chip.active{background:var(--primary);color:#fff;border-color:transparent;font-weight:500}
+.chip .pin{width:14px;height:14px;border-radius:50%;background:var(--amber);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff}
+
+/* 降级提示条（12.5：浅琥珀底，不是红色） */
+.degrade-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:var(--amber-weak);border:1px solid #E5D8BC;font-size:11.5px;color:var(--amber);margin-bottom:12px}
+.degrade-bar .ico{width:14px;height:14px;flex-shrink:0}
+
+/* 今日面板下拉 */
+.today-panel{position:absolute;top:42px;left:212px;width:420px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 32px rgba(20,24,35,.14);z-index:100;display:none;flex-direction:column;padding:14px;max-height:calc(100vh - 70px);overflow-y:auto}
+.today-panel.open{display:flex}
+.today-panel .tp-item{display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 8px;border-radius:6px;font-size:12.5px;color:var(--text-1)}
+.today-panel .tp-item:hover{background:#F5F6F8}
+.today-panel .tp-label{font-size:10.5px;font-weight:600;color:var(--text-3);padding:10px 8px 4px;letter-spacing:.4px}
+
+/* ============ 首页 · 今日焦点 ============ */
+.today-hero{display:flex;align-items:baseline;gap:10px;margin-bottom:16px}
+.today-hero .d{font-size:20px;font-weight:700;letter-spacing:-.3px}
+.today-hero .s{font-size:12px;color:var(--text-3)}
+.focus-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:start}
+.focus-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+
+/* 硬性日程时间线 */
+.timeline{display:flex;flex-direction:column}
+.tl-row{display:flex;gap:12px;min-height:44px;position:relative}
+.tl-row .tl-time{width:44px;font-family:var(--mono);font-size:12px;color:var(--text-2);padding-top:13px;text-align:right;flex-shrink:0}
+.tl-row .tl-track{width:14px;display:flex;justify-content:center;position:relative;flex-shrink:0}
+.tl-row .tl-track::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border)}
+.tl-row:first-child .tl-track::before{top:16px}
+.tl-row:last-child .tl-track::before{bottom:auto;height:16px}
+.tl-row .tl-dot{width:7px;height:7px;border-radius:50%;margin-top:15px;z-index:1;border:2px solid var(--surface)}
+.tl-row .tl-dot.red{background:var(--danger)}
+.tl-row .tl-dot.blue{background:var(--primary)}
+.tl-row .tl-body{flex:1;min-height:44px;display:flex;align-items:flex-start;padding-top:8px;gap:10px;padding-bottom:6px;border-bottom:1px solid #F0F1F3}
+.tl-row .tl-body .txt{flex:1}
+.tl-row .tl-body .txt .n{font-size:13px;color:var(--text-1)}
+.tl-row .tl-body .txt .m{font-size:11px;color:var(--text-3);margin-top:1px}
+.tl-row.danger .tl-body .txt .n{color:var(--danger);font-weight:600}
+
+/* 统计一行（首页底部，退居角落 —— 不是主角） */
+.statline{display:flex;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);overflow:hidden}
+.statline .st{flex:1;padding:12px 16px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.statline .st:last-child{border-right:none}
+.statline .st .v{font-size:20px;font-weight:700;letter-spacing:-.3px}
+.statline .st .k{font-size:11px;color:var(--text-3)}
+
+/* 下一步行动卡 */
+.next-card{display:flex;align-items:center;gap:12px;padding:14px;border-radius:var(--radius-card);background:var(--primary-weak);border:1px solid var(--primary-border)}
+.next-card .play{width:30px;height:30px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.next-card .play svg{width:12px;height:12px;color:#fff}
+.next-card .info{flex:1;min-width:0}
+.next-card .info .n{font-size:13px;font-weight:600;color:var(--text-1)}
+.next-card .info .s{font-size:11.5px;color:var(--primary);margin-top:2px}
+
+/* 双轨时间 */
+.dual{display:flex;gap:8px}
+.dual .box{flex:1;padding:8px 10px;border-radius:var(--radius-btn);background:#F5F6F8;display:flex;flex-direction:column;gap:3px}
+.dual .box.danger{background:var(--danger-weak)}
+.dual .box .k{font-size:10px;color:var(--text-3)}
+.dual .box .v{font-size:12.5px;font-weight:500;color:var(--text-1)}
+.dual .box.danger .v{color:var(--danger)}
+
+/* 字段行 */
+.frow{display:flex;align-items:center;gap:8px;height:32px;font-size:12px}
+.frow .k{width:96px;color:var(--text-3);flex-shrink:0}
+.frow .v{color:var(--text-1);min-width:0}
+
+/* 分组标题 */
+.group-title{display:flex;align-items:center;gap:8px;height:32px;font-size:12px;font-weight:600;color:var(--text-1)}
+.group-title .c{font-size:11px;font-weight:400;color:var(--text-3)}
+.group-title .action{margin-left:auto;font-size:11px;color:var(--primary);cursor:pointer}
+
+/* 通用栅格 */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid-38{display:grid;grid-template-columns:1fr 380px;gap:14px}
+.grid-32{display:grid;grid-template-columns:1fr 320px;gap:14px}
+
+/* ============ 案件工作台 master-detail ============ */
+.case-layout{display:flex;gap:14px;align-items:stretch;min-height:0}
+.case-list{width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto}
+.case-item{border:1px solid var(--border);border-radius:var(--radius-card);padding:11px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:5px}
+.case-item:hover{border-color:var(--border-strong)}
+.case-item.active{border-color:var(--primary-border);background:var(--primary-weak)}
+.case-item .cn{font-size:12.5px;font-weight:500;color:var(--text-1);display:flex;align-items:center;gap:6px}
+.case-item .cm{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+.case-item .ct{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.case-item .ct .dl{font-size:10.5px;margin-left:auto;font-family:var(--mono)}
+.case-item .ct .dl.over{color:var(--danger);font-weight:600}
+.case-item .ct .dl.soon{color:var(--amber)}
+
+/* 详情 Tab */
+.detail-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.detail-tabs .dtab{height:32px;padding:0 14px;display:flex;align-items:center;font-size:12.5px;color:var(--text-2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.detail-tabs .dtab:hover{color:var(--text-1)}
+.detail-tabs .dtab.active{color:var(--primary);font-weight:600;border-bottom-color:var(--primary)}
+.detail-tab-body{display:none}
+.detail-tab-body.active{display:block}
+
+/* ============ 案卷管理 · 精装版 ============ */
+/* 案卷状态条 */
+.file-status{display:flex;align-items:center;gap:22px;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius-card);background:var(--surface);margin-bottom:14px}
+.file-status .fs-item{display:flex;flex-direction:column;gap:3px}
+.file-status .fs-item .v{font-size:17px;font-weight:700;letter-spacing:-.2px;line-height:1.1}
+.file-status .fs-item .v small{font-size:10.5px;font-weight:500;color:var(--text-3);margin-left:2px}
+.file-status .fs-item .k{font-size:10.5px;color:var(--text-3)}
+.file-status .fs-actions{margin-left:auto;display:flex;gap:8px}
+.fs-sep{width:1px;height:34px;background:var(--border)}
+
+/* 流程分组 */
+.file-group{margin-bottom:12px}
+.fg-head{display:flex;align-items:center;gap:8px;padding:4px 2px 8px}
+.fg-head .fg-name{font-size:11.5px;font-weight:600;color:var(--text-1);display:flex;align-items:center;gap:6px}
+.fg-head .fg-count{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+.fg-head .fg-state{margin-left:auto;font-size:10.5px;color:var(--green);display:flex;align-items:center;gap:4px}
+.fg-head .fg-state.warn{color:var(--amber)}
+.fg-body{display:flex;flex-direction:column;gap:4px;border:1px solid var(--border);border-radius:var(--radius-card);padding:6px;background:var(--surface)}
+
+/* 文件卡片 */
+.file-card{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:var(--radius-btn);border:1px solid transparent;transition:background .15s,border-color .15s}
+.file-card:hover{background:#F7F8FA;border-color:var(--border)}
+.file-card .f-ico{width:32px;height:32px;border-radius:var(--radius-btn);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.file-card .f-ico svg{width:16px;height:16px}
+.file-card .f-ico.pdf{background:var(--danger-weak);color:var(--danger)}
+.file-card .f-ico.doc{background:var(--primary-weak);color:var(--primary)}
+.file-card .f-ico.img{background:var(--green-weak);color:var(--green)}
+.file-card .f-ico.zip{background:var(--amber-weak);color:var(--amber)}
+.file-card .f-main{flex:1;min-width:0}
+.file-card .f-main .fn{font-size:12.5px;font-weight:500;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card .f-main .fm{font-size:10.5px;color:var(--text-3);margin-top:2px;display:flex;gap:8px;align-items:center}
+.file-card .f-ops{display:flex;gap:2px;opacity:0;transition:opacity .15s}
+.file-card:hover .f-ops{opacity:1}
+.file-card .f-ops .op{width:26px;height:26px;border-radius:var(--radius-btn);display:flex;align-items:center;justify-content:center;color:var(--text-3);cursor:pointer;border:none;background:transparent}
+.file-card .f-ops .op:hover{background:var(--border);color:var(--text-1)}
+.file-card .f-ops .op svg{width:14px;height:14px}
+
+/* 智能重命名工作台 */
+.rename-view{display:none}
+.rename-view.open{display:block}
+.rename-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.rename-head .rh-title{font-size:13px;font-weight:600}
+.rename-head .rh-rule{font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-family:var(--mono);background:#F7F8FA}
+.rename-head .rh-sub{font-size:11px;color:var(--text-3);margin-left:4px}
+.rename-head .back{margin-left:auto}
+.rename-row{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-card);margin-bottom:8px;background:var(--surface);transition:border-color .15s,background .15s}
+.rename-row .rr-orig{flex:1;min-width:0}
+.rename-row .rr-orig .k{font-size:10px;color:var(--text-3);margin-bottom:3px}
+.rename-row .rr-orig .v{font-size:12px;color:var(--text-2);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rename-row .rr-arrow{width:26px;height:26px;border-radius:50%;background:var(--primary-weak);color:var(--primary);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.rename-row .rr-arrow svg{width:12px;height:12px}
+.rename-row .rr-new{flex:1.2;min-width:0}
+.rename-row .rr-new .k{font-size:10px;color:var(--text-3);margin-bottom:3px;display:flex;align-items:center;gap:5px}
+.rename-row .rr-new .v{font-size:12.5px;font-weight:600;color:var(--primary);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rename-row .rr-new .extract{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
+.extract-chip{font-size:9.5px;height:16px;padding:0 6px;border-radius:999px;background:var(--primary-weak);color:var(--primary);display:inline-flex;align-items:center;font-family:var(--mono)}
+.extract-chip.rule{background:var(--amber-weak);color:var(--amber)}
+.rename-row .rr-ops{display:flex;gap:6px;flex-shrink:0}
+.rename-row.done{border-color:var(--green);background:var(--green-weak)}
+.rename-row.done .rr-new .v{color:var(--green)}
+.rename-row .rr-badge{font-size:9.5px;height:16px;padding:0 6px;border-radius:999px;display:inline-flex;align-items:center;font-weight:600}
+.rr-badge.ai{background:var(--primary);color:#fff}
+.rr-badge.rule{background:var(--amber);color:#fff}
+.rename-footer{display:flex;align-items:center;gap:10px;padding-top:12px;border-top:1px solid var(--border);margin-top:12px}
+.rename-footer .rf-count{font-size:12px;color:var(--text-2)}
+
+/* ============ 文件预览面板（右侧滑出 · 通用预览组件接入） ============ */
+.preview-panel{position:fixed;top:42px;right:0;bottom:0;width:440px;background:var(--surface);border-left:1px solid var(--border);z-index:200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .18s ease;box-shadow:-8px 0 32px rgba(20,24,35,.12)}
+.preview-panel.open{transform:translateX(0)}
+.pp-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.pp-head .pp-title{flex:1;min-width:0}
+.pp-head .pp-title .n{font-size:13px;font-weight:600;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pp-head .pp-title .p{font-size:10.5px;color:var(--text-3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.pp-close{width:26px;height:26px;border-radius:var(--radius-btn);display:flex;align-items:center;justify-content:center;color:var(--text-3);cursor:pointer;border:none;background:transparent;flex-shrink:0}
+.pp-close:hover{background:#F3F4F7;color:var(--text-1)}
+.pp-close svg{width:15px;height:15px}
+.pp-actions{display:flex;gap:4px;flex-shrink:0}
+/* 预览主体（通用预览组件挂载区） */
+.pp-stage{flex:1;min-height:0;background:#F1F2F5;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.pp-stage .pv-placeholder{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;max-width:300px}
+.pp-stage .pv-ico{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center}
+.pp-stage .pv-ico svg{width:26px;height:26px}
+.pp-stage .pv-ico.pdf{background:var(--danger-weak);color:var(--danger)}
+.pp-stage .pv-ico.doc{background:var(--primary-weak);color:var(--primary)}
+.pp-stage .pv-ico.img{background:var(--green-weak);color:var(--green)}
+.pp-stage .pv-name{font-size:12.5px;font-weight:600;color:var(--text-1)}
+.pp-stage .pv-size{font-size:11px;color:var(--text-3);font-family:var(--mono)}
+.pp-stage .pv-engine{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-3);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:3px 10px;white-space:nowrap}
+.pp-stage .pv-engine .dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+/* PDF 模拟页 */
+.pp-stage .pdf-page{width:260px;background:#fff;border:1px solid var(--border);border-radius:4px;padding:22px 20px;box-shadow:0 2px 8px rgba(20,24,35,.08);font-size:9px;color:var(--text-2);line-height:1.7;display:flex;flex-direction:column;gap:7px}
+.pp-stage .pdf-page .pl{height:4px;border-radius:2px;background:#E3E6EA}
+.pp-stage .pdf-page .pl.w90{width:90%}.pp-stage .pdf-page .pl.w100{width:100%}
+.pp-stage .pdf-page .pl.w75{width:75%}.pp-stage .pdf-page .pl.w60{width:60%}
+.pp-stage .pdf-page .pl.w40{width:40%}.pp-stage .pdf-page .pl.w30{width:30%}
+.pp-stage .pdf-page .pl.hl{background:var(--primary-weak)}
+/* 预览信息栏 */
+.pp-info{flex-shrink:0;border-top:1px solid var(--border);padding:12px 16px;display:flex;flex-direction:column;gap:2px;background:var(--surface)}
+.pp-info .pi-row{display:flex;align-items:center;gap:8px;height:26px;font-size:11.5px}
+.pp-info .pi-row .k{width:76px;color:var(--text-3);flex-shrink:0;font-size:10.5px}
+.pp-info .pi-row .v{color:var(--text-2);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10.5px}
+.pp-footer{display:flex;gap:6px;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0}
+.pp-footer .btn{flex:1;justify-content:center}
+
+/* ============ 案卷目录树（真实文件映射 · master-detail） ============ */
+.files-layout{display:flex;gap:14px;align-items:stretch}
+.dir-tree{width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-card);background:var(--surface);padding:8px}
+.dir-stage{font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.5px;padding:10px 10px 4px}
+.dir-stage .st-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.dir-item{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:var(--radius-btn);cursor:pointer;border:1px solid transparent;transition:background .15s}
+.dir-item:hover{background:#F7F8FA}
+.dir-item.active{background:var(--primary-weak);border-color:var(--primary-border)}
+.dir-item .di-ico{width:15px;height:15px;flex-shrink:0;color:var(--amber);display:flex;align-items:center;justify-content:center}
+.dir-item .di-ico svg{width:15px;height:15px}
+.dir-item .di-name{flex:1;font-size:12.5px;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dir-item .di-count{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+.dir-item .di-state{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dir-item .di-state.ok{background:var(--green)}
+.dir-item .di-state.warn{background:var(--amber)}
+.dir-item .di-state.empty{background:#D8DBE0}
+.dir-item .di-path{display:none}
+.dir-item .di-last{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.dir-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:36px 20px;color:var(--text-3);text-align:center}
+.dir-empty .de-ico{width:36px;height:36px;border-radius:50%;background:#F5F6F8;display:flex;align-items:center;justify-content:center}
+.dir-empty .de-ico svg{width:18px;height:18px}
+.dir-empty .de-t{font-size:12.5px;font-weight:500;color:var(--text-2)}
+.dir-empty .de-s{font-size:11px}
+/* 文件映射行（源路径 → 归档路径） */
+.file-map{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-3);margin-top:3px;font-family:var(--mono)}
+.file-map .fm-arrow{color:var(--text-3);flex-shrink:0}
+.file-map .fm-path{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-map .fm-path.orig{max-width:130px}
+.file-map .fm-path.arch{color:var(--primary)}
+.files-toolbar{display:flex;align-items:center;gap:8px;padding:8px 2px 0;margin-top:8px;border-top:1px solid var(--border)}
+.files-toolbar .ft-hint{font-size:10.5px;color:var(--text-3);margin-left:auto;display:flex;align-items:center;gap:5px}
+.dir-files{flex:1;min-width:0;overflow-y:auto}
+</style>
+</head>
+<body>
+
+<!-- ======== 页面切换导航 ======== -->
+<nav class="viewbar">
+  <div class="vb-brand"><span class="dot">C</span>Casy UI · v2 秩序版</div>
+  <button data-target="p00" class="active">今日</button>
+  <button data-target="p01">任务工作台</button>
+  <button data-target="p02">案件工作台</button>
+  <button data-target="p03">日历</button>
+  <button data-target="p05">收件箱</button>
+  <button data-target="p06">知识库</button>
+  <button data-target="p07">设置</button>
+  <button data-target="p08">同步</button>
+  <button data-target="p09">文书工坊</button>
+  <span class="spacer"></span>
+  <span class="vb-hint">v2 秩序版 · 三层导航 · 全局壳</span>
+</nav>
+
+<!-- ======== 今日面板（顶栏下拉 · 哲学第四章第一层） ======== -->
+<div class="today-panel" id="todayPanel">
+  <div class="tp-label">硬性日程</div>
+  <div class="tp-item"><span class="circle red"></span><span class="time" style="font-family:var(--mono);font-size:12px;width:44px">09:30</span><span style="flex:1">口审 · 张三专利无效案</span></div>
+  <div class="tp-item"><span class="circle blue"></span><span class="time" style="font-family:var(--mono);font-size:12px;width:44px">14:00</span><span style="flex:1">庭审 · 华为 vs 三星</span></div>
+  <div class="tp-item"><span class="circle red"></span><span class="time" style="font-family:var(--mono);font-size:12px;width:44px">17:30</span><span style="flex:1;color:var(--danger)">期限截止 · 提交陈述意见</span></div>
+  <div class="tp-label">今日到期</div>
+  <div class="tp-item"><span class="check"></span><span style="flex:1">起草陈述意见初稿</span><span class="tag red">逾期 +1</span></div>
+  <div class="tp-item"><span class="check"></span><span style="flex:1">核对口审证据清单</span><span class="tag blue">45m</span></div>
+  <div class="tp-label">等待超期</div>
+  <div class="tp-item"><span class="circle amber"></span><span style="flex:1">等 国知局 答复无效请求</span><span class="tag amber">已等 12 天</span></div>
+  <div class="tp-item"><span class="circle amber"></span><span style="flex:1">等 对方律师 提交补充证据</span><span class="tag amber">已等 6 天</span></div>
+</div>
+
+<!-- ======== App 壳 ======== -->
+<div class="app">
+  <!-- 侧边栏（三层架构 · 全局唯一） -->
+  <div class="sb">
+    <div class="logo"><div class="mark">C</div><div class="name">Casy</div></div>
+    <div class="nav-group">工作台</div>
+    <div class="nav-item" data-page="p00">
+      <span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.8v3.4l2.2 1.4"/></svg></span>今日
+      <span class="badge red">4</span>
+    </div>
+    <div class="nav-group">核心</div>
+    <div class="nav-item" data-page="p01">
+      <span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3.5" width="11" height="9" rx="2"/><path d="M5.5 6.5h5M5.5 9h3.5"/></svg></span>任务工作台
+      <span class="badge">7</span>
+    </div>
+    <div class="nav-item" data-page="p02">
+      <span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5a2 2 0 0 1 2-2h2.6a1 1 0 0 1 .8.4l.9 1.2h4.7a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-8z"/></svg></span>案件工作台
+    </div>
+    <div class="nav-item" data-page="p03">
+      <span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"/></svg></span>日历
+    </div>
+    <div class="nav-group">知识</div>
+    <div class="nav-item" data-page="p05">
+      <span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4a2 2 0 0 1 2-2h9v11h-9a2 2 0 0 0-2 2V4z"/><path d="M13.5 13v1.5h-8A1.5 1.5 0 0 1 6.5 13"/></svg></span>收件箱
+      <span class="badge red">4</span>
+    </div>
+    <div class="nav-item" data-page="p06">
+      <span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2.5h6a2 2 0 0 1 2 2V13a1.5 1.5 0 0 0-1.5-1.5H3V2.5z"/><path d="M11 4.5h2a1 1 0 0 1 1 1V13a1.5 1.5 0 0 0-1.5-1.5H11"/></svg></span>知识库
+    </div>
+    <div class="spacer"></div>
+    <div class="ai-status"><span class="dot"></span>AI 智伴 · 本地模型可用</div>
+    <div class="user">
+      <div class="avatar">王</div>
+      <div class="info"><span class="n">王律师</span><span class="s">专利诉讼 · 无效程序</span></div>
+    </div>
+  </div>
+
+  <!-- 主区 -->
+  <div class="main">
+    <div class="topbar">
+      <span class="t" id="pageTitle">今日</span>
+      <button class="today-btn" id="todayBtn"><span class="t-dot red"></span>今日聚合</button>
+      <div class="search">搜索案件 / 任务 / 法条 / 客户…<span class="kbd">⌘K</span></div>
+      <div class="actions">
+        <button class="btn">+ 任务</button>
+        <button class="btn primary">+ 捕获</button>
+      </div>
+    </div>
+    <div class="content" id="content">
+
+<!-- ===================== P00 今日（首页 · 今日焦点） ===================== -->
+<div class="page active" id="p00">
+  <div class="today-hero">
+    <span class="d">8月17日 周一</span>
+    <span class="s">硬性日程 2 · 到期 4 · 等待超期 2 · 需回顾 2</span>
+  </div>
+
+  <div class="focus-grid">
+    <!-- 左：今日秩序 -->
+    <div class="vstack">
+      <!-- 硬性日程 · 时间线 -->
+      <div class="card">
+        <div class="ch"><span class="t">硬性日程</span><span class="s">开庭 / 口审 / 期限</span></div>
+        <div class="sep"></div>
+        <div class="timeline">
+          <div class="tl-row">
+            <div class="tl-time">09:30</div>
+            <div class="tl-track"><span class="tl-dot red"></span></div>
+            <div class="tl-body">
+              <div class="txt"><div class="n">口审 · 张三专利无效案</div><div class="m">4W122723 · 合议组审查</div></div>
+              <span class="tag purple">无效</span>
+            </div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-time">14:00</div>
+            <div class="tl-track"><span class="tl-dot blue"></span></div>
+            <div class="tl-body">
+              <div class="txt"><div class="n">庭审 · 华为 vs 三星</div><div class="m">标准必要专利许可纠纷 · 一审</div></div>
+              <span class="tag blue">民事</span>
+            </div>
+          </div>
+          <div class="tl-row danger">
+            <div class="tl-time">17:30</div>
+            <div class="tl-track"><span class="tl-dot red"></span></div>
+            <div class="tl-body">
+              <div class="txt"><div class="n">期限截止 · 提交陈述意见</div><div class="m">张三案 · 口审前最后期限</div></div>
+              <span class="tag red">今天</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 今日到期 -->
+      <div class="card">
+        <div class="ch"><span class="t">今日到期</span><span class="s">4 项</span></div>
+        <div class="sep"></div>
+        <div class="row"><span class="check"></span><span style="flex:1;color:var(--danger);font-weight:500">起草陈述意见初稿</span><span style="font-size:11px;color:var(--text-3)">2h · 张三案</span><span class="tag red">逾期 +1</span></div>
+        <div class="row"><span class="check"></span><span style="flex:1">核对口审证据清单</span><span style="font-size:11px;color:var(--text-3)">45m · 张三案</span><span class="tag amber">今天截止</span></div>
+        <div class="row"><span class="check"></span><span style="flex:1">联系证人确认出庭时间</span><span style="font-size:11px;color:var(--text-3)">20m · 华为案</span></div>
+        <div class="row"><span class="check"></span><span style="flex:1">起草上诉状初稿</span><span style="font-size:11px;color:var(--text-3)">2h · 李四案</span></div>
+      </div>
+
+      <!-- 等待跟进 -->
+      <div class="card">
+        <div class="ch"><span class="t">等待跟进</span><span class="s" style="color:var(--amber)">2 条超 3 天</span></div>
+        <div class="sep"></div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="padding:8px 0">
+            <div class="row" style="min-height:0"><span class="circle amber"></span><span style="flex:1">等 国知局 答复无效请求</span><span style="font-size:11px;font-weight:500;color:var(--amber)">已等 12 天</span><button class="btn-sm">催办</button></div>
+            <div class="progress" style="margin:6px 0 0 18px"><div class="fill" style="width:82%"></div></div>
+          </div>
+          <div style="padding:8px 0">
+            <div class="row" style="min-height:0"><span class="circle amber"></span><span style="flex:1">等 对方律师 提交补充证据</span><span style="font-size:11px;font-weight:500;color:var(--amber)">已等 6 天</span><button class="btn-sm">催办</button></div>
+            <div class="progress" style="margin:6px 0 0 18px"><div class="fill" style="width:48%"></div></div>
+          </div>
+          <div style="padding:8px 0">
+            <div class="row" style="min-height:0"><span class="circle gray"></span><span style="flex:1">等 法院 排期通知</span><span style="font-size:11px;color:var(--text-3)">已等 3 天</span></div>
+            <div class="progress" style="margin:6px 0 0 18px"><div class="fill gray" style="width:24%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：下一步 + 推荐 + 回顾 -->
+    <div class="vstack">
+      <!-- 下一步行动（顺序项目 blocked=0 · 哲学原则一） -->
+      <div class="card">
+        <div class="ch"><span class="t">下一步行动</span><span class="s">blocked = 0</span></div>
+        <div class="sep"></div>
+        <div class="next-card" style="margin-bottom:8px">
+          <div class="play"><svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 1.8v8.4a.4.4 0 0 0 .62.33l6.5-4.2a.4.4 0 0 0 0-.66l-6.5-4.2A.4.4 0 0 0 3 1.8z"/></svg></div>
+          <div class="info">
+            <div class="n">核对口审证据清单</div>
+            <div class="s">当前唯一可推进 · 完成后解锁「口审答辩」</div>
+          </div>
+          <button class="btn-sm primary">开始</button>
+        </div>
+        <div class="row"><span class="check done"></span><span style="flex:1">核对口审证据清单</span><span class="tag solid-green">当前</span></div>
+        <div class="row" style="opacity:.5"><span class="check" style="background:#F0F1F3;border-color:#D8DBE0"></span><span style="color:var(--text-3)">口审答辩（锁定）</span></div>
+        <div class="row" style="opacity:.5"><span class="check" style="background:#F0F1F3;border-color:#D8DBE0"></span><span style="color:var(--text-3)">跟进无效决定（锁定）</span></div>
+      </div>
+
+      <!-- 智能推荐（含降级态标注 · 12.5） -->
+      <div class="card">
+        <div class="ch"><span class="t">智能推荐</span><span class="s">规则排序</span></div>
+        <div class="sep"></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px">
+            <span style="width:20px;height:20px;border-radius:var(--radius-btn);background:var(--primary-weak);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--primary);flex-shrink:0">1</span>
+            <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:12.5px;font-weight:500">核对口审证据清单</span>
+              <span style="font-size:11px;color:var(--text-3)">口审 09:30，材料需庭前定稿</span>
+            </div>
+            <button class="btn-sm primary">确认</button>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px">
+            <span style="width:20px;height:20px;border-radius:var(--radius-btn);background:var(--primary-weak);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--primary);flex-shrink:0">2</span>
+            <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:12.5px;font-weight:500">起草陈述意见</span>
+              <span style="font-size:11px;color:var(--danger)">逾期 +1 天，17:30 截止</span>
+            </div>
+            <button class="btn-sm">改期</button>
+          </div>
+          <div class="degrade-bar" style="margin-bottom:0">
+            <span class="ico"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 1.8a5.2 5.2 0 1 0 0 10.4A5.2 5.2 0 0 0 7 1.8z"/><path d="M7 4.5v2.6M7 9.4v.1"/></svg></span>
+            AI 推荐不可用 · 已显示规则排序
+          </div>
+        </div>
+      </div>
+
+      <!-- 需回顾 -->
+      <div class="card">
+        <div class="ch"><span class="t">需回顾</span><span class="s">2 案</span></div>
+        <div class="sep"></div>
+        <div class="row"><span class="circle purple"></span><span style="flex:1">华为 vs 三星 · 6 天未更新</span><span class="tag amber">下次 8/15</span></div>
+        <div class="row"><span class="circle blue"></span><span style="flex:1">比亚迪案 · 新证据待决策</span><span class="tag purple">待决策</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部统计一行（退居角落，不是主角） -->
+  <div class="statline" style="margin-top:14px">
+    <div class="st"><span class="v">24</span><span class="k">活跃案件</span></div>
+    <div class="st"><span class="v">8</span><span class="k">等待中</span></div>
+    <div class="st"><span class="v">5</span><span class="k">本月结案</span></div>
+    <div class="st"><span class="v" style="color:var(--danger)">2</span><span class="k">逾期</span></div>
+    <div class="st"><span class="v" style="color:var(--amber)">12</span><span class="k">本周平均等待天数</span></div>
+  </div>
+</div>
+<!-- ===================== P00 end ===================== -->
+
+<!-- ===================== P01 任务工作台（GTD 5 透视 · 哲学第五章） ===================== -->
+<div class="page" id="p01">
+  <!-- 透视 Tab（第三层过滤） -->
+  <div class="chips" style="margin-bottom:12px">
+    <span class="chip active">收件箱 · 4</span>
+    <span class="chip">下一步行动</span>
+    <span class="chip">等待 · 3</span>
+    <span class="chip">今日 · 3</span>
+    <span class="chip">回顾 · 2</span>
+    <span class="chip">某天 · 3</span>
+    <span style="font-size:11px;color:var(--text-3);margin-left:6px">先捕获，稍后厘清归属</span>
+  </div>
+
+  <div class="hstack" style="align-items:stretch">
+    <!-- 左：任务列表 -->
+    <div class="vstack" style="flex:1">
+      <div class="card">
+        <div class="ch"><span class="t">收件箱 · 待厘清</span><span class="s">4 项</span></div>
+        <div class="sep"></div>
+        <div style="border:1px solid var(--primary-border);background:var(--primary-weak);border-radius:var(--radius-btn);padding:10px;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px">
+          <span class="check"></span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+            <span style="font-weight:500">对方律师来电说要补充一份证据清单</span>
+            <span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text-3)"><span class="tag gray">待判定</span>今天 09:12 · 电话</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px">
+          <span class="check"></span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+            <span>国知局寄来口审通知书（赵六案）</span>
+            <span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text-3)"><span class="tag gray">待判定</span>昨天 16:40 · 邮件 · 附件 PDF</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px">
+          <span class="check"></span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+            <span>客户想了解无效程序大概要多久</span>
+            <span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text-3)"><span class="tag gray">待判定</span>昨天 11:05 · 微信</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;display:flex;gap:10px;align-items:flex-start">
+          <span class="check"></span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+            <span>准备下周二新案子的接案材料</span>
+            <span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text-3)"><span class="tag gray">待判定</span>8月12日 · 邮件</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：详情面板 -->
+    <div class="card" style="width:336px;flex-shrink:0;align-self:flex-start">
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:2px 0 6px">
+        <span class="check"></span>
+        <span style="font-size:14px;font-weight:600">核对口审证据清单</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:6px"><span class="tag purple">张三专利无效案</span></div>
+      <div class="sep"></div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:6px 0">时间双轨（When / Deadline · 原则二）</div>
+      <div class="dual">
+        <div class="box"><span class="k">When · 开始</span><span class="v">今天</span></div>
+        <div class="box danger"><span class="k">Deadline · 截止</span><span class="v">今天 09:30 · 口审</span></div>
+      </div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 0 4px">上下文</div>
+      <span class="tag blue" style="height:22px;padding:0 9px">@办公室</span>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 0 4px">任务信息</div>
+      <div class="frow"><span class="k">预计耗时</span><span>45 分钟</span></div>
+      <div class="frow"><span class="k">关联案件</span><span>张三专利无效案</span></div>
+      <div class="frow"><span class="k">顺序位置</span><span>阶段二 · 第 1 步 / 共 3 步</span></div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 0 4px">顺序项目（blocked）</div>
+      <div style="display:flex;align-items:center;gap:8px;height:28px">
+        <span class="check done"></span><span style="font-weight:500">核对口审证据清单</span><span class="tag solid-green" style="margin-left:auto">当前</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;height:28px;opacity:.5">
+        <span class="check" style="background:#F0F1F3;border-color:#D8DBE0"></span><span style="color:var(--text-3)">口审答辩（锁定）</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;height:28px;opacity:.5">
+        <span class="check" style="background:#F0F1F3;border-color:#D8DBE0"></span><span style="color:var(--text-3)">跟进无效决定（锁定）</span>
+      </div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 0 4px">备注</div>
+      <div style="font-size:12px;color:var(--text-2);line-height:1.6">口审在 09:30，证据清单需在庭前定稿。与赵六案同属无效程序，可合并准备口审材料。</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:12px">
+        <button class="btn">改期</button>
+        <button class="btn primary">开始任务</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P01 end ===================== -->
+
+<!-- ===================== P02 案件工作台（master-detail：案件列表 + 项目详情 + 案卷） ===================== -->
+<div class="page" id="p02">
+  <div class="case-layout">
+    <!-- 左列：进行中案件（项目）列表 -->
+    <div class="case-list">
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
+        <span class="chip active">全部</span>
+        <span class="chip">我负责</span>
+        <span class="chip">等待中</span>
+        <span class="chip">按客户</span>
+      </div>
+
+      <div class="case-item active">
+        <div class="cn">张三专利无效案<span class="tag purple">无效</span></div>
+        <div class="cm">NO.2026-0001 · 高炉耐火砖</div>
+        <div class="ct"><span class="tag blue">审理中</span><span class="tag amber">今日口审</span><span class="dl over">17:30</span></div>
+      </div>
+      <div class="case-item">
+        <div class="cn">POSCO vs 新日铁<span class="tag purple">无效</span></div>
+        <div class="cm">NO.2026-0002 · 4W122723</div>
+        <div class="ct"><span class="tag blue">审理中</span><span class="dl soon">+2 天</span></div>
+      </div>
+      <div class="case-item">
+        <div class="cn">华为 vs 三星<span class="tag blue">民事</span></div>
+        <div class="cm">NO.2026-0003 · 标准必要专利</div>
+        <div class="ct"><span class="tag amber">上诉期</span><span class="dl soon">4 天</span></div>
+      </div>
+      <div class="case-item">
+        <div class="cn">比亚迪 vs 宁德时代<span class="tag blue">民事</span></div>
+        <div class="cm">NO.2026-0004 · 电池专利</div>
+        <div class="ct"><span class="tag green">庭前</span><span class="dl">10-12</span></div>
+      </div>
+      <div class="case-item">
+        <div class="cn">陈某诉国知局<span class="tag amber">行政</span></div>
+        <div class="cm">NO.2026-0005 · 无效决定</div>
+        <div class="ct"><span class="tag blue">一审</span><span class="dl">待开庭</span></div>
+      </div>
+
+      <div style="display:flex;gap:6px;padding:8px 0">
+        <button class="btn" style="flex:1">+ 新建案件</button>
+      </div>
+    </div>
+
+    <!-- 右列：项目详情 -->
+    <div style="flex:1;min-width:0;overflow-y:auto;padding-right:2px">
+      <!-- 案件概要 -->
+      <div class="card" style="flex-direction:row;align-items:flex-start;gap:16px;margin-bottom:14px">
+        <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+          <span style="font-size:16px;font-weight:700">张三专利无效宣告案</span>
+          <span style="font-size:11px;color:var(--text-3);font-family:var(--mono)">NO. 2026-0001 · ZL20181012345.6 · 一种液压阀结构 · 客户：新日铁</span>
+          <span style="display:flex;gap:6px">
+            <span class="tag purple">专利无效轨</span>
+            <span class="tag amber">审理中 · 待口审</span>
+            <span class="tag blue">并轨：民事诉讼</span>
+          </span>
+        </div>
+        <div style="width:52px;height:52px;border-radius:50%;background:conic-gradient(var(--primary) 62%, #E6E9EF 0);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:var(--primary)">5/8</div>
+        </div>
+      </div>
+
+      <!-- 下一步行动 -->
+      <div class="next-card" style="margin-bottom:14px">
+        <div class="play"><svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 1.8v8.4a.4.4 0 0 0 .62.33l6.5-4.2a.4.4 0 0 0 0-.66l-6.5-4.2A.4.4 0 0 0 3 1.8z"/></svg></div>
+        <div class="info">
+          <div class="n">核对口审证据清单</div>
+          <div class="s">当前唯一可推进 · 完成后解锁「口审答辩」· 预计 45 分钟</div>
+        </div>
+        <button class="btn-sm primary">开始</button>
+        <button class="btn-sm">完成</button>
+      </div>
+
+      <!-- 详情 Tab：项目总览 / 三轨状态 / 案卷 / 动态轨迹 -->
+      <div class="detail-tabs">
+        <span class="dtab active" data-tab="tab-overview">项目总览</span>
+        <span class="dtab" data-tab="tab-tracks">三轨状态</span>
+        <span class="dtab" data-tab="tab-files">案卷 · 12</span>
+        <span class="dtab" data-tab="tab-timeline">动态轨迹</span>
+      </div>
+
+      <!-- Tab：项目总览 -->
+      <div class="detail-tab-body active" id="tab-overview">
+        <div class="grid-2" style="align-items:start">
+          <div class="card">
+            <div class="ch"><span class="t">里程碑</span><span class="s">3 阶段 · 顺序项目</span></div>
+            <div class="sep"></div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:2px 0 6px">案件目标</div>
+            <div class="input">使涉案专利权利要求 1-4 全部无效，扫清客户产品侵权风险</div>
+            <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;margin-top:10px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span class="tag green">✓ 受理</span><span style="font-size:12px;font-weight:600">阶段一 · 提出无效请求</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 2px">
+                <span class="circle green"></span><span style="flex:1">起草无效宣告请求书</span><span class="tag green">已完成</span>
+              </div>
+            </div>
+            <div style="border:1px solid var(--primary-border);background:var(--primary-weak);border-radius:var(--radius-btn);padding:10px;margin-top:8px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span class="tag solid-blue">口审</span><span style="font-size:12px;font-weight:600">阶段二 · 口审与答辩</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 2px">
+                <span class="circle blue"></span><span style="flex:1">核对口审证据清单</span><span class="tag amber">今日 09:30</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 2px;opacity:.5">
+                <span style="width:7px;height:7px;border-radius:50%;border:1.5px solid #C6CAD1"></span><span style="color:var(--text-3)">口审答辩（锁定）</span>
+              </div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;margin-top:8px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span class="tag gray">决定</span><span style="font-size:12px;font-weight:600">阶段三 · 无效决定</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 2px;opacity:.5">
+                <span style="width:7px;height:7px;border-radius:50%;border:1.5px solid #C6CAD1"></span><span style="color:var(--text-3)">跟进无效决定（锁定）</span>
+              </div>
+            </div>
+          </div>
+          <div class="vstack">
+            <div class="card">
+              <div class="ch"><span class="t">关联资源</span><span class="s">任务 / 文书 / 知识</span></div>
+              <div class="sep"></div>
+              <div class="frow" style="border-bottom:1px solid var(--border);height:36px"><span class="k">任务统计</span><span style="display:flex;gap:4px"><span class="tag gray">行动 3</span><span class="tag amber">等待 1</span><span class="tag green">已完成 2</span></span></div>
+              <div class="frow" style="border-bottom:1px solid var(--border);height:36px"><span class="k">文书</span><span style="display:flex;gap:4px"><span class="tag outline">请求书</span><span class="tag outline">证据清单</span></span></div>
+              <div class="frow" style="height:36px"><span class="k">知识引用</span><span class="tag outline">《专利审查指南》</span></div>
+            </div>
+            <div class="card">
+              <div class="ch"><span class="t">期限预警</span><span class="s">R2</span></div>
+              <div class="sep"></div>
+              <div class="row" style="min-height:32px"><span class="circle red"></span><span style="flex:1">专利权人陈述意见截止</span><span class="tag red">今天 17:30</span></div>
+              <div class="row" style="min-height:32px"><span class="circle amber"></span><span style="flex:1">请求人补充证据窗口</span><span class="tag amber">已关闭</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab：三轨状态 -->
+      <div class="detail-tab-body" id="tab-tracks">
+        <div class="card">
+          <div class="ch"><span class="t">三轨状态机</span><span class="s">轨道回答法律走到哪 · 可并行</span></div>
+          <div class="sep"></div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius-btn);padding:11px">
+              <span style="width:64px;font-size:12px;font-weight:600">无效轨</span>
+              <div style="flex:1;display:flex;gap:4px;flex-wrap:wrap">
+                <span class="tag green">✓ 受理</span><span class="tag solid-blue">口审</span><span class="tag gray">决定</span>
+              </div>
+              <span class="tag purple">进行中</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius-btn);padding:11px">
+              <span style="width:64px;font-size:12px;font-weight:600">民事轨</span>
+              <div style="flex:1;display:flex;gap:4px;flex-wrap:wrap">
+                <span class="tag green">✓ 一审</span><span class="tag solid-blue">上诉期</span><span class="tag gray">二审</span>
+              </div>
+              <span class="tag blue">上诉期 · 4 天</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;border:1px dashed var(--border);border-radius:var(--radius-btn);padding:11px;opacity:.6">
+              <span style="width:64px;font-size:12px;font-weight:600">行政轨</span>
+              <div style="flex:1;font-size:11.5px;color:var(--text-3)">未启动 · 可并行激活</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab：案卷（文件管理 · 模块 09 精装版） -->
+      <div class="detail-tab-body" id="tab-files">
+        <!-- 案卷状态条：材料完整度 + 待处理 + 主操作 -->
+        <div class="file-status">
+          <div class="fs-item"><div class="v">10<small>/12</small></div><div class="k">目录已归档</div></div>
+          <div class="fs-sep"></div>
+          <div class="fs-item"><div class="v">2</div><div class="k">待智能命名</div></div>
+          <div class="fs-sep"></div>
+          <div class="fs-item"><div class="v" style="color:var(--amber)">1</div><div class="k">新捕获待厘清</div></div>
+          <div class="fs-sep"></div>
+          <div class="fs-item"><div class="v" style="font-size:13px;font-weight:600;padding-top:2px">最近更新 08-14</div><div class="k">证据清单_v3.docx</div></div>
+          <div class="fs-actions">
+            <button class="btn" id="renameBtn">智能重命名</button>
+            <button class="btn">打开文件夹</button>
+            <button class="btn primary">添加文件</button>
+          </div>
+        </div>
+
+        <!-- 案卷主体：目录树 master-detail（真实文件映射） -->
+        <div id="filesView">
+          <div class="files-layout">
+            <!-- 左：目录树（诉讼 12 目录模板，按阶段分组） -->
+            <div class="dir-tree">
+              <div class="dir-stage"><span class="st-dot" style="background:var(--primary)"></span>阶段一 · 申请</div>
+              <div class="dir-item active" data-dir="d1">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">01 申请材料</span><span class="di-count">3</span><span class="di-state ok"></span>
+              </div>
+              <div class="dir-item" data-dir="d2">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">02 证据材料</span><span class="di-count">4</span><span class="di-state ok"></span>
+              </div>
+              <div class="dir-item" data-dir="d3">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">03 口审材料</span><span class="di-count">2</span><span class="di-state warn"></span>
+              </div>
+              <div class="dir-item" data-dir="d4">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">04 官方文书</span><span class="di-count">2</span><span class="di-state ok"></span>
+              </div>
+              <div class="dir-stage"><span class="st-dot" style="background:var(--amber)"></span>阶段二 · 审理</div>
+              <div class="dir-item" data-dir="d5">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">05 庭审/口审记录</span><span class="di-count">1</span><span class="di-state warn"></span>
+              </div>
+              <div class="dir-item" data-dir="d6">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">06 往来函件</span><span class="di-count">1</span><span class="di-state ok"></span>
+              </div>
+              <div class="dir-item" data-dir="d7">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">07 补充证据</span><span class="di-count">0</span><span class="di-state empty"></span>
+              </div>
+              <div class="dir-item" data-dir="d8">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">08 代理词/意见陈述</span><span class="di-count">1</span><span class="di-state ok"></span>
+              </div>
+              <div class="dir-stage"><span class="st-dot" style="background:var(--green)"></span>阶段三 · 审结归档</div>
+              <div class="dir-item" data-dir="d9">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">09 判决/决定书</span><span class="di-count">0</span><span class="di-state empty"></span>
+              </div>
+              <div class="dir-item" data-dir="d10">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">10 上诉/再审材料</span><span class="di-count">0</span><span class="di-state empty"></span>
+              </div>
+              <div class="dir-item" data-dir="d11">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">11 客户沟通</span><span class="di-count">1</span><span class="di-state ok"></span>
+              </div>
+              <div class="dir-item" data-dir="d12">
+                <span class="di-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6A1.5 1.5 0 0 1 15 6v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5V4z"/></svg></span>
+                <span class="di-name">12 内部工作文件</span><span class="di-count">0</span><span class="di-state empty"></span>
+              </div>
+              <div class="files-toolbar">
+                <button class="btn-sm">模板设置</button>
+                <button class="btn-sm">打开文件夹</button>
+                <span class="ft-hint"><span class="circle green"></span>监听中 · 新文件自动捕获</span>
+              </div>
+            </div>
+
+            <!-- 右：选中目录的文件列表（含源路径 → 归档路径映射） -->
+            <div class="dir-files">
+              <!-- 01 申请材料 -->
+              <div class="dir-files-panel" id="d1">
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 2px 10px">
+                  <span style="font-size:13px;font-weight:600">01 申请材料</span>
+                  <span style="font-size:10.5px;color:var(--text-3);font-family:var(--mono)">cases/2026-0001/01 申请材料/</span>
+                  <span class="tag green" style="margin-left:auto">3 项 · 完整</span>
+                </div>
+                <div class="fg-body">
+                  <div class="file-card">
+                    <div class="f-ico pdf"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6 8h4M6 10.5h4"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">无效宣告请求书_张三案.pdf</div>
+                      <div class="fm"><span>起草</span><span>08-02</span><span>248 KB</span><span class="tag green">已归档</span></div>
+                      <div class="file-map"><span class="fm-path orig">~/下载/无效宣告请求书(1).pdf</span><span class="fm-arrow">→</span><span class="fm-path arch">01 申请材料/</span></div>
+                    </div>
+                    <div class="f-ops">
+                      <button class="op"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 3h10v10H3z"/><path d="M10 3v10"/></svg></button>
+                      <button class="op"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 11.5V14h2.5L12 6.5 9.5 4 2 11.5z"/><path d="M8.5 5l2.5 2.5"/></svg></button>
+                    </div>
+                  </div>
+                  <div class="file-card">
+                    <div class="f-ico img"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.3"/><path d="M2 12.5l4-4 3 3 2.5-2.5 2.5 2.5"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">证据1-权利要求书扫描.png</div>
+                      <div class="fm"><span>扫描</span><span>08-01</span><span>1.2 MB</span><span class="tag green">已归档</span></div>
+                      <div class="file-map"><span class="fm-path orig">~/桌面/扫描件_0801.png</span><span class="fm-arrow">→</span><span class="fm-path arch">01 申请材料/</span></div>
+                    </div>
+                    <div class="f-ops">
+                      <button class="op"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 3h10v10H3z"/><path d="M10 3v10"/></svg></button>
+                      <button class="op"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 11.5V14h2.5L12 6.5 9.5 4 2 11.5z"/><path d="M8.5 5l2.5 2.5"/></svg></button>
+                    </div>
+                  </div>
+                  <div class="file-card">
+                    <div class="f-ico doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">证据清单_v3.docx</div>
+                      <div class="fm"><span>起草</span><span>08-14</span><span>64 KB</span><span class="tag amber">待命名</span></div>
+                      <div class="file-map"><span class="fm-path orig">~/文档/新建文档.docx</span><span class="fm-arrow">→</span><span class="fm-path arch">01 申请材料/</span></div>
+                    </div>
+                    <div class="f-ops">
+                      <button class="op"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 3h10v10H3z"/><path d="M10 3v10"/></svg></button>
+                      <button class="op"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 11.5V14h2.5L12 6.5 9.5 4 2 11.5z"/><path d="M8.5 5l2.5 2.5"/></svg></button>
+                    </div>
+                  </div>
+                </div>
+                <div class="files-toolbar">
+                  <button class="btn-sm">拷贝文件到此目录</button>
+                  <button class="btn-sm">从收件箱归档</button>
+                  <span class="ft-hint"><span class="circle amber"></span>1 项待命名</span>
+                </div>
+              </div>
+
+              <!-- 02 证据材料 -->
+              <div class="dir-files-panel" id="d2" style="display:none">
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 2px 10px">
+                  <span style="font-size:13px;font-weight:600">02 证据材料</span>
+                  <span style="font-size:10.5px;color:var(--text-3);font-family:var(--mono)">cases/2026-0001/02 证据材料/</span>
+                  <span class="tag green" style="margin-left:auto">4 项 · 完整</span>
+                </div>
+                <div class="fg-body">
+                  <div class="file-card">
+                    <div class="f-ico pdf"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6 8h4M6 10.5h4"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">对比文件1_CN102345678A.pdf</div>
+                      <div class="fm"><span>邮件</span><span>07-25</span><span>1.6 MB</span><span class="tag green">已归档</span></div>
+                      <div class="file-map"><span class="fm-path orig">~/下载/CN102345678A 公开文本.pdf</span><span class="fm-arrow">→</span><span class="fm-path arch">02 证据材料/</span></div>
+                    </div>
+                  </div>
+                  <div class="file-card">
+                    <div class="f-ico pdf"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6 8h4M6 10.5h4"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">对比文件2_US20180123456A1.pdf</div>
+                      <div class="fm"><span>邮件</span><span>07-25</span><span>2.1 MB</span><span class="tag green">已归档</span></div>
+                      <div class="file-map"><span class="fm-path orig">~/下载/US20180123456A1.pdf</span><span class="fm-arrow">→</span><span class="fm-path arch">02 证据材料/</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 03 口审材料 -->
+              <div class="dir-files-panel" id="d3" style="display:none">
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 2px 10px">
+                  <span style="font-size:13px;font-weight:600">03 口审材料</span>
+                  <span style="font-size:10.5px;color:var(--text-3);font-family:var(--mono)">cases/2026-0001/03 口审材料/</span>
+                  <span class="tag amber" style="margin-left:auto">2 项 · 缺 1 项</span>
+                </div>
+                <div class="fg-body">
+                  <div class="file-card">
+                    <div class="f-ico doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">口审通知书_国知局.docx</div>
+                      <div class="fm"><span>邮件</span><span>08-07</span><span>86 KB</span><span class="tag green">已归档</span></div>
+                      <div class="file-map"><span class="fm-path orig">邮箱附件/口审通知书.pdf</span><span class="fm-arrow">→</span><span class="fm-path arch">03 口审材料/</span></div>
+                    </div>
+                  </div>
+                  <div class="file-card">
+                    <div class="f-ico img"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.3"/><path d="M2 12.5l4-4 3 3 2.5-2.5 2.5 2.5"/></svg></div>
+                    <div class="f-main">
+                      <div class="fn">现场勘验照片_0702.png</div>
+                      <div class="fm"><span>扫描</span><span>07-02</span><span>3.4 MB</span><span class="tag blue">新捕获</span></div>
+                      <div class="file-map"><span class="fm-path orig">~/桌面/现场勘验.png</span><span class="fm-arrow">→</span><span class="fm-path arch">待厘清</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 空目录占位 -->
+              <div class="dir-files-panel" id="d7" style="display:none">
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 2px 10px">
+                  <span style="font-size:13px;font-weight:600">07 补充证据</span>
+                  <span style="font-size:10.5px;color:var(--text-3);font-family:var(--mono)">cases/2026-0001/07 补充证据/</span>
+                  <span class="tag gray" style="margin-left:auto">空目录</span>
+                </div>
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">目录为空</div>
+                  <div class="de-s">拷贝文件到此目录，或从收件箱归档</div>
+                  <div style="display:flex;gap:6px;margin-top:4px">
+                    <button class="btn-sm">拷贝文件</button>
+                    <button class="btn-sm">从收件箱归档</button>
+                  </div>
+                </div>
+              </div>
+              <!-- 其他目录通用占位 -->
+              <div class="dir-files-panel" id="d4" style="display:none">
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 2px 10px">
+                  <span style="font-size:13px;font-weight:600">04 官方文书</span>
+                  <span style="font-size:10.5px;color:var(--text-3);font-family:var(--mono)">cases/2026-0001/04 官方文书/</span>
+                  <span class="tag green" style="margin-left:auto">2 项 · 完整</span>
+                </div>
+                <div class="fg-body">
+                  <div class="file-card">
+                    <div class="f-ico pdf"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6 8h4M6 10.5h4"/></svg></div>
+                    <div class="f-main"><div class="fn">专利公报_4W122723.pdf</div><div class="fm"><span>邮件</span><span>07-19</span><span>1.8 MB</span><span class="tag green">已归档</span></div></div>
+                  </div>
+                  <div class="file-card">
+                    <div class="f-ico doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/></svg></div>
+                    <div class="f-main"><div class="fn">受理通知书_国知局.docx</div><div class="fm"><span>邮件</span><span>07-19</span><span>52 KB</span><span class="tag green">已归档</span></div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d5" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">05 庭审/口审记录</div>
+                  <div class="de-s">口审后自动归档庭审记录</div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d6" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">06 往来函件</div>
+                  <div class="de-s">暂无文件</div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d8" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">08 代理词/意见陈述</div>
+                  <div class="de-s">口审前生成并归档</div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d9" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">09 判决/决定书</div>
+                  <div class="de-s">审结后归档裁判文书</div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d10" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">10 上诉/再审材料</div>
+                  <div class="de-s">进入上诉期后自动建议归档</div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d11" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">11 客户沟通</div>
+                  <div class="de-s">暂无文件</div>
+                </div>
+              </div>
+              <div class="dir-files-panel" id="d12" style="display:none">
+                <div class="dir-empty">
+                  <div class="de-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16 7v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 14V5z"/></svg></div>
+                  <div class="de-t">12 内部工作文件</div>
+                  <div class="de-s">暂无文件</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 智能重命名工作台（进入后替换主体视图） -->
+        <div class="rename-view" id="renameView">
+          <div class="rename-head">
+            <span class="rh-title">智能重命名 · 2 个文件</span>
+            <span class="rh-rule">{案号}_{文书类型}_{日期}</span>
+            <span class="rh-sub">按命名规则自动生成规范文件名</span>
+            <button class="btn-sm back" id="renameBack">← 返回案卷</button>
+          </div>
+
+          <!-- 条目 1：AI 提取 -->
+          <div class="rename-row">
+            <div class="rr-orig">
+              <div class="k">原始文件名</div>
+              <div class="v">扫描件_20260814_证据清单.docx</div>
+            </div>
+            <div class="rr-arrow"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6h8M7 3l3 3-3 3"/></svg></div>
+            <div class="rr-new">
+              <div class="k"><span class="rr-badge ai">AI</span>建议文件名</div>
+              <div class="v">无效宣告请求书_张三案_20260814.docx</div>
+              <div class="extract">
+                <span class="extract-chip">案号 2026-0001</span>
+                <span class="extract-chip">类型 请求书</span>
+                <span class="extract-chip">日期 2026-08-14</span>
+              </div>
+            </div>
+            <div class="rr-ops">
+              <button class="btn-sm primary">确认</button>
+              <button class="btn-sm">跳过</button>
+            </div>
+          </div>
+
+          <!-- 条目 2：规则降级 -->
+          <div class="rename-row">
+            <div class="rr-orig">
+              <div class="k">原始文件名</div>
+              <div class="v">未命名_0801.jpg</div>
+            </div>
+            <div class="rr-arrow"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6h8M7 3l3 3-3 3"/></svg></div>
+            <div class="rr-new">
+              <div class="k"><span class="rr-badge rule">规则</span>建议文件名</div>
+              <div class="v">证据1-权利要求书_20260801.jpg</div>
+              <div class="extract">
+                <span class="extract-chip rule">类型 证据</span>
+                <span class="extract-chip rule">日期 2026-08-01</span>
+              </div>
+            </div>
+            <div class="rr-ops">
+              <button class="btn-sm primary">确认</button>
+              <button class="btn-sm">跳过</button>
+            </div>
+          </div>
+
+          <!-- 降级提示（12.5：AI 不可用 → 规则模板） -->
+          <div class="degrade-bar" style="margin:4px 0 0">
+            <span class="ico"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 1.8a5.2 5.2 0 1 0 0 10.4A5.2 5.2 0 0 0 7 1.8z"/><path d="M7 4.5v2.6M7 9.4v.1"/></svg></span>
+            AI 建议不可用 · 第 2 项已按命名规则模板生成，可手动修正
+          </div>
+
+          <div class="rename-footer">
+            <span class="rf-count">已确认 1 / 共 2 项</span>
+            <button class="btn" style="margin-left:auto">全部跳过</button>
+            <button class="btn primary">应用 2 项重命名</button>
+          </div>
+        </div>
+
+        <!-- 捕获/归档闭环提示 -->
+        <div class="degrade-bar" style="margin:14px 0 0">
+          <span class="ico"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="5.2"/><path d="M7 4v3.2l2 1.2"/></svg></span>
+          拖文件到案件目录 → 自动捕获入收件箱 → 厘清后按命名规则归档到案卷
+        </div>
+      </div>
+
+      <!-- Tab：动态轨迹 -->
+      <div class="detail-tab-body" id="tab-timeline">
+        <div class="card">
+          <div class="ch"><span class="t">动态轨迹</span><span class="s">审级历程 + 案件日志</span></div>
+          <div class="sep"></div>
+          <div class="timeline">
+            <div class="tl-row">
+              <div class="tl-time" style="padding-top:9px;font-size:11px">08-14</div>
+              <div class="tl-track"><span class="tl-dot blue"></span></div>
+              <div class="tl-body" style="border-bottom:none"><div class="txt"><div class="n" style="font-size:12.5px">案件日志 · 完成证据清单 v3</div><div class="m">关联文件：证据清单_v3.docx</div></div></div>
+            </div>
+            <div class="tl-row">
+              <div class="tl-time" style="padding-top:9px;font-size:11px">08-07</div>
+              <div class="tl-track"><span class="tl-dot blue"></span></div>
+              <div class="tl-body" style="border-bottom:none"><div class="txt"><div class="n" style="font-size:12.5px">无效轨 → 审理中 · 待口审</div><div class="m">收到口审通知书</div></div></div>
+            </div>
+            <div class="tl-row">
+              <div class="tl-time" style="padding-top:9px;font-size:11px">08-02</div>
+              <div class="tl-track"><span class="tl-dot green"></span></div>
+              <div class="tl-body" style="border-bottom:none"><div class="txt"><div class="n" style="font-size:12.5px">民事轨 → 上诉期</div><div class="m">一审判决送达，15 天上诉期自动计算</div></div></div>
+            </div>
+            <div class="tl-row">
+              <div class="tl-time" style="padding-top:9px;font-size:11px">07-19</div>
+              <div class="tl-track"><span class="tl-dot gray"></span></div>
+              <div class="tl-body" style="border-bottom:none"><div class="txt"><div class="n" style="font-size:12.5px">无效轨 → 已受理</div><div class="m">国知局受理通知书</div></div></div>
+            </div>
+            <div class="tl-row">
+              <div class="tl-time" style="padding-top:9px;font-size:11px">07-10</div>
+              <div class="tl-track"><span class="tl-dot gray"></span></div>
+              <div class="tl-body" style="border-bottom:none"><div class="txt"><div class="n" style="font-size:12.5px">收案 · 建立无效+民事双轨</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P02 end ===================== -->
+
+
+<!-- ===================== P03 日历 Forecast（哲学第七章） ===================== -->
+<div class="page" id="p03">
+  <div class="hstack" style="align-items:stretch">
+    <!-- 左：月网格 -->
+    <div class="card" style="width:400px;flex-shrink:0;align-self:flex-start">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 6px 8px">
+        <span style="font-size:15px;color:var(--text-3);cursor:pointer">←</span>
+        <span style="font-size:14px;font-weight:700">2026 年 8 月</span>
+        <span style="font-size:15px;color:var(--text-3);cursor:pointer">→</span>
+      </div>
+      <div style="display:flex;padding:2px 4px 6px">
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">一</span>
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">二</span>
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">三</span>
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">四</span>
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">五</span>
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">六</span>
+        <span style="flex:1;text-align:center;font-size:10.5px;color:var(--text-3)">日</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">27</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">28</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">29</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">30</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">31</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">1</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle green"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">2</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">3</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">4</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle blue"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">5</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">6</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;background:var(--amber-weak)"><span style="font-size:11.5px;color:var(--text-2)">7</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle amber"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">8</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">9</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">10</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle purple"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">11</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">12</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;background:var(--danger-weak)"><span style="font-size:11.5px;color:var(--text-2)">13</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle red"></span><span class="circle blue"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;background:var(--primary-weak);border:2px solid var(--primary)"><span style="width:18px;height:18px;border-radius:50%;background:var(--primary);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center">14</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle red"></span><span class="circle blue"></span><span class="circle purple"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">15</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">16</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">17</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle red"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px"><span style="font-size:11.5px;color:var(--text-2)">18</span><span style="display:flex;gap:2px;margin-top:3px"><span class="circle green"></span></span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">19</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">20</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">21</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">22</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">23</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">24</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">25</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">26</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">27</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">28</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">29</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">30</span></div>
+        <div style="height:48px;border-radius:6px;padding:4px;opacity:.3"><span style="font-size:11.5px;color:var(--text-2)">31</span></div>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 4px 0;flex-wrap:wrap">
+        <span style="display:flex;gap:5px;align-items:center;font-size:10.5px;color:var(--text-2)"><span class="circle red"></span>逾期/开庭</span>
+        <span style="display:flex;gap:5px;align-items:center;font-size:10.5px;color:var(--text-2)"><span class="circle amber"></span>即将到期</span>
+        <span style="display:flex;gap:5px;align-items:center;font-size:10.5px;color:var(--text-2)"><span class="circle blue"></span>民事</span>
+        <span style="display:flex;gap:5px;align-items:center;font-size:10.5px;color:var(--text-2)"><span class="circle purple"></span>无效</span>
+        <span style="display:flex;gap:5px;align-items:center;font-size:10.5px;color:var(--text-2)"><span class="circle green"></span>成长</span>
+      </div>
+    </div>
+
+    <!-- 右：时间块（硬性/弹性/成长视觉分区 · 原则二） -->
+    <div class="vstack" style="flex:1;align-self:flex-start">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <span style="font-size:15px;font-weight:700">8月14日 · 周五</span>
+        <button class="btn-sm">自动排程</button>
+      </div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 2px 4px">上午</div>
+      <div style="display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-left:3px solid var(--danger);border-radius:var(--radius-btn);padding:0 10px;background:var(--surface)">
+        <span style="font-family:var(--mono);font-size:11.5px;width:44px;color:var(--text-2)">09:30</span>
+        <span style="flex:1">口审 · 张三专利无效案</span>
+        <span class="tag red">硬性</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius-btn);padding:0 10px;background:var(--surface);margin-top:6px">
+        <span style="font-family:var(--mono);font-size:11.5px;width:44px;color:var(--text-2)">10:00</span>
+        <span style="flex:1">核对口审证据清单</span>
+        <span class="tag blue">弹性 · 45m</span>
+      </div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:12px 2px 4px">下午</div>
+      <div style="display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-left:3px solid var(--danger);border-radius:var(--radius-btn);padding:0 10px;background:var(--surface)">
+        <span style="font-family:var(--mono);font-size:11.5px;width:44px;color:var(--text-2)">14:00</span>
+        <span style="flex:1">庭审 · 李明侵权纠纷案</span>
+        <span class="tag red">硬性</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius-btn);padding:0 10px;background:var(--surface);margin-top:6px">
+        <span style="font-family:var(--mono);font-size:11.5px;width:44px;color:var(--text-2)">15:30</span>
+        <span style="flex:1">起草上诉状初稿</span>
+        <span class="tag blue">弹性 · 2h</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius-btn);padding:0 10px;background:var(--surface);margin-top:6px">
+        <span style="font-family:var(--mono);font-size:11.5px;width:44px;color:var(--text-2)">16:00</span>
+        <span style="flex:1">联系证人确认出庭时间</span>
+        <span class="tag blue">弹性 · 20m</span>
+      </div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:12px 2px 4px">晚上</div>
+      <div style="display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-left:3px solid var(--green);border-radius:var(--radius-btn);padding:0 10px;background:var(--surface)">
+        <span style="font-family:var(--mono);font-size:11.5px;width:44px;color:var(--text-2)">19:30</span>
+        <span style="flex:1">阅读 · 新专利法实施细则解读</span>
+        <span class="tag green">成长</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);padding:12px 2px 0">先硬性 → 再弹性 → 最后成长。拖拽任务到其他日期 = 改期。</div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P03 end ===================== -->
+
+
+
+<!-- ===================== P05 收件箱（先捕获后厘清 · 哲学原则三/第十章） ===================== -->
+<div class="page" id="p05">
+  <!-- Hero -->
+  <div class="card" style="flex-direction:row;align-items:center;gap:16px;margin-bottom:14px">
+    <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:15px;font-weight:700">收件箱</span>
+      <span style="font-size:12px;color:var(--text-3)">先捕获，后厘清</span>
+    </div>
+    <div style="display:flex;gap:24px">
+      <div style="display:flex;flex-direction:column;gap:2px;align-items:center"><span style="font-size:18px;font-weight:700;color:var(--danger)">4</span><span style="font-size:11px;color:var(--text-3)">待厘清</span></div>
+      <div style="display:flex;flex-direction:column;gap:2px;align-items:center"><span style="font-size:18px;font-weight:700">7</span><span style="font-size:11px;color:var(--text-3)">今日捕获</span></div>
+      <div style="display:flex;flex-direction:column;gap:2px;align-items:center"><span style="font-size:18px;font-weight:700">3</span><span style="font-size:11px;color:var(--text-3)">今日已厘清</span></div>
+    </div>
+  </div>
+
+  <!-- 捕获条（无标题输入 · 原则三） -->
+  <div class="card" style="margin-bottom:14px">
+    <div style="font-size:13px;color:var(--text-3);padding:2px 0 4px">记下来，稍后厘清…（回车即入袋）</div>
+    <div style="display:flex;gap:6px;align-items:center;padding:8px 0 2px;border-top:1px solid var(--border);margin-top:6px">
+      <button class="btn-sm">快速捕获 ⌘I</button>
+      <button class="btn-sm">粘贴</button>
+      <button class="btn-sm">截图</button>
+      <span style="font-size:11px;color:var(--text-3);margin-left:auto">⌘⇧I 全局呼出 · 可拖文件入袋</span>
+    </div>
+  </div>
+
+  <div class="hstack" style="align-items:stretch">
+    <!-- 来源过滤 -->
+    <div class="card" style="width:180px;flex-shrink:0;align-self:flex-start">
+      <div style="font-size:12px;font-weight:600;padding:2px 8px 8px">来源过滤</div>
+      <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:var(--radius-btn);background:var(--primary-weak);border:1px solid var(--primary-border);font-size:12.5px;font-weight:500;color:var(--primary)"><span style="flex:1">全部</span><span style="font-family:var(--mono);font-size:11px">4</span></div>
+      <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:var(--radius-btn);font-size:12.5px;color:var(--text-2)"><span style="flex:1">邮件</span><span style="font-family:var(--mono);font-size:11px;color:var(--text-3)">2</span></div>
+      <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:var(--radius-btn);font-size:12.5px;color:var(--text-2)"><span style="flex:1">微信 / 飞书</span><span style="font-family:var(--mono);font-size:11px;color:var(--text-3)">1</span></div>
+      <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:var(--radius-btn);font-size:12.5px;color:var(--text-2)"><span style="flex:1">电话</span><span style="font-family:var(--mono);font-size:11px;color:var(--text-3)">1</span></div>
+    </div>
+
+    <!-- 条目流 -->
+    <div class="vstack" style="flex:1">
+      <div style="font-size:11px;font-weight:600;color:var(--text-3);padding:0 2px 6px">今天 · 2</div>
+      <div class="card" style="border-color:var(--primary-border);background:var(--primary-weak);margin-bottom:8px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:13px;font-weight:500">对方律师来电说要补充一份证据清单</span>
+          <span style="font-size:11px;color:var(--text-3)">今天 09:12 · 电话</span>
+          <div style="display:flex;gap:6px;align-items:flex-start;background:var(--amber-weak);border-radius:var(--radius-input);padding:8px">
+            <span class="tag solid-blue" style="background:var(--amber)">AI</span>
+            <span style="font-size:11.5px;color:#7A5B24">建议「等待」——等对方提交证据清单</span>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:13px;font-weight:500">国知局寄来口审通知书（赵六案）</span>
+          <span style="font-size:11px;color:var(--text-3)">昨天 16:40 · 邮件 · 附件 PDF</span>
+        </div>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-3);padding:8px 2px 6px">更早</div>
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:13px;font-weight:500">客户想了解无效程序大概要多久</span>
+          <span style="font-size:11px;color:var(--text-3)">昨天 11:05 · 微信</span>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:13px;font-weight:500">准备下周二新案子的接案材料</span>
+          <span style="font-size:11px;color:var(--text-3)">8月12日 · 邮件</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 厘清面板 -->
+    <div class="card" style="width:320px;flex-shrink:0;align-self:flex-start">
+      <div style="font-size:12px;font-weight:600;padding:2px 0 8px">厘清 · Clarify</div>
+      <div class="sep" style="margin:0 0 10px"></div>
+      <div style="font-size:12px;color:var(--text-2);padding-bottom:10px">它是什么？——下一步行动是什么</div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding-bottom:6px">这是什么</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:10px">
+        <span class="chip">行动</span>
+        <span class="chip active">等待</span>
+        <span class="chip">委派</span>
+        <span class="chip">某天</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:10px">
+        <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding-bottom:4px">关联案件</div>
+        <div class="input">赵六专利无效案</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:10px">
+        <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding-bottom:4px">等谁 / 给谁</div>
+        <div class="input">国家知识产权局</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:12px">
+        <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding-bottom:4px">预计何时有结果</div>
+        <div class="input" style="font-family:var(--mono)">2026-09-01</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-btn);font-size:12px"><span style="flex:1">转为行动 → 计划中 / 今天</span><span style="font-size:9.5px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:var(--mono)">⌘⏎</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 10px;border:1px solid var(--primary-border);background:var(--primary-weak);border-radius:var(--radius-btn);font-size:12px;font-weight:500"><span style="flex:1">归入「等待」→ 自动提醒</span><span style="font-size:9.5px;color:var(--primary);border:1px solid var(--primary-border);border-radius:4px;padding:1px 5px;font-family:var(--mono)">⌘W</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-btn);font-size:12px"><span style="flex:1">存为参考 → 知识库</span><span style="font-size:9.5px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:var(--mono)">⌘R</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-btn);font-size:12px"><span style="flex:1;color:var(--text-3)">丢弃 / 归档</span><span style="font-size:9.5px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:var(--mono)">⌘⌫</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P05 end ===================== -->
+
+<!-- ===================== P06 知识库（6 职能分类 · 哲学第八章） ===================== -->
+<div class="page" id="p06">
+  <div class="chips" style="margin-bottom:14px">
+    <span class="chip">灵感 · 3</span>
+    <span class="chip">方法 · 6</span>
+    <span class="chip active">参考 · 24</span>
+    <span class="chip">问题 · 4</span>
+    <span class="chip">经验 · 9</span>
+    <span class="chip">日志 · 5</span>
+  </div>
+  <div class="hstack" style="align-items:stretch">
+    <!-- 列表 -->
+    <div style="width:290px;display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+      <div style="border:1px solid var(--primary-border);background:var(--primary-weak);border-radius:var(--radius-card);padding:11px;display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+        <span style="font-size:13px;font-weight:600">《专利审查指南》第四部分 · 无效宣告程序</span>
+        <span style="font-size:11.5px;color:var(--text-2)">无效宣告请求的受理、审查方式、口头审理……</span>
+        <span style="display:flex;gap:5px"><span class="tag blue">法条参考</span><span class="tag outline">张三案 / 赵六案</span></span>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-card);padding:11px;display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+        <span style="font-size:13px;font-weight:500">无效程序中证据补充的时间限制</span>
+        <span style="font-size:11.5px;color:var(--text-2)">请求人补充证据的期限为提出无效请求之日起 1 个月内……</span>
+        <span style="display:flex;gap:5px"><span class="tag blue">参考</span></span>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-card);padding:11px;display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+        <span style="font-size:13px;font-weight:500">权利要求修改策略复盘</span>
+        <span style="font-size:11.5px;color:var(--text-2)">上一起同类案件，合并修改后无效成功……</span>
+        <span style="display:flex;gap:5px"><span class="tag purple">经验</span></span>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-card);padding:11px;display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+        <span style="font-size:13px;font-weight:500">口审程序常见问题</span>
+        <span style="font-size:11.5px;color:var(--text-2)">口审通知书发出后，新证据的处理方式……</span>
+        <span style="display:flex;gap:5px"><span class="tag green">方法</span></span>
+      </div>
+    </div>
+    <!-- 正文（块级引用 · 哲学 8.2） -->
+    <div class="card" style="flex:1">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:2px 0">
+        <span style="font-size:13px;font-weight:600">《专利审查指南》第四部分 · 无效宣告程序</span>
+        <span style="font-size:10.5px;color:var(--text-3);font-family:var(--mono)">KB-REF-014</span>
+      </div>
+      <div class="sep"></div>
+      <div style="font-size:13px;color:var(--text-1);line-height:1.7">本部分涉及无效宣告程序中请求人补充证据的时限要求。</div>
+      <div style="border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius-input);padding:10px 12px;display:flex;flex-direction:column;gap:6px;margin:10px 0">
+        <span style="line-height:1.7">请求人应当自提出无效宣告请求之日起 1 个月内补充证据。逾期补充的，不予考虑。</span>
+        <span style="font-size:11.5px;font-weight:600;color:var(--primary)">引用：第四部分第八章第 2.1 节</span>
+      </div>
+      <div style="padding:4px 0;display:flex;flex-direction:column;gap:6px">
+        <span style="color:var(--text-2);line-height:1.7">结合 2026-0001（张三案）与 2026-0008（赵六案）：两案均处于无效程序，证据补充窗口已过，需在口审前完成全部证据核对。</span>
+        <span style="font-size:11.5px;font-weight:600;color:var(--primary)">引用：张三案 · 动态轨迹 08-07</span>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P06 end ===================== -->
+
+<!-- ===================== P07 设置 ===================== -->
+<div class="page" id="p07">
+  <div class="grid-2" style="align-items:start">
+    <!-- 左列 -->
+    <div class="vstack">
+      <div class="card">
+        <div class="ch"><span class="t">外观</span><span class="s">主题 · 密度 · 侧栏</span></div>
+        <div class="sep"></div>
+        <div style="display:flex;gap:8px;padding:6px 0 12px;flex-wrap:wrap">
+          <div style="width:88px;height:60px;border-radius:var(--radius-btn);border:1.5px solid var(--primary);background:var(--primary-weak);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+            <span style="display:flex;gap:4px"><span style="width:15px;height:15px;border-radius:50%;background:var(--primary)"></span><span style="width:15px;height:15px;border-radius:50%;background:var(--surface);border:1px solid var(--border)"></span></span>
+            <span style="font-size:10.5px;font-weight:600;color:var(--primary)">石墨</span>
+          </div>
+          <div style="width:88px;height:60px;border-radius:var(--radius-btn);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+            <span style="display:flex;gap:4px"><span style="width:15px;height:15px;border-radius:50%;background:#2563EB"></span><span style="width:15px;height:15px;border-radius:50%;background:#FAFAFA;border:1px solid var(--border)"></span></span>
+            <span style="font-size:10.5px;color:var(--text-2)">经典蓝</span>
+          </div>
+          <div style="width:88px;height:60px;border-radius:var(--radius-btn);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+            <span style="display:flex;gap:4px"><span style="width:15px;height:15px;border-radius:50%;background:#8F5C45"></span><span style="width:15px;height:15px;border-radius:50%;background:#FAF7F5;border:1px solid var(--border)"></span></span>
+            <span style="font-size:10.5px;color:var(--text-2)">暖陶</span>
+          </div>
+          <div style="width:88px;height:60px;border-radius:var(--radius-btn);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+            <span style="display:flex;gap:4px"><span style="width:15px;height:15px;border-radius:50%;background:#47705C"></span><span style="width:15px;height:15px;border-radius:50%;background:#F7F7F5;border:1px solid var(--border)"></span></span>
+            <span style="font-size:10.5px;color:var(--text-2)">苔藓</span>
+          </div>
+          <div style="width:88px;height:60px;border-radius:var(--radius-btn);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+            <span style="display:flex;gap:4px"><span style="width:15px;height:15px;border-radius:50%;background:#5C85C7"></span><span style="width:15px;height:15px;border-radius:50%;background:#1C1E26;border:1px solid var(--border)"></span></span>
+            <span style="font-size:10.5px;color:var(--text-2)">深夜</span>
+          </div>
+        </div>
+        <div class="frow" style="border-top:1px solid var(--border);height:40px"><span class="k">信息密度</span><span style="display:flex;gap:2px;background:#F5F6F8;border-radius:var(--radius-btn);padding:2px"><span style="height:22px;padding:0 10px;border-radius:4px;background:var(--primary);color:#fff;font-size:11px;font-weight:500;display:flex;align-items:center">标准</span><span style="height:22px;padding:0 10px;border-radius:4px;font-size:11px;color:var(--text-2);display:flex;align-items:center">紧凑</span></span></div>
+        <div class="frow" style="height:40px"><span class="k">侧栏模式</span><span style="display:flex;gap:2px;background:#F5F6F8;border-radius:var(--radius-btn);padding:2px"><span style="height:22px;padding:0 10px;border-radius:4px;background:var(--primary);color:#fff;font-size:11px;font-weight:500;display:flex;align-items:center">完整</span><span style="height:22px;padding:0 10px;border-radius:4px;font-size:11px;color:var(--text-2);display:flex;align-items:center">仅图标</span></span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="t">AI 智伴</span><span class="s">模型可切换 · 记忆不丢</span></div>
+        <div class="sep"></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">AI 后端</span>
+            <span style="font-size:11px;color:var(--text-3)">当前：Ollama · llama3.1-8b（本地）</span>
+          </div>
+          <span style="display:flex;gap:2px;background:#F5F6F8;border-radius:var(--radius-btn);padding:2px"><span style="height:22px;padding:0 10px;border-radius:4px;background:var(--primary);color:#fff;font-size:11px;font-weight:500;display:flex;align-items:center">本地</span><span style="height:22px;padding:0 10px;border-radius:4px;font-size:11px;color:var(--text-2);display:flex;align-items:center">OpenAI</span></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">智能推荐</span>
+            <span style="font-size:11px;color:var(--text-3)">不可用时回退规则排序</span>
+          </div>
+          <span class="switch"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">每日早报 / 每周总结</span>
+            <span style="font-size:11px;color:var(--text-3)">自动生成 · 可编辑</span>
+          </div>
+          <span class="switch"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">数据蒸馏</span>
+            <span style="font-size:11px;color:var(--text-3)">每周提炼 → 候选记忆 → 确认后入库</span>
+          </div>
+          <span class="switch"></span>
+        </div>
+      </div>
+    </div>
+    <!-- 右列 -->
+    <div class="vstack">
+      <div class="card">
+        <div class="ch"><span class="t">确认与信任</span><span class="s">AI 产出必确认 · 决策留痕</span></div>
+        <div class="sep"></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">确认策略</span>
+            <span style="font-size:11px;color:var(--text-3)">按场景挂载，不同级别</span>
+          </div>
+          <button class="btn-sm">配置</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">递归确认（L3）</span>
+            <span style="font-size:11px;color:var(--text-3)">关键决策 / 外部写操作，确认后比对</span>
+          </div>
+          <span class="switch"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">降级态提示</span>
+            <span style="font-size:11px;color:var(--text-3)">AI 不可用时提示条，可静默回退</span>
+          </div>
+          <span class="switch"></span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="t">隐私与安全</span><span class="s">本地优先</span></div>
+        <div class="sep"></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">数据库加密</span>
+            <span style="font-size:11px;color:var(--text-3)">SQLCipher + 本地密钥（0600）</span>
+          </div>
+          <span class="tag green">已启用</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:12.5px;font-weight:600">外部 AI 脱敏</span>
+            <span style="font-size:11px;color:var(--text-3)">默认禁发当事人姓名 / 案号 / 证据细节</span>
+          </div>
+          <span class="switch"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P07 end ===================== -->
+
+<!-- ===================== P08 同步 ===================== -->
+<div class="page" id="p08">
+  <div class="vstack" style="max-width:760px">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:2px 0">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:12.5px;font-weight:600">WebDAV 同步</span>
+          <span style="display:flex;align-items:center;gap:5px;height:18px;padding:0 7px;border-radius:999px;background:var(--green-weak);font-size:10px;font-weight:500;color:var(--green)"><span class="circle green"></span>已连接</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn primary">推送</button>
+          <button class="btn">拉取</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="frow" style="border-bottom:1px solid var(--border);height:36px"><span class="k">最近同步</span><span>今天 09:15 · 推送成功</span></div>
+      <div class="frow" style="border-bottom:1px solid var(--border);height:36px"><span class="k">服务器</span><span style="font-family:var(--mono);font-size:11.5px">https://dav.example.com/casy/</span></div>
+      <div class="frow" style="height:36px"><span class="k">同步方式</span><span>手动 / 启动时</span></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:2px 0">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:12.5px;font-weight:600">飞书同步</span>
+          <span style="display:flex;align-items:center;gap:5px;height:18px;padding:0 7px;border-radius:999px;background:var(--primary-weak);font-size:10px;font-weight:500;color:var(--primary)"><span class="circle blue"></span>自动推送</span>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="frow" style="border-bottom:1px solid var(--border);height:36px"><span class="k">连接状态</span><span>已授权 · app_id xxxx-xxxx</span></div>
+      <div class="frow" style="border-bottom:1px solid var(--border);height:36px"><span class="k">关联表</span><span>案件台账 · 5 张表</span></div>
+      <div class="frow" style="height:36px"><span class="k">自动推送</span><span style="display:flex;align-items:center;gap:8px"><span>5 秒防抖 · 15 分钟拉取</span><span class="switch"></span></span></div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P08 end ===================== -->
+
+<!-- ===================== P09 文书工坊（Copilot · 哲学第八章/原则八） ===================== -->
+<div class="page" id="p09">
+  <div class="hstack" style="align-items:stretch">
+    <!-- 模板 -->
+    <div class="card" style="width:220px;flex-shrink:0;align-self:flex-start">
+      <div style="font-size:12px;font-weight:600;padding:2px 0 8px">模板</div>
+      <div class="sep" style="margin:0 0 10px"></div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;height:38px;padding:0 10px;border-radius:var(--radius-btn);background:var(--primary-weak);border:1px solid var(--primary-border);font-size:12px;font-weight:500">无效宣告请求书</div>
+        <div style="display:flex;align-items:center;height:38px;padding:0 10px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:12px;color:var(--text-2)">口审意见陈述书</div>
+        <div style="display:flex;align-items:center;height:38px;padding:0 10px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:12px;color:var(--text-2)">民事答辩状</div>
+        <div style="display:flex;align-items:center;height:38px;padding:0 10px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:12px;color:var(--text-2)">上诉状</div>
+        <div style="display:flex;align-items:center;height:38px;padding:0 10px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:12px;color:var(--text-2)">代理词</div>
+      </div>
+    </div>
+    <!-- 编辑器 -->
+    <div class="card" style="flex:1;min-width:0">
+      <div style="font-size:15px;font-weight:700">无效宣告请求书</div>
+      <div style="font-size:11px;color:var(--text-3);padding:4px 0">关联案件：张三专利无效案 · 已注入案件字段</div>
+      <div class="sep"></div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:8px 0;font-size:13px;line-height:1.8">
+        <p>请求人 POSCO 公司依据《专利法》第四十五条，就专利权人新日铁公司名下的专利 ZL20181012345.6（一种液压阀结构）提出无效宣告请求。</p>
+        <p style="font-weight:600">一、请求无效的理由</p>
+        <p>涉案专利权利要求 1-4 不具备《专利法》第二十二条第三款规定的创造性。</p>
+        <p style="font-weight:600">二、证据说明</p>
+        <p>对比文件 1：CN102345678A 公开日 2018 年 5 月；对比文件 2：US2018/0123456A1 公开日 2018 年 8 月。</p>
+        <p style="font-weight:600">三、请求事项</p>
+        <p>请求宣告涉案专利权利要求 1-4 全部无效。</p>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;padding:8px 0">
+        <button class="btn">存草稿</button>
+        <button class="btn primary">导出 DOCX</button>
+      </div>
+    </div>
+    <!-- Copilot -->
+    <div class="card" style="width:260px;flex-shrink:0;align-self:flex-start">
+      <div style="font-size:12px;font-weight:600;padding:2px 0 8px">Copilot</div>
+      <div class="sep" style="margin:0 0 10px"></div>
+      <div class="input placeholder" style="margin-bottom:10px">检索知识…</div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:4px 0">相关法条</div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;display:flex;flex-direction:column;gap:5px;align-items:flex-start;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:600">《专利法》第四十五条</span>
+        <span style="font-size:11px;color:var(--text-2);line-height:1.6">自公告之日起，任何单位或个人认为不符合规定的，可请求宣告无效。</span>
+        <button class="btn-sm" style="background:var(--primary-weak);color:var(--primary);border:none">插入</button>
+      </div>
+      <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:4px 0">相关案例</div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-btn);padding:10px;display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+        <span style="font-size:12px;font-weight:600">同类无效成功案例</span>
+        <span style="font-size:11px;color:var(--text-2)">权利要求合并修改后无效成功（KB-EXP-003）</span>
+        <button class="btn-sm" style="background:var(--primary-weak);color:var(--primary);border:none">引用</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== P09 end ===================== -->
+
+</div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+/* 今日面板 */
+const todayBtn=document.getElementById('todayBtn');
+const todayPanel=document.getElementById('todayPanel');
+todayBtn.addEventListener('click',e=>{e.stopPropagation();todayPanel.classList.toggle('open')});
+document.addEventListener('click',e=>{if(!todayPanel.contains(e.target)&&!todayBtn.contains(e.target))todayPanel.classList.remove('open')});
+
+/* 页面切换（viewbar + 侧边栏联动） */
+const titles={p00:'今日',p01:'任务工作台',p02:'案件工作台',p03:'日历 · Forecast',p05:'收件箱',p06:'知识库',p07:'设置',p08:'同步',p09:'文书工坊'};
+function showPage(id){
+  document.querySelectorAll('.viewbar button').forEach(b=>b.classList.toggle('active',b.dataset.target===id));
+  document.querySelectorAll('.sb .nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===id));
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));
+  document.getElementById('pageTitle').textContent=titles[id]||'';
+  document.getElementById('pageTitle').innerHTML=titles[id]||'';
+  document.getElementById('content').scrollTop=0;
+  todayPanel.classList.remove('open');
+}
+document.querySelectorAll('.viewbar button').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.target)));
+document.querySelectorAll('.sb .nav-item').forEach(n=>n.addEventListener('click',()=>showPage(n.dataset.page)));
+
+/* 案件详情 Tab 切换 */
+document.querySelectorAll('.detail-tabs .dtab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.detail-tabs .dtab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  document.querySelectorAll('.detail-tab-body').forEach(b=>b.classList.remove('active'));
+  document.getElementById(t.dataset.tab).classList.add('active');
+}));
+/* 案件列表选中切换（演示） */
+document.querySelectorAll('.case-item').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('.case-item').forEach(x=>x.classList.remove('active'));
+  c.classList.add('active');
+}));
+
+/* 案卷目录树：点击切换选中目录 + 右侧文件面板 */
+document.querySelectorAll('.dir-item').forEach(item=>item.addEventListener('click',()=>{
+  document.querySelectorAll('.dir-item').forEach(x=>x.classList.remove('active'));
+  item.classList.add('active');
+  const dirId=item.dataset.dir;
+  document.querySelectorAll('.dir-files-panel').forEach(p=>p.style.display='none');
+  const panel=document.getElementById(dirId);
+  if(panel)panel.style.display='';
+}));
+
+/* 智能重命名：进入/返回工作台 */
+const renameBtn=document.getElementById('renameBtn');
+const renameView=document.getElementById('renameView');
+const filesView=document.getElementById('filesView');
+if(renameBtn){
+  renameBtn.addEventListener('click',()=>{filesView.style.display='none';renameView.classList.add('open');});
+  document.getElementById('renameBack').addEventListener('click',()=>{renameView.classList.remove('open');filesView.style.display='';});
+}
+/* 重命名条目确认/跳过（演示交互） */
+document.querySelectorAll('.rename-row .rr-ops .btn-sm').forEach(b=>b.addEventListener('click',()=>{
+  const row=b.closest('.rename-row');
+  if(row.classList.contains('done')){row.classList.remove('done');}
+  else{row.classList.add('done');b.textContent='✓ 已确认';}
+}));
+
+/* 文件预览面板：点击文件卡片打开（通用预览组件挂载区） */
+const previewPanel=document.getElementById('previewPanel');
+document.querySelectorAll('.file-card').forEach(card=>card.addEventListener('click',e=>{
+  if(e.target.closest('.op'))return; // 操作按钮不触发预览
+  const fn=card.querySelector('.fn').textContent;
+  const fm=card.querySelector('.fm').innerHTML;
+  const fIco=card.querySelector('.f-ico');
+  const type=fIco?fIco.className.replace('f-ico ',''):'doc';
+  document.getElementById('ppName').textContent=fn;
+  document.getElementById('ppPath').textContent='cases/2026-0001/'+fn;
+  document.getElementById('ppMeta').innerHTML=fm;
+  // 预览主体：按类型切换（通用预览组件占位）
+  const stage=document.getElementById('pvStage');
+  if(type==='pdf'){
+    stage.innerHTML='<div class="pdf-page"><div class="pl hl w90"></div><div class="pl w100"></div><div class="pl w75"></div><div class="pl w40"></div><div class="pl w100"></div><div class="pl w60"></div><div class="pl w30"></div></div>';
+  }else if(type==='img'){
+    stage.innerHTML='<div class="pv-placeholder"><div class="pv-ico img"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="19" height="17" rx="2"/><circle cx="8.5" cy="9" r="2"/><path d="M3 19l6-6 4.5 4.5L18 13l3 3"/></svg></div><div class="pv-name" id="pvName"></div><div class="pv-size" id="pvSize">由通用图片预览组件渲染</div></div>';
+  }else{
+    stage.innerHTML='<div class="pv-placeholder"><div class="pv-ico doc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6 2.5h8L19.5 8v13.5H6z"/><path d="M14 2.5V8h5.5M9 13h6M9 16.5h6"/></svg></div><div class="pv-name" id="pvName"></div><div class="pv-size" id="pvSize">由通用文档预览组件渲染</div></div>';
+  }
+  const pvN=stage.querySelector('.pv-name');
+  if(pvN)pvN.textContent=fn;
+  previewPanel.classList.add('open');
+}));
+document.getElementById('ppClose').addEventListener('click',()=>previewPanel.classList.remove('open'));
+document.getElementById('ppOpenExt').addEventListener('click',()=>previewPanel.classList.remove('open'));
+</script>
+
+<!-- ======== 文件预览面板（通用预览组件接入位） ======== -->
+<div class="preview-panel" id="previewPanel">
+  <div class="pp-head">
+    <div class="pp-title">
+      <div class="n" id="ppName">无效宣告请求书_张三案.pdf</div>
+      <div class="p" id="ppPath">cases/2026-0001/01 申请材料/无效宣告请求书_张三案.pdf</div>
+    </div>
+    <div class="pp-actions">
+      <button class="btn-sm" id="ppOpenExt">打开外部</button>
+    </div>
+    <button class="pp-close" id="ppClose"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3l10 10M13 3L3 13"/></svg></button>
+  </div>
+  <div class="pp-stage" id="pvStage">
+    <!-- 通用预览组件挂载区：PDF / 图片 / 文档由统一组件渲染 -->
+    <div class="pdf-page">
+      <div class="pl hl w90"></div>
+      <div class="pl w100"></div>
+      <div class="pl w75"></div>
+      <div class="pl w40"></div>
+      <div class="pl w100"></div>
+      <div class="pl w60"></div>
+      <div class="pl w30"></div>
+    </div>
+    <span class="pv-engine"><span class="dot"></span>通用预览组件 · pdf.js</span>
+  </div>
+  <div class="pp-info">
+    <div class="pi-row"><span class="k">类型 / 大小</span><span class="v" id="ppMeta">起草 · 08-02 · 248 KB</span></div>
+    <div class="pi-row"><span class="k">归档路径</span><span class="v">cases/2026-0001/01 申请材料/</span></div>
+    <div class="pi-row"><span class="k">源路径</span><span class="v">~/下载/无效宣告请求书(1).pdf</span></div>
+    <div class="pi-row"><span class="k">命名状态</span><span class="v">已归档 · 符合规则</span></div>
+  </div>
+  <div class="pp-footer">
+    <button class="btn">重命名</button>
+    <button class="btn">移动</button>
+    <button class="btn primary">打开文件</button>
+  </div>
+</div>
+</body>
+</html>

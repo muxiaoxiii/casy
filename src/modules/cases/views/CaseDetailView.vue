@@ -236,8 +236,20 @@ async function loadTimeline() {
 }
 
 async function loadKnowledge() {
-  // TODO: 加载关联知识
-  knowledge.value = []
+  // 通过案件名称和类型搜索相关知识
+  if (!caseData.value) return
+  const searchTerms = [
+    caseData.value.caseName,
+    caseData.value.caseType,
+    caseData.value.clientName,
+  ].filter(Boolean).join(' ')
+  
+  if (searchTerms) {
+    const result = await casyContext.knowledge.search(searchTerms, 20)
+    if (result.ok && result.data) {
+      knowledge.value = result.data
+    }
+  }
 }
 
 async function loadFiles() {

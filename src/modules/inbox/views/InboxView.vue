@@ -280,6 +280,55 @@ async function quickConfirm(item) {
   }
 }
 
+// v2.1: 拒绝推荐（设计哲学 §10：推荐拒绝 → 学习信号）
+async function rejectRecommendation(item) {
+  const recs = getRecommendations(item)
+  if (!recs.length) return
+  
+  // 弹出原因选择（可选）
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      '请选择不采纳原因（可选，帮助改进推荐）',
+      '不采纳推荐',
+      {
+        confirmButtonText: '确认',
+        cancelButtonText: '跳过',
+        inputPlaceholder: '如：信息不准确 / 不需要处理 / 手动处理更好',
+        inputType: 'textarea',
+      }
+    )
+    
+    processing.value = true
+    const result = await casyContext.inbox.rejectRecommendation({
+      inboxItemId: item.id,
+      action: recs[0].action,
+      reason: reason || null,
+      intent: recs[0].intent || null,
+    })
+    processing.value = false
+    
+    if (result.ok) {
+      ElMessage.success('已记录反馈，推荐将优化')
+      // 清除该条目的推荐缓存，避免重复显示
+      delete quickJudgeResults.value[item.id]
+      delete aiResults.value[item.id]
+    }
+  } catch {
+    // 用户点击"跳过"，直接记录拒绝但不带原因
+    processing.value = true
+    await casyContext.inbox.rejectRecommendation({
+      inboxItemId: item.id,
+      action: recs[0].action,
+      reason: null,
+      intent: recs[0].intent || null,
+    })
+    processing.value = false
+    ElMessage.success('已记录反馈')
+    delete quickJudgeResults.value[item.id]
+    delete aiResults.value[item.id]
+  }
+}
+
 // 快速捕获（回车即入袋，设计哲学 §10.2）
 async function quickCapture() {
   if (!quickCaptureText.value.trim()) return
@@ -914,6 +963,16 @@ onUnmounted(() => {
                 @click="runAiAnalysis(item)"
               >
                 🤖 {{ item.aiAnalyzed ? '查看AI分析' : 'AI 分析' }}
+              </el-button>
+              <!-- 不采纳按钮（设计哲学 §10：推荐拒绝 → 学习信号） -->
+              <el-button
+                v-if="getRecommendations(item).length > 0"
+                size="small"
+                type="warning"
+                plain
+                @click="rejectRecommendation(item)"
+              >
+                不采纳
               </el-button>
               <!-- 语音转写按钮（音频条目） -->
               <el-button

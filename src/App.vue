@@ -186,18 +186,29 @@ const pageTitle = computed(() => {
 })
 
 // ============================================================
-// 全局快速捕获（Cmd+I/E/N → emit 'global:quick_capture'）
+// 全局快速捕获（Cmd+I/E/N/T → emit 'global:quick_capture'）
 // ============================================================
 const showQuickCapture = ref(false)
 const quickCaptureText = ref('')
 const quickCaptureSaving = ref(false)
+const quickCaptureType = ref('note') // note/task/event/quick
+const quickCaptureTitle = computed(() => {
+  const titles = { note: '快速笔记', task: '快速任务', event: '快速日程', quick: '速记' }
+  return titles[quickCaptureType.value] || '快速捕获'
+})
 let unlistenQuickCapture = null
 
 async function setupQuickCaptureListener() {
   try {
-    unlistenQuickCapture = await safeListen('global:quick_capture', () => {
+    unlistenQuickCapture = await safeListen('global:quick_capture', (event) => {
+      quickCaptureType.value = event.payload || 'note'
       quickCaptureText.value = ''
       showQuickCapture.value = true
+      // 自动聚焦输入框
+      setTimeout(() => {
+        const input = document.querySelector('.quick-capture-dialog textarea')
+        if (input) input.focus()
+      }, 100)
     })
   } catch (e) {
     console.warn('[Casy] 全局快速捕获监听未建立:', e)
@@ -208,15 +219,86 @@ async function saveQuickCapture() {
   const text = quickCaptureText.value.trim()
   if (!text) return
   quickCaptureSaving.value = true
-  const result = await casyContext.inbox.add('note', text)
+  
+  let result
+  const type = quickCaptureType.value
+  
+  if (type === 'task') {
+    // 快速创建任务 - 解析文本中的日期
+    const parsed = parseQuickTask(text)
+    result = await casyContext.tasks.create({
+      taskName: parsed.taskName || text,
+      startDate: parsed.startDate,
+      dueDate: parsed.dueDate,
+      startBucket: parsed.startBucket || 'inbox',
+      taskType: 'action',
+    })
+  } else if (type === 'event') {
+    // 快速创建日程
+    result = await casyContext.inbox.add('note', text)
+    // 可以后续扩展为直接创建日历事件
+  } else {
+    // 笔记/速记 - 进收件箱
+    result = await casyContext.inbox.add('note', text)
+  }
+  
   quickCaptureSaving.value = false
   if (result.ok) {
-    ElMessage.success('已捕获到收件箱')
+    ElMessage.success('已捕获')
     quickCaptureText.value = ''
     showQuickCapture.value = false
   } else {
     ElMessage.error(result.error || '保存失败')
   }
+}
+
+// 简单解析快速任务文本
+function parseQuickTask(text) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  let taskName = text
+  let startDate = null
+  let dueDate = null
+  let startBucket = 'inbox'
+  
+  // 匹配日期词
+  const rel = text.match(/^(今天|明天|后天|下周[一二三四五六日天])s*/)
+  if (rel) {
+    const dateWord = rel[1]
+    taskName = text.slice(dateWord.length).trim()
+    
+    if (dateWord === '今天') {
+      startDate = formatDate(today)
+      dueDate = formatDate(today)
+      startBucket = 'today'
+    } else if (dateWord === '明天') {
+      const d = new Date(today)
+      d.setDate(d.getDate() + 1)
+      startDate = formatDate(d)
+      dueDate = formatDate(d)
+    } else if (dateWord === '后天') {
+      const d = new Date(today)
+      d.setDate(d.getDate() + 2)
+      startDate = formatDate(d)
+      dueDate = formatDate(d)
+    } else if (dateWord.startsWith('下周')) {
+      const wd = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[dateWord[2]]
+      const delta = (wd - today.getDay() + 7) % 7 + 7
+      const d = new Date(today)
+      d.setDate(d.getDate() + delta)
+      startDate = formatDate(d)
+      dueDate = formatDate(d)
+    }
+  }
+  
+  return { taskName, startDate, dueDate, startBucket }
+}
+
+function formatDate(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return y + '-' + m + '-' + day
 }
 
 // ============================================================
@@ -385,12 +467,12 @@ function onMenuSelect(name) {
   <OnboardingWizard v-model="showOnboarding" @dismiss="onOnboardingDismiss" />
 
   <!-- 快速捕获对话框 -->
-  <el-dialog v-model="showQuickCapture" title="快速捕获" width="480" append-to-body>
+  <el-dialog v-model="showQuickCapture" :title="quickCaptureTitle" width="480" append-to-body class="quick-capture-dialog">
     <el-input
       v-model="quickCaptureText"
       type="textarea"
       :rows="4"
-      placeholder="有什么想法、材料、待办？先记下来，稍后厘清…"
+      :placeholder="quickCaptureType === 'task' ? '输入任务，开头可加 今天/明天/下周X 自动设日期…' : '有什么想法、材料、待办？先记下来，稍后厘清…'"
       @keydown.enter.ctrl.exact.prevent="saveQuickCapture"
     />
     <template #footer>
@@ -401,7 +483,7 @@ function onMenuSelect(name) {
         :disabled="!quickCaptureText.trim()"
         @click="saveQuickCapture"
       >
-        捕获到收件箱
+        {{ quickCaptureType === 'task' ? '创建任务' : quickCaptureType === 'event' ? '创建日程' : '捕获到收件箱' }}
       </el-button>
     </template>
   </el-dialog>
