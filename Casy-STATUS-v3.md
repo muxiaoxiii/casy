@@ -1,6 +1,6 @@
 # Casy 项目状态 v3.0
 
-> **最后更新**: 2026-08-18  
+> **最后更新**: 2026-08-19  
 > **版本**: v3.0  
 > **架构**: 插件化架构（借鉴 Cordis + DSH）
 
@@ -23,22 +23,38 @@
 
 ### v3.0 新增完成项
 
-- ✅ **AI 审计日志接通** — `ai_routes.rs` 的 `log_ai_run` / `log_ai_context_item` 已接入 `process_inbox_with_ai` 与 `generate_writing_suggestion` 调用路径，SHA256 脱敏入库
+- ✅ **AI 审计日志接通** — `ai_routes.rs` 的 `log_ai_run` / `log_ai_context_item` 已接入 `process_inbox_with_ai` / `generate_writing_suggestion` / `ai_chat` 调用路径，SHA256 脱敏入库
 - ✅ **R1-R4 后端分级** — `reminder_log` 表新增 `level` 字段，`dispatch_reminder` 在派发时计算 R1(温和 T>1)/R2(明确 T=1)/R3(强提醒 T=0)/R4(逾期 T<0) 并写入，前端 `ReminderView` 直接消费后端 level
+- ✅ **插件系统补齐为真实实现** — CasyContext / initializer / aiToolCaller 从占位符改为真实可运行；9 插件 38 工具真实注册；AI 对话面板接通真实多轮对话 + 工具调用（后端新增 `ai_chat` 命令，见第二章）
 
 ---
 
 ## 二、插件系统
 
-### 2.1 核心容器（CasyContext）
+> **2026-08-19 架构收口**：v3.0 插件系统此前是"文档声称已完成、代码为占位符"（context/initializer/tool-caller 均为 TODO 空壳，AI 对话面板因此运行即崩）。
+> 本轮已补齐为真实可运行实现，并对齐设计哲学 §11.11（智伴层组件化）与 §原则六（双路径铁律）。
 
-- ✅ 插件管理（use/unuse）
-- ✅ 工具注册（registerTool/executeTool）
-- ✅ 技能注册（registerSkill/executeSkill）
-- ✅ AI 管理（registerProvider/getModels）
-- ✅ 事件系统（on/emit）
-- ✅ 画像管理（setProfile/getProfile）
-- ✅ 确认机制（calculateEffectiveLevel/requestConfirm）
+### 2.1 核心容器（CasyContext）— `src/core/plugin/context.ts`（真实实现）
+
+- ✅ 插件管理（use/unuse）— 启动时安装 9 个业务插件，`initializer.ts` 真实执行
+- ✅ 工具注册（registerTool/executeTool/getTools/getToolDefinitions）— 38 个工具真实注册
+- ✅ 技能注册（registerSkill/executeSkill）— 接口就绪（skill 按需加载，§11.11 ②）
+- ✅ AI 提供商（registerProvider/getProviders/getModels）— 从后端 `get_ai_config` 读配置 + 默认模型清单
+- ✅ 事件系统（on/emit）— 前端级 pub/sub（`plugins:ready` 等；领域事件仍由后端 `audit_events` 负责）
+- ✅ 画像管理（setProfile/getProfile）— 前端缓存；持久化走后端 `get/save_lawyer_profile`
+- ✅ 确认机制（calculateEffectiveLevel/requestConfirm）— effective_policy 前端镜像（system_minimum=外部写 L3 硬编码不可降低）；L3 需输入"确认"
+
+### 2.1.1 AI 工具调用器 — `src/core/ai/tool-caller.ts`（真实实现）
+
+- ✅ `setModel` / `chatWithTools` — 多轮对话 + 工具调用循环（最多 5 轮）
+- ✅ 模型输出 JSON 信封 `{"tool","params"}` → 解析 → 经插件执行 → 结果回喂 → 继续
+- ✅ 确定性执行永不绕过 Rust 命令：工具 execute → `tauriBridge` → 后端命令（写入口唯一）
+- ✅ 每次对话经后端 `ai_chat` 命令（新增）过 `ai_runs` 审计（SHA256 脱敏）+ 每日限额
+
+### 2.1.2 AI 聊天面板（`AIChatPanel.vue`）
+
+- ✅ 提供商/模型下拉消费真实 providers（Ollama / OpenAI / DeepSeek），修复运行即崩
+- ✅ 浏览器预览模式（无 Tauri）走 mock `ai_chat`，可展示工具调用流程
 
 ### 2.2 已注册插件（9 个）
 

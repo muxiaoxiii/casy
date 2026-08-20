@@ -162,4 +162,5 @@ npm run tauri build
 
 ## 附录 B：改动登记
 
+- 2026-08-19 — **插件系统补齐为真实实现**（架构收口）：`src/core/plugin/` 从占位符重写为真实容器（types.ts 新建、context.ts 真实 CasyContext、initializer.ts 安装 9 插件 38 工具 + 注册 AI 提供商），`src/core/ai/tool-caller.ts` 实现多轮对话 + 工具调用循环；后端新增 `ai_chat` 多轮对话命令（过 ai_runs 审计 + 每日限额）；修复 AI 对话面板运行即崩；浏览器预览模式补 ai_chat mock。详见 `docs/devlog/2026-08-19-plugin-real.md`。
 - 2026-08-18 — v3.0 文档同步：项目指标刷新（43.3k 行 / 148 命令 / 44 组件 / 9 插件 / 38 工具），项目结构补全 ai/reminder/core/plugins/types 模块，文档层级补 architecture-v3 与 architecture-plugin-system，新增 designs/ 与 Casy-STATUS-v3.md。详见 `docs/devlog/2026-08-18.md`。
