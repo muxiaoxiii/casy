@@ -5,10 +5,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
   Plus, Check, Clock, Calendar, Star, Folder,
-  ArrowRight, Delete, Edit, More, Refresh, RefreshRight,
-  Box, List, Timer, View, Collection,
-  Grid, DataBoard, CircleCheck
+  ArrowRight, Delete, Edit, More, RefreshRight,
+  Box, List, Timer, Collection, Lock
 } from '@element-plus/icons-vue'
+import { useTasksStore } from '../../../stores/tasks'
 
 // ============================================================
 // 原有状态（保留）
@@ -16,6 +16,12 @@ import {
 const tasks = ref([])
 const loading = ref(false)
 const showCreateDialog = ref(false)
+
+// Things 3 式快速捕获输入条
+const captureInput = ref('')
+const capturing = ref(false)
+const captureInputRef = ref(null)
+
 const newTask = ref({
   taskName: '',
   description: '',
@@ -61,11 +67,9 @@ const searchingCases = ref(false)
 const cases = ref([])
 const areas = ref([])
 
-// 视图模式：quadrant（四象限）或 gtd（GTD透视）
-const viewMode = ref('quadrant')
-
-// GTD 透视
+// GTD 透视（纯透视工作台，无四象限模式）
 const activePerspective = ref('inbox')
+const tasksStore = useTasksStore()
 
 // 厘清对话框
 const showTriageDialog = ref(false)
@@ -128,14 +132,6 @@ const contextOptions = [
 // 计算属性
 // ============================================================
 
-// 原有四象限（保留）
-const quadrants = computed(() => ({
-  urgentImportant: tasks.value.filter((t) => t.priority === 'urgent_important' && !t.completed),
-  important: tasks.value.filter((t) => t.priority === 'important' && !t.completed),
-  urgent: tasks.value.filter((t) => t.priority === 'urgent' && !t.completed),
-  normal: tasks.value.filter((t) => t.priority === 'normal' && !t.completed),
-}))
-
 // GTD 透视过滤
 const gtdTasks = computed(() => {
   const today = new Date().toISOString().split('T')[0]
@@ -189,6 +185,36 @@ const gtdTasks = computed(() => {
   }
 })
 
+// 案件分组（Headings）：随时/计划中按案件分组，其余透视单组平铺
+const gtdGroups = computed(() => {
+  const groups = new Map()
+  for (const t of gtdTasks.value) {
+    const key = t.caseId || '__none__'
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        caseId: t.caseId,
+        caseName: t.caseId ? getCaseName(t.caseId) || '' : '',
+        tasks: [],
+      })
+    }
+    groups.get(key).tasks.push(t)
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+    if (!a.caseId && b.caseId) return 1
+    if (a.caseId && !b.caseId) return -1
+    return (a.caseName || '').localeCompare(b.caseName || '', 'zh')
+  })
+})
+
+const gtdSections = computed(() => {
+  const persp = activePerspective.value
+  if (persp === 'next' || persp === 'upcoming') {
+    return gtdGroups.value
+  }
+  return [{ key: '__flat__', caseId: null, caseName: '', tasks: gtdTasks.value, flat: true }]
+})
+
 // GTD 统计
 const gtdStats = computed(() => {
   const today = new Date().toISOString().split('T')[0]
@@ -209,13 +235,13 @@ const gtdStats = computed(() => {
 onMounted(() => {
   loadData()
   filtersStore.loadFilters('tasks')
-  // 从路由 query 恢复视图模式
+  // 从路由 query 恢复透视；未指定时沿用 store（首页入口可指定）
   const urlParams = new URLSearchParams(window.location.search)
-  if (urlParams.get('view') === 'gtd') {
-    viewMode.value = 'gtd'
-  }
-  if (urlParams.get('perspective')) {
-    activePerspective.value = urlParams.get('perspective')
+  const perspective = urlParams.get('perspective')
+  if (perspective) {
+    activePerspective.value = perspective
+  } else if (tasksStore.activePerspective) {
+    activePerspective.value = tasksStore.activePerspective
   }
 })
 
@@ -253,28 +279,9 @@ async function loadAreas() {
 // ============================================================
 // 原有函数（保留）
 // ============================================================
+// 点击圆圈直接完成/恢复，不再弹确认框
 async function toggleComplete(task) {
-  // 完成任务时可选填实际耗时（分钟）；取消/留空则不记录
-  let actualMinutes = null
-  if (!task.completed) {
-    try {
-      const { value } = await ElMessageBox.prompt(
-        '实际耗时（分钟，可留空）',
-        `完成「${task.taskName}」`,
-        {
-          confirmButtonText: '完成',
-          cancelButtonText: '直接完成',
-          inputPlaceholder: task.estimatedMinutes ? `预估 ${task.estimatedMinutes} 分钟` : '如 45',
-          inputPattern: /^\d*$/,
-          inputErrorMessage: '请输入数字',
-        }
-      )
-      actualMinutes = value && /^\d+$/.test(value) ? parseInt(value, 10) : null
-    } catch {
-      actualMinutes = null // 用户选择直接完成
-    }
-  }
-  const result = await tauriCallSafe('toggle_task', { id: task.id, actualMinutes })
+  const result = await tauriCallSafe('toggle_task', { id: task.id })
   if (result.ok) {
     task.completed = task.completed ? 0 : 1
     ElMessage.success(task.completed ? '已完成' : '已恢复')
@@ -393,14 +400,6 @@ function daysUntil(deadline) {
   return Math.ceil((d - today) / (1000 * 60 * 60 * 24))
 }
 
-function deadlineText(deadline) {
-  const days = daysUntil(deadline)
-  if (days === null) return ''
-  if (days < 0) return `已逾期${Math.abs(days)}天`
-  if (days === 0) return '今天到期'
-  return `${days}天`
-}
-
 function isOverdue(deadline) {
   const days = daysUntil(deadline)
   return days !== null && days < 0
@@ -409,22 +408,13 @@ function isOverdue(deadline) {
 // ============================================================
 // GTD 新增函数
 // ============================================================
-
-// 切换视图模式
-function switchViewMode(mode) {
-  viewMode.value = mode
-  // 更新 URL
-  const url = new URL(window.location)
-  url.searchParams.set('view', mode)
-  window.history.replaceState({}, '', url)
-}
-
 // 切换透视
 function switchPerspective(key) {
   activePerspective.value = key
+  // 同步到 store（首页入口可直达指定透视）
+  tasksStore.activePerspective = key
   // 更新 URL
   const url = new URL(window.location)
-  url.searchParams.set('perspective', key)
   window.history.replaceState({}, '', url)
 }
 
@@ -450,7 +440,7 @@ async function saveCurrentFilter() {
   const result = await filtersStore.saveFilter({
     module: 'tasks',
     name,
-    filter: { viewMode: viewMode.value, perspective: activePerspective.value },
+    filter: { perspective: activePerspective.value },
   })
   if (result.ok) {
     ElMessage.success('筛选已保存')
@@ -461,7 +451,7 @@ async function saveCurrentFilter() {
 
 function applySavedFilter(sf) {
   const f = sf.filter || {}
-  if (f.viewMode && f.viewMode !== viewMode.value) switchViewMode(f.viewMode)
+  // 历史筛选可能带旧 viewMode 字段：一律收敛到 GTD 透视
   if (f.perspective && f.perspective !== activePerspective.value) switchPerspective(f.perspective)
 }
 
@@ -594,13 +584,155 @@ function openFollowUp(task) {
 }
 
 // ============================================================
+// Things 3 式快速捕获（自然语言解析）
+// ============================================================
+function toDateStr(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return y + '-' + m + '-' + day
+}
+
+function todayStr() {
+  return toDateStr(new Date())
+}
+
+// 解析快速捕获文本：识别开头的日期词（今天/明天/后天/周X/下周X/MM-DD）
+// 与时间词（HH:MM / X点 / X点半），解析为 startDate/dueDate
+// 返回 { taskName, startDate, dueDate, startBucket }；解析失败时 startDate 为 null
+function parseCaptureText(raw) {
+  let text = (raw || '').trim()
+  if (!text) return null
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  let parsedDate = null
+
+  // 1) 相对日期词（必须出现在开头）
+  const rel = text.match(/^(今天|明天|后天)/)
+  if (rel) {
+    const offset = rel[1] === '今天' ? 0 : rel[1] === '明天' ? 1 : 2
+    const d = new Date(today)
+    d.setDate(d.getDate() + offset)
+    parsedDate = toDateStr(d)
+    text = text.slice(rel[1].length).trim()
+  } else {
+    // 2) 周X / 下周X（本周或下周的最近一次）
+    const week = text.match(/^下周?([一二三四五六日天])/)
+    if (week) {
+      const wd = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[week[1]]
+      const delta = (wd - today.getDay() + 7) % 7
+      const d = new Date(today)
+      d.setDate(d.getDate() + delta + (week[0].startsWith('下周') ? 7 : 0))
+      parsedDate = toDateStr(d)
+      text = text.slice(week[0].length).trim()
+    } else {
+      // 3) MM-DD（今年内已过则顺延到明年）
+      const md = text.match(/^(\d{1,2})[-/](\d{1,2})/)
+      if (md) {
+        const m = parseInt(md[1], 10)
+        const day = parseInt(md[2], 10)
+        let d = new Date(today.getFullYear(), m - 1, day)
+        if (d < today) d = new Date(today.getFullYear() + 1, m - 1, day)
+        parsedDate = toDateStr(d)
+        text = text.slice(md[0].length).trim()
+      }
+    }
+  }
+
+  // 4) 时间词：HH:MM 或 X点/X点半（仅识别并从前缀剥离；任务无时间字段）
+  text = text.replace(/^(\d{1,2}[:：]\d{2}|[0-9一二两三四五六七八九十]{1,3}点(半|整)?)\s*/, '')
+  if (!text) text = raw.trim()
+
+  const isToday = parsedDate === todayStr()
+  return {
+    taskName: text,
+    startDate: parsedDate,
+    dueDate: parsedDate,
+    startBucket: !parsedDate ? 'inbox' : isToday ? 'today' : 'upcoming',
+  }
+}
+
+// 回车快速捕获；Ctrl/Cmd+回车直接进今日
+async function quickCapture(forceToday = false) {
+  const text = captureInput.value.trim()
+  if (!text || capturing.value) return
+  const parsed = parseCaptureText(text)
+  capturing.value = true
+  let data
+  if (forceToday) {
+    data = {
+      taskName: parsed ? parsed.taskName : text,
+      startDate: todayStr(),
+      dueDate: todayStr(),
+      startBucket: 'today',
+      taskType: 'action',
+    }
+  } else if (parsed && parsed.startDate) {
+    data = {
+      taskName: parsed.taskName,
+      startDate: parsed.startDate,
+      dueDate: parsed.dueDate,
+      startBucket: parsed.startBucket,
+      taskType: 'action',
+    }
+  } else {
+    // 解析失败或仅时间词：标题=原文，进收件箱
+    data = {
+      taskName: text,
+      startBucket: 'inbox',
+      taskType: 'action',
+    }
+  }
+  const result = await tauriCallSafe('create_task', { data })
+  capturing.value = false
+  if (result.ok) {
+    ElMessage.success('已捕获')
+    captureInput.value = ''
+    await loadTasks()
+  }
+}
+
+function onCaptureKeydown(e) {
+  e.preventDefault()
+  if (e.ctrlKey || e.metaKey) quickCapture(true)
+  else quickCapture(false)
+}
+
+// ============================================================
+// Review 回顾闭环
+// ============================================================
+// 下周日的日期（今天为周日则取 7 天后）
+function nextSundayStr() {
+  const d = new Date()
+  const day = d.getDay()
+  const diff = (7 - day) % 7 || 7
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff)
+  return toDateStr(target)
+}
+
+// 标记已回顾：lastReviewDate=今天，nextReviewDate=下周日
+async function markReviewed(task) {
+  const result = await tauriCallSafe('update_task', {
+    data: {
+      id: task.id,
+      lastReviewDate: todayStr(),
+      nextReviewDate: nextSundayStr(),
+    },
+  })
+  if (result.ok) {
+    ElMessage.success('已标记回顾')
+    await loadTasks()
+  }
+}
+
+// ============================================================
 // 快捷键
 // ============================================================
 function handleKeydown(e) {
-  // Cmd+T: 快速捕获
-  if (e.metaKey && e.key === 't') {
+  // Ctrl/Cmd+T: 聚焦快速捕获输入框
+  if ((e.metaKey || e.ctrlKey) && e.key === 't') {
     e.preventDefault()
-    showCreateDialog.value = true
+    if (captureInputRef.value) captureInputRef.value.focus()
   }
 }
 
@@ -619,8 +751,8 @@ onUnmounted(() => {
     <!-- 工具栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <h3>📌 任务管理</h3>
-        <span class="shortcut-hint">⌘T 快速捕获</span>
+        <h3>任务管理</h3>
+        <span class="shortcut-hint">Ctrl/Cmd+T 快速捕获</span>
       </div>
       
       <div class="toolbar-right">
@@ -642,18 +774,6 @@ onUnmounted(() => {
         </el-dropdown>
         <el-button size="small" text type="primary" @click="saveCurrentFilter">保存筛选</el-button>
 
-        <!-- 视图切换 -->
-        <el-radio-group v-model="viewMode" size="small" @change="switchViewMode">
-          <el-radio-button value="quadrant">
-            <el-icon><Grid /></el-icon>
-            四象限
-          </el-radio-button>
-          <el-radio-button value="gtd">
-            <el-icon><DataBoard /></el-icon>
-            GTD
-          </el-radio-button>
-        </el-radio-group>
-        
         <el-button type="primary" size="small" @click="showCreateDialog = true">
           <el-icon><Plus /></el-icon>
           新建任务
@@ -661,8 +781,29 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- GTD 透视标签（仅在 GTD 模式显示） -->
-    <div v-if="viewMode === 'gtd'" class="perspective-tabs">
+    <!-- Things 3 式快速捕获条（常驻，无弹窗） -->
+    <div class="capture-bar">
+      <el-input
+        ref="captureInputRef"
+        v-model="captureInput"
+        placeholder="快速捕获：输入任务，回车进收件箱，Ctrl/Cmd+回车进今日"
+        clearable
+        :disabled="capturing"
+        @keydown.enter="onCaptureKeydown"
+      >
+        <template #prefix>
+          <el-icon><Plus /></el-icon>
+        </template>
+      </el-input>
+      <div class="capture-hint">
+        <span>回车快速捕获</span>
+        <span class="capture-hint-divider">·</span>
+        <span>Ctrl/Cmd+回车直接进今日</span>
+      </div>
+    </div>
+
+    <!-- GTD 透视标签（唯一视图模式） -->
+    <div class="perspective-tabs">
       <div
         v-for="p in perspectives"
         :key="p.key"
@@ -676,104 +817,24 @@ onUnmounted(() => {
         </span>
       </div>
     </div>
-
+    <!-- 加载骨架 -->
     <!-- 加载骨架 -->
     <div v-if="loading" class="skeleton-wrapper">
-      <el-skeleton :rows="8" animated>
+      <el-skeleton :rows="6" animated>
         <template #template>
-          <div class="skeleton-quadrants">
-            <div v-for="i in 4" :key="i" class="skeleton-quadrant">
-              <el-skeleton-item variant="rect" style="width: 100%; height: 32px; border-radius: 4px 4px 0 0;" />
-              <div style="padding: 8px;">
-                <div v-for="j in 3" :key="j" class="skeleton-task-row">
-                  <el-skeleton-item variant="circle" style="width: 16px; height: 16px;" />
-                  <el-skeleton-item variant="text" style="width: 60%; height: 16px;" />
-                  <el-skeleton-item variant="text" style="width: 20%; height: 16px;" />
-                </div>
-              </div>
+          <div class="skeleton-rows">
+            <div v-for="i in 6" :key="i" class="skeleton-task-row">
+              <el-skeleton-item variant="circle" style="width: 18px; height: 18px;" />
+              <el-skeleton-item variant="text" style="width: 60%; height: 16px;" />
+              <el-skeleton-item variant="text" style="width: 20%; height: 16px;" />
             </div>
           </div>
         </template>
       </el-skeleton>
     </div>
 
-    <!-- 四象限视图（原有） -->
-    <div v-else-if="viewMode === 'quadrant'" class="quadrants-grid">
-      <!-- 重要紧急 -->
-      <div class="quadrant">
-        <div class="quadrant-header urgent-important">重要紧急 ({{ quadrants.urgentImportant.length }})</div>
-        <div class="quadrant-body">
-          <div v-for="task in quadrants.urgentImportant" :key="task.id" class="task-card" :class="{ 'overdue-card': isOverdue(task.deadline) }">
-            <div class="task-main">
-              <el-checkbox :model-value="!!task.completed" @change="toggleComplete(task)" />
-              <span class="task-name clickable" :class="{ done: task.completed }" @click="openDrawer(task)">{{ task.taskName }}</span>
-            </div>
-            <div v-if="task.deadline" class="task-deadline" :class="{ overdue: isOverdue(task.deadline) }">
-              {{ deadlineText(task.deadline) }}
-            </div>
-            <el-button size="small" text type="danger" @click="deleteTask(task)">×</el-button>
-          </div>
-          <div v-if="!quadrants.urgentImportant.length" class="empty-quadrant">无</div>
-        </div>
-      </div>
-
-      <!-- 重要不紧急 -->
-      <div class="quadrant">
-        <div class="quadrant-header important">重要不紧急 ({{ quadrants.important.length }})</div>
-        <div class="quadrant-body">
-          <div v-for="task in quadrants.important" :key="task.id" class="task-card" :class="{ 'overdue-card': isOverdue(task.deadline) }">
-            <div class="task-main">
-              <el-checkbox :model-value="!!task.completed" @change="toggleComplete(task)" />
-              <span class="task-name clickable" :class="{ done: task.completed }" @click="openDrawer(task)">{{ task.taskName }}</span>
-            </div>
-            <div v-if="task.deadline" class="task-deadline" :class="{ overdue: isOverdue(task.deadline) }">
-              {{ deadlineText(task.deadline) }}
-            </div>
-            <el-button size="small" text type="danger" @click="deleteTask(task)">×</el-button>
-          </div>
-          <div v-if="!quadrants.important.length" class="empty-quadrant">无</div>
-        </div>
-      </div>
-
-      <!-- 紧急不重要 -->
-      <div class="quadrant">
-        <div class="quadrant-header urgent">紧急不重要 ({{ quadrants.urgent.length }})</div>
-        <div class="quadrant-body">
-          <div v-for="task in quadrants.urgent" :key="task.id" class="task-card" :class="{ 'overdue-card': isOverdue(task.deadline) }">
-            <div class="task-main">
-              <el-checkbox :model-value="!!task.completed" @change="toggleComplete(task)" />
-              <span class="task-name clickable" :class="{ done: task.completed }" @click="openDrawer(task)">{{ task.taskName }}</span>
-            </div>
-            <div v-if="task.deadline" class="task-deadline" :class="{ overdue: isOverdue(task.deadline) }">
-              {{ deadlineText(task.deadline) }}
-            </div>
-            <el-button size="small" text type="danger" @click="deleteTask(task)">×</el-button>
-          </div>
-          <div v-if="!quadrants.urgent.length" class="empty-quadrant">无</div>
-        </div>
-      </div>
-
-      <!-- 普通 -->
-      <div class="quadrant">
-        <div class="quadrant-header normal">普通 ({{ quadrants.normal.length }})</div>
-        <div class="quadrant-body">
-          <div v-for="task in quadrants.normal" :key="task.id" class="task-card" :class="{ 'overdue-card': isOverdue(task.deadline) }">
-            <div class="task-main">
-              <el-checkbox :model-value="!!task.completed" @change="toggleComplete(task)" />
-              <span class="task-name clickable" :class="{ done: task.completed }" @click="openDrawer(task)">{{ task.taskName }}</span>
-            </div>
-            <div v-if="task.deadline" class="task-deadline" :class="{ overdue: isOverdue(task.deadline) }">
-              {{ deadlineText(task.deadline) }}
-            </div>
-            <el-button size="small" text type="danger" @click="deleteTask(task)">×</el-button>
-          </div>
-          <div v-if="!quadrants.normal.length" class="empty-quadrant">无</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- GTD 透视视图 -->
-    <div v-else-if="viewMode === 'gtd'" class="gtd-view">
+    <!-- GTD 透视视图（唯一视图，无四象限） -->
+    <div v-else class="gtd-view">
       <!-- 空状态 -->
       <div v-if="gtdTasks.length === 0" class="empty-state">
         <el-icon :size="48" color="#C0C4CC"><component :is="perspectives.find(p => p.key === activePerspective)?.icon || List" /></el-icon>
@@ -783,136 +844,170 @@ onUnmounted(() => {
         </el-button>
       </div>
 
-      <!-- 任务列表 -->
-      <div v-else class="task-list">
-        <div
-          v-for="task in gtdTasks"
-          :key="task.id"
-          :class="['task-card', { 
-            overdue: isOverdue(task.dueDate || task.deadline), 
-            'due-soon': task.dueSoon === 1,
-            flagged: task.flagged === 1 
-          }]"
-        >
-          <!-- 完成按钮 -->
-          <div class="task-check" @click="toggleComplete(task)">
-            <el-icon v-if="task.completed" color="#67C23A"><Check /></el-icon>
-            <el-icon v-else color="#C0C4CC"><CircleCheck /></el-icon>
+      <!-- 任务列表：随时/计划中按案件分组（Headings），其余透视平铺 -->
+      <template v-else>
+        <div v-for="section in gtdSections" :key="section.key" class="task-group">
+          <!-- 分组小节标题 -->
+          <div v-if="!section.flat" class="group-header">
+            <el-icon :size="13"><Folder /></el-icon>
+            <span class="group-name">{{ section.caseName || '无案件' }}</span>
+            <span class="group-count">{{ section.tasks.length }}</span>
           </div>
 
-          <!-- 任务内容 -->
-          <div class="task-content" @click="openDrawer(task)">
-            <div class="task-title">
-              <span>{{ task.taskName }}</span>
-              <el-tag 
-                v-if="task.taskType !== 'action'" 
-                :color="getTaskTypeColor(task.taskType)"
-                size="small"
-                effect="dark"
+          <div class="task-list">
+            <div
+              v-for="task in section.tasks"
+              :key="task.id"
+              :class="['task-card', {
+                overdue: isOverdue(task.dueDate || task.deadline),
+                'due-soon': task.dueSoon === 1,
+                flagged: task.flagged === 1,
+                blocked: task.blocked === 1
+              }]"
+            >
+              <!-- 完成圆圈：点击直接完成/恢复 -->
+              <div
+                class="task-check"
+                :class="{ done: task.completed === 1 }"
+                @click="toggleComplete(task)"
               >
-                {{ getTaskTypeLabel(task.taskType) }}
-              </el-tag>
-            </div>
-            
-            <div class="task-meta">
-              <!-- 案件关联 -->
-              <span v-if="task.caseId" class="meta-item case">
-                <el-icon><Folder /></el-icon>
-                {{ getCaseName(task.caseId) }}
-              </span>
-              
-              <!-- 领域 -->
-              <span v-if="task.areaId" class="meta-item area">
-                <el-icon><Collection /></el-icon>
-                {{ getAreaName(task.areaId) }}
-              </span>
-              
-              <!-- 旗标 -->
-              <span v-if="task.flagged === 1" class="meta-item flagged">
-                <el-icon color="#F59E0B"><Star /></el-icon>
-              </span>
-              
-              <!-- 截止日期 -->
-              <span v-if="task.dueDate || task.deadline" class="meta-item deadline" :class="{ overdue: isOverdue(task.dueDate || task.deadline) }">
-                <el-icon><Calendar /></el-icon>
-                {{ formatDate(task.dueDate || task.deadline) }}
-              </span>
-              
-              <!-- 预计耗时 -->
-              <span v-if="task.estimatedMinutes" class="meta-item estimated">
-                <el-icon><Timer /></el-icon>
-                {{ task.estimatedMinutes }}分钟
-              </span>
-              
-              <!-- 等待信息 -->
-              <span v-if="task.taskType === 'waiting' && task.waitingFor" class="meta-item waiting" :class="{ 'waiting-warning': getWaitingDays(task) > 3 }">
-                <el-icon><Clock /></el-icon>
-                等 {{ task.waitingFor }}
-                <span v-if="getWaitingDays(task) > 0" class="waiting-days">
-                  ({{ getWaitingDays(task) }}天)
-                </span>
-                <el-button 
-                  v-if="getWaitingDays(task) > 3" 
-                  size="small" 
-                  type="warning" 
-                  plain 
-                  class="follow-up-btn"
-                  @click.stop="openFollowUp(task)"
-                >
-                  催办
-                </el-button>
-              </span>
-              
-              <!-- 上下文 -->
-              <span v-if="task.context" class="meta-item context">
-                @{{ task.context }}
-              </span>
-            </div>
-          </div>
+                <el-icon v-if="task.completed === 1"><Check /></el-icon>
+              </div>
 
-          <!-- 操作按钮 -->
-          <div class="task-actions">
-            <el-dropdown trigger="click">
-              <el-button :icon="More" circle size="small" />
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="openDrawer(task)" :icon="Edit">
-                    编辑
-                  </el-dropdown-item>
-                  <el-dropdown-item 
-                    v-if="activePerspective === 'inbox'" 
-                    @click="openTriage(task)" 
-                    :icon="ArrowRight"
+              <!-- 任务内容 -->
+              <div class="task-content" @click="openDrawer(task)">
+                <div class="task-title">
+                  <span>{{ task.taskName }}</span>
+                  <el-tag 
+                    v-if="task.taskType !== 'action'" 
+                    :color="getTaskTypeColor(task.taskType)"
+                    size="small"
+                    effect="dark"
                   >
-                    厘清
-                  </el-dropdown-item>
-                  <el-dropdown-item 
-                    v-if="activePerspective !== 'today'" 
-                    @click="moveToToday(task)" 
-                    :icon="Calendar"
+                    {{ getTaskTypeLabel(task.taskType) }}
+                  </el-tag>
+                </div>
+                
+                <div class="task-meta">
+                  <!-- 案件关联 -->
+                  <span v-if="task.caseId" class="meta-item case">
+                    <el-icon><Folder /></el-icon>
+                    {{ getCaseName(task.caseId) }}
+                  </span>
+                  
+                  <!-- 领域 -->
+                  <span v-if="task.areaId" class="meta-item area">
+                    <el-icon><Collection /></el-icon>
+                    {{ getAreaName(task.areaId) }}
+                  </span>
+                  
+                  <!-- 旗标 -->
+                  <span v-if="task.flagged === 1" class="meta-item flagged">
+                    <el-icon color="#F59E0B"><Star /></el-icon>
+                  </span>
+                  
+                  <!-- 截止日期 -->
+                  <span v-if="task.dueDate || task.deadline" class="meta-item deadline" :class="{ overdue: isOverdue(task.dueDate || task.deadline) }">
+                    <el-icon><Calendar /></el-icon>
+                    {{ formatDate(task.dueDate || task.deadline) }}
+                  </span>
+                  
+                  <!-- 预计耗时 -->
+                  <span v-if="task.estimatedMinutes" class="meta-item estimated">
+                    <el-icon><Timer /></el-icon>
+                    {{ task.estimatedMinutes }}分钟
+                  </span>
+                  
+                  <!-- 等待信息 -->
+                  <span v-if="task.taskType === 'waiting' && task.waitingFor" class="meta-item waiting" :class="{ 'waiting-warning': getWaitingDays(task) > 3 }">
+                    <el-icon><Clock /></el-icon>
+                    等 {{ task.waitingFor }}
+                    <span v-if="getWaitingDays(task) > 0" class="waiting-days">
+                      ({{ getWaitingDays(task) }}天)
+                    </span>
+                    <el-button 
+                      v-if="getWaitingDays(task) > 3" 
+                      size="small" 
+                      type="warning" 
+                      plain 
+                      class="follow-up-btn"
+                      @click.stop="openFollowUp(task)"
+                    >
+                      催办
+                    </el-button>
+                  </span>
+                  
+                  <!-- 上下文 -->
+                  <span v-if="task.context" class="meta-item context">
+                    @{{ task.context }}
+                  </span>
+                  
+                  <!-- 顺序项目锁定 -->
+                  <span v-if="task.blocked === 1" class="meta-item blocked">
+                    <el-icon><Lock /></el-icon>
+                    已锁定
+                  </span>
+                </div>
+              </div>
+
+              <!-- 操作按钮 -->
+              <div class="task-actions">
+                <!-- Review 回顾闭环：标记已回顾（下周日再回顾） -->
+                <template v-if="activePerspective === 'review'">
+                  <span v-if="task.nextReviewDate" class="review-info">下次回顾 {{ task.nextReviewDate }}</span>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    plain
+                    class="review-btn"
+                    @click="markReviewed(task)"
                   >
-                    移至今日
-                  </el-dropdown-item>
-                  <el-dropdown-item 
-                    v-if="task.taskType !== 'waiting'" 
-                    @click="markAsWaiting(task)" 
-                    :icon="Clock"
-                  >
-                    标记等待
-                  </el-dropdown-item>
-                  <el-dropdown-item 
-                    @click="deleteTask(task)" 
-                    :icon="Delete"
-                    divided
-                  >
-                    删除
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+                    已回顾
+                  </el-button>
+                </template>
+                <el-dropdown trigger="click">
+                  <el-button :icon="More" circle size="small" />
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item @click="openDrawer(task)" :icon="Edit">
+                        编辑
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="activePerspective === 'inbox'" 
+                        @click="openTriage(task)" 
+                        :icon="ArrowRight"
+                      >
+                        厘清
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="activePerspective !== 'today'" 
+                        @click="moveToToday(task)" 
+                        :icon="Calendar"
+                      >
+                        移至今日
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="task.taskType !== 'waiting'" 
+                        @click="markAsWaiting(task)" 
+                        :icon="Clock"
+                      >
+                        标记等待
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        @click="deleteTask(task)" 
+                        :icon="Delete"
+                        divided
+                      >
+                        删除
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <!-- 新建任务弹窗（增强版） -->
@@ -1242,16 +1337,10 @@ onUnmounted(() => {
   margin-top: 16px;
 }
 
-.skeleton-quadrants {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.skeleton-quadrant {
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
-  overflow: hidden;
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .skeleton-task-row {
@@ -1261,36 +1350,66 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 
-/* 四象限（原有样式） */
-.quadrants-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+/* 快速捕获条（Things 3 式） */
+.capture-bar {
+  margin-bottom: 12px;
 }
 
-.quadrant {
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
-  overflow: hidden;
+.capture-bar .el-input__wrapper {
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 1px #E4E7ED inset;
 }
 
-.quadrant-header {
-  padding: 8px 12px;
-  font-size: 13px;
+.capture-bar .el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px #3E5C9A inset, 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.capture-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #9BA2AF;
+  padding-left: 4px;
+}
+
+.capture-hint-divider {
+  color: #D4D4D8;
+}
+
+/* GTD 分组小节（Headings） */
+.task-group {
+  margin-bottom: 16px;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: #3E5C9A;
+  border-bottom: 1px solid #EEF0F4;
 }
 
-.quadrant-header.urgent-important { background: #f56c6c; }
-.quadrant-header.important { background: #e6a23c; }
-.quadrant-header.urgent { background: #409eff; }
-.quadrant-header.normal { background: #909399; }
+.group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.quadrant-body {
-  padding: 8px;
-  min-height: 120px;
-  max-height: 400px;
-  overflow-y: auto;
+.group-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: #9BA2AF;
+  background: #F4F4F5;
+  padding: 1px 6px;
+  border-radius: 8px;
 }
 
 .task-card {
@@ -1308,59 +1427,8 @@ onUnmounted(() => {
   background: #f5f7fa;
 }
 
-.task-card.overdue-card {
-  border-left: 3px solid #f56c6c;
-}
-
 .task-card.flagged {
   background: #FFFBEB;
-}
-
-.task-main {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.task-name {
-  font-size: 13px;
-  color: #303133;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-name.clickable {
-  cursor: pointer;
-}
-
-.task-name.clickable:hover {
-  color: #409eff;
-}
-
-.task-name.done {
-  text-decoration: line-through;
-  color: #c0c4cc;
-}
-
-.task-deadline {
-  font-size: 11px;
-  color: #909399;
-  white-space: nowrap;
-}
-
-.task-deadline.overdue {
-  color: #f56c6c;
-  font-weight: 500;
-}
-
-.empty-quadrant {
-  text-align: center;
-  color: #c0c4cc;
-  font-size: 13px;
-  padding: 24px 0;
 }
 
 /* GTD 视图 */
@@ -1413,9 +1481,38 @@ onUnmounted(() => {
   background: #FFFBEB;
 }
 
+.task-list .task-card.blocked {
+  border-left: 3px solid #9BA2AF;
+  opacity: 0.85;
+}
+
 .task-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #C0C4CC;
+  background: transparent;
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: all 0.15s;
+}
+
+.task-check .el-icon {
+  font-size: 11px;
+  color: #FFFFFF;
+}
+
+.task-check:hover {
+  border-color: #4C8067;
+}
+
+.task-check.done {
+  background: #4C8067;
+  border-color: #4C8067;
 }
 
 .task-content {
@@ -1454,6 +1551,7 @@ onUnmounted(() => {
 .meta-item.waiting { color: #E6A23C; }
 .meta-item.flagged { color: #F59E0B; }
 .meta-item.estimated { color: #6B7280; }
+.meta-item.blocked { color: #9BA2AF; }
 
 .waiting-days {
   color: #F56C6C;
@@ -1481,6 +1579,24 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* Review 回顾闭环 */
+.review-info {
+  font-size: 11px;
+  color: #9BA2AF;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.review-btn {
+  margin-right: 8px;
+  font-size: 12px;
+  padding: 4px 10px;
+  --el-button-border-color: #6C6A9C;
+  --el-button-text-color: #6C6A9C;
+  --el-button-hover-border-color: #6C6A9C;
+  --el-button-hover-text-color: #FFFFFF;
+  --el-button-hover-bg-color: #6C6A9C;
+}
 /* 厘清预览 */
 .triage-preview {
   padding: 16px;
