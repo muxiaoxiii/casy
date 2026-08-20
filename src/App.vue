@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { listen } from '@tauri-apps/api/event'
+import { safeListen } from './core/tauriEvents'
 import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from './core/tauriBridge'
 import ReminderToast from './shared/components/ReminderToast.vue'
@@ -21,15 +21,14 @@ import {
   Document,
   Setting,
   Plus,
-  ArrowRight,
   Clock,
   Warning,
-  Check,
   Folder,
-  Timer,
   Bell,
   Cpu,
-  ArrowDown,
+  Search,
+  Expand,
+  Fold,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -37,7 +36,6 @@ const route = useRoute()
 
 // ============================================================
 // 律师画像 / 首次使用引导
-// 未完成画像且未手动关闭过 → 自动弹出；「稍后再填」后不再自动弹
 // ============================================================
 const profileStore = useProfileStore()
 const showOnboarding = ref(false)
@@ -54,17 +52,24 @@ function onOnboardingDismiss() {
 }
 
 // ============================================================
+// 侧栏折叠
+// ============================================================
+const sidebarCollapsed = ref(false)
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+// ============================================================
 // 今日面板数据
 // ============================================================
 const todayStats = ref({
-  hardSchedule: 0,    // 硬性日程（开庭/口审）
-  dueToday: 0,        // 今日到期任务
-  waitingOverdue: 0,  // 等待超3天
-  needReview: 0,      // 需回顾案件
+  hardSchedule: 0,
+  dueToday: 0,
+  waitingOverdue: 0,
+  needReview: 0,
 })
 
 const loadingStats = ref(false)
-const todayPanelCollapsed = ref(false)
 
 async function loadTodayStats() {
   loadingStats.value = true
@@ -79,32 +84,44 @@ async function loadTodayStats() {
   loadingStats.value = false
 }
 
-function toggleTodayPanel() {
-  todayPanelCollapsed.value = !todayPanelCollapsed.value
-}
-
 // ============================================================
-// 第二层：核心模块导航
+// 核心模块导航（分组）
 // ============================================================
-const coreModules = [
-  { name: 'home', label: '今日', icon: DataBoard },
-  { name: 'cases', label: '案件', icon: Briefcase },
-  { name: 'tasks', label: '任务', icon: Finished },
-  { name: 'calendar', label: '日历', icon: Calendar },
-  { name: 'dashboard', label: '数据看板', icon: Cpu },
-  { name: 'clients', label: '客户', icon: Folder },
-  { name: 'inbox', label: '收件箱', icon: Box },
-  { name: 'knowledge', label: '知识库', icon: Collection },
-  { name: 'docs', label: '文书', icon: Document },
-  { name: 'settings', label: '设置', icon: Setting },
+const navGroups = [
+  {
+    label: '工作台',
+    items: [
+      { name: 'home', label: '今日', icon: DataBoard },
+    ],
+  },
+  {
+    label: '核心',
+    items: [
+      { name: 'cases', label: '案件', icon: Briefcase },
+      { name: 'tasks', label: '任务', icon: Finished },
+      { name: 'calendar', label: '日历', icon: Calendar },
+      { name: 'dashboard', label: '数据看板', icon: Cpu },
+    ],
+  },
+  {
+    label: '知识',
+    items: [
+      { name: 'clients', label: '客户', icon: Folder },
+      { name: 'inbox', label: '收件箱', icon: Box },
+      { name: 'knowledge', label: '知识库', icon: Collection },
+      { name: 'docs', label: '文书', icon: Document },
+    ],
+  },
 ]
 
+const allModules = navGroups.flatMap(g => g.items)
+
 // ============================================================
-// 第三层：模块内 Tab（根据当前模块动态显示）
+// 模块内 Tab（第三层，内容区顶部）
 // ============================================================
 const moduleTabs = computed(() => {
   const moduleName = route.name || 'home'
-  
+
   const tabsMap = {
     cases: [
       { key: 'all', label: '全部' },
@@ -135,7 +152,7 @@ const moduleTabs = computed(() => {
       { key: 'forecast', label: '预测' },
     ],
   }
-  
+
   return tabsMap[moduleName] || []
 })
 
@@ -143,18 +160,16 @@ const activeTab = ref('')
 
 function onTabChange(tab) {
   activeTab.value = tab
-  // 可以通过路由 query 参数传递 tab
   router.replace({ query: { tab } })
 }
 
 // ============================================================
-// 捕获按钮
+// 捕获
 // ============================================================
 const showCaptureMenu = ref(false)
 
 function openCapture(type) {
   showCaptureMenu.value = false
-  // 跳转到任务页面并打开捕获对话框
   router.push({ name: 'tasks', query: { capture: type } })
 }
 
@@ -163,22 +178,15 @@ function openCapture(type) {
 // ============================================================
 const currentModule = computed(() => {
   const name = route.name || 'home'
-  return coreModules.find(m => m.name === name) || coreModules[0]
+  return allModules.find(m => m.name === name) || allModules[0]
 })
 
 const pageTitle = computed(() => {
   return route.meta?.title || currentModule.value.label
 })
 
-const hasUrgentItems = computed(() => {
-  return todayStats.value.hardSchedule > 0 || 
-         todayStats.value.dueToday > 0 || 
-         todayStats.value.waitingOverdue > 0 || 
-         todayStats.value.needReview > 0
-})
-
 // ============================================================
-// 全局快速捕获（后端全局热键 Cmd+I/E/N → emit 'global:quick_capture'）
+// 全局快速捕获（Cmd+I/E/N → emit 'global:quick_capture'）
 // ============================================================
 const showQuickCapture = ref(false)
 const quickCaptureText = ref('')
@@ -187,7 +195,7 @@ let unlistenQuickCapture = null
 
 async function setupQuickCaptureListener() {
   try {
-    unlistenQuickCapture = await listen('global:quick_capture', () => {
+    unlistenQuickCapture = await safeListen('global:quick_capture', () => {
       quickCaptureText.value = ''
       showQuickCapture.value = true
     })
@@ -196,7 +204,6 @@ async function setupQuickCaptureListener() {
   }
 }
 
-// 保存逻辑照 InboxView 捕获条：add_inbox_item(sourceType: 'note')
 async function saveQuickCapture() {
   const text = quickCaptureText.value.trim()
   if (!text) return
@@ -223,7 +230,6 @@ onMounted(() => {
   checkOnboarding()
   setupQuickCaptureListener()
 
-  // 从路由 query 恢复 tab
   if (route.query.tab) {
     activeTab.value = route.query.tab
   }
@@ -234,7 +240,6 @@ onUnmounted(() => {
 })
 
 watch(() => route.name, () => {
-  // 切换模块时重置 tab
   const tabs = moduleTabs.value
   if (tabs.length > 0 && !tabs.find(t => t.key === activeTab.value)) {
     activeTab.value = tabs[0].key
@@ -242,189 +247,147 @@ watch(() => route.name, () => {
   }
 })
 
-// ============================================================
-// 导航
-// ============================================================
 function onMenuSelect(name) {
   router.push({ name })
 }
 </script>
 
 <template>
-  <el-container class="app-container">
-    <!-- 第二层：左侧侧栏 -->
-    <aside class="app-sidebar">
-      <!-- 品牌标识 -->
-      <div class="sidebar-brand" @click="router.push('/')" title="Casy">
-        <span class="brand-letter">C</span>
-        <span class="brand-name">Casy</span>
+  <div class="app-shell">
+    <!-- ═══ 左侧侧栏 ═══ -->
+    <aside class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
+      <!-- 品牌 -->
+      <div class="sidebar-brand" @click="router.push('/')">
+        <span class="brand-mark">C</span>
+        <span v-show="!sidebarCollapsed" class="brand-name">Casy</span>
       </div>
-      
-      <!-- 核心模块导航 -->
+
+      <!-- 导航 -->
       <nav class="sidebar-nav">
-        <div
-          v-for="item in coreModules"
-          :key="item.name"
-          class="nav-item"
-          :class="{ active: route.name === item.name }"
-          @click="onMenuSelect(item.name)"
-          :title="item.label"
-        >
-          <el-icon class="nav-icon" :size="18">
-            <component :is="item.icon" />
-          </el-icon>
-          <span class="nav-label">{{ item.label }}</span>
+        <div v-for="group in navGroups" :key="group.label" class="nav-group">
+          <div v-show="!sidebarCollapsed" class="nav-group-label">{{ group.label }}</div>
+          <div
+            v-for="item in group.items"
+            :key="item.name"
+            class="nav-item"
+            :class="{ active: route.name === item.name }"
+            @click="onMenuSelect(item.name)"
+            :title="item.label"
+          >
+            <el-icon class="nav-icon" :size="17">
+              <component :is="item.icon" />
+            </el-icon>
+            <span v-show="!sidebarCollapsed" class="nav-label">{{ item.label }}</span>
+          </div>
         </div>
       </nav>
-      
-      <!-- 浮动捕获按钮 -->
-      <div class="capture-button-container">
-        <el-popover
-          v-model:visible="showCaptureMenu"
-          placement="right"
-          :width="160"
-          trigger="click"
+
+      <!-- 底部：设置 -->
+      <div class="sidebar-footer">
+        <div
+          class="nav-item"
+          :class="{ active: route.name === 'settings' }"
+          @click="onMenuSelect('settings')"
+          title="设置"
         >
-          <template #reference>
-            <div class="capture-button" title="快速捕获 (⌘T)">
-              <el-icon :size="20"><Plus /></el-icon>
-            </div>
-          </template>
-          
-          <div class="capture-menu">
-            <div class="capture-item" @click="openCapture('task')">
-              <el-icon><Finished /></el-icon>
-              <span>+ 任务</span>
-            </div>
-            <div class="capture-item" @click="openCapture('event')">
-              <el-icon><Calendar /></el-icon>
-              <span>+ 日程</span>
-            </div>
-            <div class="capture-item" @click="openCapture('note')">
-              <el-icon><Collection /></el-icon>
-              <span>+ 笔记</span>
-            </div>
-            <div class="capture-item" @click="openCapture('quick')">
-              <el-icon><Timer /></el-icon>
-              <span>+ 速记</span>
-            </div>
-          </div>
-        </el-popover>
+          <el-icon class="nav-icon" :size="17"><Setting /></el-icon>
+          <span v-show="!sidebarCollapsed" class="nav-label">设置</span>
+        </div>
       </div>
     </aside>
 
-    <!-- 主内容区 -->
-    <el-container class="main-container">
-      <!-- 第一层：今日面板（顶栏常驻，可折叠） -->
-      <header class="today-panel">
-        <div class="today-header" @click="toggleTodayPanel">
-          <div class="today-title">
-            <span class="greeting-text">今日概览</span>
-            <el-icon :size="14" :class="['collapse-icon', { collapsed: todayPanelCollapsed }]">
-              <ArrowDown />
+    <!-- ═══ 右侧主区 ═══ -->
+    <div class="app-main">
+      <!-- 顶栏 -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn" @click="toggleSidebar" title="折叠/展开侧栏">
+            <el-icon :size="16">
+              <Expand v-if="sidebarCollapsed" />
+              <Fold v-else />
             </el-icon>
-          </div>
-          <el-button text size="small" @click.stop="loadTodayStats" :loading="loadingStats">
-            刷新
-          </el-button>
-        </div>
-        
-        <transition name="slide">
-          <div v-show="!todayPanelCollapsed" class="today-content">
-            <div class="today-stats">
-              <div class="stat-item" @click="router.push({ name: 'calendar' })">
-                <div class="stat-icon stat-icon-danger">
-                  <el-icon :size="14"><Bell /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <span class="stat-value">{{ todayStats.hardSchedule }}</span>
-                  <span class="stat-label">硬性日程</span>
-                </div>
-              </div>
-              
-              <div class="stat-item" @click="router.push({ name: 'tasks', query: { tab: 'today' } })">
-                <div class="stat-icon stat-icon-warning">
-                  <el-icon :size="14"><Warning /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <span class="stat-value">{{ todayStats.dueToday }}</span>
-                  <span class="stat-label">今日到期</span>
-                </div>
-              </div>
-              
-              <div class="stat-item" @click="router.push({ name: 'tasks', query: { tab: 'waiting' } })">
-                <div class="stat-icon stat-icon-muted">
-                  <el-icon :size="14"><Clock /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <span class="stat-value">{{ todayStats.waitingOverdue }}</span>
-                  <span class="stat-label">等待超时</span>
-                </div>
-              </div>
-              
-              <div class="stat-item" @click="router.push({ name: 'cases' })">
-                <div class="stat-icon stat-icon-success">
-                  <el-icon :size="14"><Folder /></el-icon>
-                </div>
-                <div class="stat-info">
-                  <span class="stat-value">{{ todayStats.needReview }}</span>
-                  <span class="stat-label">需回顾</span>
-                </div>
-              </div>
-            </div>
-            
-            <div v-if="todayStats.hardSchedule === 0 && todayStats.dueToday === 0 && todayStats.waitingOverdue === 0 && todayStats.needReview === 0" class="today-empty">
-              今天没有紧急事项
-            </div>
-          </div>
-        </transition>
-      </header>
+          </button>
 
-      <!-- 页面标题栏 -->
-      <div class="page-header">
-        <div class="header-left">
-          <el-icon :size="18">
-            <component :is="currentModule.icon" />
-          </el-icon>
-          <h1>{{ pageTitle }}</h1>
+          <!-- 今日概览统计 -->
+          <div class="today-stats">
+            <div class="ts-item" @click="router.push({ name: 'calendar' })">
+              <span class="ts-dot danger" />
+              <span class="ts-value">{{ todayStats.hardSchedule }}</span>
+              <span class="ts-label">硬性日程</span>
+            </div>
+            <div class="ts-item" @click="router.push({ name: 'tasks', query: { tab: 'today' } })">
+              <span class="ts-dot warning" />
+              <span class="ts-value">{{ todayStats.dueToday }}</span>
+              <span class="ts-label">今日到期</span>
+            </div>
+            <div class="ts-item" @click="router.push({ name: 'tasks', query: { tab: 'waiting' } })">
+              <span class="ts-dot gray" />
+              <span class="ts-value">{{ todayStats.waitingOverdue }}</span>
+              <span class="ts-label">等待超时</span>
+            </div>
+            <div class="ts-item" @click="router.push({ name: 'cases' })">
+              <span class="ts-dot success" />
+              <span class="ts-value">{{ todayStats.needReview }}</span>
+              <span class="ts-label">需回顾</span>
+            </div>
+          </div>
         </div>
 
-        <div class="header-right">
-          <!-- 第三层：模块内 Tab -->
-          <div v-if="moduleTabs.length > 0" class="module-tabs">
-            <div
-              v-for="tab in moduleTabs"
-              :key="tab.key"
-              :class="['tab-item', { active: activeTab === tab.key }]"
-              @click="onTabChange(tab.key)"
-            >
-              {{ tab.label }}
+        <div class="topbar-right">
+          <!-- 全局搜索 -->
+          <div class="topbar-search">
+            <el-icon :size="14"><Search /></el-icon>
+            <input placeholder="搜索案件、任务、法条…" />
+            <span class="kbd-hint">⌘K</span>
+          </div>
+
+          <!-- 捕获按钮 -->
+          <div class="capture-wrap">
+            <button class="btn-primary capture-btn" @click="showCaptureMenu = !showCaptureMenu">
+              <el-icon :size="14"><Plus /></el-icon>
+              <span>捕获</span>
+            </button>
+            <div v-if="showCaptureMenu" class="capture-menu" @mouseleave="showCaptureMenu = false">
+              <div class="capture-item" @click="openCapture('task')">+ 任务</div>
+              <div class="capture-item" @click="openCapture('event')">+ 日程</div>
+              <div class="capture-item" @click="openCapture('note')">+ 笔记</div>
+              <div class="capture-item" @click="openCapture('quick')">+ 速记</div>
             </div>
           </div>
 
-          <!-- AI 状态徽标 -->
           <AIStatusBadge />
         </div>
+      </header>
+
+      <!-- 内容区 -->
+      <div class="content-area">
+        <!-- 页面标题 + 模块 Tab -->
+        <div v-if="moduleTabs.length > 0" class="content-tabs">
+          <div
+            v-for="tab in moduleTabs"
+            :key="tab.key"
+            :class="['tab-item', { active: activeTab === tab.key }]"
+            @click="onTabChange(tab.key)"
+          >
+            {{ tab.label }}
+          </div>
+        </div>
+
+        <main class="content-scroll">
+          <router-view />
+        </main>
       </div>
+    </div>
+  </div>
 
-      <!-- 主内容 -->
-      <el-main class="app-main">
-        <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
-
-  <!-- 全局提醒触发浮层 -->
+  <!-- 全局浮层 -->
   <ReminderToast />
-  <!-- R2/R3/R4 横幅 -->
   <ReminderBanner />
-  <!-- 待复核决策横幅 -->
   <DecisionReviewNotice />
-  <!-- 每日逾期早报 -->
   <OverdueMorningBrief />
-  <!-- 首次使用引导（律师画像） -->
   <OnboardingWizard v-model="showOnboarding" @dismiss="onOnboardingDismiss" />
-  <!-- 全局快速捕获对话框（Cmd+I/E/N） -->
+
+  <!-- 快速捕获对话框 -->
   <el-dialog v-model="showQuickCapture" title="快速捕获" width="480" append-to-body>
     <el-input
       v-model="quickCaptureText"
@@ -448,96 +411,111 @@ function onMenuSelect(name) {
 </template>
 
 <style scoped>
-.app-container {
+/* ═══════════════════════════════════════════════════════════
+   布局骨架
+   ═══════════════════════════════════════════════════════════ */
+.app-shell {
+  display: flex;
   height: 100vh;
   background: #F6F7F9;
+  color: #1F2430;
+  font-size: 13px;
 }
 
-/* ── 第二层：侧边栏 ─────────────────────────────────────── */
+/* ── 侧栏 ─────────────────────────────────────────────── */
 .app-sidebar {
-  width: 48px;
-  min-width: 48px;
+  width: 200px;
+  min-width: 200px;
   background: #FFFFFF;
   border-right: 1px solid #E0E3E9;
   display: flex;
   flex-direction: column;
-  position: relative;
-  z-index: 100;
-  transition: width 0.15s ease;
+  transition: width 0.2s ease, min-width 0.2s ease;
+  overflow: hidden;
 }
 
-.app-sidebar:hover {
-  width: 200px;
+.app-sidebar.collapsed {
+  width: 56px;
+  min-width: 56px;
 }
 
-/* 品牌标识 */
 .sidebar-brand {
-  height: 48px;
+  height: 52px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid #EEF0F3;
   cursor: pointer;
-  border-bottom: 1px solid #F3F4F6;
   flex-shrink: 0;
-  padding: 0 12px;
 }
 
-.brand-letter {
-  font-size: 18px;
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #3E5C9A;
+  color: #fff;
+  display: grid;
+  place-items: center;
   font-weight: 700;
-  color: #3E5C9A;
+  font-size: 14px;
   flex-shrink: 0;
-  width: 24px;
-  text-align: center;
 }
 
 .brand-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #111827;
-  opacity: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1F2430;
+  letter-spacing: -0.2px;
   white-space: nowrap;
-  transition: opacity 0.15s ease;
 }
 
-.app-sidebar:hover .brand-name {
-  opacity: 1;
-}
-
-/* 导航列表 */
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px 0;
+  padding: 8px;
 }
 
-.sidebar-nav::-webkit-scrollbar {
-  width: 0;
+.nav-group {
+  margin-bottom: 4px;
+}
+
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9BA2AF;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 10px 10px 4px;
+  white-space: nowrap;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  height: 36px;
-  margin: 2px 8px;
-  padding: 0 8px;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
   border-radius: 6px;
   cursor: pointer;
+  color: #4B5160;
   transition: all 0.12s ease;
-  color: #6B7280;
   position: relative;
+  white-space: nowrap;
+  margin-bottom: 1px;
 }
 
 .nav-item:hover {
-  background: #F9FAFB;
-  color: #374151;
+  background: #F0F2F5;
+  color: #1F2430;
 }
 
 .nav-item.active {
   background: #EDF1F8;
   color: #3E5C9A;
+  font-weight: 500;
 }
 
 .nav-item.active::before {
@@ -553,272 +531,249 @@ function onMenuSelect(name) {
 
 .nav-icon {
   flex-shrink: 0;
-  width: 24px;
-  text-align: center;
 }
 
 .nav-label {
-  margin-left: 8px;
   font-size: 13px;
-  font-weight: 500;
-  opacity: 0;
-  white-space: nowrap;
-  transition: opacity 0.15s ease;
 }
 
-.app-sidebar:hover .nav-label {
-  opacity: 1;
+.sidebar-footer {
+  padding: 8px;
+  border-top: 1px solid #EEF0F3;
 }
 
-/* 捕获按钮 */
-.capture-button-container {
-  padding: 12px 8px;
-  border-top: 1px solid #F3F4F6;
-}
-
-.capture-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #3E5C9A;
-  color: #FFFFFF;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin: 0 auto;
-}
-
-.capture-button:hover {
-  background: #334D82;
-  transform: scale(1.05);
-}
-
-.capture-menu {
+/* ── 主区 ─────────────────────────────────────────────── */
+.app-main {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  min-width: 0;
 }
 
-.capture-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.12s ease;
-  font-size: 13px;
-  color: #374151;
-}
-
-.capture-item:hover {
-  background: #F3F4F6;
-}
-
-/* ── 第一层：今日面板 ──────────────────────────────────── */
-.today-panel {
-  background: #F9FAFB;
-  border-bottom: 1px solid #E5E7EB;
-  padding: 0 20px;
-}
-
-.today-header {
+/* ── 顶栏 ─────────────────────────────────────────────── */
+.topbar {
+  height: 52px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E0E3E9;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 0;
-  cursor: pointer;
-  user-select: none;
-}
-
-.today-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.greeting-text {
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.collapse-icon {
-  transition: transform 0.15s ease;
-  color: #9CA3AF;
-}
-
-.collapse-icon.collapsed {
-  transform: rotate(-90deg);
-}
-
-.today-content {
-  padding-bottom: 12px;
-}
-
-.today-stats {
-  display: flex;
+  padding: 0 16px;
   gap: 16px;
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  transition: all 0.12s ease;
-  flex: 1;
-}
-
-.stat-item:hover {
-  border-color: #D1D5DB;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.stat-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   flex-shrink: 0;
 }
 
-.stat-icon-danger {
-  background: #FEF2F2;
-  color: #EF4444;
-}
-
-.stat-icon-warning {
-  background: #FFFBEB;
-  color: #F59E0B;
-}
-
-.stat-icon-muted {
-  background: #F3F4F6;
-  color: #6B7280;
-}
-
-.stat-icon-success {
-  background: #F0FDF4;
-  color: #22C55E;
-}
-
-.stat-info {
+.topbar-left {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
 }
 
-.stat-value {
-  font-size: 16px;
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: #4B5160;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover {
+  background: #F0F2F5;
+}
+
+/* 今日概览 */
+.today-stats {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ts-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.ts-item:hover {
+  background: #F0F2F5;
+}
+
+.ts-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ts-dot.danger { background: #B4554F; }
+.ts-dot.warning { background: #B0823A; }
+.ts-dot.gray { background: #9BA2AF; }
+.ts-dot.success { background: #4C8067; }
+
+.ts-value {
+  font-size: 14px;
   font-weight: 600;
-  color: #111827;
-  line-height: 1.2;
+  color: #1F2430;
 }
 
-.stat-label {
+.ts-label {
   font-size: 11px;
-  color: #9CA3AF;
-  line-height: 1.2;
+  color: #9BA2AF;
+  white-space: nowrap;
 }
 
-.today-empty {
-  text-align: center;
-  padding: 12px;
-  font-size: 13px;
-  color: #9CA3AF;
-}
-
-/* 滑动过渡 */
-.slide-enter-active,
-.slide-leave-active {
-  transition: all 0.15s ease;
-  overflow: hidden;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-bottom: 0;
-}
-
-.slide-enter-to,
-.slide-leave-from {
-  opacity: 1;
-  max-height: 100px;
-}
-
-/* ── 页面标题栏 ────────────────────────────────────────── */
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 20px;
-  background: #FFFFFF;
-  border-bottom: 1px solid #E5E7EB;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #6B7280;
-}
-
-.header-left h1 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #111827;
-}
-
-.header-right {
+.topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
-/* 第三层：模块内 Tab */
-.module-tabs {
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #F6F7F9;
+  border: 1px solid #E0E3E9;
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: #9BA2AF;
+  width: 220px;
+  transition: all 0.15s;
+}
+
+.topbar-search:focus-within {
+  border-color: #3E5C9A;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(62, 92, 154, 0.1);
+}
+
+.topbar-search input {
+  border: none;
+  outline: none;
+  flex: 1;
+  background: transparent;
+  font-size: 12.5px;
+  color: #1F2430;
+  font-family: inherit;
+}
+
+.kbd-hint {
+  font-size: 10px;
+  color: #9BA2AF;
+  border: 1px solid #E0E3E9;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: #fff;
+  font-family: 'SF Mono', Menlo, monospace;
+  white-space: nowrap;
+}
+
+/* 捕获按钮 */
+.capture-wrap {
+  position: relative;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: #3E5C9A;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+
+.btn-primary:hover {
+  background: #334D82;
+}
+
+.capture-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #fff;
+  border: 1px solid #E0E3E9;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(31, 36, 48, 0.12);
+  padding: 4px;
+  z-index: 200;
+  min-width: 120px;
+}
+
+.capture-item {
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #4B5160;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.capture-item:hover {
+  background: #EDF1F8;
+  color: #3E5C9A;
+}
+
+/* ── 内容区 ───────────────────────────────────────────── */
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.content-tabs {
   display: flex;
   gap: 2px;
-  background: #F3F4F6;
-  padding: 2px;
-  border-radius: 8px;
+  padding: 8px 16px 0;
+  background: #F6F7F9;
+  flex-shrink: 0;
 }
 
 .tab-item {
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #6B7280;
+  padding: 6px 14px;
+  border-radius: 6px 6px 0 0;
+  font-size: 12.5px;
+  color: #4B5160;
   cursor: pointer;
-  transition: all 0.12s ease;
   font-weight: 500;
+  transition: all 0.12s;
+  border-bottom: 2px solid transparent;
 }
 
 .tab-item:hover {
-  color: #374151;
+  color: #1F2430;
+  background: #fff;
 }
 
 .tab-item.active {
-  background: #FFFFFF;
-  color: #111827;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  color: #3E5C9A;
+  background: #fff;
+  border-bottom-color: #3E5C9A;
 }
 
-/* ── 主内容 ────────────────────────────────────────────── */
-.app-main {
-  padding: 0;
-  overflow: hidden;
+.content-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  min-height: 0;
 }
 </style>

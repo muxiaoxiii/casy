@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { listen } from '@tauri-apps/api/event'
+import { safeListen } from '../../core/tauriEvents'
 import { ElMessage } from 'element-plus'
 import { Bell, Check, Clock } from '@element-plus/icons-vue'
 
@@ -30,7 +30,7 @@ function showNext() {
 
 async function setupListener() {
   try {
-    unlisten = await listen('reminder:triggered', (event) => {
+    unlisten = await safeListen('reminder:triggered', (event) => {
       const payload = event.payload
       const msg = typeof payload === 'string' ? payload : payload?.message
       if (!msg) return

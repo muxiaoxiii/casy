@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { listen } from '@tauri-apps/api/event'
+import { safeListen } from '../../core/tauriEvents'
 import { Warning, Close, ArrowRight } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -43,7 +43,7 @@ function classifyLevel(daysLeft) {
 // ============================================================
 async function setupListener() {
   try {
-    unlisten = await listen('reminder:triggered', (event) => {
+    unlisten = await safeListen('reminder:triggered', (event) => {
       const payload = event.payload
       const msg = typeof payload === 'string' ? payload : payload?.message
       if (!msg) return

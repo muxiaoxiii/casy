@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
   Plus, Check, Clock, Calendar, Star, Folder,
-  ArrowRight, Delete, Edit, More, Refresh,
+  ArrowRight, Delete, Edit, More, Refresh, RefreshRight,
   Box, List, Timer, View, Collection,
   Grid, DataBoard, CircleCheck
 } from '@element-plus/icons-vue'
