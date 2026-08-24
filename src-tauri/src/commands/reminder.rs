@@ -994,9 +994,24 @@ pub(crate) fn send_local_notification(message: &str, task_id: Option<&str>, remi
 }
 
 fn send_system_notification(message: &str) -> Result<()> {
-    // macOS: 使用 osascript 发系统通知（Tauri 外部运行时回退方案）
     log::info!("[提醒-系统通知] {}", message.replace('\n', " | "));
 
+    // 优先走 Tauri 官方通知插件（跨平台、带应用身份、进通知中心）—— M-GTD-1 A0-4
+    if let Some(handle) = crate::get_app_handle() {
+        use tauri_plugin_notification::NotificationExt;
+        let shown = handle
+            .notification()
+            .builder()
+            .title("Casy 提醒")
+            .body(message)
+            .show();
+        if shown.is_ok() {
+            return Ok(());
+        }
+        log::warn!("[提醒-系统通知] 插件通知失败，回退 osascript");
+    }
+
+    // macOS 回退：osascript（Tauri 外部运行时方案）
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("osascript")
