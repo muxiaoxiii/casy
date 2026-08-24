@@ -18,6 +18,11 @@ src-tauri/target/
 src-tauri/WixTools
 src-tauri/*.bak
 
+# Updater 签名私钥（绝不入库；公钥入库于 tauri.conf.json plugins.updater.pubkey）
+*.updater.key
+*.updater.key.password
+.tauri/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
