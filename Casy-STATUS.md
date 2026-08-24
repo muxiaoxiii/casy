@@ -19,7 +19,7 @@
 |----|------|
 | cargo test | ✅ 103 通过 |
 | vite build | ✅（829KB 主 chunk，代码分割列入优化项） |
-| vue-tsc strict | 🔄 62 个存量错误，清零中；清零后 build 门禁自动生效（build = vue-tsc && vite build） |
+| vue-tsc strict | ✅ 62→0 清零；build 门禁已生效（build = vue-tsc && vite build） |
 | scripts | ✅ typecheck / test / build 已定义 |
 
 ## 三、M-GTD-1「不打断」进度
