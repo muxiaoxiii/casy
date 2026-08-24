@@ -224,19 +224,19 @@ async function saveQuickCapture() {
   const type = quickCaptureType.value
   
   if (type === 'task') {
-    // 快速创建任务 - 解析文本中的日期
+    // 快速创建任务 - 解析文本中的日期与时间（A0-5：dueTime 现在真正落库）
     const parsed = parseQuickTask(text)
     result = await casyContext.tasks.create({
       taskName: parsed.taskName || text,
       startDate: parsed.startDate,
       dueDate: parsed.dueDate,
+      dueTime: parsed.dueTime || null,
       startBucket: parsed.startBucket || 'inbox',
       taskType: 'action',
     })
   } else if (type === 'event') {
-    // 快速创建日程
+    // 快速创建日程（M-CAL-1 待接入独立 calendar_events；当前先入收件箱待厘清）
     result = await casyContext.inbox.add('note', text)
-    // 可以后续扩展为直接创建日历事件
   } else {
     // 笔记/速记 - 进收件箱
     result = await casyContext.inbox.add('note', text)
@@ -252,46 +252,19 @@ async function saveQuickCapture() {
   }
 }
 
-// 简单解析快速任务文本
+// 快速任务文本解析（M-GTD-1 A0-5：统一走 shared/nlp/parseWhen，修复原实现的
+// `s*` 非法正则、缺时间词解析、startBucket 缺省值等问题）
+import { parseWhen, bucketForDate } from './shared/nlp/parseWhen'
+
 function parseQuickTask(text) {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  let taskName = text
-  let startDate = null
-  let dueDate = null
-  let startBucket = 'inbox'
-  
-  // 匹配日期词
-  const rel = text.match(/^(今天|明天|后天|下周[一二三四五六日天])s*/)
-  if (rel) {
-    const dateWord = rel[1]
-    taskName = text.slice(dateWord.length).trim()
-    
-    if (dateWord === '今天') {
-      startDate = formatDate(today)
-      dueDate = formatDate(today)
-      startBucket = 'today'
-    } else if (dateWord === '明天') {
-      const d = new Date(today)
-      d.setDate(d.getDate() + 1)
-      startDate = formatDate(d)
-      dueDate = formatDate(d)
-    } else if (dateWord === '后天') {
-      const d = new Date(today)
-      d.setDate(d.getDate() + 2)
-      startDate = formatDate(d)
-      dueDate = formatDate(d)
-    } else if (dateWord.startsWith('下周')) {
-      const wd = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[dateWord[2]]
-      const delta = (wd - today.getDay() + 7) % 7 + 7
-      const d = new Date(today)
-      d.setDate(d.getDate() + delta)
-      startDate = formatDate(d)
-      dueDate = formatDate(d)
-    }
+  const { taskName, date, time } = parseWhen(text)
+  return {
+    taskName,
+    startDate: date,
+    dueDate: date,
+    dueTime: time,
+    startBucket: bucketForDate(date),
   }
-  
-  return { taskName, startDate, dueDate, startBucket }
 }
 
 function formatDate(d) {
