@@ -8,12 +8,14 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
-  Plus, Check, Clock, Calendar, Star, Folder,
+  Plus, Clock, Calendar, Star, Folder,
   ArrowRight, Delete, Edit, More, RefreshRight,
-  Box, List, Timer, Collection, Lock
+  Box, List, Timer
 } from '@element-plus/icons-vue'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
+import TaskRow from '../components/TaskRow.vue'
+import { formatDate } from '../utils/taskDisplay'
 
 // ============================================================
 // 原有状态（保留）
@@ -473,18 +475,9 @@ function clearCaseSelection() {
   caseSearchResults.value = []
 }
 
-function daysUntil(deadline) {
-  if (!deadline) return null
-  const d = new Date(deadline)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.ceil((d - today) / (1000 * 60 * 60 * 24))
-}
 
-function isOverdue(deadline) {
-  const days = daysUntil(deadline)
-  return days !== null && days < 0
-}
+
+
 
 // ============================================================
 // GTD 新增函数
@@ -655,39 +648,13 @@ function getAreaName(areaId) {
   return a ? a.name : ''
 }
 
-// 获取任务类型标签
-function getTaskTypeLabel(type) {
-  const labels = { action: '行动', waiting: '等待', delegated: '委派', someday: '某天' }
-  return labels[type] || type
-}
 
-// 获取任务类型颜色
-function getTaskTypeColor(type) {
-  const colors = { action: '#409EFF', waiting: '#E6A23C', delegated: '#909399', someday: '#909399' }
-  return colors[type] || '#909399'
-}
 
-// 格式化日期
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const date = new Date(dateStr)
-  const today = new Date()
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  
-  if (dateStr === today.toISOString().split('T')[0]) return '今天'
-  if (dateStr === tomorrow.toISOString().split('T')[0]) return '明天'
-  
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-}
 
-// 计算等待天数
-function getWaitingDays(task) {
-  if (!task.followUpDate) return 0
-  const today = new Date()
-  const followUp = new Date(task.followUpDate)
-  return Math.ceil((today - followUp) / (1000 * 60 * 60 * 24))
-}
+
+
+
+
 
 // 催办功能
 function openFollowUp(task) {
@@ -987,165 +954,24 @@ function handleKeydown(e) {
           </div>
 
           <div class="task-list">
-            <div
+            <TaskRow
               v-for="task in section.tasks"
               :key="task.id"
-              :class="['task-card', {
-                overdue: isOverdue(task.dueDate || task.deadline),
-                'due-soon': task.dueSoon === 1,
-                flagged: task.flagged === 1,
-                blocked: task.blocked === 1
-              }]"
-            >
-              <!-- 完成圆圈：点击直接完成/恢复（Things3 式填充动画，见 .task-check 样式） -->
-              <div
-                class="task-check"
-                :class="{ done: task.completed === 1 }"
-                @click="toggleComplete(task)"
-              >
-                <el-icon v-if="task.completed === 1"><Check /></el-icon>
-              </div>
-
-              <!-- 任务内容 -->
-              <div class="task-content" @click="openDrawer(task)">
-                <div class="task-title">
-                  <span class="task-name-text" :class="{ struck: task.completed === 1 }">{{ task.taskName }}</span>
-                  <el-tag 
-                    v-if="task.taskType !== 'action'" 
-                    :color="getTaskTypeColor(task.taskType)"
-                    size="small"
-                    effect="dark"
-                  >
-                    {{ getTaskTypeLabel(task.taskType) }}
-                  </el-tag>
-                </div>
-                
-                <div class="task-meta">
-                  <!-- 案件关联 -->
-                  <span v-if="task.caseId" class="meta-item case">
-                    <el-icon><Folder /></el-icon>
-                    {{ getCaseName(task.caseId) }}
-                  </span>
-                  
-                  <!-- 领域 -->
-                  <span v-if="task.areaId" class="meta-item area">
-                    <el-icon><Collection /></el-icon>
-                    {{ getAreaName(task.areaId) }}
-                  </span>
-                  
-                  <!-- 旗标 -->
-                  <span v-if="task.flagged === 1" class="meta-item flagged">
-                    <el-icon color="#F59E0B"><Star /></el-icon>
-                  </span>
-                  
-                  <!-- 截止日期 -->
-                  <span v-if="task.dueDate || task.deadline" class="meta-item deadline" :class="{ overdue: isOverdue(task.dueDate || task.deadline) }">
-                    <el-icon><Calendar /></el-icon>
-                    {{ formatDate(task.dueDate || task.deadline) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
-                  </span>
-                  
-                  <!-- 预计耗时 -->
-                  <span v-if="task.estimatedMinutes" class="meta-item estimated">
-                    <el-icon><Timer /></el-icon>
-                    {{ task.estimatedMinutes }}分钟
-                  </span>
-                  
-                  <!-- 等待信息 -->
-                  <span v-if="task.taskType === 'waiting' && task.waitingFor" class="meta-item waiting" :class="{ 'waiting-warning': getWaitingDays(task) > 3 }">
-                    <el-icon><Clock /></el-icon>
-                    等 {{ task.waitingFor }}
-                    <span v-if="getWaitingDays(task) > 0" class="waiting-days">
-                      ({{ getWaitingDays(task) }}天)
-                    </span>
-                    <el-button 
-                      v-if="getWaitingDays(task) > 3" 
-                      size="small" 
-                      type="warning" 
-                      plain 
-                      class="follow-up-btn"
-                      @click.stop="openFollowUp(task)"
-                    >
-                      催办
-                    </el-button>
-                  </span>
-                  
-                  <!-- 上下文 -->
-                  <span v-if="task.context" class="meta-item context">
-                    @{{ task.context }}
-                  </span>
-                  
-                  <!-- 顺序项目锁定 -->
-                  <span v-if="task.blocked === 1" class="meta-item blocked">
-                    <el-icon><Lock /></el-icon>
-                    已锁定
-                  </span>
-                </div>
-              </div>
-
-              <!-- 操作按钮 -->
-              <div class="task-actions">
-                <!-- Review 回顾闭环：标记已回顾（下周日再回顾） -->
-                <template v-if="activePerspective === 'review'">
-                  <span v-if="task.nextReviewDate" class="review-info">下次回顾 {{ task.nextReviewDate }}</span>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    plain
-                    class="review-btn"
-                    @click="markReviewed(task)"
-                  >
-                    已回顾
-                  </el-button>
-                </template>
-                <el-dropdown trigger="click">
-                  <el-button :icon="More" circle size="small" />
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item @click="openDrawer(task)" :icon="Edit">
-                        编辑
-                      </el-dropdown-item>
-                      <el-dropdown-item 
-                        v-if="activePerspective === 'inbox'" 
-                        @click="openTriage(task)" 
-                        :icon="ArrowRight"
-                      >
-                        厘清
-                      </el-dropdown-item>
-                      <el-dropdown-item 
-                        v-if="activePerspective !== 'today'" 
-                        @click="moveToToday(task)" 
-                        :icon="Calendar"
-                      >
-                        移至今日
-                      </el-dropdown-item>
-                      <el-dropdown-item 
-                        v-if="task.taskType !== 'waiting'" 
-                        @click="markAsWaiting(task)" 
-                        :icon="Clock"
-                      >
-                        标记等待
-                      </el-dropdown-item>
-                      <el-dropdown-item
-                        v-for="s in snoozeOptions"
-                        :key="s.value"
-                        @click="snoozeTask(task, s.value)"
-                        :icon="Clock"
-                        divided
-                      >
-                        稍后：{{ s.label }}
-                      </el-dropdown-item>
-                      <el-dropdown-item 
-                        @click="deleteTask(task)" 
-                        :icon="Delete"
-                        divided
-                      >
-                        删除
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </div>
+              :task="task"
+              :perspective="activePerspective"
+              :snooze-options="snoozeOptions"
+              :resolve-case-name="getCaseName"
+              :resolve-area-name="getAreaName"
+              @toggle="toggleComplete"
+              @open="openDrawer"
+              @triage="openTriage"
+              @move-today="moveToToday"
+              @mark-waiting="markAsWaiting"
+              @snooze="snoozeTask"
+              @delete="deleteTask"
+              @reviewed="markReviewed"
+              @follow-up="openFollowUp"
+            />
           </div>
         </div>
       </template>
@@ -1640,24 +1466,8 @@ function handleKeydown(e) {
   border-radius: 8px;
 }
 
-.task-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 4px;
-  margin-bottom: 6px;
-  background: #fff;
-  transition: background 0.15s;
-}
 
-.task-card:hover {
-  background: #f5f7fa;
-}
 
-.task-card.flagged {
-  background: #FFFBEB;
-}
 
 /* GTD 视图 */
 .gtd-view {
@@ -1684,192 +1494,31 @@ function handleKeydown(e) {
   gap: 8px;
 }
 
-.task-list .task-card {
-  background: #FFFFFF;
-  border: 1px solid #E4E7ED;
-  border-left: 3px solid #E5E7EB;
-  border-radius: 8px;
-  padding: 12px 16px;
-}
 
-.task-list .task-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
 
-.task-list .task-card.overdue {
-  border-left: 3px solid #EF4444;
-  background: #FEF2F2;
-}
 
-.task-list .task-card.due-soon {
-  border-left: 3px solid #F59E0B;
-}
 
-.task-list .task-card.flagged {
-  background: #FFFBEB;
-}
 
-.task-list .task-card.blocked {
-  border-left: 3px solid #9BA2AF;
-  opacity: 0.85;
-}
 
-/* ── 完成圆圈：Things3 式填充动画（M-UI-0）────────────────── */
-.task-check {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid #C0C4CC;
-  background: transparent;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  position: relative;
-  overflow: hidden;
-  transition:
-    border-color var(--motion-fast) var(--ease-out),
-    transform var(--motion-fast) var(--ease-out);
-}
 
 /* 内部绿色圆：scale(0)→scale(1) 弹性填充 */
-.task-check::before {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  border-radius: 50%;
-  background: var(--c-success, #4C8067);
-  transform: scale(0);
-  transition: transform var(--motion-base) var(--ease-spring);
-}
 
-.task-check .el-icon {
-  position: relative;
-  z-index: 1;
-  font-size: 11px;
-  color: #FFFFFF;
-  opacity: 0;
-  transform: scale(0.4) rotate(-30deg);
-  transition:
-    opacity var(--motion-fast) ease-out,
-    transform var(--motion-base) var(--ease-spring);
-}
 
-.task-check:hover {
-  border-color: #4C8067;
-  transform: scale(1.08);
-}
-.task-check:active { transform: scale(0.92); }
 
-.task-check.done {
-  border-color: #4C8067;
-}
-.task-check.done::before { transform: scale(1); }
-.task-check.done .el-icon {
-  opacity: 1;
-  transform: none;
-  transition-delay: 60ms; /* 等圆形填充到位再弹出对勾 */
-}
 
-/* ── 任务名完成划线：背景宽度 0→100% 过渡（非 text-decoration，可动画）── */
-.task-name-text {
-  background-image: linear-gradient(currentColor, currentColor);
-  background-size: 0% 1px;
-  background-repeat: no-repeat;
-  background-position: 0 55%;
-  transition:
-    background-size var(--motion-base) var(--ease-out),
-    color var(--motion-base) var(--ease-out);
-}
-.task-name-text.struck {
-  background-size: 100% 1px;
-  color: var(--c-text-secondary, #9BA2AF);
-}
 
-.task-content {
-  flex: 1;
-  min-width: 0;
-  cursor: pointer;
-}
 
-.task-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #18181B;
-  margin-bottom: 4px;
-}
 
-.task-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 12px;
-  color: #A1A1AA;
-}
 
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
 
-.meta-item.case { color: #409EFF; }
-.meta-item.area { color: #67C23A; }
-.meta-item.deadline.overdue { color: #F56C6C; }
-.meta-item.waiting { color: #E6A23C; }
-.meta-item.flagged { color: #F59E0B; }
-.meta-item.estimated { color: #6B7280; }
-.meta-item.blocked { color: #9BA2AF; }
 
-.waiting-days {
-  color: #F56C6C;
-}
 
-.waiting-warning {
-  color: #F59E0B;
-  font-weight: 500;
-}
 
-.follow-up-btn {
-  margin-left: 8px;
-  font-size: 11px;
-  padding: 2px 6px;
-}
 
-.meta-item.context {
-  color: #909399;
-  background: #F4F4F5;
-  padding: 1px 5px;
-  border-radius: 3px;
-}
 
-.task-actions {
-  flex-shrink: 0;
-}
 
 /* Review 回顾闭环 */
-.review-info {
-  font-size: 11px;
-  color: #9BA2AF;
-  margin-right: 8px;
-  white-space: nowrap;
-}
 
-.review-btn {
-  margin-right: 8px;
-  font-size: 12px;
-  padding: 4px 10px;
-  --el-button-border-color: #6C6A9C;
-  --el-button-text-color: #6C6A9C;
-  --el-button-hover-border-color: #6C6A9C;
-  --el-button-hover-text-color: #FFFFFF;
-  --el-button-hover-bg-color: #6C6A9C;
-}
 /* 厘清预览 */
 .triage-preview {
   padding: 16px;
