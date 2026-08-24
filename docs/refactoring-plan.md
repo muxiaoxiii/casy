@@ -1,6 +1,6 @@
 # Casy 重构方案（基于设计哲学的重新规划）
 
-> **版本**: v1.6（D-3 裁决：specta 类型模式一步到位 · D-15 调用通道边界 · R-1 验证通过）
+> **版本**: v1.7（K-3 归因落地 · AI UI 验证三层体系 · D-15 修订：mock 上移服务层）
 > **日期**: 2026-08-21
 > **状态**: 待评审
 > **上位文档**: `docs/casy-design-philosophy.md`（唯一总纲）
@@ -10,6 +10,7 @@
 > **v1.4 变更**: 目标升级为生产级、可商业出售。B 线新增 **B4 生产化与发布工程**（R-1～R-8：应用身份/updater/签名公证/CI/安全加固/数据保障/崩溃上报/合规包/授权体系），其中 **R-1 bundle identifier 为不可逆决策，须在任何用户数据落盘前定案**；新增决策点 D-11（商业形态与目标市场——同时决定 C 线解冻策略）、D-12（签名与更新预算）、D-13（遥测与隐私立场）；§八排期第 1 周插入 R-1。
 > **v1.5 变更**: 三项裁决落定并执行——①**D-9 ✅ 泛化＋垂直拆表**：project 精简主表 + `case_legal_details` 侧表；②**K-3 ✅ 归因写既有 audit_events**：`actor='ai'` 已在 schema CHECK 枚举中，payload 携带 run_id 关联 ai_runs（ai_runs 记过程、audit_events 记结果），无需新表；③**R-1/D-14 ✅ identifier 定案 `top.muxiaoxi.casy`** 并已写入 tauri.conf.json——identifier 为永久唯一字符串，与域名是否续费解耦；④**D-11 ✅ 目标市场=个人法律人士**（执业律师/法务/实习律师/助理），不做企业级：商业模式建议买断制+BYOK AI（无持续云服务成本支撑订阅）、R-8 定为离线许可+设备绑定、C 线解冻维持"A 达标后"，收件箱 AI 分类/期限引擎列为解冻首批付费差异化项。§八第 3 周裁决会缩减为仅裁 D-3(ts-rs)。
 > **v1.6 变更**: ①**D-3 ✅ 裁决（用户确认一步到位，不做 ts-rs 中间试点）**：直接引入 specta 生态——全部命令 DTO 加 `#[derive(specta::Type)]` 构建期导出 TS 到 `src/types/bindings/`，CI `git diff --exit-code` 防过期，tauriBridge 增加 CommandMap 泛型映射使 202 个 Tauri 命令的参数/返回获得类型检查（tasks/calendar/inbox 三域先行，随 B1 落地）；②新增 **D-15 调用通道边界**：tauri-specta 的绑定直连（前端生成函数绕过 bridge）与浏览器 mock 预览层、双路径铁律冲突，默认排除出路线图——除非未来裁决放弃纯前端预览模式；③R-1 验证通过：release 构建产出 Casy.app / DMG / updater 签名产物（.tar.gz + .sig），新 identifier 生效；密钥管理方式记入 devlog。
+> **v1.7 变更**: ①**K-3 ✅ 已落地**：事件层两个真实消费者跑通——`task:completed → reminder_recompute_now`（新 Rust 命令，事件驱动重算不等周期）、`tool:executed → audit_events`（新命令 record_ai_tool_audit，actor='ai'，turn_id 关联工具循环、digest 仅参数键名脱敏 §11.9）；原定消费者「case:updated→时间线刷新」因时间线属冻结 C 线域（前端无消费点）改为解冻后落地。②**AI UI 验证三层体系（回应用户裁决：放弃浏览器预览依赖可以，但 AI 必须能自检 UI——UI 是本软件关键资产）**：L1 类型层=vue-tsc+specta 单源（已有）；L2 快速视觉层=B2-T1 服务层 FakeService 注册表+Vite 浏览器模式+Playwright 截图供多模态 agent 读图评审（秒级迭代，无需 Rust 编译）；L3 真相层=R-9 tauri-driver E2E 冒烟+截图回归（真实后端）。③**D-15 修订**：mock 从 bridge/IPC 层上移到 Service 接口层后，绑定直连不再有架构障碍，但边际价值低（CommandMap 已覆盖），维持不采用。
 > **调研基点**: commit `187561f`（rebase 暂停检出）+ `61bec8c`（main 完整线谱）+ 两轮子代理审计（代码现状 / GTD 体验差距）
 
 ---
@@ -182,6 +183,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 - TS 化收官：main/router/composables → .ts，strict 进 build
 - 数据通路单一化：视图→ctx 服务→bridge→Rust；Pinia 只留 UI 态（决策点 D-4）
 - 千行视图拆分与 emoji 整改：**先只做 tasks/calendar/inbox/App 外壳范围**，其余随 C 线解冻
+- **B2-T1 服务层 FakeService 注册表（v1.7 新增，AI UI 验证 L2）**：mock 从 bridge/IPC 层上移到 Service 接口层——Fake 实现与真服务同接口、bootstrap 按 runtime 选择注入，生产调用链零 mock；现有 mockData 资产转为 Fake 数据源。Vite 浏览器模式 + Playwright 截图 → 多模态 agent 读图评审，秒级 UI 迭代无需 Rust 编译
 
 ### B3 — 内核收口（v1.3 新增，前端内核，服务 A/B 全线）
 
@@ -191,8 +193,8 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 |---|------|------|------|
 | K-1 | 确认策略上收（安全收口） | `CasyTool` 增加声明式 `policy { write, level, title }`；`executeTool` 统一计算 effective_level 并强制 `requestConfirm`——AI 写操作的确认从"各工具自觉"变为"内核强制"，删不可漏；删除 cases(L3)/files(L2)/knowledge(L2)/sync(L2×2) 四插件的手写确认块 | 0.5d |
 | K-2 | 类型双轨合一 + 单一事实来源 | 新增 `defineTool<P>()`：把 JSON Schema 与参数类型绑定，插件内 37 处边界断言收敛为全局唯一一处；导出 `ServicesMap`，ctx 属性声明/provide/inject 全部 keyof 化——此后 `ctx.cases ⇒ ctx.projects` 的改名是单点改动 | 1d |
-| K-3 | 事件激活 + AI 归因 | 跑通两个真实消费者证明事件层活性：`task:completed → reminder 重算当日`、`case:updated → 详情页时间线刷新`；**归因方案已裁决（v1.5）**：`executeTool(name, params, { origin: 'ai' })`，AI 发起的成功写操作写入既有 `audit_events`（`actor='ai'` 已在 schema CHECK 枚举，payload 携带 run_id 关联 ai_runs）——ai_runs 记过程、audit_events 记结果，无需新表 | 1d |
-| K-4 | 内核修缮 | `fork()` 以 Fiber 包装对象替代 monkey-patch dispose；`plugin()` 安装失败按服务名快照回滚已 provide 的服务；空 skills/ 目录取舍：注册一个真 skill 走通链路（推荐）或删除 | 0.5d |
+| K-3 | **事件激活 + AI 归因 ✅ 已落地（v1.7）** | 两个真实消费者跑通：①`task:completed → reminder_recompute_now`（新 Rust 命令，事件驱动重算不等引擎周期）；②`tool:executed → record_ai_tool_audit` 写既有 audit_events（`actor='ai'`，turn_id 关联工具循环、digest 仅参数键名脱敏 §11.9；与 ai_runs 外键关联待 ai_chat 返回结构化 run_id 后替换）。原定「case:updated→时间线刷新」属冻结 C 线域，解冻后落地 | 1d |
+| K-4 | **内核修缮 ✅ 已落地（v1.7）** | ①`fork()` 以包装对象替代实例方法 monkey-patch（dispose 先出栈再释放，行为等价）；②`plugin()` 安装前快照 services/tools 键集，失败时按快照回滚——新 provide 的服务走 unprovide 执行 dispose 清理、新注册工具删除，部分安装不留残骸；③skills 取舍采纳推荐项：新建 `src/core/skills/today_briefing`（只读聚合当日任务/日程/预警），registerSkill→executeSkill 链路打通 | 0.5d |
 
 验收纪律：每项收尾 `vue-tsc --noEmit` 零输出 + `npm run build` 绿；K-2 完成判据：`grep -c "as string\|as Record" src/core/plugins` 归零。
 
@@ -210,6 +212,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 | R-6 | 崩溃上报 | 本地崩溃日志兜底必做；上报走 opt-in（随 D-13 隐私立场定） | 1d |
 | R-7 | 合规包 | EULA / 隐私政策文本；第三方许可清单（cargo-about 类工具）；**AI 云端模式的保密披露声明**——律师场景下这不是负担而是卖点（K-3 归因审计同此） | 1d |
 | R-8 | 授权体系 | 离线许可证密钥 + 设备绑定 + 宽限期；或 BYOK 免费 + Pro 分层。**依赖 D-11 商业形态裁决后才动工** | 3d |
+| R-9 | **E2E 冒烟与截图回归（v1.7 新增，AI UI 验证 L3）** | tauri-driver（WebDriver）驱动真实应用：启动→导航→断言→截图；作为 AI 改动后的真相校验与发布前回归，随 R-3 CI 就位后接入。三层体系：L1 类型层（vue-tsc+specta）→ L2 快速视觉层（B2-T1 Fake+截图）→ L3 真相层（本项） | 2d |
 
 门槛提升效应（对既有项）：K-3 归因审计 → 销售卖点；B1 错误码 → 支持成本问题；A-UI 性能预算 → 商业口碑约束；乐观更新三态一致性 → 数据完整性承诺。B4 不抢 A 线带宽：仅 R-1 提前插入第 1 周，其余挂在 M-GTD-2 之后、首个对外 beta 之前集中执行。
 
@@ -242,7 +245,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 | D-12 | 签名与更新预算（v1.4） | 建议：接受 Apple Developer（$99/年）+ Windows 代码签名证书（数百刀/年）成本；更新源静态托管（GitHub Releases 或对象存储）。未签名=商业不可售 |
 | D-13 | 遥测与隐私立场（v1.4） | 建议默认：零遥测、崩溃日志仅本机、上报严格 opt-in 且可一键关闭——本地优先+保密是卖点，立场要写进隐私政策 |
 | D-14 | **应用标识符（v1.4 提出）✅ v1.5 定案并已执行** | `identifier = top.muxiaoxi.casy`，已写入 src-tauri/tauri.conf.json。说明：identifier 是借反向域名惯例保证唯一的永久字符串，与应用域名是否续费**解耦**——签名/更新/数据目录均不要求域名可解析；更新源 URL 独立可迁移。发布后永不再改 |
-| D-15 | **前端调用通道边界（v1.6 新增）** | 维持：所有前端调用经 tauriBridge（浏览器 mock 预览 + 写入口唯一 + 确认/审计咽喉）。tauri-specta 绑定直连（生成的类型化函数绕过 bridge）与该边界冲突，默认永久关闭；specta 仅作类型源（derive → bindings 导出）。若未来要开直连，必须先裁决放弃纯前端预览模式 |
+| D-15 | **前端调用通道边界（v1.6 提出，v1.7 修订）** | 用户裁决：放弃浏览器预览依赖可以，但必须保证 AI 能自检 UI。修订：①mock 从 bridge/IPC 层**上移到 Service 接口层**（FakeService 同接口、bootstrap 选择注入）——bridge 保持唯一写入口，生产链零 mock；②绑定直连因此不再有架构障碍，但边际价值低（CommandMap 已覆盖），维持不采用；③AI UI 验证走三层体系（B2-T1 + R-9） |
 
 ---
 
@@ -295,10 +298,10 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 ```
 第 1 周   B0 止血+门禁(≈3d) → R-1 应用身份+updater 基线(1d，不可逆项提前) → K-1 策略上收(0.5d) → A0-1 一键完成 / A0-2 乐观更新 开工
 第 2 周   A0-3 Undo / A0-4 系统通知 / A0-5 NL 统一  ∥  K-2 类型双轨合一(1d) ∥ R-3 CI 流水线(1d)
-第 3 周   裁决 D-3(ts-rs)【D-9/K-3/D-11 已裁决，直接执行】→ K-3 事件激活+归因(1d) → A1-2 Areas UI / A1-3 拖拽排序（不依赖 schema 先行）
+第 3 周   K-3 ✅ 已落地（事件激活+audit_events 归因）∥ D-3 ✅ specta 落地启动（DTO derive 扫描+CommandMap 三域先行）→ A1-2 Areas UI / A1-3 拖拽排序（不依赖 schema 先行）
 第 4 周   K-4 内核修缮(0.5d) → A1-1 迁移落地（垂直拆表：project 精简主表 + case_legal_details 侧表，user_version 迁移 + .bak + 案件域回归用例）
 第 5 周起 A1-4/5/6/7 收尾 M-GTD-2 → Dogfooding 第一轮 → M-CAL-1（按原 A 线节奏与验收执行）
-beta 前   R-2 签名公证 + R-4 安全加固 + R-5 数据保障 + R-6 崩溃上报 + R-7 合规包 集中执行；R-8 授权体系按 D-11 裁决执行（离线许可+设备绑定+宽限期）
+beta 前   R-2 签名公证 + R-4 安全加固 + R-5 数据保障 + R-6 崩溃上报 + R-7 合规包 集中执行；R-8 授权体系按 D-11 裁决执行（离线许可+设备绑定+宽限期）；R-9 E2E 冒烟随 R-3 CI 就位后接入
 ```
 
 **交汇规则**：
