@@ -1,6 +1,6 @@
 # Casy 重构方案（基于设计哲学的重新规划）
 
-> **版本**: v1.4（目标升级：生产级 · 可商业出售）
+> **版本**: v1.5（裁决落定：D-9 垂直拆表 · D-11 个人法律市场 · R-1 应用身份）
 > **日期**: 2026-08-21
 > **状态**: 待评审
 > **上位文档**: `docs/casy-design-philosophy.md`（唯一总纲）
@@ -8,6 +8,7 @@
 > **v1.2 变更**: 依据用户要求新增 **A-UI 工作流**——UI 全面升级，目标「流畅、灵动、好用」。定位：**流畅是性能预算问题；灵动是有目的的动效系统**——与哲学"克制即优雅"不冲突，对标 Things3 的完成动画与 Linear 的键盘流（motion 服务于理解，而非装饰）。
 > **v1.3 变更**: ①吸收内核评审结论，B 线新增 **B3 内核收口**（K-1～K-4），并新增 §八执行排期给出与 A 线的交汇顺序——核心结论：K-2（ServicesMap/defineTool）是 A1-1 的最佳前置；②A1-1 实现形态细分为决策点 **D-9**（泛化＋垂直拆表 vs 单宽表），D-5"单一顶级实体"结论维持不变；③应评审意见将 §七克制清单改为**三级制**（外部资源红线／有条件重开／原则保留），除移动端与自建云中继外逐项给出再评估、重开条件与成本。
 > **v1.4 变更**: 目标升级为生产级、可商业出售。B 线新增 **B4 生产化与发布工程**（R-1～R-8：应用身份/updater/签名公证/CI/安全加固/数据保障/崩溃上报/合规包/授权体系），其中 **R-1 bundle identifier 为不可逆决策，须在任何用户数据落盘前定案**；新增决策点 D-11（商业形态与目标市场——同时决定 C 线解冻策略）、D-12（签名与更新预算）、D-13（遥测与隐私立场）；§八排期第 1 周插入 R-1。
+> **v1.5 变更**: 三项裁决落定并执行——①**D-9 ✅ 泛化＋垂直拆表**：project 精简主表 + `case_legal_details` 侧表；②**K-3 ✅ 归因写既有 audit_events**：`actor='ai'` 已在 schema CHECK 枚举中，payload 携带 run_id 关联 ai_runs（ai_runs 记过程、audit_events 记结果），无需新表；③**R-1/D-14 ✅ identifier 定案 `top.muxiaoxi.casy`** 并已写入 tauri.conf.json——identifier 为永久唯一字符串，与域名是否续费解耦；④**D-11 ✅ 目标市场=个人法律人士**（执业律师/法务/实习律师/助理），不做企业级：商业模式建议买断制+BYOK AI（无持续云服务成本支撑订阅）、R-8 定为离线许可+设备绑定、C 线解冻维持"A 达标后"，收件箱 AI 分类/期限引擎列为解冻首批付费差异化项。§八第 3 周裁决会缩减为仅裁 D-3(ts-rs)。
 > **调研基点**: commit `187561f`（rebase 暂停检出）+ `61bec8c`（main 完整线谱）+ 两轮子代理审计（代码现状 / GTD 体验差距）
 
 ---
@@ -189,7 +190,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 |---|------|------|------|
 | K-1 | 确认策略上收（安全收口） | `CasyTool` 增加声明式 `policy { write, level, title }`；`executeTool` 统一计算 effective_level 并强制 `requestConfirm`——AI 写操作的确认从"各工具自觉"变为"内核强制"，删不可漏；删除 cases(L3)/files(L2)/knowledge(L2)/sync(L2×2) 四插件的手写确认块 | 0.5d |
 | K-2 | 类型双轨合一 + 单一事实来源 | 新增 `defineTool<P>()`：把 JSON Schema 与参数类型绑定，插件内 37 处边界断言收敛为全局唯一一处；导出 `ServicesMap`，ctx 属性声明/provide/inject 全部 keyof 化——此后 `ctx.cases ⇒ ctx.projects` 的改名是单点改动 | 1d |
-| K-3 | 事件激活 + AI 归因 | 跑通两个真实消费者证明事件层活性：`task:completed → reminder 重算当日`、`case:updated → 详情页时间线刷新`；`executeTool(name, params, { origin: 'ai' })`，AI 发起的成功写操作经 ai_runs 通路归因（是否落 audit_events.source 随 B1/D-3 一并裁决） | 1d |
+| K-3 | 事件激活 + AI 归因 | 跑通两个真实消费者证明事件层活性：`task:completed → reminder 重算当日`、`case:updated → 详情页时间线刷新`；**归因方案已裁决（v1.5）**：`executeTool(name, params, { origin: 'ai' })`，AI 发起的成功写操作写入既有 `audit_events`（`actor='ai'` 已在 schema CHECK 枚举，payload 携带 run_id 关联 ai_runs）——ai_runs 记过程、audit_events 记结果，无需新表 | 1d |
 | K-4 | 内核修缮 | `fork()` 以 Fiber 包装对象替代 monkey-patch dispose；`plugin()` 安装失败按服务名快照回滚已 provide 的服务；空 skills/ 目录取舍：注册一个真 skill 走通链路（推荐）或删除 | 0.5d |
 
 验收纪律：每项收尾 `vue-tsc --noEmit` 零输出 + `npm run build` 绿；K-2 完成判据：`grep -c "as string\|as Record" src/core/plugins` 归零。
@@ -234,11 +235,12 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 | D-6 | 耗时弹窗处置 | 设置开关默认关 + 完成后轻提示（保留学习闭环数据来源，见哲学 §11.6） |
 | D-7 | 日历独立事件表 | 引入 calendar_events（日程是独立事实源）；案件期限/庭审保留为只读图层 |
 | D-8 | **Element Plus 保留范围（v1.2 新增）** | 推荐：六个核心 GTD 表面自绘（TaskRow/List/PerspectiveTabs/QuickCapture/CalendarGrid/TimeGrid），EP 留在设置/表单/弹窗；备选：全面替换 EP（工程量 ×3，不建议）；保守：全部 EP 换肤（灵动上限低） |
-| D-9 | **项目表实现形态（v1.3 细分 D-5）** | 推荐：泛化＋垂直拆表——project 精简主表承载通用列，`case_legal_details` 侧表承载法律专列，兼得"单一顶级实体"与 DTO 整洁；备选 a：单宽表直接加 kind（个人行约 40 个法律列恒 null，DTO 污染前端）；备选 b：维持现状（个人 GTD 长期残缺）。迁移注意 SQLite DROP COLUMN 限制，用重建表方式 |
+| D-9 | **项目表实现形态（v1.3 细分 D-5）✅ v1.5 裁决：泛化＋垂直拆表** | project 精简主表承载通用列，`case_legal_details` 侧表承载法律专列，兼得"单一顶级实体"与 DTO 整洁（ts-rs 生成 Project 类型不被 ~40 个法律列污染；个人项目行不背空栏）。裁决理由：主流场景是个人/生活项目 + DTO 洁净直接决定前端类型质量。迁移注意 SQLite DROP COLUMN 限制，用重建表方式，随 A1-1 落地 |
 | D-10 | 动效微库预算（v1.3） | 建议：CSS Transition/WAAPI/FLIP 优先；出现确证覆盖不了的动效时允许引入 <10KB gzip 微库（motion-v 类）；GSAP/Motion One 维持排除 |
-| D-11 | **商业形态与目标市场（v1.4 新增，影响全局）** | 待裁决：①卖给谁——个人律师（BYOK/freemium 可行）还是律所团队（C 线律师工作台即商品本体，解冻策略从"A 达标后"改为与 A 并行）？②付费模式——买断 / 订阅 / BYOK 免费+Pro 分层？③发行区域（决定合规包范围）。**R-8 授权体系依赖此项；C 线解冻顺序依赖此项。bundle identifier 命名亦随此项定案** |
+| D-11 | **商业形态与目标市场（v1.4 新增）✅ v1.5 裁决** | 目标客户=**个人法律人士**：执业律师、法务、实习律师、律师助理；不做企业级。连锁确定项：①C 线解冻维持"A 达标后"，收件箱 AI 分类/期限引擎列为解冻首批付费差异化项；②商业模式建议买断制+BYOK AI（本地优先无持续云成本，订阅无价值支撑）；③R-8 授权体系=离线许可密钥+设备绑定+宽限期；④企业级功能（多租户/SSO/团队权限）不进入射程，WebDAV/飞书定位个人场景 |
 | D-12 | 签名与更新预算（v1.4） | 建议：接受 Apple Developer（$99/年）+ Windows 代码签名证书（数百刀/年）成本；更新源静态托管（GitHub Releases 或对象存储）。未签名=商业不可售 |
 | D-13 | 遥测与隐私立场（v1.4） | 建议默认：零遥测、崩溃日志仅本机、上报严格 opt-in 且可一键关闭——本地优先+保密是卖点，立场要写进隐私政策 |
+| D-14 | **应用标识符（v1.4 提出）✅ v1.5 定案并已执行** | `identifier = top.muxiaoxi.casy`，已写入 src-tauri/tauri.conf.json。说明：identifier 是借反向域名惯例保证唯一的永久字符串，与应用域名是否续费**解耦**——签名/更新/数据目录均不要求域名可解析；更新源 URL 独立可迁移。发布后永不再改 |
 
 ---
 
@@ -291,10 +293,10 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 ```
 第 1 周   B0 止血+门禁(≈3d) → R-1 应用身份+updater 基线(1d，不可逆项提前) → K-1 策略上收(0.5d) → A0-1 一键完成 / A0-2 乐观更新 开工
 第 2 周   A0-3 Undo / A0-4 系统通知 / A0-5 NL 统一  ∥  K-2 类型双轨合一(1d) ∥ R-3 CI 流水线(1d)
-第 3 周   裁决 D-3(ts-rs) + D-9(项目表形态) → K-3 事件激活+归因(1d) → A1-2 Areas UI / A1-3 拖拽排序（不依赖 schema 先行）
-第 4 周   K-4 内核修缮(0.5d) → A1-1 迁移落地（kind 字段 [± case_legal_details]，user_version 迁移 + .bak + 案件域回归用例）
+第 3 周   裁决 D-3(ts-rs)【D-9/K-3/D-11 已裁决，直接执行】→ K-3 事件激活+归因(1d) → A1-2 Areas UI / A1-3 拖拽排序（不依赖 schema 先行）
+第 4 周   K-4 内核修缮(0.5d) → A1-1 迁移落地（垂直拆表：project 精简主表 + case_legal_details 侧表，user_version 迁移 + .bak + 案件域回归用例）
 第 5 周起 A1-4/5/6/7 收尾 M-GTD-2 → Dogfooding 第一轮 → M-CAL-1（按原 A 线节奏与验收执行）
-beta 前   R-2 签名公证 + R-4 安全加固 + R-5 数据保障 + R-6 崩溃上报 + R-7 合规包 集中执行；R-8 授权体系随 D-11 裁决后启动
+beta 前   R-2 签名公证 + R-4 安全加固 + R-5 数据保障 + R-6 崩溃上报 + R-7 合规包 集中执行；R-8 授权体系按 D-11 裁决执行（离线许可+设备绑定+宽限期）
 ```
 
 **交汇规则**：
