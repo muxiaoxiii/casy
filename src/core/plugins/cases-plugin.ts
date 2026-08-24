@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class CasesPlugin implements CasyPlugin {
   name = 'cases'
@@ -39,7 +40,7 @@ export class CasesPlugin implements CasyPlugin {
   // ============================================================
   
   private createListCasesTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ filter?: Record<string, unknown> }>({
       name: 'list_cases',
       description: '获取案件列表，支持按轨道、状态、客户筛选',
       category: 'cases',
@@ -59,14 +60,14 @@ export class CasesPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         // 调用 Tauri 命令
-        const result = await ctx.cases.list((params.filter as Record<string, unknown>) || {})
+        const result = await ctx.cases.list(params.filter || {})
         return result
       },
-    }
+    })
   }
   
   private createGetCaseTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'get_case',
       description: '获取单个案件详情',
       category: 'cases',
@@ -78,14 +79,14 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.get(params.id as string)
+        const result = await ctx.cases.get(params.id)
         return result
       },
-    }
+    })
   }
   
   private createCreateCaseTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'create_case',
       description: '创建新案件',
       category: 'cases',
@@ -110,11 +111,11 @@ export class CasesPlugin implements CasyPlugin {
         
         return result
       },
-    }
+    })
   }
   
   private createUpdateCaseTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string; data: Record<string, unknown> }>({
       name: 'update_case',
       description: '更新案件信息',
       category: 'cases',
@@ -127,20 +128,20 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.update(params.id as string, params.data as Record<string, unknown>)
+        const result = await ctx.cases.update(params.id, params.data)
 
         // 触发事件
         if (result.ok) {
-          ctx.emit('case:updated', { id: params.id, ...(params.data as Record<string, unknown>) })
+          ctx.emit('case:updated', { id: params.id, ...params.data })
         }
 
         return result
       },
-    }
+    })
   }
   
   private createDeleteCaseTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'delete_case',
       description: '删除案件',
       category: 'cases',
@@ -151,26 +152,15 @@ export class CasesPlugin implements CasyPlugin {
         },
         required: ['id'],
       },
+      // 需要 L3 确认（策略声明，由 executeTool 统一强制执行）
+      policy: {
+        write: true,
+        level: 'L3',
+        title: '确认删除案件',
+        message: (p) => `确定要删除案件 ${String(p.id)} 吗？此操作不可撤销。`,
+      },
       execute: async (params) => {
-        // 需要 L3 确认
-        const confirmLevel = ctx.calculateEffectiveLevel({
-          isExternalWrite: true,
-        })
-        
-        if (confirmLevel === 'L3') {
-          const confirmed = await ctx.requestConfirm({
-            level: 'L3',
-            title: '确认删除案件',
-            message: `确定要删除案件 ${params.id} 吗？此操作不可撤销。`,
-            onConfirm: async () => {},
-          })
-          
-          if (!confirmed) {
-            return { ok: false, error: '用户取消操作' }
-          }
-        }
-        
-        const result = await ctx.cases.remove(params.id as string)
+        const result = await ctx.cases.remove(params.id)
         
         // 触发事件
         if (result.ok) {
@@ -179,11 +169,11 @@ export class CasesPlugin implements CasyPlugin {
         
         return result
       },
-    }
+    })
   }
   
   private createSearchCasesTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ keyword: string }>({
       name: 'search_cases',
       description: '搜索案件',
       category: 'cases',
@@ -195,9 +185,9 @@ export class CasesPlugin implements CasyPlugin {
         required: ['keyword'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.search(params.keyword as string)
+        const result = await ctx.cases.search(params.keyword)
         return result
       },
-    }
+    })
   }
 }

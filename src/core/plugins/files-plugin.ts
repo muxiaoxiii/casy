@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class FilesPlugin implements CasyPlugin {
   name = 'files'
@@ -27,7 +28,7 @@ export class FilesPlugin implements CasyPlugin {
   }
   
   private createListCaseFilesTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ caseId: string }>({
       name: 'list_case_files',
       description: '获取案件文件列表',
       category: 'files',
@@ -39,14 +40,14 @@ export class FilesPlugin implements CasyPlugin {
         required: ['caseId'],
       },
       execute: async (params) => {
-        const result = await ctx.files.list(params.caseId as string)
+        const result = await ctx.files.list(params.caseId)
         return result
       },
-    }
+    })
   }
   
   private createAddCaseFileTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ caseId: string; filePath: string; category?: string }>({
       name: 'add_case_file',
       description: '上传文件到案件',
       category: 'files',
@@ -61,17 +62,17 @@ export class FilesPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const result = await ctx.files.add(
-          params.caseId as string,
-          params.filePath as string,
-          params.category as string | undefined
+          params.caseId,
+          params.filePath,
+          params.category
         )
         return result
       },
-    }
+    })
   }
   
   private createDeleteCaseFileTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ caseId: string; fileId: string }>({
       name: 'delete_case_file',
       description: '删除案件文件',
       category: 'files',
@@ -83,22 +84,16 @@ export class FilesPlugin implements CasyPlugin {
         },
         required: ['caseId', 'fileId'],
       },
+      // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
+      policy: {
+        level: 'L2',
+        title: '确认删除文件',
+        message: (p) => `确定要删除文件 ${String(p.fileId)} 吗？`,
+      },
       execute: async (params) => {
-        // 需要 L2 确认
-        const confirmed = await ctx.requestConfirm({
-          level: 'L2',
-          title: '确认删除文件',
-          message: `确定要删除文件 ${params.fileId} 吗？`,
-          onConfirm: async () => {},
-        })
-        
-        if (!confirmed) {
-          return { ok: false, error: '用户取消操作' }
-        }
-        
-        const result = await ctx.files.remove(params.fileId as string)
+        const result = await ctx.files.remove(params.fileId)
         return result
       },
-    }
+    })
   }
 }

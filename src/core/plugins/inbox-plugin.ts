@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class InboxPlugin implements CasyPlugin {
   name = 'inbox'
@@ -31,7 +32,7 @@ export class InboxPlugin implements CasyPlugin {
   }
   
   private createListInboxItemsTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ status?: string }>({
       name: 'list_inbox_items',
       description: '获取收件箱列表（待处理/已归档/已忽略）',
       category: 'inbox',
@@ -46,14 +47,14 @@ export class InboxPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.inbox.list(params.status as string | undefined)
+        const result = await ctx.inbox.list(params.status)
         return result
       },
-    }
+    })
   }
   
   private createAddInboxItemTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ content?: string; sourceType?: string; sourcePath?: string }>({
       name: 'add_inbox_item',
       description: '添加收件箱条目（文本/文件/邮件）',
       category: 'inbox',
@@ -72,17 +73,17 @@ export class InboxPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const result = await ctx.inbox.add(
-          (params.sourceType as string | undefined) || 'text',
-          params.content as string | undefined,
-          params.sourcePath as string | undefined
+          params.sourceType || 'text',
+          params.content,
+          params.sourcePath
         )
         return result
       },
-    }
+    })
   }
   
   private createProcessInboxItemTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'process_inbox_item',
       description: '处理收件箱条目（AI 分类 + 案件匹配）',
       category: 'inbox',
@@ -94,14 +95,14 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.inbox.process(params.id as string)
+        const result = await ctx.inbox.process(params.id)
         return result
       },
-    }
+    })
   }
   
   private createFileInboxItemTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string; caseId: string; category?: string }>({
       name: 'file_inbox_item',
       description: '归档收件箱条目到案件',
       category: 'inbox',
@@ -116,17 +117,17 @@ export class InboxPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const result = await ctx.inbox.file(
-          params.id as string,
-          params.caseId as string,
-          params.category as string | undefined
+          params.id,
+          params.caseId,
+          params.category
         )
         return result
       },
-    }
+    })
   }
   
   private createDismissInboxItemTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'dismiss_inbox_item',
       description: '忽略收件箱条目',
       category: 'inbox',
@@ -138,9 +139,9 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.inbox.dismiss(params.id as string)
+        const result = await ctx.inbox.dismiss(params.id)
         return result
       },
-    }
+    })
   }
 }

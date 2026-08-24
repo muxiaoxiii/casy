@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class TasksPlugin implements CasyPlugin {
   name = 'tasks'
@@ -37,7 +38,7 @@ export class TasksPlugin implements CasyPlugin {
   // ============================================================
   
   private createListTasksTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ filter?: Record<string, unknown> }>({
       name: 'list_tasks',
       description: '获取任务列表，支持按案件、类型、状态筛选',
       category: 'tasks',
@@ -57,14 +58,14 @@ export class TasksPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.tasks.list((params.filter as Record<string, unknown>) || {})
+        const result = await ctx.tasks.list(params.filter || {})
         return result
       },
-    }
+    })
   }
   
   private createCreateTaskTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'create_task',
       description: '创建新任务',
       category: 'tasks',
@@ -91,11 +92,11 @@ export class TasksPlugin implements CasyPlugin {
         
         return result
       },
-    }
+    })
   }
   
   private createToggleTaskTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'toggle_task',
       description: '切换任务完成状态',
       category: 'tasks',
@@ -107,7 +108,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.toggle(params.id as string)
+        const result = await ctx.tasks.toggle(params.id)
         
         // 触发事件
         if (result.ok) {
@@ -116,11 +117,11 @@ export class TasksPlugin implements CasyPlugin {
         
         return result
       },
-    }
+    })
   }
   
   private createUpdateTaskTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string; data: Record<string, unknown> }>({
       name: 'update_task',
       description: '更新任务信息',
       category: 'tasks',
@@ -134,16 +135,16 @@ export class TasksPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const result = await ctx.tasks.update({
-          ...(params.data as Record<string, unknown>),
-          id: params.id as string,
+          ...params.data,
+          id: params.id,
         })
         return result
       },
-    }
+    })
   }
   
   private createDeleteTaskTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'delete_task',
       description: '删除任务',
       category: 'tasks',
@@ -155,9 +156,9 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.remove(params.id as string)
+        const result = await ctx.tasks.remove(params.id)
         return result
       },
-    }
+    })
   }
 }

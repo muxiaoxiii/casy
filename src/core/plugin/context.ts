@@ -34,20 +34,9 @@ import type {
   InjectKey,
   CasyLogger,
 } from './types'
-// 仅类型导入（运行时擦除，不产生循环依赖）：服务属性经 Proxy 动态解析
-import type {
-  AiService,
-  CalendarService,
-  CasesService,
-  DocsService,
-  FilesService,
-  InboxService,
-  KnowledgeService,
-  ReminderService,
-  SettingsService,
-  SyncService,
-  TasksService,
-} from '../services'
+// 仅类型导入（运行时擦除，不产生循环依赖）：服务属性经 Proxy 动态解析，
+// 类型单一事实来源是 services/index.ts 的 ServicesMap（K-2）
+import type { ServicesMap } from '../services'
 
 // ============================================================
 // effective_policy 等级排序（§11.4）
@@ -283,6 +272,26 @@ class CasyContextImpl implements CasyContext {
     if (!tool) {
       return { ok: false, error: '工具不存在: ' + name }
     }
+    // ── 声明式确认策略（K-1 策略上收）：内核统一强制，工具内部不再手写确认 ──
+    const policy = tool.policy
+    if (policy && (policy.write || policy.level)) {
+      const level = this.calculateEffectiveLevel({
+        isExternalWrite: policy.write,
+        userPolicy: policy.level,
+      })
+      if (level !== 'L1') {
+        const confirmed = await this.requestConfirm({
+          level,
+          title: policy.title ?? tool.name,
+          message: policy.message
+            ? policy.message(params)
+            : '确定执行「' + tool.description + '」吗？',
+        })
+        if (!confirmed) {
+          return { ok: false, error: '用户取消操作' }
+        }
+      }
+    }
     try {
       return await tool.execute(params)
     } catch (e) {
@@ -422,21 +431,9 @@ class CasyContextImpl implements CasyContext {
 
 /**
  * 服务动态属性（cordis 风格）：运行时经 Proxy 拦截 get 解析到已注册的 Service
- * （见构造器与 provide()）；类型与 services/index.ts 的 declare module 增强保持一致。
+ * （见构造器与 provide()）；类型同源于 services/index.ts 的 ServicesMap（K-2 单一事实来源）。
  */
-interface CasyContextImpl {
-  readonly cases: CasesService
-  readonly tasks: TasksService
-  readonly knowledge: KnowledgeService
-  readonly calendar: CalendarService
-  readonly inbox: InboxService
-  readonly reminder: ReminderService
-  readonly files: FilesService
-  readonly sync: SyncService
-  readonly settings: SettingsService
-  readonly ai: AiService
-  readonly docs: DocsService
-}
+interface CasyContextImpl extends ServicesMap {}
 
 /** 全局唯一的 Casy 上下文实例（Proxy：ctx.cases 等服务属性自动解析） */
 export const casyContext: CasyContext = new CasyContextImpl()

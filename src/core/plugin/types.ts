@@ -21,12 +21,31 @@ export interface ToolParameterSchema {
   enum?: string[]
 }
 
+/**
+ * 工具确认策略（声明式，K-1 策略上收）
+ *
+ * 由 Context.executeTool 统一计算 effective_level 并强制 requestConfirm，
+ * 工具实现内部不得再手写确认——策略声明与执行分离，删不可漏。
+ */
+export interface ToolPolicy {
+  /** 是否外部写操作（进入 effective_policy 计算的 L3 触发条件） */
+  write?: boolean
+  /** 最低确认级（与系统最小级取 max；缺省 L1 不弹确认） */
+  level?: ConfirmLevel
+  /** 确认弹窗标题（缺省用工具名） */
+  title?: string
+  /** 动态确认文案（缺省用工具描述） */
+  message?: (params: Record<string, unknown>) => string
+}
+
 /** AI 可调用的业务工具（与 MCP 工具定义同构） */
 export interface CasyTool {
   name: string
   description: string
   category: string
   parameters: ToolParameterSchema
+  /** 声明式确认策略：由 executeTool 统一执行；未声明视为只读 L1 */
+  policy?: ToolPolicy
   /** 执行工具；返回与 tauriCallSafe 一致的 { ok, data, error } */
   execute(params: Record<string, unknown>): Promise<{
     ok: boolean

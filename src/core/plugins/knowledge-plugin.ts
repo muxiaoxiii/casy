@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class KnowledgePlugin implements CasyPlugin {
   name = 'knowledge'
@@ -37,7 +38,7 @@ export class KnowledgePlugin implements CasyPlugin {
   // ============================================================
   
   private createListKnowledgeTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ filter?: Record<string, unknown> }>({
       name: 'list_knowledge',
       description: '获取知识库列表，支持按职能分类筛选',
       category: 'knowledge',
@@ -57,14 +58,14 @@ export class KnowledgePlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.knowledge.list((params.filter as Record<string, unknown>) || {})
+        const result = await ctx.knowledge.list(params.filter || {})
         return result
       },
-    }
+    })
   }
   
   private createSearchKnowledgeTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ query: string; limit?: number }>({
       name: 'search_knowledge',
       description: '搜索知识库（支持全文搜索和混合检索）',
       category: 'knowledge',
@@ -77,14 +78,14 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['query'],
       },
       execute: async (params) => {
-        const result = await ctx.knowledge.search(params.query as string)
+        const result = await ctx.knowledge.search(params.query)
         return result
       },
-    }
+    })
   }
   
   private createCreateKnowledgeTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'create_knowledge',
       description: '创建知识条目',
       category: 'knowledge',
@@ -105,11 +106,11 @@ export class KnowledgePlugin implements CasyPlugin {
         const result = await ctx.knowledge.create(params)
         return result
       },
-    }
+    })
   }
   
   private createUpdateKnowledgeTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string; data: Record<string, unknown> }>({
       name: 'update_knowledge',
       description: '更新知识条目',
       category: 'knowledge',
@@ -122,14 +123,14 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.knowledge.update(params.id as string, params.data as Record<string, unknown>)
+        const result = await ctx.knowledge.update(params.id, params.data)
         return result
       },
-    }
+    })
   }
   
   private createDeleteKnowledgeTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ id: string }>({
       name: 'delete_knowledge',
       description: '删除知识条目',
       category: 'knowledge',
@@ -140,22 +141,16 @@ export class KnowledgePlugin implements CasyPlugin {
         },
         required: ['id'],
       },
+      // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
+      policy: {
+        level: 'L2',
+        title: '确认删除知识',
+        message: (p) => `确定要删除知识条目 ${String(p.id)} 吗？`,
+      },
       execute: async (params) => {
-        // 需要 L2 确认
-        const confirmed = await ctx.requestConfirm({
-          level: 'L2',
-          title: '确认删除知识',
-          message: `确定要删除知识条目 ${params.id} 吗？`,
-          onConfirm: async () => {},
-        })
-        
-        if (!confirmed) {
-          return { ok: false, error: '用户取消操作' }
-        }
-        
-        const result = await ctx.knowledge.remove(params.id as string)
+        const result = await ctx.knowledge.remove(params.id)
         return result
       },
-    }
+    })
   }
 }

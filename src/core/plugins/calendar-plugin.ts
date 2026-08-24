@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class CalendarPlugin implements CasyPlugin {
   name = 'calendar'
@@ -27,7 +28,7 @@ export class CalendarPlugin implements CasyPlugin {
   }
   
   private createGetCalendarEventsTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ year?: number; month?: number }>({
       name: 'get_calendar_events',
       description: '获取日历事件（开庭、口审、期限、任务）',
       category: 'calendar',
@@ -39,14 +40,14 @@ export class CalendarPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.calendar.events(params.year as number | undefined, params.month as number | undefined)
+        const result = await ctx.calendar.events(params.year, params.month)
         return result
       },
-    }
+    })
   }
   
   private createGetDeadlineWarningsTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'get_deadline_warnings',
       description: '获取期限预警（红/黄/绿分级）',
       category: 'calendar',
@@ -55,11 +56,11 @@ export class CalendarPlugin implements CasyPlugin {
         const result = await ctx.calendar.deadlineWarnings()
         return result
       },
-    }
+    })
   }
   
   private createGetDashboardStatsTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'get_dashboard_stats',
       description: '获取仪表盘统计（活跃案件、期限预警、最近活动）',
       category: 'calendar',
@@ -68,6 +69,6 @@ export class CalendarPlugin implements CasyPlugin {
         const result = await ctx.calendar.dashboardStats()
         return result
       },
-    }
+    })
   }
 }

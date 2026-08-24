@@ -22,20 +22,28 @@ import { SettingsService } from './settings'
 import { AiService } from './ai'
 import { DocsService } from './docs'
 
+/**
+ * 服务名 → 服务实例类型的唯一映射（K-2 单一事实来源）。
+ * - ctx 属性类型经下方 declare module 注入 CasyContext
+ * - context.ts 的实现类经 `interface CasyContextImpl extends ServicesMap {}` 同源引用
+ * 新增服务 = 在此加一行 + registerServices 注册一次，其余全部自动获得类型。
+ */
+export interface ServicesMap {
+  settings: SettingsService
+  cases: CasesService
+  tasks: TasksService
+  knowledge: KnowledgeService
+  calendar: CalendarService
+  inbox: InboxService
+  reminder: ReminderService
+  files: FilesService
+  sync: SyncService
+  ai: AiService
+  docs: DocsService
+}
+
 declare module '../plugin/types' {
-  interface CasyContext {
-    cases: CasesService
-    tasks: TasksService
-    knowledge: KnowledgeService
-    calendar: CalendarService
-    inbox: InboxService
-    reminder: ReminderService
-    files: FilesService
-    sync: SyncService
-    settings: SettingsService
-    ai: AiService
-    docs: DocsService
-  }
+  interface CasyContext extends ServicesMap {}
 }
 
 /**

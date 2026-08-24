@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class SyncPlugin implements CasyPlugin {
   name = 'sync'
@@ -29,7 +30,7 @@ export class SyncPlugin implements CasyPlugin {
   }
   
   private createGetSyncStatusTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'get_sync_status',
       description: '获取同步状态（WebDAV/飞书）',
       category: 'sync',
@@ -38,11 +39,11 @@ export class SyncPlugin implements CasyPlugin {
         const result = await ctx.sync.status()
         return result
       },
-    }
+    })
   }
   
   private createTestWebdavConnectionTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'test_webdav_connection',
       description: '测试 WebDAV 连接',
       category: 'sync',
@@ -53,60 +54,48 @@ export class SyncPlugin implements CasyPlugin {
         const result = await ctx.sync.testWebdav(creds.url, creds.username, creds.password)
         return result
       },
-    }
+    })
   }
   
   private createManualSyncPushTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'manual_sync_push',
       description: '手动推送同步',
       category: 'sync',
       parameters: { type: 'object', properties: {} },
+      // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
+      policy: {
+        level: 'L2',
+        title: '确认推送同步',
+        message: () => '确定要将本地数据推送到远程吗？',
+      },
       execute: async () => {
-        // 需要 L2 确认
-        const confirmed = await ctx.requestConfirm({
-          level: 'L2',
-          title: '确认推送同步',
-          message: '确定要将本地数据推送到远程吗？',
-          onConfirm: async () => {},
-        })
-        
-        if (!confirmed) {
-          return { ok: false, error: '用户取消操作' }
-        }
-        
         const creds = await ctx.settings.webdavCredentials()
         if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
         const result = await ctx.sync.push(creds.url, creds.username, creds.password)
         return result
       },
-    }
+    })
   }
   
   private createManualSyncPullTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'manual_sync_pull',
       description: '手动拉取同步',
       category: 'sync',
       parameters: { type: 'object', properties: {} },
+      // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
+      policy: {
+        level: 'L2',
+        title: '确认拉取同步',
+        message: () => '确定要从远程拉取数据吗？这会覆盖本地数据。',
+      },
       execute: async () => {
-        // 需要 L2 确认
-        const confirmed = await ctx.requestConfirm({
-          level: 'L2',
-          title: '确认拉取同步',
-          message: '确定要从远程拉取数据吗？这会覆盖本地数据。',
-          onConfirm: async () => {},
-        })
-        
-        if (!confirmed) {
-          return { ok: false, error: '用户取消操作' }
-        }
-        
         const creds = await ctx.settings.webdavCredentials()
         if (!creds) return { ok: false, error: '未配置 WebDAV（请在设置中填写 URL/用户名/密码）' }
         const result = await ctx.sync.pull(creds.url, creds.username, creds.password)
         return result
       },
-    }
+    })
   }
 }

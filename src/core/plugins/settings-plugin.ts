@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class SettingsPlugin implements CasyPlugin {
   name = 'settings'
@@ -27,7 +28,7 @@ export class SettingsPlugin implements CasyPlugin {
   }
   
   private createGetSettingsTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'get_settings',
       description: '获取设置',
       category: 'settings',
@@ -36,11 +37,11 @@ export class SettingsPlugin implements CasyPlugin {
         const result = await ctx.settings.get()
         return result
       },
-    }
+    })
   }
   
   private createSaveSettingsTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ data: Record<string, unknown> }>({
       name: 'save_settings',
       description: '保存设置',
       category: 'settings',
@@ -52,14 +53,14 @@ export class SettingsPlugin implements CasyPlugin {
         required: ['data'],
       },
       execute: async (params) => {
-        const result = await ctx.settings.save(params.data as Record<string, unknown>)
+        const result = await ctx.settings.save(params.data)
         return result
       },
-    }
+    })
   }
   
   private createConfigureAiTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ mode: string; endpoint?: string; apiKey?: string; model?: string }>({
       name: 'configure_ai',
       description: '配置 AI 后端',
       category: 'settings',
@@ -79,13 +80,13 @@ export class SettingsPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const result = await ctx.settings.configureAi({
-          mode: params.mode as string,
-          apiUrl: params.endpoint as string | undefined,
-          apiKey: params.apiKey as string | undefined,
-          model: params.model as string | undefined,
+          mode: params.mode,
+          apiUrl: params.endpoint,
+          apiKey: params.apiKey,
+          model: params.model,
         })
         return result
       },
-    }
+    })
   }
 }

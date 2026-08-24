@@ -5,6 +5,7 @@
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
+import { defineTool } from '../plugin/defineTool'
 
 export class ReminderPlugin implements CasyPlugin {
   name = 'reminder'
@@ -29,7 +30,7 @@ export class ReminderPlugin implements CasyPlugin {
   }
   
   private createListReminderRulesTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<Record<string, unknown>>({
       name: 'list_reminder_rules',
       description: '获取提醒规则列表',
       category: 'reminder',
@@ -38,11 +39,11 @@ export class ReminderPlugin implements CasyPlugin {
         const result = await ctx.reminder.rules()
         return result
       },
-    }
+    })
   }
   
   private createCreateReminderRuleTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ name: string; triggerType: string; triggerValue?: number; channels?: string }>({
       name: 'create_reminder_rule',
       description: '创建提醒规则',
       category: 'reminder',
@@ -69,11 +70,11 @@ export class ReminderPlugin implements CasyPlugin {
         })
         return result
       },
-    }
+    })
   }
   
   private createGetReminderLogTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ limit?: number }>({
       name: 'get_reminder_log',
       description: '获取提醒日志（R1-R4 分级）',
       category: 'reminder',
@@ -84,14 +85,14 @@ export class ReminderPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.reminder.log(params.limit as number | undefined)
+        const result = await ctx.reminder.log(params.limit)
         return result
       },
-    }
+    })
   }
   
   private createStartReminderEngineTool(ctx: CasyContext): CasyTool {
-    return {
+    return defineTool<{ intervalSeconds?: number }>({
       name: 'start_reminder_engine',
       description: '启动提醒引擎',
       category: 'reminder',
@@ -102,9 +103,9 @@ export class ReminderPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.reminder.startEngine(params.intervalSeconds as number | undefined)
+        const result = await ctx.reminder.startEngine(params.intervalSeconds)
         return result
       },
-    }
+    })
   }
 }
