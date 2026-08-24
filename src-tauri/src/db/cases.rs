@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::{row_get_string, row_get_string_or};
 
 /// 案件数据结构
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Case {
     pub id: String,
@@ -76,7 +76,7 @@ pub struct Case {
 }
 
 /// 列表查询过滤条件
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, specta::Type)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct CaseFilter {
@@ -98,7 +98,7 @@ pub struct CaseFilter {
 }
 
 /// 列表查询结果
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CaseListResult {
     pub items: Vec<Case>,

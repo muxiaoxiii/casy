@@ -74,6 +74,7 @@ screenshots = "0.6"
 
 # 剪贴板监听
 arboard = "3"
+specta = { version = "1.0.5", features = ["export"] }
 
 [features]
 default = ["custom-protocol"]

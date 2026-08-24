@@ -120,7 +120,7 @@ pub async fn search_cases(query: String) -> Result<Vec<db::cases::Case>, String>
     .await
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CaseStats {
     pub total: i64,
@@ -156,7 +156,7 @@ pub async fn case_stats() -> Result<CaseStats, String> {
 }
 
 /// 最近活动条目
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentActivity {
     pub event_type: String,
@@ -168,7 +168,7 @@ pub struct RecentActivity {
 }
 
 /// 仪表盘聚合数据
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardStats {
     pub active_count: i64,

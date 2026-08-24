@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::run_blocking;
 use crate::db;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CaseFile {
     pub id: String,

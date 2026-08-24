@@ -14,6 +14,9 @@ mod sync;
 mod tray;
 mod watcher;
 
+#[cfg(test)]
+mod export_bindings;
+
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8};
 use std::sync::Arc;
 

@@ -1,7 +1,7 @@
 use super::run_blocking;
 use crate::db;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineEvent {
     pub id: String,

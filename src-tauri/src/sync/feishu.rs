@@ -818,7 +818,7 @@ fn json_array_to_feishu_multi(value: &Option<String>) -> Option<serde_json::Valu
 // Sync Report
 // ============================================================
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FeishuSyncReport {
     pub pulled: usize,

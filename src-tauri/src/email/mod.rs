@@ -26,7 +26,7 @@ use crate::db::{new_id, now_local};
 // IMAP 账号配置
 // ============================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImapAccountConfig {
     pub id: Option<String>,

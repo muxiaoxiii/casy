@@ -6,7 +6,7 @@ use serde::Serialize;
 use super::holidays::HolidayCalendar;
 use crate::db;
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeadlineResult {
     pub rule_id: Option<String>,

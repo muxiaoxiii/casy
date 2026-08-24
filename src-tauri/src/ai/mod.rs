@@ -26,7 +26,7 @@ use tokio::sync::Mutex;
 // ============================================================
 
 /// 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub role: String,
@@ -167,7 +167,7 @@ pub fn route_by_confidence(
 // AI 配置
 // ============================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
     pub mode: String, // "ollama" | "openai" | "noop"
@@ -1133,7 +1133,7 @@ pub async fn get_ai_usage() -> Result<serde_json::Value, String> {
 }
 
 /// ai_chat 返回体（K-3 归因）：content + 本次对话的 ai_runs 关联键
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChatResult {
     pub content: String,

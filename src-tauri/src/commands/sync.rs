@@ -358,7 +358,7 @@ pub async fn feishu_list_records(
 // ============================================================
 
 /// Schema 比较结果
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaDiff {
     feishu_only: Vec<FieldDiffItem>,
@@ -367,7 +367,7 @@ pub struct SchemaDiff {
     mapped: Vec<FieldDiffItem>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldDiffItem {
     feishu_field: Option<String>,
@@ -561,7 +561,7 @@ fn types_compatible(feishu_sqlite_type: &str, local_type: &str) -> bool {
 }
 
 /// 比较飞书记录 vs 本地记录
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordDiff {
     same: Vec<RecordDiffItem>,
@@ -570,7 +570,7 @@ pub struct RecordDiff {
     conflict: Vec<RecordDiffItem>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordDiffItem {
     record_id: Option<String>,

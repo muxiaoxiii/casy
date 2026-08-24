@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// 模板字段定义
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct TemplateField {
     /// 字段名（如 "案号"、"客户名称"）
     pub name: String,
@@ -17,7 +17,7 @@ pub struct TemplateField {
 }
 
 /// Docsy 模板信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct DocsyTemplate {
     /// 模板唯一 ID（基于文件路径的 hash）
     pub id: String,

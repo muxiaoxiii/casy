@@ -7,7 +7,7 @@ use rusqlite::params;
 use rusqlite::OptionalExtension;
 
 /// 命令路由信息
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandRoute {
     pub command_name: String,

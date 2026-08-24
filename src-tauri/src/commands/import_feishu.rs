@@ -23,7 +23,7 @@ struct FeishuTable {
     records: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportReport {
     pub cases: usize,

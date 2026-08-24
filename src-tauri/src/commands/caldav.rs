@@ -158,7 +158,7 @@ pub async fn test_caldav_connection() -> Result<String, String> {
 }
 
 /// 补同步结果
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarSyncReport {
     /// 待处理作业总数

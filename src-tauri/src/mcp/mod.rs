@@ -758,7 +758,7 @@ pub async fn execute_tool(call: McpToolCall) -> Result<serde_json::Value, String
 // ═══════════════════════════════════════════════════════════
 
 /// 待确认写记录
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct McpPendingWrite {
     pub id: String,

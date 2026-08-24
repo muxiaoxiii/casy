@@ -570,7 +570,7 @@ pub async fn generate_hearing_prep_tasks(
 // 任务模板系统
 // ============================================================
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskTemplate {
     pub id: String,

@@ -5,7 +5,7 @@ use super::run_blocking;
 use crate::db;
 
 /// 关系记录
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CaseRelation {
     pub id: String,
@@ -17,7 +17,7 @@ pub struct CaseRelation {
 }
 
 /// 关联案件（含案件摘要信息）
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RelatedCase {
     pub relation_id: String,

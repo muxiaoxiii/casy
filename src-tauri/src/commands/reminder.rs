@@ -29,7 +29,7 @@ pub struct CalendarJobCtx {
 // 数据结构
 // ============================================================
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ReminderRule {
     pub id: String,
@@ -43,7 +43,7 @@ pub struct ReminderRule {
     pub created_at: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ReminderLogEntry {
     pub id: String,
@@ -1457,7 +1457,7 @@ pub fn compute_reminder_level(days_left: i64) -> ReminderLevel {
 }
 
 /// 分级预警结果
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeadlineWarning {
     pub deadline_id: String,

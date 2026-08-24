@@ -2,7 +2,7 @@ use super::run_blocking;
 use crate::db;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct Draft {
     pub id: String,
     pub case_id: Option<String>,

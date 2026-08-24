@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 模板列表响应
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct TemplateListResponse {
     pub templates: Vec<docsy_engine::DocsyTemplate>,
     pub total: usize,
 }
 
 /// 渲染结果响应
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct RenderResponse {
     pub html: String,
     pub text: String,
@@ -20,7 +20,7 @@ pub struct RenderResponse {
 }
 
 /// 导出结果响应
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct ExportResponse {
     pub output_path: String,
     pub file_size: u64,

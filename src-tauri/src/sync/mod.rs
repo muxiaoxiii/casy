@@ -5,7 +5,7 @@ pub mod webdav;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
     pub webdav_connected: bool,
@@ -16,7 +16,7 @@ pub struct SyncStatus {
     pub pending_changes: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct SyncResult {

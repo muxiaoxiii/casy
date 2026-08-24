@@ -838,7 +838,7 @@ pub async fn parse_holiday_notice(content: String) -> Result<serde_json::Value, 
 // ── v2.1: 即时判断 + 安全拷贝 + AI 缓存 ──────────────────────
 
 /// 即时判断结果
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct QuickJudgeResult {
     pub category: String,
@@ -849,7 +849,7 @@ pub struct QuickJudgeResult {
     pub ai_analyzed: bool,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct QuickRecommendation {
     /// 动作类型：file_to_case | create_task | create_deadline | save_knowledge | create_case | set_reminder

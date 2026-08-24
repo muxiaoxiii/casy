@@ -81,11 +81,28 @@
 
 这批命令的参数形态是 `data: serde_json::Value`（或部分字段动态），serde 层无结构可导出。它们正是 B1 计划中的 DomainCommand 改造对象——改造完成后自动获得强类型，届时按本文清单流程追加 derive 即可。**不建议为 Value 手写 TS any 占位**（违背 D-3 目的）。
 
-## 五、接入步骤（供执行时照抄，本报告不含实现）
+## 五、接入实现（✅ 已落地，2026-08-24）
 
-1. Cargo.toml 加 dev-dependencies 或 dependencies：
-   `specta = "2"`、`specta-typescript = "0.7"`（版本以 cargo search 为准）
-2. 目标 struct 加 `#[derive(specta::Type)]`（与现有 serde derive 并列，无需改 serde 配置）
+实际落地与原计划有两处演进：
+
+1. **版本对**：registry 当前稳定组合为 `specta = "1.0.5"`（features = ["export"]），
+   未引入 specta-typescript / specta-serde（0.0.12 线绑定 specta v1 / v2-rc 各异，碎片化）。
+   specta v1 自带 TS 导出器（`specta::export::ts_with_cfg`），derive 宏经 ctor 自动注册全局类型表。
+   未来迁 v2 时 derive 同名（`specta::Type`），迁移成本≈改依赖版本。
+2. **导出桩**：src-tauri/src/export_bindings.rs（#[cfg(test)]），`cargo test export_bindings`
+   生成 `src/types/bindings.ts`；口径 i64 → number（Casy 的 i64 均为计数/时间戳，安全整数范围）。
+   CI 校验（git diff --exit-code src/types/bindings.ts）随 R-3 接入。
+
+### 落地结果
+
+| 项 | 数值 |
+|---|---|
+| 带 `specta::Type` 的类型 | **39**（清单 34 + 传递闭包 5：RecentActivity/QuickRecommendation/DocsyTemplate/FieldDiffItem/RecordDiffItem + TemplateField） |
+| 补 Serialize 的返回型 | 12 |
+| 生成的 bindings | src/types/bindings.ts（39 个 export type，camelCase，含文档注释） |
+| 缓办 | CalendarEvent ×2（commands/calendar.rs 为 M-CAL-1 主线占用文件且存在同名双定义，待解冻后统一） |
+
+#[derive(specta::Type)]`（与现有 serde derive 并列，无需改 serde 配置）
 3. 建 export 桩（推荐 tests 形式，`cargo test` 即产出）：
 
    ```rust
