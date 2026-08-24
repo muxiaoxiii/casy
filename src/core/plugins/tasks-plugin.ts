@@ -57,7 +57,7 @@ export class TasksPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.tasks.list(params.filter || {})
+        const result = await ctx.tasks.list((params.filter as Record<string, unknown>) || {})
         return result
       },
     }
@@ -107,7 +107,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.toggle(params.id)
+        const result = await ctx.tasks.toggle(params.id as string)
         
         // 触发事件
         if (result.ok) {
@@ -133,7 +133,10 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.update({ ...params.data, id: params.id })
+        const result = await ctx.tasks.update({
+          ...(params.data as Record<string, unknown>),
+          id: params.id as string,
+        })
         return result
       },
     }
@@ -152,7 +155,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.remove(params.id)
+        const result = await ctx.tasks.remove(params.id as string)
         return result
       },
     }

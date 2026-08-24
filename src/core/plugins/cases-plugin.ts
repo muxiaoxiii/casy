@@ -59,7 +59,7 @@ export class CasesPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         // 调用 Tauri 命令
-        const result = await ctx.cases.list(params.filter || {})
+        const result = await ctx.cases.list((params.filter as Record<string, unknown>) || {})
         return result
       },
     }
@@ -78,7 +78,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.get(params.id)
+        const result = await ctx.cases.get(params.id as string)
         return result
       },
     }
@@ -127,13 +127,13 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.update(params.id, params.data)
-        
+        const result = await ctx.cases.update(params.id as string, params.data as Record<string, unknown>)
+
         // 触发事件
         if (result.ok) {
-          ctx.emit('case:updated', { id: params.id, ...params.data })
+          ctx.emit('case:updated', { id: params.id, ...(params.data as Record<string, unknown>) })
         }
-        
+
         return result
       },
     }
@@ -170,7 +170,7 @@ export class CasesPlugin implements CasyPlugin {
           }
         }
         
-        const result = await ctx.cases.remove(params.id)
+        const result = await ctx.cases.remove(params.id as string)
         
         // 触发事件
         if (result.ok) {
@@ -195,7 +195,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['keyword'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.search(params.keyword)
+        const result = await ctx.cases.search(params.keyword as string)
         return result
       },
     }

@@ -57,7 +57,7 @@ export class KnowledgePlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.knowledge.list(params.filter || {})
+        const result = await ctx.knowledge.list((params.filter as Record<string, unknown>) || {})
         return result
       },
     }
@@ -77,7 +77,7 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['query'],
       },
       execute: async (params) => {
-        const result = await ctx.knowledge.search(params.query)
+        const result = await ctx.knowledge.search(params.query as string)
         return result
       },
     }
@@ -122,7 +122,7 @@ export class KnowledgePlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.knowledge.update(params.id, params.data)
+        const result = await ctx.knowledge.update(params.id as string, params.data as Record<string, unknown>)
         return result
       },
     }
@@ -142,7 +142,7 @@ export class KnowledgePlugin implements CasyPlugin {
       },
       execute: async (params) => {
         // 需要 L2 确认
-        const confirmed = await casyContext.requestConfirm({
+        const confirmed = await ctx.requestConfirm({
           level: 'L2',
           title: '确认删除知识',
           message: `确定要删除知识条目 ${params.id} 吗？`,
@@ -153,7 +153,7 @@ export class KnowledgePlugin implements CasyPlugin {
           return { ok: false, error: '用户取消操作' }
         }
         
-        const result = await ctx.knowledge.remove(params.id)
+        const result = await ctx.knowledge.remove(params.id as string)
         return result
       },
     }

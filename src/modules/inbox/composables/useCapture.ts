@@ -7,15 +7,15 @@ import { tauriCallSafe } from '../../../core/tauriBridge'
 
 export function useCapture() {
   const capturing = ref(false)
-  const lastCapture = ref(null)
+  const lastCapture = ref<string | null>(null)
 
   /** 截屏捕获 */
   async function captureScreenshot() {
     capturing.value = true
-    const result = await tauriCallSafe('capture_screenshot', {})
+    const result = await tauriCallSafe<string>('capture_screenshot', {})
     capturing.value = false
     if (result.ok) {
-      lastCapture.value = result.data
+      lastCapture.value = result.data ?? null
       return result.data
     }
     return null
@@ -24,10 +24,10 @@ export function useCapture() {
   /** 剪贴板捕获 */
   async function captureClipboard() {
     capturing.value = true
-    const result = await tauriCallSafe('capture_clipboard', {})
+    const result = await tauriCallSafe<string>('capture_clipboard', {})
     capturing.value = false
     if (result.ok) {
-      lastCapture.value = result.data
+      lastCapture.value = result.data ?? null
       return result.data
     }
     return null

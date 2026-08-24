@@ -34,6 +34,20 @@ import type {
   InjectKey,
   CasyLogger,
 } from './types'
+// 仅类型导入（运行时擦除，不产生循环依赖）：服务属性经 Proxy 动态解析
+import type {
+  AiService,
+  CalendarService,
+  CasesService,
+  DocsService,
+  FilesService,
+  InboxService,
+  KnowledgeService,
+  ReminderService,
+  SettingsService,
+  SyncService,
+  TasksService,
+} from '../services'
 
 // ============================================================
 // effective_policy 等级排序（§11.4）
@@ -404,6 +418,24 @@ class CasyContextImpl implements CasyContext {
     await onConfirm?.()
     return true
   }
+}
+
+/**
+ * 服务动态属性（cordis 风格）：运行时经 Proxy 拦截 get 解析到已注册的 Service
+ * （见构造器与 provide()）；类型与 services/index.ts 的 declare module 增强保持一致。
+ */
+interface CasyContextImpl {
+  readonly cases: CasesService
+  readonly tasks: TasksService
+  readonly knowledge: KnowledgeService
+  readonly calendar: CalendarService
+  readonly inbox: InboxService
+  readonly reminder: ReminderService
+  readonly files: FilesService
+  readonly sync: SyncService
+  readonly settings: SettingsService
+  readonly ai: AiService
+  readonly docs: DocsService
 }
 
 /** 全局唯一的 Casy 上下文实例（Proxy：ctx.cases 等服务属性自动解析） */

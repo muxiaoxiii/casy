@@ -46,7 +46,7 @@ export class InboxPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.inbox.list(params.status)
+        const result = await ctx.inbox.list(params.status as string | undefined)
         return result
       },
     }
@@ -71,7 +71,11 @@ export class InboxPlugin implements CasyPlugin {
         required: ['content'],
       },
       execute: async (params) => {
-        const result = await ctx.inbox.add(params.sourceType || 'text', params.content, params.sourcePath)
+        const result = await ctx.inbox.add(
+          (params.sourceType as string | undefined) || 'text',
+          params.content as string | undefined,
+          params.sourcePath as string | undefined
+        )
         return result
       },
     }
@@ -90,7 +94,7 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.inbox.process(params.id)
+        const result = await ctx.inbox.process(params.id as string)
         return result
       },
     }
@@ -111,7 +115,11 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id', 'caseId'],
       },
       execute: async (params) => {
-        const result = await ctx.inbox.file(params.id, params.caseId, params.category)
+        const result = await ctx.inbox.file(
+          params.id as string,
+          params.caseId as string,
+          params.category as string | undefined
+        )
         return result
       },
     }
@@ -130,7 +138,7 @@ export class InboxPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.inbox.dismiss(params.id)
+        const result = await ctx.inbox.dismiss(params.id as string)
         return result
       },
     }

@@ -3,6 +3,17 @@ import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import { ref, onMounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 
+/**
+ * 命令类型注册（TipTap 约定）：让 editor.commands.insertBlockReference 获得完整类型
+ */
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    blockReference: {
+      insertBlockReference: (knowledgeId: string, blockId?: string | null) => ReturnType
+    }
+  }
+}
+
 // 块引用节点视图组件
 const BlockReferenceNodeView = {
   props: {
@@ -15,10 +26,10 @@ const BlockReferenceNodeView = {
       required: true,
     },
   },
-  setup(props) {
-    const blockData = ref(null)
+  setup(props: { node: { attrs: { knowledgeId?: string | null; blockId?: string | null } } }) {
+    const blockData = ref<{ item?: Record<string, unknown>; block: Record<string, unknown> | null } | null>(null)
     const loading = ref(true)
-    const error = ref(null)
+    const error = ref<string | null>(null)
 
     async function loadBlock() {
       const { knowledgeId, blockId } = props.node.attrs

@@ -1,6 +1,18 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 
 /**
+ * 命令类型注册（TipTap 约定）：让 editor.commands.setWikiLink / unsetWikiLink 获得完整类型
+ */
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    wikiLink: {
+      setWikiLink: (knowledgeId: string, title: string) => ReturnType
+      unsetWikiLink: () => ReturnType
+    }
+  }
+}
+
+/**
  * 双向链接扩展 [[知识标题]]
  * 设计哲学 §8.2：知识块级化 + 双向链接
  */

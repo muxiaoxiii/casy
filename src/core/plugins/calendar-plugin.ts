@@ -39,7 +39,7 @@ export class CalendarPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.calendar.events(params.year, params.month)
+        const result = await ctx.calendar.events(params.year as number | undefined, params.month as number | undefined)
         return result
       },
     }

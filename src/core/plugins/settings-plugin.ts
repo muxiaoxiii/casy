@@ -52,7 +52,7 @@ export class SettingsPlugin implements CasyPlugin {
         required: ['data'],
       },
       execute: async (params) => {
-        const result = await ctx.settings.save(params.data)
+        const result = await ctx.settings.save(params.data as Record<string, unknown>)
         return result
       },
     }
@@ -79,10 +79,10 @@ export class SettingsPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         const result = await ctx.settings.configureAi({
-          mode: params.mode,
-          apiUrl: params.endpoint,
-          apiKey: params.apiKey,
-          model: params.model,
+          mode: params.mode as string,
+          apiUrl: params.endpoint as string | undefined,
+          apiKey: params.apiKey as string | undefined,
+          model: params.model as string | undefined,
         })
         return result
       },

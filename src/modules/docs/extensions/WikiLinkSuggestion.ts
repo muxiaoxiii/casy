@@ -31,6 +31,7 @@ export const WikiLinkSuggestion = Extension.create<WikiLinkSuggestionOptions>({
 
   addProseMirrorPlugins() {
     const options = this.options
+    const editor = this.editor
     const key = new PluginKey('wikiLinkSuggestion')
 
     return [
@@ -147,7 +148,7 @@ export const WikiLinkSuggestion = Extension.create<WikiLinkSuggestionOptions>({
                 min-width: 200px;
               `
 
-              pluginState.items.forEach((item, index) => {
+              pluginState.items.forEach((item: { id: string; title: string; category?: string }, index: number) => {
                 const div = document.createElement('div')
                 div.className = `wiki-link-item ${index === pluginState.selectedIndex ? 'selected' : ''}`
                 div.style.cssText = `
@@ -166,7 +167,7 @@ export const WikiLinkSuggestion = Extension.create<WikiLinkSuggestionOptions>({
                   options.onSelect(item)
                 })
                 div.addEventListener('mouseenter', () => {
-                  view.dispatch(
+                  editor.view.dispatch(
                     state.tr.setMeta(key, { selectedIndex: index })
                   )
                 })

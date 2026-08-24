@@ -46,7 +46,7 @@ export const useInboxStore = defineStore('inbox', {
       contentText?: string
       sourcePath?: string
       title?: string
-    }): Promise<{ ok: boolean; data?: InboxItem; error?: string }> {
+    }): Promise<{ ok: boolean; data?: string; error?: string }> {
       this.processing = true
       const result = await casyContext.inbox.add(sourceType, contentText, sourcePath)
       this.processing = false

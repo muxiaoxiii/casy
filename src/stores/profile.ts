@@ -5,8 +5,34 @@ import { casyContext } from '../core/plugin/context'
 // 律师画像（get_lawyer_profile / save_lawyer_profile）
 // state 字段与后端 snake_case 契约对齐
 // ============================================================
+
+/** 后端画像载荷（snake_case / camelCase 双兼容，字段均可选） */
+type ProfilePayload = {
+  name?: string
+  practice_areas?: string[]
+  practiceAreas?: string[]
+  common_case_types?: string[]
+  commonCaseTypes?: string[]
+  work_hours?: { start_hour?: number; end_hour?: number; startHour?: number; endHour?: number }
+  workHours?: { start_hour?: number; end_hour?: number; startHour?: number; endHour?: number }
+  reminder_channels?: string[]
+  reminderChannels?: string[]
+  onboarding_completed?: boolean
+  onboardingCompleted?: boolean
+}
+
+interface ProfileState {
+  name: string
+  practice_areas: string[]
+  common_case_types: string[]
+  work_hours: { start_hour: number; end_hour: number }
+  reminder_channels: string[]
+  onboarding_completed: boolean
+  loaded: boolean
+}
+
 export const useProfileStore = defineStore('profile', {
-  state: () => ({
+  state: (): ProfileState => ({
     name: '',
     practice_areas: [],
     common_case_types: [],
@@ -22,7 +48,7 @@ export const useProfileStore = defineStore('profile', {
 
   actions: {
     /** 后端可能返回 snake_case 或 camelCase，做兼容映射 */
-    _apply(data) {
+    _apply(data: ProfilePayload | null | undefined) {
       if (!data) return
       this.name = data.name ?? ''
       this.practice_areas = data.practice_areas ?? data.practiceAreas ?? []
@@ -39,13 +65,13 @@ export const useProfileStore = defineStore('profile', {
     async load() {
       const result = await casyContext.settings.profile()
       if (result.ok && result.data) {
-        this._apply(result.data)
+        this._apply(result.data as ProfilePayload)
       }
       this.loaded = true
       return result
     },
 
-    async save(profile) {
+    async save(profile: ProfilePayload) {
       const result = await casyContext.settings.saveProfile({ ...profile })
       if (result.ok) {
         this._apply(profile)

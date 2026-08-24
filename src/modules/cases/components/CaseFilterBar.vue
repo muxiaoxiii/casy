@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { Download, Search, Filter, FolderChecked } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
-import { useFiltersStore } from '../../../stores/filters'
+import { useFiltersStore, type SavedFilter } from '../../../stores/filters'
 import type { CaseFilter, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus, TrackType, CaseStatus } from '../../../types'
 import {
   CIVIL_STATUS_LABELS,
@@ -248,7 +248,7 @@ async function saveFilter() {
 }
 
 // 加载已保存的筛选方案
-function loadFilter(filterConfig: { filter: CaseFilter; groupBy?: string }) {
+function loadFilter(filterConfig: SavedFilter) {
   emit('update:filter', { ...filterConfig.filter })
   emit('update:groupBy', filterConfig.groupBy || 'none')
   emit('search')

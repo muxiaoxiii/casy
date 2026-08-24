@@ -80,7 +80,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       return mockCases.find(c => c.id === args.id) || null
     case 'list_tasks': {
       const filter = (args.filter as any) || {}
-      let items = mockTasks.filter(t => !t.completed)
+      let items = mockTasks.filter((t: { id: string; completed?: boolean }) => !t.completed)
       if (filter.perspective === 'inbox') items = mockTasks.filter(t => t.startBucket === 'inbox')
       if (filter.perspective === 'today') items = mockTasks.filter(t => t.startBucket === 'today')
       if (filter.perspective === 'waiting') items = mockTasks.filter(t => t.taskType === 'waiting')

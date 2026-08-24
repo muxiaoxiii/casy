@@ -445,11 +445,12 @@ export const useTasksStore = defineStore('tasks', {
       }
 
       // 排序
-      if (perspective.sortBy) {
+      const sortBy = perspective.sortBy
+      if (sortBy) {
         const order = perspective.sortOrder === 'desc' ? -1 : 1
         tasks.sort((a, b) => {
-          const aVal = a[perspective.sortBy] || ''
-          const bVal = b[perspective.sortBy] || ''
+          const aVal = String((a as Record<string, unknown>)[sortBy] || '')
+          const bVal = String((b as Record<string, unknown>)[sortBy] || '')
           return aVal.localeCompare(bVal) * order
         })
       }

@@ -39,7 +39,7 @@ export class FilesPlugin implements CasyPlugin {
         required: ['caseId'],
       },
       execute: async (params) => {
-        const result = await ctx.files.list(params.caseId)
+        const result = await ctx.files.list(params.caseId as string)
         return result
       },
     }
@@ -60,7 +60,11 @@ export class FilesPlugin implements CasyPlugin {
         required: ['caseId', 'filePath'],
       },
       execute: async (params) => {
-        const result = await ctx.files.add(params.caseId, params.filePath, params.category)
+        const result = await ctx.files.add(
+          params.caseId as string,
+          params.filePath as string,
+          params.category as string | undefined
+        )
         return result
       },
     }
@@ -92,7 +96,7 @@ export class FilesPlugin implements CasyPlugin {
           return { ok: false, error: '用户取消操作' }
         }
         
-        const result = await ctx.files.remove(params.fileId)
+        const result = await ctx.files.remove(params.fileId as string)
         return result
       },
     }

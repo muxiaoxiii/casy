@@ -85,7 +85,7 @@ export function useVoiceNote() {
       const base64 = (reader.result as string).split(',')[1]
 
       // 保存到临时文件
-      const result = await tauriCallSafe('save_voice_note', {
+      const result = await tauriCallSafe<{ path: string }>('save_voice_note', {
         audioData: base64,
         mimeType: 'audio/webm',
       })

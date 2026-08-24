@@ -84,7 +84,7 @@ export class ReminderPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.reminder.log(params.limit)
+        const result = await ctx.reminder.log(params.limit as number | undefined)
         return result
       },
     }
@@ -102,7 +102,7 @@ export class ReminderPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.reminder.startEngine(params.intervalSeconds)
+        const result = await ctx.reminder.startEngine(params.intervalSeconds as number | undefined)
         return result
       },
     }

@@ -27,8 +27,8 @@ export class KnowledgeService extends Service {
   }
 
   /** 获取条目及其块树（§8.2 块级引用；后端 get_knowledge_with_blocks 返回 { item, blocks }） */
-  async getWithBlocks(id: string): Promise<{ ok: boolean; data?: { item?: Record<string, unknown>; blocks?: unknown[] }; error?: string }> {
-    return tauriCallSafe<{ item?: Record<string, unknown>; blocks?: unknown[] }>('get_knowledge_with_blocks', { id })
+  async getWithBlocks(id: string): Promise<{ ok: boolean; data?: { item?: Record<string, unknown>; blocks?: Array<Record<string, unknown>> }; error?: string }> {
+    return tauriCallSafe<{ item?: Record<string, unknown>; blocks?: Array<Record<string, unknown>> }>('get_knowledge_with_blocks', { id })
   }
 
   /** 版本历史 */
