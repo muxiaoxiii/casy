@@ -1273,6 +1273,15 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
     Ok(())
 }
 
+/// 立即执行一次提醒检查（K-3 事件驱动重算：task:completed 消费者，无需等引擎周期）
+#[tauri::command]
+pub async fn reminder_recompute_now() -> Result<usize, String> {
+    let engine = ReminderEngine::new(300);
+    let conn = db::open_db().map_err(|e| e.to_string())?;
+    let triggered = engine.check_and_trigger(&conn).map_err(|e| e.to_string())?;
+    Ok(triggered.len())
+}
+
 #[tauri::command]
 pub async fn get_reminder_log(limit: Option<i64>) -> Result<Vec<ReminderLogEntry>, String> {
     run_blocking(move || {

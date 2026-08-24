@@ -21,6 +21,8 @@ import { SyncService } from './sync'
 import { SettingsService } from './settings'
 import { AiService } from './ai'
 import { DocsService } from './docs'
+import { installToolAuditWriter } from '../ai/toolAudit'
+import { createTodayBriefingSkill } from '../skills/todayBriefing'
 
 /**
  * 服务名 → 服务实例类型的唯一映射（K-2 单一事实来源）。
@@ -62,6 +64,19 @@ export async function registerServices(): Promise<void> {
   casyContext.provide('sync', new SyncService(casyContext), ['settings'])
   casyContext.provide('ai', new AiService(casyContext), [])
   casyContext.provide('docs', new DocsService(casyContext), [])
+
+  // ── K-3 事件层真实消费者（活性证明 + 归因）──
+  // ① task:completed → 提醒引擎立即重算当日（不等周期）
+  casyContext.on('task:completed', () => {
+    void casyContext.reminder.recomputeNow().catch((e: unknown) => {
+      casyContext.logger.warn('提醒重算失败（不阻塞）: ' + String(e))
+    })
+  })
+  // ② tool:executed → AI 工具执行结果落 audit_events（actor='ai'）
+  installToolAuditWriter()
+
+  // K-4：注册首个真实 skill，打通技能层链路（只读聚合，供 AI 注入当日上下文）
+  casyContext.registerSkill(createTodayBriefingSkill())
 
   casyContext.logger.info(
     '业务服务已注册: ' + casyContext.getServiceNames().join(', ')

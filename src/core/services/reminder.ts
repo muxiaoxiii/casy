@@ -21,6 +21,11 @@ export class ReminderService extends Service {
     return tauriCallSafe<void>('start_reminder_engine', { intervalSecs: intervalSecs ?? 300 })
   }
 
+  /** 立即重算一次（K-3：task:completed 事件消费者调用，不等引擎周期） */
+  async recomputeNow(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('reminder_recompute_now', {})
+  }
+
   async updateRule(id: string, data: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return tauriCallSafe<unknown>('update_reminder_rule', { id, data })
   }

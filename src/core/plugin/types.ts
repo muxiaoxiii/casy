@@ -196,7 +196,12 @@ export interface CasyContext {
   getTools(): CasyTool[]
   getTool(name: string): CasyTool | null
   getToolDefinitions(): Array<Pick<CasyTool, 'name' | 'description' | 'parameters'>>
-  executeTool(name: string, params: Record<string, unknown>): Promise<{
+  /** opts.origin='ai' 时执行结果发 tool:executed 内部事件（audit_events 归因，K-3） */
+  executeTool(
+    name: string,
+    params: Record<string, unknown>,
+    opts?: { origin?: 'user' | 'ai'; turnId?: string }
+  ): Promise<{
     ok: boolean
     data?: unknown
     error?: string

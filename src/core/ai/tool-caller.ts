@@ -157,6 +157,12 @@ class AiToolCaller {
     const tools = casyContext.getTools()
     const provider = casyContext.getProviders().find((p) => p.id === this.providerId)
 
+    // K-3 归因：本次工具循环的关联键（audit_events.turn_id；待 ai_chat 返回 run_id 后替换）
+    const turnId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : 'turn-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+
     const history: ChatMessageLike[] = [
       { role: "system", content: buildSystemPrompt(tools) },
       ...messages.filter((m) => m.role !== "system"),
@@ -192,8 +198,11 @@ class AiToolCaller {
         continue
       }
 
-      // 执行工具（写工具内部自动走确认流程）
-      const result = await casyContext.executeTool(call.name, call.params)
+      // 执行工具（写工具经内核策略强制确认；origin='ai' 触发 audit_events 归因）
+      const result = await casyContext.executeTool(call.name, call.params, {
+        origin: 'ai',
+        turnId,
+      })
       toolCalls.push({ name: call.name, params: call.params })
       toolResults.push(result)
 

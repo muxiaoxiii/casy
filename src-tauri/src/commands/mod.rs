@@ -52,6 +52,29 @@ pub async fn get_deadline_warnings() -> Result<Vec<crate::deadline::engine::Dead
     .await
 }
 
+/// AI 工具调用审计（K-3 归因：ai_runs 记过程、audit_events 记结果，actor='ai'）
+/// digest 仅参数键名列表（脱敏，§11.9：模型可见即记录、内容不入审计）
+#[tauri::command]
+pub async fn record_ai_tool_audit(
+    tool: String,
+    turn_id: String,
+    outcome: String,
+    digest: Option<String>,
+) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let payload =
+            serde_json::json!({ "outcome": outcome, "turn_id": turn_id, "digest": digest });
+        conn.execute(
+            "INSERT INTO audit_events (id, aggregate_type, aggregate_id, event_type, payload, actor)
+             VALUES (?1, 'ai_tool_call', ?2, ?3, ?4, 'ai')",
+            rusqlite::params![crate::db::new_id(), turn_id, tool, payload.to_string()],
+        )?;
+        Ok(())
+    })
+    .await
+}
+
 pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
     tauri::generate_handler![
         cases::list_cases,
@@ -73,6 +96,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         cases::get_all_case_type_metrics,
         import_feishu_data,
         get_deadline_warnings,
+        record_ai_tool_audit,
         tasks::list_tasks,
         tasks::create_task,
         tasks::toggle_task,
@@ -196,6 +220,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         reminder::delete_reminder_rule,
         reminder::test_reminder,
         reminder::start_reminder_engine,
+        reminder::reminder_recompute_now,
         reminder::record_reminder_feedback,
         reminder::get_reminder_log,
         // 分级预警 R1-R4（设计哲学 §11.2）

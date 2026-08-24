@@ -149,6 +149,9 @@ class CasyContextImpl implements CasyContext {
     this.plugins.set(plugin.name, plugin)
     this.pluginFibers.set(plugin.name, fiber)
     this.fiberStack.push(fiber)
+    // K-4 内核修缮：安装前快照，失败时按快照回滚部分安装的残骸
+    const servicesBefore = new Set(this.services.keys())
+    const toolsBefore = new Set(this.tools.keys())
     try {
       // inject 依赖校验（插件可声明依赖服务）
       const deps = (plugin as CasyPlugin & { inject?: InjectKey[] }).inject ?? []
@@ -160,6 +163,20 @@ class CasyContextImpl implements CasyContext {
       this.logger.info('插件已安装: ' + plugin.name + ' v' + plugin.version)
     } catch (e) {
       console.error('[Casy] 插件安装失败: ' + plugin.name, e)
+      // 回滚安装期间新 provide 的服务（unprovide 会执行其 dispose 清理）
+      for (const serviceName of [...this.services.keys()]) {
+        if (!servicesBefore.has(serviceName)) {
+          try {
+            this.unprovide(serviceName)
+          } catch (cleanupError) {
+            console.error('[Casy] 回滚服务失败: ctx.' + serviceName, cleanupError)
+          }
+        }
+      }
+      // 回滚安装期间新注册的工具
+      for (const toolName of [...this.tools.keys()]) {
+        if (!toolsBefore.has(toolName)) this.tools.delete(toolName)
+      }
       this.plugins.delete(plugin.name)
       this.pluginFibers.delete(plugin.name)
     } finally {
@@ -218,16 +235,26 @@ class CasyContextImpl implements CasyContext {
   }
 
   fork(name: string): Fiber {
-    const fiber = new FiberImpl(name)
-    this.fiberStack.push(fiber)
-    // 返回一个与栈同步的 Fiber：dispose 时自动出栈恢复父级
-    const originalDispose = fiber.dispose.bind(fiber)
-    fiber.dispose = () => {
-      const idx = this.fiberStack.indexOf(fiber)
-      if (idx >= 0) this.fiberStack.splice(idx, 1)
-      originalDispose()
+    const inner = new FiberImpl(name)
+    this.fiberStack.push(inner)
+    // K-4 内核修缮：以包装对象替代实例方法 monkey-patch——
+    // dispose 时先同步出栈再释放内部 Fiber，行为与原实现一致
+    const stack = this.fiberStack
+    return {
+      name: inner.name,
+      effect: (cleanup) => inner.effect(cleanup),
+      get effectCount() {
+        return inner.effectCount
+      },
+      get disposed() {
+        return inner.disposed
+      },
+      dispose: () => {
+        const idx = stack.indexOf(inner)
+        if (idx >= 0) stack.splice(idx, 1)
+        inner.dispose()
+      },
     }
-    return fiber
   }
 
   getLogger(scope: string): CasyLogger {
@@ -266,14 +293,17 @@ class CasyContextImpl implements CasyContext {
 
   async executeTool(
     name: string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    opts?: { origin?: 'user' | 'ai'; turnId?: string }
   ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     const tool = this.tools.get(name)
     if (!tool) {
       return { ok: false, error: '工具不存在: ' + name }
     }
     // ── 声明式确认策略（K-1 策略上收）：内核统一强制，工具内部不再手写确认 ──
+    let result: { ok: boolean; data?: unknown; error?: string }
     const policy = tool.policy
+    let declined = false
     if (policy && (policy.write || policy.level)) {
       const level = this.calculateEffectiveLevel({
         isExternalWrite: policy.write,
@@ -288,16 +318,31 @@ class CasyContextImpl implements CasyContext {
             : '确定执行「' + tool.description + '」吗？',
         })
         if (!confirmed) {
-          return { ok: false, error: '用户取消操作' }
+          declined = true
         }
       }
     }
-    try {
-      return await tool.execute(params)
-    } catch (e) {
-      console.error('[Casy] 工具执行异常: ' + name, e)
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    if (declined) {
+      result = { ok: false, error: '用户取消操作' }
+    } else {
+      try {
+        result = await tool.execute(params)
+      } catch (e) {
+        console.error('[Casy] 工具执行异常: ' + name, e)
+        result = { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
     }
+    // ── AI 归因（K-3）：origin='ai' 的执行发内部事件，由审计消费者落 audit_events ──
+    if (opts?.origin === 'ai') {
+      this.emit('tool:executed', {
+        name,
+        turnId: opts.turnId ?? null,
+        ok: result.ok,
+        declined,
+        digest: Object.keys(params).join(','),
+      })
+    }
+    return result
   }
 
   // ── 技能注册（按需加载，不占常驻上下文） ──
