@@ -1,6 +1,6 @@
 # Casy 重构方案（基于设计哲学的重新规划）
 
-> **版本**: v1.5（裁决落定：D-9 垂直拆表 · D-11 个人法律市场 · R-1 应用身份）
+> **版本**: v1.6（D-3 裁决：specta 类型模式一步到位 · D-15 调用通道边界 · R-1 验证通过）
 > **日期**: 2026-08-21
 > **状态**: 待评审
 > **上位文档**: `docs/casy-design-philosophy.md`（唯一总纲）
@@ -9,6 +9,7 @@
 > **v1.3 变更**: ①吸收内核评审结论，B 线新增 **B3 内核收口**（K-1～K-4），并新增 §八执行排期给出与 A 线的交汇顺序——核心结论：K-2（ServicesMap/defineTool）是 A1-1 的最佳前置；②A1-1 实现形态细分为决策点 **D-9**（泛化＋垂直拆表 vs 单宽表），D-5"单一顶级实体"结论维持不变；③应评审意见将 §七克制清单改为**三级制**（外部资源红线／有条件重开／原则保留），除移动端与自建云中继外逐项给出再评估、重开条件与成本。
 > **v1.4 变更**: 目标升级为生产级、可商业出售。B 线新增 **B4 生产化与发布工程**（R-1～R-8：应用身份/updater/签名公证/CI/安全加固/数据保障/崩溃上报/合规包/授权体系），其中 **R-1 bundle identifier 为不可逆决策，须在任何用户数据落盘前定案**；新增决策点 D-11（商业形态与目标市场——同时决定 C 线解冻策略）、D-12（签名与更新预算）、D-13（遥测与隐私立场）；§八排期第 1 周插入 R-1。
 > **v1.5 变更**: 三项裁决落定并执行——①**D-9 ✅ 泛化＋垂直拆表**：project 精简主表 + `case_legal_details` 侧表；②**K-3 ✅ 归因写既有 audit_events**：`actor='ai'` 已在 schema CHECK 枚举中，payload 携带 run_id 关联 ai_runs（ai_runs 记过程、audit_events 记结果），无需新表；③**R-1/D-14 ✅ identifier 定案 `top.muxiaoxi.casy`** 并已写入 tauri.conf.json——identifier 为永久唯一字符串，与域名是否续费解耦；④**D-11 ✅ 目标市场=个人法律人士**（执业律师/法务/实习律师/助理），不做企业级：商业模式建议买断制+BYOK AI（无持续云服务成本支撑订阅）、R-8 定为离线许可+设备绑定、C 线解冻维持"A 达标后"，收件箱 AI 分类/期限引擎列为解冻首批付费差异化项。§八第 3 周裁决会缩减为仅裁 D-3(ts-rs)。
+> **v1.6 变更**: ①**D-3 ✅ 裁决（用户确认一步到位，不做 ts-rs 中间试点）**：直接引入 specta 生态——全部命令 DTO 加 `#[derive(specta::Type)]` 构建期导出 TS 到 `src/types/bindings/`，CI `git diff --exit-code` 防过期，tauriBridge 增加 CommandMap 泛型映射使 202 个 Tauri 命令的参数/返回获得类型检查（tasks/calendar/inbox 三域先行，随 B1 落地）；②新增 **D-15 调用通道边界**：tauri-specta 的绑定直连（前端生成函数绕过 bridge）与浏览器 mock 预览层、双路径铁律冲突，默认排除出路线图——除非未来裁决放弃纯前端预览模式；③R-1 验证通过：release 构建产出 Casy.app / DMG / updater 签名产物（.tar.gz + .sig），新 identifier 生效；密钥管理方式记入 devlog。
 > **调研基点**: commit `187561f`（rebase 暂停检出）+ `61bec8c`（main 完整线谱）+ 两轮子代理审计（代码现状 / GTD 体验差距）
 
 ---
@@ -219,7 +220,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 - **冻结范围**：案件三轨状态机、期限引擎、飞书同步、WebDAV、文书工坊、收件箱 AI 分类——不再新增功能，只修致命 bug
 - **保留义务**：现有数据兼容不受 A/B 线迁移破坏（每次迁移跑案件域回归用例）
 - **解冻条件**：A 线 Dogfooding 清单通过
-- **解冻后的方向预告**：案件作为 kind=legal 项目回到视图层；期限引擎接入提醒通道；飞书同步续建；CalDAV（caldav.rs 雏形已在库）；原 R3/R4（M0 验收取证、Confirmer 强制点、推荐引擎、报表、蒸馏）按哲学 §13 恢复推进
+- **解冻后的方向预告**：案件作为 kind=legal 项目回到视图层；期限引擎接入提醒通道；飞书同步续建；CalDAV（caldav.rs 雏形已在库）；**docsy_engine 模块更名**（消除与产品名的同名混淆，触及案件域导入链路故随 C 线一并做）；原 R3/R4（M0 验收取证、Confirmer 强制点、推荐引擎、报表、蒸馏）按哲学 §13 恢复推进
 
 ---
 
@@ -229,7 +230,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 |---|------|------|
 | D-1 | 完成 git 恢复（abort + cherry-pick）授权 | 建议：授权。备份分支已建，全程可逆 |
 | D-2 | rescue 9 提交吸收尺度 | 视觉/文档吸收；任务视图改动对撞评审取优；调试提交丢弃 |
-| D-3 | DTO codegen | 引入 ts-rs（构建期生成 TS 类型）；保守替代=手工+对齐测试锁定 |
+| D-3 | **DTO codegen ✅ v1.6 裁决：specta 类型模式一步到位** | 全部命令 DTO 加 `#[derive(specta::Type)]` 构建期导出 TS 到 `src/types/bindings/`；CI `git diff --exit-code` 防类型过期；tauriBridge 增加 CommandMap 泛型映射，使 202 个 Tauri 命令的参数/返回获得编译期检查（tasks/calendar/inbox 三域先行，随 B1 落地）。不做 ts-rs 中间试点（避免二次迁移）；绑定直连见 D-15 边界 |
 | D-4 | Pinia store 去留 | 最小集保留（UI 态/偏好），数据态全面走 ctx 服务 |
 | D-5 | **个人项目建模（v1.1 新增，影响 schema）** | 推荐：cases 泛化为 project 加 kind 字段；备选：新建平行 projects 表（违反"数据有限"，不建议） |
 | D-6 | 耗时弹窗处置 | 设置开关默认关 + 完成后轻提示（保留学习闭环数据来源，见哲学 §11.6） |
@@ -241,6 +242,7 @@ feishu/sync/docsy/cases 域的原 R1 内容（上帝文件拆分等）**移交 C
 | D-12 | 签名与更新预算（v1.4） | 建议：接受 Apple Developer（$99/年）+ Windows 代码签名证书（数百刀/年）成本；更新源静态托管（GitHub Releases 或对象存储）。未签名=商业不可售 |
 | D-13 | 遥测与隐私立场（v1.4） | 建议默认：零遥测、崩溃日志仅本机、上报严格 opt-in 且可一键关闭——本地优先+保密是卖点，立场要写进隐私政策 |
 | D-14 | **应用标识符（v1.4 提出）✅ v1.5 定案并已执行** | `identifier = top.muxiaoxi.casy`，已写入 src-tauri/tauri.conf.json。说明：identifier 是借反向域名惯例保证唯一的永久字符串，与应用域名是否续费**解耦**——签名/更新/数据目录均不要求域名可解析；更新源 URL 独立可迁移。发布后永不再改 |
+| D-15 | **前端调用通道边界（v1.6 新增）** | 维持：所有前端调用经 tauriBridge（浏览器 mock 预览 + 写入口唯一 + 确认/审计咽喉）。tauri-specta 绑定直连（生成的类型化函数绕过 bridge）与该边界冲突，默认永久关闭；specta 仅作类型源（derive → bindings 导出）。若未来要开直连，必须先裁决放弃纯前端预览模式 |
 
 ---
 
