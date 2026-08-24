@@ -1,6 +1,10 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
+import {
+  completeTaskOptimistic, restoreTaskOptimistic,
+  deleteTaskOptimistic, snoozeTaskWithUndo, undoLast, canUndo
+} from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
@@ -96,31 +100,19 @@ async function submitTimeLog() {
   const task = timeLogTask.value
   if (!task) return
   const mins = timeLogMinutes.value ? parseInt(timeLogMinutes.value, 10) : null
-  const result = await casyContext.tasks.toggle(task.id, Number.isFinite(mins) && mins !== null ? mins : null)
-  if (result.ok) {
-    task.completed = 1
-    ElMessage.success('已完成' + (mins ? '（' + mins + ' 分钟）' : ''))
-    showTimeLogDialog.value = false
-    timeLogTask.value = null
-    timeLogMinutes.value = ''
-    // 如果有解锁的下一个任务，提示用户
-    await loadTasks()
-  }
+  showTimeLogDialog.value = false
+  timeLogTask.value = null
+  timeLogMinutes.value = ''
+  await completeTaskFlow(task, Number.isFinite(mins) && mins !== null ? mins : null)
 }
 
 function skipTimeLog() {
   const task = timeLogTask.value
   if (!task) return
-  casyContext.tasks.toggle(task.id).then(result => {
-    if (result.ok) {
-      task.completed = 1
-      ElMessage.success('已完成')
-      showTimeLogDialog.value = false
-      timeLogTask.value = null
-      timeLogMinutes.value = ''
-      loadTasks()
-    }
-  })
+  showTimeLogDialog.value = false
+  timeLogTask.value = null
+  timeLogMinutes.value = ''
+  completeTaskFlow(task, null)
 }
 
 // 自定义透视管理（设计哲学 §5.2）
@@ -336,36 +328,56 @@ async function loadAreas() {
 // ============================================================
 // 原有函数（保留）
 // ============================================================
-// 点击圆圈直接完成/恢复，不再弹确认框
-async function toggleComplete(task) {
-  if (!task.completed) {
-    // 完成时可选填实际耗时（设计哲学 §11.6：校准时间预估的数据来源）
-    // 使用轻量弹窗，不阻断流程
-    showTimeLogDialog.value = true
-    timeLogTask.value = task
-    // 如果有预估时间，预填充
-    timeLogMinutes.value = task.estimatedMinutes || ''
-    return
-  }
-  // 恢复任务
-  const result = await casyContext.tasks.toggle(task.id)
-  if (result.ok) {
-    task.completed = 0
-    ElMessage.success('已恢复')
+// 点击圆圈直接完成/恢复（M-GTD-1 A0-1：一键完成，零弹窗）
+// ============================================================
+/** 当前透视列表的级联钩子：完成/删除后从视图移除，撤销时还原 */
+function makeListHooks(task) {
+  const idx = tasks.value.findIndex(t => t.id === task.id)
+  return {
+    remove: () => { if (idx >= 0) tasks.value.splice(idx, 1) },
+    restore: () => {
+      if (idx >= 0 && !tasks.value.some(t => t.id === task.id)) tasks.value.splice(idx, 0, task)
+    },
   }
 }
 
-async function deleteTask(task) {
-  try {
-    await ElMessageBox.confirm('确定删除此任务？', '确认', { type: 'warning' })
-    const result = await casyContext.tasks.remove(task.id)
-    if (result.ok) {
-      tasks.value = tasks.value.filter((t) => t.id !== task.id)
-      ElMessage.success('已删除')
+async function toggleComplete(task) {
+  if (!task.completed) {
+    // 默认一键完成；仅当设置 ask_actual_minutes=true 时保留旧的耗时记录弹窗
+    let askMinutes = false
+    try {
+      const s = await casyContext.settings.get()
+      const raw = s.ok && s.data ? s.data.ask_actual_minutes : false
+      askMinutes = raw === true || raw === 'true'
+    } catch { /* 设置读取失败按默认关闭处理 */ }
+
+    if (askMinutes) {
+      showTimeLogDialog.value = true
+      timeLogTask.value = task
+      timeLogMinutes.value = task.estimatedMinutes || ''
+      return
     }
-  } catch {
-    // 取消
+    await completeTaskFlow(task, null)
+    return
   }
+  // 恢复任务
+  const restored = await restoreTaskOptimistic(task)
+  if (restored) ElMessage.success('已恢复')
+}
+
+/** 完成流程：乐观更新 + Undo 注册（供耗时弹窗路径复用） */
+async function completeTaskFlow(task, minutes) {
+  const done = await completeTaskOptimistic(task, {
+    actualMinutes: minutes,
+    hooks: makeListHooks(task),
+  })
+  if (done) ElMessage.success('已完成（⌘Z 可撤销）')
+}
+
+async function deleteTask(task) {
+  // M-GTD-1 A0-3：去掉确认框，删除靠 ⌘Z 撤销兜底
+  const removed = await deleteTaskOptimistic(task, makeListHooks(task))
+  if (removed) ElMessage.success('已删除（⌘Z 可撤销）')
 }
 
 async function createTask() {
@@ -695,13 +707,8 @@ const snoozeOptions = [
 
 async function snoozeTask(task, option) {
   const label = snoozeOptions.find(o => o.value === option)?.label || option
-  const result = await casyContext.tasks.snooze(task.id, option)
-  if (result.ok) {
-    ElMessage.success('已稍后到' + label)
-    await loadTasks()
-  } else {
-    ElMessage.error(result.error || '操作失败')
-  }
+  // M-GTD-1：撤销快照原日期字段；不再整表重拉
+  await snoozeTaskWithUndo(task, option, label)
 }
 
 // ============================================================
@@ -718,58 +725,26 @@ function todayStr() {
   return toDateStr(new Date())
 }
 
-// 解析快速捕获文本：识别开头的日期词（今天/明天/后天/周X/下周X/MM-DD）
-// 与时间词（HH:MM / X点 / X点半），解析为 startDate/dueDate
-// 返回 { taskName, startDate, dueDate, startBucket }；解析失败时 startDate 为 null
+// ============================================================
+// 快速捕获（自然语言解析 · M-GTD-1 A0-5 统一走 shared/nlp/parseWhen）
+// ============================================================
+import { parseWhen, bucketForDate } from '../../../shared/nlp/parseWhen'
+
+/**
+ * 解析快速捕获文本（唯一实现见 src/shared/nlp/parseWhen.ts）
+ * 支持：今天/明天/后天/大后天/周X/下周X/N天后/N周后/MM-DD
+ *      + HH:MM / X点[半|整] / 下午3点半 等时间词（time 现在真正写入 dueTime）
+ * 返回 { taskName, startDate, dueDate, dueTime, startBucket }；
+ * startBucket 恒为合法枚举（修复了旧实现写入 'upcoming' 违反 CHECK 约束的问题）。
+ */
 function parseCaptureText(raw) {
-  let text = (raw || '').trim()
-  if (!text) return null
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  let parsedDate = null
-
-  // 1) 相对日期词（必须出现在开头）
-  const rel = text.match(/^(今天|明天|后天)/)
-  if (rel) {
-    const offset = rel[1] === '今天' ? 0 : rel[1] === '明天' ? 1 : 2
-    const d = new Date(today)
-    d.setDate(d.getDate() + offset)
-    parsedDate = toDateStr(d)
-    text = text.slice(rel[1].length).trim()
-  } else {
-    // 2) 周X / 下周X（本周或下周的最近一次）
-    const week = text.match(/^下周?([一二三四五六日天])/)
-    if (week) {
-      const wd = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[week[1]]
-      const delta = (wd - today.getDay() + 7) % 7
-      const d = new Date(today)
-      d.setDate(d.getDate() + delta + (week[0].startsWith('下周') ? 7 : 0))
-      parsedDate = toDateStr(d)
-      text = text.slice(week[0].length).trim()
-    } else {
-      // 3) MM-DD（今年内已过则顺延到明年）
-      const md = text.match(/^(\d{1,2})[-/](\d{1,2})/)
-      if (md) {
-        const m = parseInt(md[1], 10)
-        const day = parseInt(md[2], 10)
-        let d = new Date(today.getFullYear(), m - 1, day)
-        if (d < today) d = new Date(today.getFullYear() + 1, m - 1, day)
-        parsedDate = toDateStr(d)
-        text = text.slice(md[0].length).trim()
-      }
-    }
-  }
-
-  // 4) 时间词：HH:MM 或 X点/X点半（仅识别并从前缀剥离；任务无时间字段）
-  text = text.replace(/^(\d{1,2}[:：]\d{2}|[0-9一二两三四五六七八九十]{1,3}点(半|整)?)\s*/, '')
-  if (!text) text = raw.trim()
-
-  const isToday = parsedDate === todayStr()
+  const { taskName, date, time } = parseWhen(raw)
   return {
-    taskName: text,
-    startDate: parsedDate,
-    dueDate: parsedDate,
-    startBucket: !parsedDate ? 'inbox' : isToday ? 'today' : 'upcoming',
+    taskName,
+    startDate: date,
+    dueDate: date,
+    dueTime: time,
+    startBucket: bucketForDate(date),
   }
 }
 
@@ -854,6 +829,16 @@ function handleKeydown(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 't') {
     e.preventDefault()
     if (captureInputRef.value) captureInputRef.value.focus()
+  }
+  // M-GTD-1 A0-3：Cmd/Ctrl+Z 撤销完成/删除/稍后
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    const target = e.target
+    const tag = target && target.tagName ? String(target.tagName).toLowerCase() : ''
+    const inEditable = tag === 'input' || tag === 'textarea' || (target && target.isContentEditable)
+    if (inEditable) return // 输入框内保留原生撤销
+    if (!canUndo()) return
+    e.preventDefault()
+    undoLast()
   }
 }
 
@@ -1012,7 +997,7 @@ function handleKeydown(e) {
                 blocked: task.blocked === 1
               }]"
             >
-              <!-- 完成圆圈：点击直接完成/恢复 -->
+              <!-- 完成圆圈：点击直接完成/恢复（Things3 式填充动画，见 .task-check 样式） -->
               <div
                 class="task-check"
                 :class="{ done: task.completed === 1 }"
@@ -1024,7 +1009,7 @@ function handleKeydown(e) {
               <!-- 任务内容 -->
               <div class="task-content" @click="openDrawer(task)">
                 <div class="task-title">
-                  <span>{{ task.taskName }}</span>
+                  <span class="task-name-text" :class="{ struck: task.completed === 1 }">{{ task.taskName }}</span>
                   <el-tag 
                     v-if="task.taskType !== 'action'" 
                     :color="getTaskTypeColor(task.taskType)"
@@ -1729,6 +1714,7 @@ function handleKeydown(e) {
   opacity: 0.85;
 }
 
+/* ── 完成圆圈：Things3 式填充动画（M-UI-0）────────────────── */
 .task-check {
   width: 18px;
   height: 18px;
@@ -1741,21 +1727,65 @@ function handleKeydown(e) {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+/* 内部绿色圆：scale(0)→scale(1) 弹性填充 */
+.task-check::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: var(--c-success, #4C8067);
+  transform: scale(0);
+  transition: transform var(--motion-base) var(--ease-spring);
 }
 
 .task-check .el-icon {
+  position: relative;
+  z-index: 1;
   font-size: 11px;
   color: #FFFFFF;
+  opacity: 0;
+  transform: scale(0.4) rotate(-30deg);
+  transition:
+    opacity var(--motion-fast) ease-out,
+    transform var(--motion-base) var(--ease-spring);
 }
 
 .task-check:hover {
   border-color: #4C8067;
+  transform: scale(1.08);
 }
+.task-check:active { transform: scale(0.92); }
 
 .task-check.done {
-  background: #4C8067;
   border-color: #4C8067;
+}
+.task-check.done::before { transform: scale(1); }
+.task-check.done .el-icon {
+  opacity: 1;
+  transform: none;
+  transition-delay: 60ms; /* 等圆形填充到位再弹出对勾 */
+}
+
+/* ── 任务名完成划线：背景宽度 0→100% 过渡（非 text-decoration，可动画）── */
+.task-name-text {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0% 1px;
+  background-repeat: no-repeat;
+  background-position: 0 55%;
+  transition:
+    background-size var(--motion-base) var(--ease-out),
+    color var(--motion-base) var(--ease-out);
+}
+.task-name-text.struck {
+  background-size: 100% 1px;
+  color: var(--c-text-secondary, #9BA2AF);
 }
 
 .task-content {
