@@ -15,6 +15,7 @@ import {
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskRow from '../components/TaskRow.vue'
+import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 
 // ============================================================
@@ -260,6 +261,45 @@ const gtdSections = computed(() => {
   }
   return [{ key: '__flat__', caseId: null, caseName: '', tasks: gtdTasks.value, flat: true }]
 })
+
+// ── A1-3 Today 拖拽排序（vue-draggable-plus，today_index 字段已有）──
+const isTodayPerspective = computed(() => activePerspective.value === 'today')
+const reducedMotion =
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/**
+ * 拖拽落位：乐观重排 todayIndex（0..n-1），保存失败回滚重拉。
+ * gtdTasks 与 tasks.value 共享对象引用，直接改 todayIndex 即触发排序重算。
+ */
+async function onTodayDragEnd(evt) {
+  const { oldIndex, newIndex } = evt
+  if (oldIndex === newIndex || oldIndex == null || newIndex == null) return
+  const list = gtdTasks.value.slice()
+  if (!list[oldIndex]) return
+  const [moved] = list.splice(oldIndex, 1)
+  list.splice(newIndex, 0, moved)
+
+  const changed = []
+  list.forEach((t, i) => {
+    if ((t.todayIndex || 0) !== i) {
+      t.todayIndex = i
+      changed.push({ id: t.id, todayIndex: i })
+    }
+  })
+  if (!changed.length) return
+
+  const results = await Promise.allSettled(
+    changed.map(c => casyContext.tasks.update(c))
+  )
+  const failed = results.some(
+    r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value && r.value.ok === false)
+  )
+  if (failed) {
+    ElMessage.warning('排序保存失败，已恢复原序')
+    await loadTasks()
+  }
+}
 
 // GTD 统计
 const gtdStats = computed(() => {
@@ -953,7 +993,16 @@ function handleKeydown(e) {
             <span class="group-count">{{ section.tasks.length }}</span>
           </div>
 
-          <div class="task-list">
+          <!-- Today 透视：可拖拽排序（today_index 落库）；其余透视普通容器 -->
+          <component
+            :is="isTodayPerspective ? VueDraggable : 'div'"
+            class="task-list"
+            :class="{ 'today-draggable': isTodayPerspective }"
+            :list="isTodayPerspective ? section.tasks : undefined"
+            :animation="isTodayPerspective ? (reducedMotion ? 0 : 180) : undefined"
+            ghost-class="drag-ghost"
+            @end="onTodayDragEnd"
+          >
             <TaskRow
               v-for="task in section.tasks"
               :key="task.id"
@@ -972,7 +1021,7 @@ function handleKeydown(e) {
               @reviewed="markReviewed"
               @follow-up="openFollowUp"
             />
-          </div>
+          </component>
         </div>
       </template>
     </div>
@@ -1492,6 +1541,17 @@ function handleKeydown(e) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* A1-3 Today 拖拽：ghost 半透明 + 抓取光标（动画时长由 :animation 按 reduced-motion 传入；仅 Today 视图可拖） */
+.drag-ghost {
+  opacity: 0.35;
+}
+.today-draggable .task-card {
+  cursor: grab;
+}
+.today-draggable .task-card:active {
+  cursor: grabbing;
 }
 
 
