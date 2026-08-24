@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
+import { bucketForDate } from '../../../shared/nlp/parseWhen'
 import {
   ArrowLeft, ArrowRight, Calendar, Clock, Warning,
   Bell, Finished, Plus,
@@ -492,7 +493,8 @@ async function createFromNaturalLanguage() {
     taskName,
     startDate: dateStr,
     dueDate: dateStr,
-    startBucket: 'upcoming',
+    // 修复：'upcoming' 不在 schema CHECK 枚举内会导致创建静默失败；合法桶见 shared/nlp/parseWhen
+    startBucket: bucketForDate(dateStr),
     taskType: 'action',
   })
   capturing.value = false
