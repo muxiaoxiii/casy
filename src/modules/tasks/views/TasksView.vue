@@ -15,6 +15,7 @@ import {
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskRow from '../components/TaskRow.vue'
+import AreasDialog from '../components/AreasDialog.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 
@@ -24,6 +25,7 @@ import { formatDate } from '../utils/taskDisplay'
 const tasks = ref([])
 const loading = ref(false)
 const showCreateDialog = ref(false)
+const showAreasDialog = ref(false)
 
 // Things 3 式快速捕获输入条
 const captureInput = ref('')
@@ -878,6 +880,7 @@ function handleKeydown(e) {
           </template>
         </el-dropdown>
         <el-button size="small" text type="primary" @click="saveCurrentFilter">保存筛选</el-button>
+        <el-button size="small" text @click="showAreasDialog = true">领域</el-button>
 
         <el-button type="primary" size="small" @click="showCreateDialog = true">
           <el-icon><Plus /></el-icon>
@@ -1309,6 +1312,9 @@ function handleKeydown(e) {
         <el-button type="primary" @click="submitTimeLog">完成</el-button>
       </template>
     </el-dialog>
+
+    <!-- A1-2 领域管理 -->
+    <AreasDialog v-model="showAreasDialog" @changed="loadAreas" />
   </div>
 </template>
 
