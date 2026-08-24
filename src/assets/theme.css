@@ -201,3 +201,70 @@ body {
 .el-pagination { --el-pagination-button-bg-color: transparent; }
 .el-tabs__item { font-size: 12px; }
 .el-select__wrapper { border-radius: 6px; }
+
+/* ═══════════════════════════════════════════════════════════ *
+ * Motion Tokens（A-UI 工作流 · M-UI-0）
+ * 纪律：动效必须有目的；只走 transform/opacity；尊重 reduced-motion
+ * 时长三档：fast=微反馈(120ms) base=标准过渡(180ms) slow=面板出入场(240ms)
+ * ═══════════════════════════════════════════════════════════ */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 240ms;
+
+  /* 主曲线：ease-out-quart —— 进程快、收尾稳，符合"即时响应"手感 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 弹性曲线：轻微过冲，仅用于拖拽落位等"物理落定"表达 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 退场曲线：快速离场不抢戏 */
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+/* ── Vue Transition 标准预设 ───────────────────────────────
+ * .vfade   淡入淡出（内容切换）
+ * .vslide  上移 6px + 淡入（列表项/卡片进入）
+ * .vscale  缩放 .96 + 淡入（弹层/捕获面板出入场）
+ * 用法：<Transition name="vfade">
+ * ─────────────────────────────────────────────────────────── */
+.vfade-enter-active { transition: opacity var(--motion-base) var(--ease-out); }
+.vfade-leave-active { transition: opacity var(--motion-fast) var(--ease-in); }
+.vfade-enter-from, .vfade-leave-to { opacity: 0; }
+
+.vslide-enter-active { transition: opacity var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
+.vslide-leave-active { transition: opacity var(--motion-fast) var(--ease-in), transform var(--motion-fast) var(--ease-in); }
+.vslide-enter-from { opacity: 0; transform: translateY(6px); }
+.vslide-leave-to { opacity: 0; transform: translateY(-4px); }
+
+.vscale-enter-active { transition: opacity var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
+.vscale-leave-active { transition: opacity var(--motion-fast) var(--ease-in), transform var(--motion-fast) var(--ease-in); }
+.vscale-enter-from { opacity: 0; transform: scale(0.96) translateY(4px); }
+.vscale-leave-to { opacity: 0; transform: scale(0.98); }
+
+/* ── 键盘流：焦点环只对键盘操作显示 ───────────────────────── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── 滚动条（克制、窄）────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #CDD2DB;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: #9BA2AF; }
+
+/* ── 无障碍：系统级减弱动态时全部动效优雅降级 ─────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
