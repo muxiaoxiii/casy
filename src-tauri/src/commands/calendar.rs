@@ -11,8 +11,32 @@ pub struct CalendarEvent {
     pub event_type: String,
     pub case_id: String,
     pub case_name: String,
+    // M-CAL-1：时间维度（周/日视图定位与时长渲染依赖）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub all_day: Option<bool>,
 }
 
+impl CalendarEvent {
+    fn projection(id: String, date: String, title: String, event_type: &str, case_id: String, case_name: String) -> Self {
+        Self {
+            id,
+            date,
+            title,
+            event_type: event_type.into(),
+            case_id,
+            case_name,
+            start_time: None,
+            end_time: None,
+            all_day: None,
+        }
+    }
+}
+
+/// 月历合并投影：案件域事实（庭审/期限）+ 任务到期 + 独立日程（D-7 calendar_events）
 #[tauri::command]
 pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEvent>, String> {
     run_blocking(move || {
@@ -30,37 +54,37 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
              WHERE h.hearing_date BETWEEN ?1 AND ?2",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
-            Ok(CalendarEvent {
-                id: r.get(0)?,
-                date: r.get(1)?,
-                title: r.get::<_, Option<String>>(2)?.unwrap_or_else(|| "开庭".into()),
-                event_type: "hearing".into(),
-                case_id: r.get(3)?,
-                case_name: r.get(4)?,
-            })
+            Ok(CalendarEvent::projection(
+                r.get(0)?,
+                r.get(1)?,
+                r.get::<_, Option<String>>(2)?.unwrap_or_else(|| "开庭".into()),
+                "hearing",
+                r.get(3)?,
+                r.get(4)?,
+            ))
         })? {
             events.push(row?);
         }
 
-        // 任务
+        // 任务到期
         let mut stmt = conn.prepare(
             "SELECT id, deadline, task_name, case_id FROM tasks
              WHERE deadline BETWEEN ?1 AND ?2 AND completed = 0",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
-            Ok(CalendarEvent {
-                id: r.get(0)?,
-                date: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                title: r.get(2)?,
-                event_type: "task".into(),
-                case_id: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                case_name: String::new(),
-            })
+            Ok(CalendarEvent::projection(
+                r.get(0)?,
+                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                r.get(2)?,
+                "task",
+                r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                String::new(),
+            ))
         })? {
             events.push(row?);
         }
 
-        // 期限预警（简化：只查 case_deadlines 表）
+        // 期限预警（红黄绿按剩余天数）
         let mut stmt = conn.prepare(
             "SELECT cd.id, cd.due_date, cd.deadline_name, c.id, c.case_name
              FROM case_deadlines cd JOIN cases c ON c.id = cd.case_id
@@ -81,13 +105,37 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
             } else {
                 "deadline_green"
             };
+            Ok(CalendarEvent::projection(
+                r.get(0)?,
+                due_date,
+                r.get(2)?,
+                urgency,
+                r.get(3)?,
+                r.get(4)?,
+            ))
+        })? {
+            events.push(row?);
+        }
+
+        // D-7 独立日程：并入月历投影，带时刻信息供周/日视图定位
+        let mut stmt = conn.prepare(
+            "SELECT id, event_date, title, start_time, end_time, all_day,
+                    COALESCE(case_id, ''), COALESCE((SELECT case_name FROM cases WHERE id = ce.case_id), '')
+             FROM calendar_events ce
+             WHERE event_date BETWEEN ?1 AND ?2",
+        )?;
+        for row in stmt.query_map(rusqlite::params![start, end], |r| {
+            let all_day: i64 = r.get(5)?;
             Ok(CalendarEvent {
                 id: r.get(0)?,
-                date: due_date,
+                date: r.get(1)?,
                 title: r.get(2)?,
-                event_type: urgency.into(),
-                case_id: r.get(3)?,
-                case_name: r.get(4)?,
+                start_time: r.get(3)?,
+                end_time: r.get(4)?,
+                all_day: Some(all_day != 0),
+                event_type: "event".into(),
+                case_id: r.get(6)?,
+                case_name: r.get(7)?,
             })
         })? {
             events.push(row?);

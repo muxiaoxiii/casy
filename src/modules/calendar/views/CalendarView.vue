@@ -54,6 +54,7 @@ const viewOptions = [
   { key: 'day', label: '日视图' },
   { key: 'week', label: '周视图' },
   { key: 'month', label: '月视图' },
+  { key: 'year', label: '年视图' },
   { key: 'forecast', label: '预测' },
 ]
 
@@ -71,10 +72,10 @@ const monthLabel = computed(() => {
   return `${year}年${month + 1}月`
 })
 
-const calendarDays = computed(() => {
-  const { year, month } = currentMonth.value
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
+/** 构建任一月份的 6×7 矩阵（month0 = 0-based；年视图与月视图共用） */
+function buildMonthMatrix(year, month0) {
+  const firstDay = new Date(year, month0, 1)
+  const lastDay = new Date(year, month0 + 1, 0)
 
   // 周一起始
   let startWeekday = firstDay.getDay() - 1
@@ -83,10 +84,10 @@ const calendarDays = computed(() => {
   const days = []
 
   // 上月末尾
-  const prevLastDay = new Date(year, month, 0)
+  const prevLastDay = new Date(year, month0, 0)
   for (let i = startWeekday - 1; i >= 0; i--) {
     days.push({
-      date: new Date(year, month - 1, prevLastDay.getDate() - i),
+      date: new Date(year, month0 - 1, prevLastDay.getDate() - i),
       isCurrentMonth: false,
     })
   }
@@ -94,7 +95,7 @@ const calendarDays = computed(() => {
   // 本月
   for (let d = 1; d <= lastDay.getDate(); d++) {
     days.push({
-      date: new Date(year, month, d),
+      date: new Date(year, month0, d),
       isCurrentMonth: true,
     })
   }
@@ -103,13 +104,51 @@ const calendarDays = computed(() => {
   const remaining = 42 - days.length
   for (let d = 1; d <= remaining; d++) {
     days.push({
-      date: new Date(year, month + 1, d),
+      date: new Date(year, month0 + 1, d),
       isCurrentMonth: false,
     })
   }
 
   return days
+}
+
+const calendarDays = computed(() => {
+  const { year, month } = currentMonth.value
+  return buildMonthMatrix(year, month)
 })
+
+// ── 年视图（对标 Fantastical 年视图 + 负载热度）──
+const yearLabel = computed(() => `${currentDate.value.getFullYear()} 年`)
+
+const yearMatrices = computed(() => {
+  const y = currentDate.value.getFullYear()
+  return Array.from({ length: 12 }, (_, m) => buildMonthMatrix(y, m))
+})
+
+/** 当日负载 → 热度等级（日程+到期任务计数，贡献图式分档） */
+function dayLoadLevel(date) {
+  if (!date) return 0
+  const n = eventsForDay(date).length + tasksForDay(date).length
+  if (n === 0) return 0
+  if (n === 1) return 1
+  if (n <= 3) return 2
+  if (n <= 6) return 3
+  return 4
+}
+
+function jumpToMonth(month0) {
+  currentDate.value = new Date(currentDate.value.getFullYear(), month0, 1)
+  activeView.value = 'month'
+  loadData()
+}
+
+function jumpToDay(cell) {
+  if (!cell || !cell.date) return
+  currentDate.value = new Date(cell.date)
+  selectedDay.value = cell.date
+  activeView.value = 'day'
+  loadData()
+}
 
 // ============================================================
 // 事件颜色编码（语义色）
@@ -210,17 +249,32 @@ async function loadData() {
 
 async function loadEvents() {
   const { year, month } = currentMonth.value
-  // 加载当前月 + 下月，保证 Forecast 未来窗口跨月不缺数据
+  // 年视图：加载全年 12 个月（本地 SQLite 可承受）；
+  // 其余视图：当前月 + 下月，保证 Forecast 未来窗口跨月不缺数据
   const months = []
-  const current = new Date(year, month, 1)
-  for (let i = 0; i < 2; i++) {
-    const d = new Date(current.getFullYear(), current.getMonth() + i, 1)
-    months.push({ year: d.getFullYear(), month: d.getMonth() + 1 })
+  if (activeView.value === 'year') {
+    for (let m = 0; m < 12; m++) months.push({ year, month: m + 1 })
+  } else {
+    const current = new Date(year, month, 1)
+    for (let i = 0; i < 2; i++) {
+      const d = new Date(current.getFullYear(), current.getMonth() + i, 1)
+      months.push({ year: d.getFullYear(), month: d.getMonth() + 1 })
+    }
   }
   const results = await Promise.all(months.map(m => casyContext.calendar.events(m.year, m.month)))
   const merged = []
   for (const r of results) {
-    if (r.ok && Array.isArray(r.data)) merged.push(...r.data)
+    if (r.ok && Array.isArray(r.data)) {
+      for (const e of r.data) {
+        merged.push({
+          ...e,
+          // 归一化：后端投影 start_time → 周视图既有的 time 字段约定
+          time: e.startTime || null,
+          endTime: e.endTime || null,
+          allDay: !!e.allDay,
+        })
+      }
+    }
   }
   events.value = merged
 }
@@ -247,18 +301,20 @@ async function loadDeadlineWarnings() {
 }
 
 // ============================================================
-// 导航
+// 导航（年视图步进 ±1 年，其余 ±1 月）
 // ============================================================
-function prevMonth() {
+function prevPeriod() {
   const d = new Date(currentDate.value)
-  d.setMonth(d.getMonth() - 1)
+  if (activeView.value === 'year') d.setFullYear(d.getFullYear() - 1)
+  else d.setMonth(d.getMonth() - 1)
   currentDate.value = d
   loadData()
 }
 
-function nextMonth() {
+function nextPeriod() {
   const d = new Date(currentDate.value)
-  d.setMonth(d.getMonth() + 1)
+  if (activeView.value === 'year') d.setFullYear(d.getFullYear() + 1)
+  else d.setMonth(d.getMonth() + 1)
   currentDate.value = d
   loadData()
 }
@@ -485,22 +541,21 @@ async function createFromNaturalLanguage() {
   }
 
   const dateStr = (parsed && parsed.dateStr) || todayStr() // 未指定日期默认今天
-  const taskName = parsed && parsed.timeStr ? `${parsed.timeStr} ${title}` : title
+  const startTime = (parsed && parsed.timeStr) || null
   const display = `${dateStr}${parsed && parsed.timeLabel ? ' ' + parsed.timeLabel : ''} · ${title}`
 
   capturing.value = true
-  const result = await casyContext.tasks.create({
-    taskName,
-    startDate: dateStr,
-    dueDate: dateStr,
-    // 修复：'upcoming' 不在 schema CHECK 枚举内会导致创建静默失败；合法桶见 shared/nlp/parseWhen
-    startBucket: bucketForDate(dateStr),
-    taskType: 'action',
+  // D-7：日程是独立事实源——直接落 calendar_events，不再降级为任务
+  const result = await casyContext.calendar.createEvent({
+    title,
+    eventDate: dateStr,
+    startTime,
+    allDay: startTime ? 0 : 1,
   })
   capturing.value = false
 
   if (result.ok) {
-    ElMessage.success(`已转为任务：${display}`)
+    ElMessage.success(`已创建日程：${display}`)
     captureInput.value = ''
     await loadData()
   } else {
@@ -511,6 +566,20 @@ async function createFromNaturalLanguage() {
 function onCaptureKeydown(e) {
   e.preventDefault()
   createFromNaturalLanguage()
+}
+
+/** 日视图议程勾选：乐观翻转 → IPC，失败回滚（M-GTD-1 手感一致） */
+async function toggleAgendaTask(task) {
+  const prev = task.completed
+  task.completed = prev ? 0 : 1
+  const result = await casyContext.tasks.toggle(task.id)
+  if (!result.ok) {
+    task.completed = prev
+    ElMessage.error(result.error || '更新失败')
+    return
+  }
+  // 完成后从未完成任务源消失，重拉保持口径一致
+  await loadTasks()
 }
 
 // ============================================================
@@ -778,6 +847,28 @@ function itemTimeLabel(item) {
  */
 const weekHours = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 - 21:00
 
+/** 当前时刻线：可见时段内的纵向偏移百分比（7:00-21:00 = 840 分钟） */
+const nowLineTop = computed(() => {
+  const now = new Date()
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  const from = 7 * 60
+  const span = 14 * 60
+  if (minutes < from || minutes > from + span) return null
+  return ((minutes - from) / span) * 100
+})
+
+/** 时刻线仅横贯今日列（Google Calendar 惯例） */
+const nowLineStyle = computed(() => {
+  if (nowLineTop.value === null) return { display: 'none' }
+  const d = new Date()
+  const col = (d.getDay() || 7) - 1 // 周一 = 0
+  return {
+    top: `${nowLineTop.value}%`,
+    left: `calc(56px + (100% - 56px) * ${col / 7})`,
+    width: `calc((100% - 56px) / 7)`,
+  }
+})
+
 function getWeekDay(dayIndex) {
   const d = new Date(currentDate.value)
   const currentDay = d.getDay() || 7
@@ -899,10 +990,10 @@ async function onDrop(dateStr, event) {
     <!-- 工具栏 -->
     <div class="calendar-toolbar">
       <div class="toolbar-left">
-        <el-button @click="prevMonth" :icon="ArrowLeft" circle />
+        <el-button @click="prevPeriod" :icon="ArrowLeft" circle />
         <el-button @click="goToday" size="small">今天</el-button>
-        <span class="month-label">{{ monthLabel }}</span>
-        <el-button @click="nextMonth" :icon="ArrowRight" circle />
+        <span class="month-label">{{ activeView === 'year' ? yearLabel : monthLabel }}</span>
+        <el-button @click="nextPeriod" :icon="ArrowRight" circle />
       </div>
 
       <div class="toolbar-right">
@@ -1078,9 +1169,41 @@ async function onDrop(dateStr, event) {
       </div>
     </div>
 
+    <!-- 年视图（对标 Fantastical 年视图：12 迷你月 + 负载热度，点击下钻） -->
+    <div v-if="activeView === 'year'" class="year-container">
+      <div class="year-grid">
+        <div v-for="(matrix, mi) in yearMatrices" :key="mi" class="year-month">
+          <div class="year-month-title" @click="jumpToMonth(mi)">{{ mi + 1 }}月</div>
+          <div class="year-weekdays">
+            <span v-for="d in weekDays" :key="d">{{ d }}</span>
+          </div>
+          <div class="year-days">
+            <span
+              v-for="(cell, ci) in matrix"
+              :key="ci"
+              class="year-day"
+              :class="[`yl-${dayLoadLevel(cell.date)}`, {
+                outside: !cell.isCurrentMonth,
+                today: isToday(cell.date),
+              }]"
+              :title="`${cell.date.getMonth() + 1}月${cell.date.getDate()}日 · ${eventsForDay(cell.date).length + tasksForDay(cell.date).length} 项`"
+              @click="jumpToDay(cell)"
+            >{{ cell.date.getDate() }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="year-legend">
+        <span>负载：</span>
+        <span class="year-day yl-0">·</span><span class="year-day yl-1">1</span><span class="year-day yl-2">2-3</span><span class="year-day yl-3">4-6</span><span class="year-day yl-4">7+</span>
+        <em>点击日期进入日视图 · 点击月份标题进入月视图</em>
+      </div>
+    </div>
+
     <!-- 周视图（时间块） -->
     <div v-if="activeView === 'week'" class="week-container">
       <div class="week-grid">
+        <!-- 当前时刻线（仅今日列，7:00-21:00 可见区间内） -->
+        <div v-if="nowLineStyle" class="now-line" :style="nowLineStyle" />
         <!-- 时间轴 + 星期头 -->
         <div class="week-header-row">
           <div class="week-time-gutter" />
@@ -1199,8 +1322,11 @@ async function onDrop(dateStr, event) {
               :key="task.id"
               class="agenda-task"
             >
-              <el-checkbox :model-value="!!task.completed" />
-              <span class="agenda-task-name">{{ task.taskName }}</span>
+              <el-checkbox
+                :model-value="!!task.completed"
+                @change="toggleAgendaTask(task)"
+              />
+              <span class="agenda-task-name" :class="{ done: !!task.completed }">{{ task.taskName }}</span>
             </div>
             <div v-if="(selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).length === 0" class="day-empty">
               无到期任务
@@ -1689,6 +1815,109 @@ async function onDrop(dateStr, event) {
 }
 
 /* ============================================================
+   年视图样式（12 迷你月 + 负载热度 · 对标 Fantastical Year）
+   ============================================================ */
+.year-container {
+  background: #FFFFFF;
+  border: 1px solid #E4E7ED;
+  border-radius: 8px;
+  padding: 20px;
+}
+.year-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px 16px;
+}
+@media (max-width: 1100px) {
+  .year-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.year-month {
+  min-width: 0;
+}
+.year-month-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #18181B;
+  margin-bottom: 6px;
+  cursor: pointer;
+  width: fit-content;
+  padding: 1px 6px;
+  border-radius: 4px;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.year-month-title:hover {
+  background: var(--c-bg-hover, #F0F2F5);
+  color: var(--c-primary, #3E5C9A);
+}
+.year-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px 0;
+  margin-bottom: 3px;
+}
+.year-weekdays span {
+  text-align: center;
+  font-size: 10px;
+  color: #A1A1AA;
+}
+.year-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px 0;
+}
+.year-day {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+  color: #52525B;
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.year-day:hover {
+  transform: scale(1.18);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  z-index: 1;
+  position: relative;
+}
+/* 负载热度：绿→琥珀渐进（与任务语义色一致），硬性日程日由 title 提示 */
+.year-day.yl-0 { color: #C8CCD4; background: transparent; }
+.year-day.outside { opacity: 0.35; }
+.year-day.yl-1 { background: #DCE8DF; }
+.year-day.yl-2 { background: #B9D4C0; }
+.year-day.yl-3 { background: #8FBDA0; color: #FFFFFF; }
+.year-day.yl-4 { background: #4C8067; color: #FFFFFF; font-weight: 600; }
+.year-day.today {
+  box-shadow: inset 0 0 0 2px var(--c-primary, #3E5C9A);
+  font-weight: 700;
+}
+.year-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  font-size: 12px;
+  color: #A1A1AA;
+}
+.year-legend .year-day {
+  aspect-ratio: auto;
+  width: 22px;
+  height: 18px;
+  cursor: default;
+}
+.year-legend .year-day:hover { transform: none; box-shadow: none; }
+.year-legend em {
+  margin-left: 10px;
+  font-style: normal;
+  color: #C8CCD4;
+}
+
+/* ============================================================
    周视图样式（时间块）
    ============================================================ */
 .week-container {
@@ -1701,6 +1930,26 @@ async function onDrop(dateStr, event) {
 
 .week-grid {
   min-width: 700px;
+  position: relative;
+}
+
+/* 当前时刻线（Google Calendar/Sunsama 惯例）：位置由 nowLineStyle 内联计算 */
+.now-line {
+  position: absolute;
+  height: 2px;
+  background: #E5484D;
+  z-index: 3;
+  pointer-events: none;
+}
+.now-line::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #E5484D;
 }
 
 .week-header-row {

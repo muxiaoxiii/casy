@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 14;
+pub const CURRENT_SCHEMA_VERSION: i64 = 15;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -656,6 +656,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("12", MIGRATION_V12_SQL),
     ("13", MIGRATION_V13_SQL),
     ("14", MIGRATION_V14_SQL),
+    ("15", MIGRATION_V15_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1872,6 +1873,31 @@ ALTER TABLE task_events_v11 RENAME TO task_events;
 CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_task_events_time ON task_events(occurred_at);
+"#;
+
+pub const MIGRATION_V15_SQL: &str = r#"
+-- ============================================================
+-- calendar_events（D-7 独立日程实体 · M-CAL-1）
+-- 日程是独立事实源：不再降级存为任务；可关联案件/任务但非 JOIN 投影
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  event_date  TEXT NOT NULL,              -- YYYY-MM-DD
+  start_time  TEXT,                       -- HH:MM；NULL = 全天/无固定时刻
+  end_time    TEXT,                       -- HH:MM
+  all_day     INTEGER NOT NULL DEFAULT 0,
+  color       TEXT,
+  location    TEXT,
+  notes       TEXT,
+  case_id     TEXT REFERENCES cases(id),
+  task_id     TEXT REFERENCES tasks(id),  -- 来源任务（时间块/由任务生成），可空
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events(event_date);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_case ON calendar_events(case_id);
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用

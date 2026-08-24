@@ -13,6 +13,35 @@ export class CalendarService extends Service {
     })
   }
 
+  // ── D-7 独立日程（calendar_events · M-CAL-1）──
+
+  /** 区间查询独立日程 */
+  async listEvents(startDate: string, endDate: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('list_calendar_events', { startDate, endDate })
+  }
+
+  /** 新建独立日程。data: { title, eventDate, startTime?, endTime?, allDay?, color?, location?, notes?, caseId?, taskId? } */
+  async createEvent(data: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('create_calendar_event', { data })
+  }
+
+  /**
+   * 更新日程——整组提交契约：title/eventDate 必传，其余可传 null 显式清空
+   * （后端不做 COALESCE，改期/取消时刻是常规操作）
+   */
+  async updateEvent(id: string, data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('update_calendar_event', { id, data })
+  }
+
+  /** 拖拽改期/改时刻 */
+  async moveEvent(id: string, newDate: string, newStart?: string | null): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('move_calendar_event', { id, newDate, newStart: newStart ?? null })
+  }
+
+  async removeEvent(id: string): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('delete_calendar_event', { id })
+  }
+
   async deadlineWarnings(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return tauriCallSafe<unknown>('get_deadline_warnings', {})
   }
