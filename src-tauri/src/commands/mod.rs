@@ -60,11 +60,16 @@ pub async fn record_ai_tool_audit(
     turn_id: String,
     outcome: String,
     digest: Option<String>,
+    run_id: Option<String>,
 ) -> Result<(), String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
-        let payload =
-            serde_json::json!({ "outcome": outcome, "turn_id": turn_id, "digest": digest });
+        let payload = serde_json::json!({
+            "outcome": outcome,
+            "turn_id": turn_id,
+            "digest": digest,
+            "run_id": run_id,
+        });
         conn.execute(
             "INSERT INTO audit_events (id, aggregate_type, aggregate_id, event_type, payload, actor)
              VALUES (?1, 'ai_tool_call', ?2, ?3, ?4, 'ai')",

@@ -294,7 +294,7 @@ class CasyContextImpl implements CasyContext {
   async executeTool(
     name: string,
     params: Record<string, unknown>,
-    opts?: { origin?: 'user' | 'ai'; turnId?: string }
+    opts?: { origin?: 'user' | 'ai'; turnId?: string; runId?: string | null }
   ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     const tool = this.tools.get(name)
     if (!tool) {
@@ -337,6 +337,7 @@ class CasyContextImpl implements CasyContext {
       this.emit('tool:executed', {
         name,
         turnId: opts.turnId ?? null,
+        runId: opts.runId ?? null,
         ok: result.ok,
         declined,
         digest: Object.keys(params).join(','),

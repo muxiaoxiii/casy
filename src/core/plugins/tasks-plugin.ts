@@ -83,14 +83,8 @@ export class TasksPlugin implements CasyPlugin {
         required: ['taskName'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.create(params)
-        
-        // 触发事件
-        if (result.ok) {
-          ctx.emit('task:created', { id: result.data?.id, ...params })
-        }
-        
-        return result
+        // 领域事件由 tasks service 层统一发出（K-3①：人与 AI 同一事件流）
+        return ctx.tasks.create(params)
       },
     })
   }
@@ -108,18 +102,12 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.toggle(params.id)
-        
-        // 触发事件
-        if (result.ok) {
-          ctx.emit('task:completed', { id: params.id })
-        }
-        
-        return result
+        // 领域事件由 tasks service 层统一发出（K-3①）
+        return ctx.tasks.toggle(params.id)
       },
     })
   }
-  
+
   private createUpdateTaskTool(ctx: CasyContext): CasyTool {
     return defineTool<{ id: string; data: Record<string, unknown> }>({
       name: 'update_task',

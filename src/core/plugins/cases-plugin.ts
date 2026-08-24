@@ -102,14 +102,8 @@ export class CasesPlugin implements CasyPlugin {
         required: ['caseName', 'clientName'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.create(params)
-        
-        // 触发事件
-        if (result.ok) {
-          ctx.emit('case:created', { id: result.data?.id, ...params })
-        }
-        
-        return result
+        // 领域事件由 cases service 层统一发出（K-3①：人与 AI 同一事件流）
+        return ctx.cases.create(params)
       },
     })
   }
@@ -128,14 +122,8 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.update(params.id, params.data)
-
-        // 触发事件
-        if (result.ok) {
-          ctx.emit('case:updated', { id: params.id, ...params.data })
-        }
-
-        return result
+        // 领域事件由 cases service 层统一发出（K-3①）
+        return ctx.cases.update(params.id, params.data)
       },
     })
   }
@@ -160,14 +148,8 @@ export class CasesPlugin implements CasyPlugin {
         message: (p) => `确定要删除案件 ${String(p.id)} 吗？此操作不可撤销。`,
       },
       execute: async (params) => {
-        const result = await ctx.cases.remove(params.id)
-        
-        // 触发事件
-        if (result.ok) {
-          ctx.emit('case:deleted', { id: params.id })
-        }
-        
-        return result
+        // 领域事件由 cases service 层统一发出（K-3①）
+        return ctx.cases.remove(params.id)
       },
     })
   }

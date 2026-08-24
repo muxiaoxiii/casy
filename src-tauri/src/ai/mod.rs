@@ -1132,6 +1132,14 @@ pub async fn get_ai_usage() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// ai_chat 返回体（K-3 归因）：content + 本次对话的 ai_runs 关联键
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatResult {
+    pub content: String,
+    pub run_id: Option<String>,
+}
+
 /// 通用多轮对话（AI 聊天面板 / 工具调用循环的原始通道）
 ///
 /// - 支持 mode / api_url / model 覆盖（前端面板切换提供商/模型，不改全局配置）
@@ -1144,7 +1152,7 @@ pub async fn ai_chat(
     mode: Option<String>,
     api_url: Option<String>,
     model: Option<String>,
-) -> Result<String, String> {
+) -> Result<AiChatResult, String> {
     let budget = get_token_budget();
     if !budget.check_quota().await.map_err(|e| e.to_string())? {
         return Err("AI 调用已达每日限额".to_string());
@@ -1194,7 +1202,8 @@ pub async fn ai_chat(
         }
         Err(e) => ("failed", None, Some(e.to_string())),
     };
-    if let Err(e) = crate::commands::ai_routes::log_ai_run(
+    // K-3 归因：单次写入 ai_runs 并把 id 带回前端，工具级 audit_events 以 run_id 关联
+    let run_id = match crate::commands::ai_routes::log_ai_run(
         &provider,
         &model_name,
         &purpose,
@@ -1204,12 +1213,16 @@ pub async fn ai_chat(
         status,
         error_msg.as_deref(),
     ) {
-        log::warn!("AI 审计日志写入失败: {}", e);
-    }
+        Ok(id) => Some(id),
+        Err(e) => {
+            log::warn!("AI 审计日志写入失败: {}", e);
+            None
+        }
+    };
 
     let text = result.map_err(|e| e.to_string())?;
     let _ = budget.consume().await;
-    Ok(text)
+    Ok(AiChatResult { content: text, run_id })
 }
 
 /// AI 写作辅助：根据意图、上下文、知识库和风格生成写作建议

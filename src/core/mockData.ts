@@ -164,17 +164,28 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       const messages = (args.messages as Array<{ role: string; content: string }>) || []
       const lastUser = [...messages].reverse().find((m) => m.role === 'user')
       const text = lastUser?.content || ''
+      // 返回体与后端 AiChatResult 同构（K-3：content + runId）
       // 浏览器预览模式：简单回应 + 展示一次工具调用流程（list_cases）
       if (/案件|案子/.test(text) && !/工具结果/.test(text)) {
-        return JSON.stringify({
-          tool: 'list_cases',
-          params: { filter: { search: '' } },
-        })
+        return {
+          content: JSON.stringify({
+            tool: 'list_cases',
+            params: { filter: { search: '' } },
+          }),
+          runId: null,
+        }
       }
       if (/工具结果/.test(text)) {
-        return '（浏览器预览模式）以上是案件列表模拟数据。真实数据请在 Tauri 应用中使用。'
+        return {
+          content: '（浏览器预览模式）以上是案件列表模拟数据。真实数据请在 Tauri 应用中使用。',
+          runId: null,
+        }
       }
-      return '（浏览器预览模式）我是 Casy AI 助手。真实 AI 对话需要在 Tauri 应用中配置 Ollama 或 OpenAI 后端。'
+      return {
+        content:
+          '（浏览器预览模式）我是 Casy AI 助手。真实 AI 对话需要在 Tauri 应用中配置 Ollama 或 OpenAI 后端。',
+        runId: null,
+      }
     }
     case 'get_sync_status':
       return { webdav: { connected: false }, feishu: { connected: false } }

@@ -15,15 +15,28 @@ export class CasesService extends Service {
   }
 
   async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    return tauriCallSafe<Case>('create_case', { data })
+    const result = await tauriCallSafe<Case>('create_case', { data })
+    // K-3①：领域事件由 service 层统一发出——人与 AI 触发同一事件流
+    if (result.ok) {
+      this.ctx.emit('case:created', { id: result.data?.id, ...data })
+    }
+    return result
   }
 
   async update(id: string, data: Record<string, unknown>): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    return tauriCallSafe<Case>('update_case', { id, data })
+    const result = await tauriCallSafe<Case>('update_case', { id, data })
+    if (result.ok) {
+      this.ctx.emit('case:updated', { id, ...data })
+    }
+    return result
   }
 
   async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_case', { id })
+    const result = await tauriCallSafe<void>('delete_case', { id })
+    if (result.ok) {
+      this.ctx.emit('case:deleted', { id })
+    }
+    return result
   }
 
   async search(query: string): Promise<{ ok: boolean; data?: Case[]; error?: string }> {

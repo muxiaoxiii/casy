@@ -172,13 +172,16 @@ class AiToolCaller {
     const toolResults: Array<{ ok: boolean; data?: unknown; error?: string }> = []
     let content = ''
     let loopExhausted = false
+    // K-3 归因：最近一轮 ai_chat 返回的 ai_runs id（工具级审计以 run_id 关联）
+    let currentRunId: string | null = null
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const reply = await this.chat(history, provider)
+      currentRunId = reply.runId ?? currentRunId
 
-      const call = tryParseToolCall(reply)
+      const call = tryParseToolCall(reply.content)
       if (!call) {
-        content = reply // 最终答复
+        content = reply.content // 最终答复
         break
       }
 
@@ -190,7 +193,7 @@ class AiToolCaller {
 
       const tool = casyContext.getTool(call.name)
       if (!tool) {
-        history.push({ role: "assistant", content: reply })
+        history.push({ role: "assistant", content: reply.content })
         history.push({
           role: "user",
           content: '[工具结果 ' + call.name + '] 工具不存在，请从工具清单中选择。',
@@ -202,11 +205,12 @@ class AiToolCaller {
       const result = await casyContext.executeTool(call.name, call.params, {
         origin: 'ai',
         turnId,
+        runId: currentRunId,
       })
       toolCalls.push({ name: call.name, params: call.params })
       toolResults.push(result)
 
-      history.push({ role: "assistant", content: reply })
+      history.push({ role: "assistant", content: reply.content })
       history.push({
         role: "user",
         content: formatToolResult(call.name, result),
@@ -222,12 +226,12 @@ class AiToolCaller {
     return { content, toolCalls, toolResults }
   }
 
-  /** 调用后端多轮对话命令（含 ai_runs 审计） */
+  /** 调用后端多轮对话命令（含 ai_runs 审计；返回内容 + 本次 ai_runs 关联键） */
   private async chat(
     history: ChatMessageLike[],
     provider: CasyProvider | undefined
-  ): Promise<string> {
-    const result = await tauriCallSafe<string>('ai_chat', {
+  ): Promise<{ content: string; runId: string | null }> {
+    const result = await tauriCallSafe<{ content?: string; runId?: string | null }>('ai_chat', {
       messages: history,
       mode: provider?.mode,
       apiUrl: provider?.apiUrl,
@@ -237,7 +241,7 @@ class AiToolCaller {
     if (!result.ok) {
       throw new Error(result.error || 'AI 调用失败（请检查设置中的 AI 后端配置）')
     }
-    return result.data ?? ""
+    return { content: String(result.data?.content ?? ''), runId: result.data?.runId ?? null }
   }
 }
 

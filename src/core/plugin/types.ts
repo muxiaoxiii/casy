@@ -200,7 +200,7 @@ export interface CasyContext {
   executeTool(
     name: string,
     params: Record<string, unknown>,
-    opts?: { origin?: 'user' | 'ai'; turnId?: string }
+    opts?: { origin?: 'user' | 'ai'; turnId?: string; runId?: string | null }
   ): Promise<{
     ok: boolean
     data?: unknown

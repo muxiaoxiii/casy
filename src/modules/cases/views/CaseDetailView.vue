@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -355,10 +355,23 @@ function goToClient(clientName) {
 // ============================================================
 onMounted(() => {
   loadCaseData()
+  // K-3② 真实消费者：案件更新事件 → 时间线刷新（emit 已下沉 service 层，
+  // 人在视图层编辑与 AI 工具调用触发的是同一事件流）
+  unsubscribeUpdated = casyContext.on('case:updated', (payload) => {
+    const p = (payload || {})
+    if (!p.id || p.id === caseId.value) {
+      loadTimeline()
+    }
+  })
 })
 
 watch(caseId, () => {
   loadCaseData()
+})
+
+let unsubscribeUpdated = null
+onUnmounted(() => {
+  if (unsubscribeUpdated) unsubscribeUpdated()
 })
 </script>
 

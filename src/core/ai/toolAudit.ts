@@ -15,6 +15,7 @@ import { tauriCallSafe } from '../tauriBridge'
 interface ToolExecutedPayload {
   name?: string
   turnId?: string | null
+  runId?: string | null
   ok?: boolean
   declined?: boolean
   digest?: string
@@ -30,6 +31,7 @@ export function installToolAuditWriter(): void {
       turnId: p.turnId ?? '',
       outcome,
       digest: p.digest ?? null,
+      runId: p.runId ?? null,
     }).catch((e: unknown) => {
       console.warn('[Casy] AI 工具审计写入失败（不阻塞）:', e)
     })
