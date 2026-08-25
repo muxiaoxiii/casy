@@ -194,5 +194,10 @@ export type QuickJudgeResult = { category: string; confidence: number; strength:
  */
 export type MappingEntry = { feishuFieldName: string; feishuFieldType: number; localColumn: string; syncDirection: string; isFormula: boolean; isLink: boolean }
 
+/**
+ * 导入结果
+ */
+export type ImportResult = { total: number; created: number; updated: number; skipped: number; errors: string[] }
+
 export type TimelineEvent = { id: string; sourceTable: string; sourceId: string; eventDate: string; eventType: string; title: string; detail: string | null; icon: string; color: string }
 

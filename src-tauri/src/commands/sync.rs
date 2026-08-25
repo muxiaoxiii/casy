@@ -997,7 +997,7 @@ pub async fn feishu_import_incremental(
 }
 
 /// 导入结果
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {
     total: usize,

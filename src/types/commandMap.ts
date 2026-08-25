@@ -28,7 +28,9 @@ import type {
   CreateKnowledgeInput,
   FolderNamingSettingsInput,
   FolderTemplateInput,
-  ImportReport,  InboxItemDto,
+  ImportReport,
+  ImportResult,
+  InboxItemDto,
   InboxProgress,
   MappingEntry,
   McpPendingWrite,
@@ -117,8 +119,14 @@ export type CommandMap = {
   webdav_startup_sync: Cmd<Record<string, unknown>, SyncResult>
   webdav_resolve_keep_local: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_resolve_keep_remote: Cmd<{ url: string; username: string; password: string }, SyncResult>
-  sync_feishu_pull: Cmd<{ appToken: string; tableId: string; localTable: string; mappings: MappingEntry[] }, FeishuSyncReport>
-  sync_feishu_push: Cmd<{ appToken: string; tableId: string; localTable: string; mappings: MappingEntry[] }, FeishuSyncReport>
+  sync_feishu_pull: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
+  sync_feishu_push: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
+  feishu_import_all: Cmd<{
+    appToken: string
+    tableId: string
+    localTable: string
+    mappings: MappingEntry[]
+  }, ImportResult>
   feishu_compare_table: Cmd<{ appToken: string; tableId: string; localTable: unknown }, SchemaDiff>
   feishu_compare_records: Cmd<{ appToken: string; tableId: string; localTable: unknown; matchField: string }, RecordDiff>
   import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
