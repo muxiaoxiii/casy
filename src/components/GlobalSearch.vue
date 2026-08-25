@@ -72,7 +72,7 @@ async function runSearch(q: string) {
     }
   }
   if (casesRes.ok && Array.isArray(casesRes.data)) {
-    for (const c of casesRes.data as Array<Record<string, unknown>>) {
+    for (const c of casesRes.data as unknown as Array<Record<string, unknown>>) {
       out.push({
         key: 'case-' + String(c.id),
         group: '案件',

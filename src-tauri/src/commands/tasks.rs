@@ -94,6 +94,9 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Va
                     "nextReviewDate": row.get::<_, Option<String>>("next_review_date")?,
                     "areaId": row.get::<_, Option<String>>("area_id")?,
                     "knowledgeId": row.get::<_, Option<String>>("knowledge_id")?,
+                    // A1-4/A1-5
+                    "parentId": row.get::<_, Option<String>>("parent_task_id")?,
+                    "recurrenceRule": row.get::<_, Option<String>>("recurrence_rule")?,
                 }))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -145,10 +148,10 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         }
 
         conn.execute(
-            "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note, 
+            "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
              task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
-             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at, parent_task_id, recurrence_rule)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
             rusqlite::params![
                 id,
                 case_id,
@@ -177,6 +180,9 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
                 data["areaId"].as_str(),
                 data["nextReviewDate"].as_str(), // A1-7：仅显式设置才写入
                 now,
+                // A1-4/A1-5
+                data["parentId"].as_str(),
+                data["recurrenceRule"].as_str(),
             ],
         )?;
 
@@ -249,6 +255,44 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
             "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, ?3, ?4, ?5, 'user')",
             rusqlite::params![db::new_id(), id, event_type, now, payload],
         )?;
+
+        // ── A1-5 重复任务：完成后生成下一实例（确定性执行在 Rust · 双路径铁律）──
+        if new_status == 1 {
+            let rec: Option<(String, Option<String>, Option<String>)> = conn.query_row(
+                "SELECT recurrence_rule,
+                        COALESCE(due_date, deadline, start_date),
+                        COALESCE(start_date, due_date, deadline)
+                 FROM tasks WHERE id = ?1 AND completed = 1",
+                rusqlite::params![id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).ok();
+
+            if let Some((rule, Some(anchor_due), anchor_start)) = rec {
+                if let Some(next) = next_occurrence(&rule, &anchor_due) {
+                    let parse = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok();
+                    let shift = next.parse::<chrono::NaiveDate>().ok()
+                        .zip(parse(&anchor_due))
+                        .map(|(n, a)| (n - a).num_days())
+                        .unwrap_or(0);
+                    let next_start = anchor_start.as_deref().and_then(parse)
+                        .map(|d| (d + chrono::Duration::days(shift)).format("%Y-%m-%d").to_string());
+
+                    // 生成失败静默：完成动作不受影响
+                    let _ = conn.execute(
+                        "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline,
+                            priority, assignee, task_type, start_date, due_date, due_time, waiting_for,
+                            follow_up_date, context, flagged, sequential, blocked, sequence_order,
+                            start_bucket, estimated_minutes, area_id, parent_task_id, recurrence_rule, created_at)
+                         SELECT ?1, case_id, task_name, description, ?2, ?3, priority, assignee, task_type,
+                                ?4, ?3, due_time, waiting_for, follow_up_date,
+                                context, flagged, sequential, blocked, sequence_order, start_bucket,
+                                estimated_minutes, area_id, NULL, recurrence_rule, ?2
+                         FROM tasks WHERE id = ?5",
+                        rusqlite::params![db::new_id(), now, next, next_start, id],
+                    );
+                }
+            }
+        }
 
         // ── 顺序项目自动解锁（设计哲学 §3.3 / §5.4）─────────────────────
         // 如果完成的是一个 sequential 任务，在同一事务内解锁下一个
@@ -423,8 +467,10 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 area_id = ?17,
                 time_block = ?18,
                 updated_at = ?19,
-                actual_minutes = COALESCE(?20, actual_minutes)
-             WHERE id = ?19",
+                actual_minutes = COALESCE(?20, actual_minutes),
+                parent_task_id = ?21,
+                recurrence_rule = ?22
+             WHERE id = ?23",
             rusqlite::params![
                 data["taskName"].as_str(),
                 data["description"].as_str(),
@@ -445,8 +491,10 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 data["areaId"].as_str(),
                 data["timeBlock"].as_str(),
                 now,
-                id,
                 data["actualMinutes"].as_i64(),
+                data["parentId"].as_str(),
+                data["recurrenceRule"].as_str(),
+                id,
             ],
         )?;
 
@@ -751,4 +799,54 @@ pub async fn search_tasks(query: String) -> Result<Vec<serde_json::Value>, Strin
         Ok(rows)
     })
     .await
+}
+
+/// A1-5：RRULE 极简子集的下一到期日
+/// 'daily' | 'weekdays' | 'weekly:<1-7>'(周一=1) | 'monthly:<DD>'
+fn next_occurrence(rule: &str, from: &str) -> Option<String> {
+    use chrono::{Datelike, Duration, NaiveDate};
+    let d = NaiveDate::parse_from_str(from, "%Y-%m-%d").ok()?;
+    let next = match rule.trim() {
+        "daily" => d + Duration::days(1),
+        "weekdays" => {
+            let mut n = d + Duration::days(1);
+            while n.weekday().num_days_from_monday() >= 5 {
+                n += Duration::days(1);
+            }
+            n
+        }
+        r if r.starts_with("weekly:") => {
+            let target: u32 = r.split(':').nth(1)?.trim().parse().ok()?;
+            if !(1..=7).contains(&target) {
+                return None;
+            }
+            let cur = d.weekday().num_days_from_monday() + 1;
+            let delta = (target + 7 - cur) % 7;
+            d + Duration::days(if delta == 0 { 7 } else { delta } as i64)
+        }
+        r if r.starts_with("monthly:") => {
+            let day: u32 = r.split(':').nth(1)?.trim().parse().ok()?;
+            if !(1..=31).contains(&day) {
+                return None;
+            }
+            let (mut y, mut m) = (d.year(), d.month());
+            loop {
+                m += 1;
+                if m > 12 {
+                    m = 1;
+                    y += 1;
+                }
+                let dim = NaiveDate::from_ymd_opt(y, m + if m == 12 { 0 } else { 1 }, 1)
+                    .map(|first| {
+                        (first - Duration::days(1)).day()
+                    })
+                    .unwrap_or(28);
+                if let Some(nd) = NaiveDate::from_ymd_opt(y, m, day.min(dim)) {
+                    break nd;
+                }
+            }
+        }
+        _ => return None,
+    };
+    Some(next.format("%Y-%m-%d").to_string())
 }
