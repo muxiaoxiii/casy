@@ -260,6 +260,13 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         files::list_case_files,
         files::add_case_file,
         files::delete_case_file,
+        files::list_case_dirs,
+        files::create_case_subdir,
+        files::import_files_to_case,
+        files::scan_unregistered_files,
+        files::register_existing_files,
+        files::reveal_path,
+        files::open_file_with_default,
         // 提醒规则命令
         reminder::list_reminder_rules,
         reminder::create_reminder_rule,
