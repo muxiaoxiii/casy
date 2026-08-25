@@ -793,7 +793,12 @@ pub fn compute_case_type_metrics(
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             other => Err(other),
         })?
-        .ok_or_else(|| anyhow::anyhow!("案件不存在: {}", case_id))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::CASE_NOT_FOUND,
+                format!("案件不存在: {case_id}"),
+            ))
+        })?;
 
     let overdue_count = count_overdue_tasks(conn, case_id)?;
 

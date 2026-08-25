@@ -29,6 +29,7 @@ import type {
   InboxItemDto,
   InboxProgress,
   McpPendingWrite,
+  ProcessedInboxResult,
   QuickJudgeResult,
   RecordDiff,
   RelatedCase,
@@ -43,6 +44,7 @@ import type {
   TemplateListResponse,
   TimelineEvent,
 } from './bindings'
+import type { InboxStatus } from './index'
 
 export interface Cmd<P = Record<string, unknown>, R = unknown> {
   readonly params: P
@@ -136,7 +138,9 @@ export type CommandMap = {
     contentText?: string | null
     sourcePath?: string | null
   }, string>
-  list_inbox_items: Cmd<{ status?: string }, InboxItemDto[]>
+  // status 由 schema CHECK 约束枚举，bindings 侧为 string——此处收窄为手写联合
+  list_inbox_items: Cmd<{ status?: string }, (Omit<InboxItemDto, 'status'> & { status: InboxStatus })[]>
+  process_inbox_item: Cmd<{ id: string }, ProcessedInboxResult>
   file_inbox_item: Cmd<{ itemId: string; caseId: string; category: string }, void>
   dismiss_inbox_item: Cmd<{ id: string }, void>
   get_inbox_progress: Cmd<Record<string, unknown>, InboxProgress>

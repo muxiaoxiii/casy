@@ -19,7 +19,8 @@ export class InboxService extends Service {
   }
 
   async process(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('process_inbox_item', { id })
+    // 返回类型由 CommandMap 提供（ProcessedInboxResult），此处不再显式泛型
+    return tauriCallSafe('process_inbox_item', { id })
   }
 
   async file(id: string, caseId: string, category?: string): Promise<{ ok: boolean; error?: string }> {

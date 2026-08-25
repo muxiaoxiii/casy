@@ -26,11 +26,6 @@ export type TaskTemplate = { id: string; name: string; triggerType: string | nul
 export type FeishuSyncReport = { pulled: number; pushed: number; created: number; updated: number; skipped: number; errors: string[]; syncedAt: string }
 
 /**
- * 收件箱列表项（B1 类型化：返回侧 Value → 强类型；字段对齐 schema 全列）
- */
-export type InboxItemDto = { id: string; sourceType: string; sourcePath: string | null; sourceUrl: string | null; sourceTime: string | null; title: string | null; contentText: string | null; aiCategory: string | null; aiConfidence: number | null; aiExtracted: any | null; aiSuggestedCaseId: string | null; status: string; userCategory: string | null; linkedCaseId: string | null; createdAt: string | null; processedAt: string | null }
-
-/**
  * ai_chat 返回体（K-3 归因）：content + 本次对话的 ai_runs 关联键
  */
 export type AiChatResult = { content: string; runId: string | null }
@@ -54,6 +49,11 @@ export type SearchResult = { id: string; title: string; category: string; conten
  */
 export type RenderResponse = { html: string; text: string; used_fields: { [key: string]: string }; missing_fields: string[] }
 
+/**
+ * AI 处理结果（分类 + 置信度 + 抽取 + 自动路由动作）
+ */
+export type ProcessedInboxResult = { category: string; confidence: number; suggestedCaseId: string | null; caseNo: string | null; extracted: any | null; routeActions: any[] }
+
 export type Draft = { id: string; case_id: string | null; title: string; content: string | null; template_path: string | null; status: string; version: number; created_at: string; updated_at: string }
 
 export type CaseFile = { id: string; caseId: string; fileName: string; filePath: string; fileSize: number | null; fileType: string | null; category: string; subCategory: string | null; createdAt: string | null }
@@ -69,6 +69,15 @@ export type McpPendingWrite = { id: string; tool: string; arguments: string; sta
 export type DeadlineWarning = { deadlineId: string; caseId: string; caseName: string; deadlineName: string; dueDate: string; daysLeft: number; level: string; levelLabel: string; levelColor: string; message: string }
 
 /**
+ * 收件箱列表项（B1 类型化：返回侧 Value → 强类型）
+ * 
+ * 空值口径：title/contentText/aiCategory/aiConfidence/sourcePath/userCategory/createdAt
+ * 在 SQL 层 COALESCE 归一为 '' / 0（前端手写契约按非空建模；null 与 ''
+ * 在展示层真值判断等价），其余可空字段保持 Option。
+ */
+export type InboxItemDto = { id: string; sourceType: string; sourcePath: string; sourceUrl: string | null; sourceTime: string | null; title: string; contentText: string; aiCategory: string; aiConfidence: number; aiExtracted: any | null; aiSuggestedCaseId: string | null; status: string; userCategory: string; linkedCaseId: string | null; createdAt: string; processedAt: string | null }
+
+/**
  * 关联案件（含案件摘要信息）
  */
 export type RelatedCase = { relationId: string; relationType: string; label: string | null; caseId: string; caseName: string; caseNo: string | null; caseStatus: string | null; clientName: string; track: string }
@@ -81,16 +90,9 @@ export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | n
 export type RecordDiff = { same: RecordDiffItem[]; feishuOnly: RecordDiffItem[]; localOnly: RecordDiffItem[]; conflict: RecordDiffItem[] }
 
 /**
- * 即时判断结果
- */
-export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
-
-/**
  * 命令路由信息
  */
 export type CommandRoute = { commandName: string; routeType: string; description: string; requiresConfirmation: boolean; minConfirmLevel: string }
-
-export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 /**
  * 导出结果响应
@@ -120,11 +122,18 @@ export type CaseRelation = { id: string; sourceCaseId: string; targetCaseId: str
 export type TemplateListResponse = { templates: DocsyTemplate[]; total: number }
 
 /**
+ * 批处理进度
+ */
+export type InboxProgress = { total: number; processed: number; pending: number }
+
+/**
  * 模板字段定义
  */
 export type TemplateField = { name: string; field_type: string; default_value: string | null; required: boolean }
 
 export type ImapAccountConfig = { id: string | null; emailAddress: string; imapServer: string; imapPort: number; username: string; password: string; useTls: boolean; watchFolders: string; filterFrom: string | null; filterSubject: string | null; enabled: boolean }
+
+export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 /**
  * 案件数据结构
@@ -143,9 +152,9 @@ export type DocsyTemplate = { id: string; name: string; path: string; category: 
 export type ImportReport = { cases: number; logs: number; hearings: number; tasks: number; officials: number; errors: string[] }
 
 /**
- * 批处理进度
+ * 即时判断结果
  */
-export type InboxProgress = { total: number; processed: number; pending: number }
+export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
 
 /**
  * 补同步结果

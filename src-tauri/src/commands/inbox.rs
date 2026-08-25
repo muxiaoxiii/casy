@@ -2,26 +2,30 @@ use super::run_blocking;
 use crate::{db, parse};
 use chrono::Datelike;
 
-/// 收件箱列表项（B1 类型化：返回侧 Value → 强类型；字段对齐 schema 全列）
+/// 收件箱列表项（B1 类型化：返回侧 Value → 强类型）
+///
+/// 空值口径：title/contentText/aiCategory/aiConfidence/sourcePath/userCategory/createdAt
+/// 在 SQL 层 COALESCE 归一为 '' / 0（前端手写契约按非空建模；null 与 ''
+/// 在展示层真值判断等价），其余可空字段保持 Option。
 #[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InboxItemDto {
     pub id: String,
     pub source_type: String,
-    pub source_path: Option<String>,
+    pub source_path: String,
     pub source_url: Option<String>,
     pub source_time: Option<String>,
-    pub title: Option<String>,
-    pub content_text: Option<String>,
-    pub ai_category: Option<String>,
-    pub ai_confidence: Option<f64>,
+    pub title: String,
+    pub content_text: String,
+    pub ai_category: String,
+    pub ai_confidence: f64,
     /// AI 抽取的原始 JSON（结构随文档类型变化）
     pub ai_extracted: Option<serde_json::Value>,
     pub ai_suggested_case_id: Option<String>,
     pub status: String,
-    pub user_category: Option<String>,
+    pub user_category: String,
     pub linked_case_id: Option<String>,
-    pub created_at: Option<String>,
+    pub created_at: String,
     pub processed_at: Option<String>,
 }
 
@@ -32,6 +36,18 @@ pub struct InboxProgress {
     pub total: i64,
     pub processed: i64,
     pub pending: i64,
+}
+
+/// AI 处理结果（分类 + 置信度 + 抽取 + 自动路由动作）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessedInboxResult {
+    pub category: String,
+    pub confidence: f64,
+    pub suggested_case_id: Option<String>,
+    pub case_no: Option<String>,
+    pub extracted: Option<serde_json::Value>,
+    pub route_actions: Vec<serde_json::Value>,
 }
 
 #[tauri::command]
@@ -105,7 +121,16 @@ pub async fn add_inbox_item(
 pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut sql = String::from("SELECT * FROM inbox_items WHERE 1=1");
+        // COALESCE 归一口径见 InboxItemDto 文档注释
+        let mut sql = String::from(
+            "SELECT id, source_type, COALESCE(source_path,'') AS source_path, \
+             source_url, source_time, COALESCE(title,'') AS title, \
+             COALESCE(content_text,'') AS content_text, COALESCE(ai_category,'') AS ai_category, \
+             COALESCE(ai_confidence,0) AS ai_confidence, ai_extracted, ai_suggested_case_id, \
+             status, COALESCE(user_category,'') AS user_category, linked_case_id, \
+             COALESCE(created_at,'') AS created_at, processed_at \
+             FROM inbox_items WHERE 1=1",
+        );
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(s) = &status {
@@ -127,19 +152,19 @@ pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto
                 Ok(InboxItemDto {
                     id: row.get::<_, String>("id")?,
                     source_type: row.get::<_, String>("source_type")?,
-                    source_path: row.get::<_, Option<String>>("source_path")?,
+                    source_path: row.get::<_, String>("source_path")?,
                     source_url: row.get::<_, Option<String>>("source_url")?,
                     source_time: row.get::<_, Option<String>>("source_time")?,
-                    title: row.get::<_, Option<String>>("title")?,
-                    content_text: row.get::<_, Option<String>>("content_text")?,
-                    ai_category: row.get::<_, Option<String>>("ai_category")?,
-                    ai_confidence: row.get::<_, Option<f64>>("ai_confidence")?,
+                    title: row.get::<_, String>("title")?,
+                    content_text: row.get::<_, String>("content_text")?,
+                    ai_category: row.get::<_, String>("ai_category")?,
+                    ai_confidence: row.get::<_, f64>("ai_confidence")?,
                     ai_extracted: parsed_extracted,
                     ai_suggested_case_id: row.get::<_, Option<String>>("ai_suggested_case_id")?,
                     status: row.get::<_, String>("status")?,
-                    user_category: row.get::<_, Option<String>>("user_category")?,
+                    user_category: row.get::<_, String>("user_category")?,
                     linked_case_id: row.get::<_, Option<String>>("linked_case_id")?,
-                    created_at: row.get::<_, Option<String>>("created_at")?,
+                    created_at: row.get::<_, String>("created_at")?,
                     processed_at: row.get::<_, Option<String>>("processed_at")?,
                 })
             })?
@@ -151,7 +176,7 @@ pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto
 }
 
 #[tauri::command]
-pub async fn process_inbox_item(id: String) -> Result<serde_json::Value, String> {
+pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -264,14 +289,14 @@ pub async fn process_inbox_item(id: String) -> Result<serde_json::Value, String>
             log::warn!("自动路由部分失败: {}", e);
         }
 
-        Ok(serde_json::json!({
-            "category": category,
-            "confidence": confidence,
-            "suggestedCaseId": suggested_case_id,
-            "caseNo": case_no,
-            "extracted": extracted,
-            "routeActions": route_actions.unwrap_or_default(),
-        }))
+        Ok(ProcessedInboxResult {
+            category,
+            confidence,
+            suggested_case_id,
+            case_no,
+            extracted,
+            route_actions: route_actions.unwrap_or_default(),
+        })
     })
     .await
 }
@@ -1374,11 +1399,18 @@ pub async fn copy_file_with_progress(
 
         // 读取案件 folder_name，回退到 case_name
         let conn = db::open_db()?;
-        let folder_name: String = conn.query_row(
-            "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
-            rusqlite::params![target_case_id],
-            |r| r.get(0),
-        ).map_err(|_| anyhow::anyhow!("案件不存在"))?;
+        let folder_name: String = conn
+            .query_row(
+                "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
+                rusqlite::params![target_case_id],
+                |r| r.get(0),
+            )
+            .map_err(|_| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::CASE_NOT_FOUND,
+                    "案件不存在",
+                ))
+            })?;
 
         let cases_root = dirs::document_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))

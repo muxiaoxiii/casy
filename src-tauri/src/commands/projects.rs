@@ -71,7 +71,10 @@ pub async fn create_personal_project(data: serde_json::Value) -> Result<ProjectR
                 .as_str()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("Missing project name"))?;
+                .ok_or_else(|| anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::PROJECT_NAME_REQUIRED,
+                    "项目名称不能为空",
+                )))?;
             let id = db::new_id();
             let now = db::now_local();
 
@@ -120,9 +123,17 @@ pub async fn update_personal_project(id: String, data: serde_json::Value) -> Res
         db::with_conn(|conn| {
             let kind: String = conn
                 .query_row("SELECT kind FROM projects WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
-                .map_err(|_| anyhow::anyhow!("项目不存在"))?;
+                .map_err(|_| {
+                    anyhow::anyhow!(crate::error_code::err(
+                        crate::error_code::codes::PROJECT_NOT_FOUND,
+                        "项目不存在",
+                    ))
+                })?;
             if kind != "personal" {
-                return Err(anyhow::anyhow!("法律项目请在案件管理中维护"));
+                return Err(anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::PROJECT_LEGAL_READONLY,
+                    "法律项目请在案件管理中维护",
+                )));
             }
             let changed = conn.execute(
                 "UPDATE projects SET
@@ -144,7 +155,10 @@ pub async fn update_personal_project(id: String, data: serde_json::Value) -> Res
                 ],
             )?;
             if changed == 0 {
-                return Err(anyhow::anyhow!("项目不存在"));
+                return Err(anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::PROJECT_NOT_FOUND,
+                    "项目不存在",
+                )));
             }
             Ok(())
         })
@@ -163,9 +177,17 @@ pub async fn delete_project(id: String) -> Result<(), String> {
                     rusqlite::params![id],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
-                .map_err(|_| anyhow::anyhow!("项目不存在"))?;
+                .map_err(|_| {
+                    anyhow::anyhow!(crate::error_code::err(
+                        crate::error_code::codes::PROJECT_NOT_FOUND,
+                        "项目不存在",
+                    ))
+                })?;
             if kind != "personal" {
-                return Err(anyhow::anyhow!("法律项目请在案件管理中删除"));
+                return Err(anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::PROJECT_LEGAL_READONLY,
+                    "法律项目请在案件管理中删除",
+                )));
             }
             let linked: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND completed = 0",
@@ -174,7 +196,7 @@ pub async fn delete_project(id: String) -> Result<(), String> {
             )?;
             if linked > 0 {
                 return Err(anyhow::anyhow!(crate::error_code::err(
-                    crate::error_code::codes::TASK_NOT_FOUND,
+                    crate::error_code::codes::PROJECT_HAS_ACTIVE_TASKS,
                     format!("「{name}」下仍有 {linked} 个未完成任务，请先处理"),
                 )));
             }

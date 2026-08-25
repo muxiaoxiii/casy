@@ -230,7 +230,8 @@ export interface CaseStats {
 
 // ==================== 收件箱 ====================
 
-export type InboxStatus = 'pending' | 'processed' | 'filed' | 'archived' | 'ignored'
+/** 与 schema CHECK 约束一致：('pending','processing','filed','dismissed') */
+export type InboxStatus = 'pending' | 'processing' | 'filed' | 'dismissed'
 
 export interface InboxItem {
   id: string

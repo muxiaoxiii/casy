@@ -692,7 +692,10 @@ fn get_local_records(
     let columns = get_local_table_columns(conn, table_name)?;
     let col_exists = columns.iter().any(|(name, _)| name == match_field);
     if !col_exists {
-        anyhow::bail!("本地表 {} 中不存在列 {}", table_name, match_field);
+        anyhow::bail!(crate::error_code::err(
+            crate::error_code::codes::SYNC_MATCH_FIELD_MISSING,
+            format!("本地表 {table_name} 中不存在列 {match_field}"),
+        ));
     }
 
     let sql = format!(

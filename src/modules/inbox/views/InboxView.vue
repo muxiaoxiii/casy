@@ -169,7 +169,8 @@ const folderOptions = [
 
 const pendingItems = computed(() => items.value.filter((i) => i.status === 'pending'))
 const filedItems = computed(() => items.value.filter((i) => i.status === 'filed'))
-const archivedItems = computed(() => items.value.filter((i) => i.status === 'archived' || i.status === 'ignored'))
+// B1 类型对齐修正：schema 真值为 'dismissed'（旧字面量 'archived'/'ignored' 已不存在，原过滤恒空）
+const archivedItems = computed(() => items.value.filter((i) => i.status === 'dismissed'))
 
 onMounted(() => {
   loadItems()
