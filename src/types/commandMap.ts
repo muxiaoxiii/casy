@@ -80,7 +80,27 @@ export interface ProjectRow {
   updatedAt: string
 }
 
+/** 案卷目录树条目 */
+export interface CaseDirEntry {
+  name: string
+  relPath: string
+  fileCount: number
+  state: 'ok' | 'empty' | 'warn'
+}
+
 export type CommandMap = {
+  // ── 卷宗管理（index-v2 精装版 · 本地文件夹同步）──
+  list_case_dirs: Cmd<{ caseId: string }, CaseDirEntry[]>
+  create_case_subdir: Cmd<{ caseId: string; parentRel: string | null; name: string }, string>
+  import_files_to_case: Cmd<
+    { caseId: string; dirRel: string | null; paths: string[] },
+    Array<{ id: string; fileName: string; archivedPath: string; originalPath: string }>
+  >
+  scan_unregistered_files: Cmd<{ caseId: string }, Array<{ fileName: string; path: string; sizeBytes: number }>>
+  register_existing_files: Cmd<{ caseId: string; paths: string[] }, number>
+  reveal_path: Cmd<{ path: string }, null>
+  open_file_with_default: Cmd<{ path: string }, null>
+
   // ── 项目域（A1-1 绞杀式阶段一）──
   list_projects: Cmd<{ query?: string }, ProjectRow[]>
   create_personal_project: Cmd<
