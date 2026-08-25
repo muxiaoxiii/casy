@@ -18,6 +18,7 @@ import { useCasesStore } from '../../stores/cases'
 import { useTasksStore } from '../../stores/tasks'
 import { useCalendarStore } from '../../stores/calendar'
 import { useProfileStore } from '../../stores/profile'
+import EmptyState from '../../shared/components/EmptyState.vue'
 
 const router = useRouter()
 const casesStore = useCasesStore()
@@ -411,10 +412,7 @@ function goToCase(id) {
               </el-tag>
             </div>
           </template>
-          <div v-else class="empty-state">
-            <el-icon :size="32" class="empty-icon"><CircleCheck /></el-icon>
-            <span>今天没有硬性日程</span>
-          </div>
+          <EmptyState v-else type="calendar" compact title="今天没有硬性日程" description="好好享受空档，或从收件箱厘清一件要事" />
         </div>
       </div>
 
@@ -779,7 +777,7 @@ function goToCase(id) {
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .schedule-item:hover {
@@ -831,7 +829,7 @@ function goToCase(id) {
   align-items: flex-start;
   gap: 10px;
   padding: 10px 16px;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .task-item:hover {
@@ -917,7 +915,7 @@ function goToCase(id) {
   gap: 10px;
   padding: 10px 16px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .activity-item:hover {

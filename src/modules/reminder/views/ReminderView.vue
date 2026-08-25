@@ -303,7 +303,7 @@ onMounted(loadLogs)
   border-radius: 8px;
   padding: 14px 16px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--motion-fast)  ease;
 }
 
 .stat-card:hover {
@@ -356,7 +356,7 @@ onMounted(loadLogs)
   font-size: 13px;
   color: var(--c-text-regular);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--motion-fast)  ease;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -420,7 +420,7 @@ onMounted(loadLogs)
   border: 1px solid #F0F0F0;
   border-radius: 8px;
   margin-bottom: 8px;
-  transition: all 0.15s ease;
+  transition: all var(--motion-fast)  ease;
   background: #fff;
 }
 

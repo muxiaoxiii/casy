@@ -385,7 +385,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
   gap: 8px;
   padding: 8px 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
   border-top: 1px solid #f0f0f0;
 }
 

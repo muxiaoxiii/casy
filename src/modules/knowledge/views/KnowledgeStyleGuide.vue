@@ -243,7 +243,7 @@ onMounted(() => {
   padding: 12px 16px;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
   position: relative;
 }
 
@@ -340,7 +340,7 @@ onMounted(() => {
   padding: 14px;
   border: 1px solid #ebeef5;
   border-radius: 8px;
-  transition: box-shadow 0.2s;
+  transition: box-shadow var(--motion-base);
 }
 
 .knowledge-card:hover {

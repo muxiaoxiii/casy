@@ -63,9 +63,15 @@
             </template>
           </div>
         </div>
-        <div v-else-if="!loading && !creating" class="proj-empty">
-          还没有个人项目。项目是跨越较长时间的目标容器（区别于一次性任务）——任务可归属到项目中获得上下文。
-        </div>
+        <EmptyState
+          v-else-if="!loading && !creating"
+          type="custom"
+          icon="📁"
+          title="还没有个人项目"
+          description="项目是跨越较长时间的目标容器（区别于一次性任务）——任务可归属其中获得上下文。"
+          action-text="新建第一个项目"
+          @action="startCreate"
+        />
       </section>
 
       <!-- 法律项目（只读透出） -->
@@ -85,7 +91,13 @@
             </div>
           </div>
         </div>
-        <div v-else class="proj-empty">暂无法律项目——在案件管理中创建的案件会自动出现在这里。</div>
+        <EmptyState
+          v-else
+          type="custom"
+          title="暂无法律项目"
+          description="在案件管理中创建的案件会自动出现在这里。"
+          compact
+        />
       </section>
     </div>
   </div>
@@ -97,6 +109,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const router = useRouter()
 

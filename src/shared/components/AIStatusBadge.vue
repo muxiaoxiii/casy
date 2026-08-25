@@ -138,7 +138,7 @@ onMounted(async () => {
   background: #F9FAFB;
   border: 1px solid #E5E7EB;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--motion-fast)  ease;
   user-select: none;
 }
 
@@ -219,7 +219,7 @@ onMounted(async () => {
 .popover-settings-icon {
   color: #9CA3AF;
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--motion-fast) ease;
 }
 
 .popover-settings-icon:hover {

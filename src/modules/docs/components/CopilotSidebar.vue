@@ -363,7 +363,7 @@ function formatScore(score) {
   padding: 10px 12px;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
   gap: 6px;
 }
 
@@ -395,7 +395,7 @@ function formatScore(score) {
 .section-arrow {
   font-size: 12px;
   color: var(--gray-400);
-  transition: transform 0.2s;
+  transition: transform var(--motion-base);
 }
 
 .section-arrow.expanded {
@@ -419,7 +419,7 @@ function formatScore(score) {
   border: 1px solid var(--c-border);
   border-radius: 6px;
   margin-bottom: 6px;
-  transition: box-shadow 0.15s;
+  transition: box-shadow var(--motion-fast);
   overflow: hidden;
 }
 

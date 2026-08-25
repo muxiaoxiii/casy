@@ -148,25 +148,49 @@ pub async fn get_folder_template(template_id: String) -> Result<serde_json::Valu
 
 /// 保存自定义模板（创建或更新），禁止编辑内置模板
 #[tauri::command]
-pub async fn save_folder_template(data: serde_json::Value) -> Result<String, String> {
+/// 文件夹模板输入（directories 保持自由 JSON 结构）
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderTemplateInput {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub case_type: Option<String>,
+    pub directories: Option<serde_json::Value>,
+}
+
+/// 文件夹命名设置（三项均可选，缺省项跳过不写库——与原 Value 版语义一致）
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderNamingSettingsInput {
+    pub folder_naming_date_format: Option<String>,
+    pub folder_naming_case_no_format: Option<String>,
+    pub folder_naming_file_format: Option<String>,
+}
+
+pub async fn save_folder_template(data: FolderTemplateInput) -> Result<String, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let id = data
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .id
             .unwrap_or_else(|| format!("tpl-custom-{}", uuid::Uuid::new_v4()));
-        let name = data
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("缺少模板名称"))?;
-        let case_type = data
-            .get("caseType")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("缺少案件类型"))?;
-        let directories = data
-            .get("directories")
-            .ok_or_else(|| anyhow::anyhow!("缺少目录结构"))?;
+        let name = data.name.ok_or_else(|| {
+            anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::SETTINGS_MISSING_FIELD,
+                "缺少模板名称",
+            ))
+        })?;
+        let case_type = data.case_type.ok_or_else(|| {
+            anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::SETTINGS_MISSING_FIELD,
+                "缺少案件类型",
+            ))
+        })?;
+        let directories = data.directories.ok_or_else(|| {
+            anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::SETTINGS_MISSING_FIELD,
+                "缺少目录结构",
+            ))
+        })?;
         let directories_json = serde_json::to_string(directories)?;
 
         // 检查是否为内置模板
@@ -254,25 +278,20 @@ pub async fn get_folder_naming_settings() -> Result<serde_json::Value, String> {
 
 /// 保存文件夹命名设置
 #[tauri::command]
-pub async fn save_folder_naming_settings(data: serde_json::Value) -> Result<(), String> {
+pub async fn save_folder_naming_settings(data: FolderNamingSettingsInput) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        for key in &[
-            "folder_naming_date_format",
-            "folder_naming_case_no_format",
-            "folder_naming_file_format",
+        for (key, val) in [
+            ("folder_naming_date_format", data.folder_naming_date_format),
+            ("folder_naming_case_no_format", data.folder_naming_case_no_format),
+            ("folder_naming_file_format", data.folder_naming_file_format),
         ] {
-            if let Some(val) = data.get(*key) {
-                let val_str = match val {
-                    serde_json::Value::String(s) => s.clone(),
-                    _ => serde_json::to_string(val).unwrap_or_default(),
-                };
+            if let Some(val_str) = val {
                 conn.execute(
                     "INSERT INTO settings (key, value) VALUES (?1, ?2)
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     rusqlite::params![key, val_str],
-                )
-                ?;
+                )?;
             }
         }
         Ok(())

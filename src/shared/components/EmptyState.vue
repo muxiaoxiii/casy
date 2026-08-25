@@ -141,7 +141,7 @@ function handleAction() {
 }
 
 .empty-icon {
-  color: #D1D5DB;
+  color: var(--gray-300);
   margin-bottom: 16px;
 }
 
@@ -171,7 +171,7 @@ function handleAction() {
 
 .empty-desc {
   font-size: 13px;
-  color: #9CA3AF;
+  color: var(--c-text-secondary);
   margin: 0;
   line-height: 1.5;
   max-width: 280px;

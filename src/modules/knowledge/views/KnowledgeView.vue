@@ -767,7 +767,7 @@ onMounted(async () => {
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
   background: #fff;
   border: 1px solid var(--c-border);
 }

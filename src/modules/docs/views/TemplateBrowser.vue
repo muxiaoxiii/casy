@@ -162,7 +162,7 @@ onMounted(async () => {
   padding: 8px 16px;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .category-header:hover {
@@ -187,7 +187,7 @@ onMounted(async () => {
   margin: 2px 0;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
   border: 1px solid transparent;
 }
 

@@ -504,7 +504,7 @@ function onMenuSelect(name) {
   border-right: 1px solid #E0E3E9;
   display: flex;
   flex-direction: column;
-  transition: width 0.2s ease, min-width 0.2s ease;
+  transition: width var(--motion-base) ease, min-width 0.2s ease;
   overflow: hidden;
 }
 
@@ -575,7 +575,7 @@ function onMenuSelect(name) {
   border-radius: 6px;
   cursor: pointer;
   color: var(--c-text-regular);
-  transition: all 0.12s ease;
+  transition: all var(--motion-fast)  ease;
   position: relative;
   white-space: nowrap;
   margin-bottom: 1px;
@@ -654,7 +654,7 @@ function onMenuSelect(name) {
   cursor: pointer;
   border: none;
   background: transparent;
-  transition: background 0.12s;
+  transition: background var(--motion-fast);
   flex-shrink: 0;
 }
 
@@ -676,7 +676,7 @@ function onMenuSelect(name) {
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--motion-fast);
 }
 
 .ts-item:hover {
@@ -724,7 +724,7 @@ function onMenuSelect(name) {
   padding: 5px 10px;
   color: var(--c-text-secondary);
   width: 220px;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
 }
 
 .topbar-search:focus-within {
@@ -772,7 +772,7 @@ function onMenuSelect(name) {
   font-size: 12.5px;
   font-weight: 500;
   font-family: inherit;
-  transition: background 0.12s;
+  transition: background var(--motion-fast);
 }
 
 .btn-primary:hover {
@@ -798,7 +798,7 @@ function onMenuSelect(name) {
   font-size: 13px;
   color: var(--c-text-regular);
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--motion-fast);
 }
 
 .capture-item:hover {
@@ -829,7 +829,7 @@ function onMenuSelect(name) {
   color: var(--c-text-regular);
   cursor: pointer;
   font-weight: 500;
-  transition: all 0.12s;
+  transition: all var(--motion-fast) var(--ease-out);
   border-bottom: 2px solid transparent;
 }
 

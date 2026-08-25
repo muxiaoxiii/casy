@@ -1140,7 +1140,7 @@ onUnmounted(() => {
   color: var(--c-text-regular);
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
 }
 
 .capture-btn:hover {
@@ -1254,7 +1254,7 @@ onUnmounted(() => {
   padding: 20px;
   text-align: center;
   margin-bottom: 16px;
-  transition: all 0.3s;
+  transition: all var(--motion-slow) var(--ease-out);
   cursor: pointer;
 }
 
@@ -1304,7 +1304,7 @@ onUnmounted(() => {
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   padding: 12px;
-  transition: box-shadow 0.2s;
+  transition: box-shadow var(--motion-base);
   position: relative;
   overflow: hidden;
 }

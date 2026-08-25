@@ -125,8 +125,8 @@ onUnmounted(() => { if (unlisten) unlisten() })
   margin-bottom: 10px;
 }
 .rt-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.reminder-pop-enter-active { transition: all 0.18s ease; }
-.reminder-pop-leave-active { transition: all 0.15s ease; }
+.reminder-pop-enter-active { transition: all var(--motion-fast)  ease; }
+.reminder-pop-leave-active { transition: all var(--motion-fast)  ease; }
 .reminder-pop-enter-from { opacity: 0; transform: translateX(20px); }
 .reminder-pop-leave-to { opacity: 0; transform: translateX(20px); }
 </style>

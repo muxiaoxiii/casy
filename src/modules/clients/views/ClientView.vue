@@ -307,7 +307,7 @@ function getStatusColor(status) {
   gap: 10px;
   padding: 10px 16px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
   border-left: 3px solid transparent;
 }
 
@@ -398,7 +398,7 @@ function getStatusColor(status) {
   padding: 10px 16px;
   border-bottom: 1px solid var(--c-border-light);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .case-row:last-child { border-bottom: none; }

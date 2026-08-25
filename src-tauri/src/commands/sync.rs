@@ -851,7 +851,7 @@ pub async fn feishu_import_all(
     app_token: String,
     table_id: String,
     local_table: String,
-    mappings_json: serde_json::Value,
+    mappings: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
@@ -894,7 +894,7 @@ pub async fn feishu_import_selected(
     table_id: String,
     local_table: String,
     record_ids: Vec<String>,
-    mappings_json: serde_json::Value,
+    mappings: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
@@ -942,7 +942,7 @@ pub async fn feishu_import_incremental(
     table_id: String,
     local_table: String,
     since_timestamp: String,
-    mappings_json: serde_json::Value,
+    mappings: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
@@ -1007,14 +1007,29 @@ pub struct ImportResult {
     errors: Vec<String>,
 }
 
-/// 映射条目
-struct MappingEntry {
-    feishu_field_name: String,
-    feishu_field_type: i32,
-    local_column: String,
-    sync_direction: String,
-    is_formula: bool,
-    is_link: bool,
+/// 映射条目（B1 类型化：入参直用强类型，缺省口径与原 parse_mappings 一致）
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MappingEntry {
+    pub feishu_field_name: String,
+    pub feishu_field_type: i32,
+    pub local_column: String,
+    pub sync_direction: String,
+    pub is_formula: bool,
+    pub is_link: bool,
+}
+
+impl Default for MappingEntry {
+    fn default() -> Self {
+        Self {
+            feishu_field_name: String::new(),
+            feishu_field_type: 1,
+            local_column: String::new(),
+            sync_direction: "bidirectional".to_string(),
+            is_formula: false,
+            is_link: false,
+        }
+    }
 }
 
 /// 从 JSON 解析映射配置

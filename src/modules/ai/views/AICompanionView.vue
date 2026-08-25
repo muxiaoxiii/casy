@@ -975,7 +975,7 @@ onMounted(async () => {
   border-radius: 6px;
   border: 1px solid #E0E3E9;
   margin-bottom: 8px;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
 }
 
 .recommend-item:hover {
@@ -1114,7 +1114,7 @@ onMounted(async () => {
   gap: 10px;
   padding: 10px 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .summary-head:hover {

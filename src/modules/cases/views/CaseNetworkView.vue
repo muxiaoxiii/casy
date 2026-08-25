@@ -260,7 +260,7 @@ onMounted(async () => {
 
 .stat-card {
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--motion-slow) var(--ease-out);
 }
 
 .stat-card:hover {
@@ -309,7 +309,7 @@ onMounted(async () => {
   padding: 12px;
   background: var(--gray-50);
   border-radius: 8px;
-  transition: all 0.3s;
+  transition: all var(--motion-slow) var(--ease-out);
 }
 
 .relation-item:hover {
@@ -324,7 +324,7 @@ onMounted(async () => {
 
 .case-tag {
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--motion-slow) var(--ease-out);
 }
 
 .case-tag:hover {

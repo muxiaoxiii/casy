@@ -354,7 +354,7 @@ onUnmounted(() => {
   text-align: center;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
   border-bottom: 2px solid transparent;
 }
 
@@ -395,7 +395,7 @@ onUnmounted(() => {
   position: relative;
   padding: 10px 16px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
   border-left: 3px solid transparent;
 }
 
@@ -441,7 +441,7 @@ onUnmounted(() => {
   top: 8px;
   right: 8px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--motion-fast);
 }
 
 .draft-item:hover .draft-delete {

@@ -724,7 +724,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .ctx-menu-item:hover {
@@ -803,7 +803,7 @@ onBeforeUnmount(() => {
   padding: 2px 8px;
   margin: 0 2px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
   vertical-align: baseline;
   font-size: 0.9em;
 }
@@ -884,7 +884,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 :deep(.wiki-link-item:hover),
@@ -912,7 +912,7 @@ onBeforeUnmount(() => {
   text-decoration: none;
   border-bottom: 1px dashed #409eff;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
 }
 
 :deep(.wiki-link:hover) {

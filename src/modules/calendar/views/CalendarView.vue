@@ -1813,7 +1813,7 @@ async function onDrop(dateStr, event) {
   padding: 6px;
   min-height: 100px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .day-cell:hover {
@@ -2000,7 +2000,7 @@ async function onDrop(dateStr, event) {
   border-radius: 6px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .detail-event:hover,
@@ -2444,7 +2444,7 @@ async function onDrop(dateStr, event) {
   border: 1px solid #E0E3E9;
   background: #FFFFFF;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
 }
 
 .day-slot:hover {
@@ -2593,7 +2593,7 @@ async function onDrop(dateStr, event) {
 .forecast-day-group {
   border-bottom: 1px solid var(--c-border-light);
   padding: 8px 16px;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .forecast-day-group:hover {
@@ -2792,7 +2792,7 @@ async function onDrop(dateStr, event) {
   border: 1px solid #E0E3E9;
   background: #FFFFFF;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color var(--motion-fast);
 }
 
 .timeline-slot:hover {

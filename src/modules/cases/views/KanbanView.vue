@@ -411,7 +411,7 @@ onMounted(async () => {
   border-radius: 6px;
   padding: 10px;
   cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.15s;
+  transition: box-shadow var(--motion-base), transform var(--motion-fast);
   border: 1px solid #ebeef5;
 }
 

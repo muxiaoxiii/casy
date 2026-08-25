@@ -127,11 +127,11 @@ onUnmounted(() => { if (unlisten) unlisten() })
 
 /* 过渡动画 */
 .banner-slide-enter-active {
-  transition: all 0.25s ease-out;
+  transition: all var(--motion-base)  ease-out;
 }
 
 .banner-slide-leave-active {
-  transition: all 0.2s ease-in;
+  transition: all var(--motion-base)  ease-in;
 }
 
 .banner-slide-enter-from {

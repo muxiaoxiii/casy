@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 13px;
   color: #333;
-  transition: all 0.15s;
+  transition: all var(--motion-fast) var(--ease-out);
 }
 
 .editor-toolbar button:hover {
@@ -397,7 +397,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 
 .ctx-menu-item:hover {

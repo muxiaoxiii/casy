@@ -83,49 +83,6 @@ pub async fn list_knowledge(filter: Option<KnowledgeFilter>) -> Result<Vec<serde
 }
 
 #[tauri::command]
-pub async fn create_knowledge(data: serde_json::Value) -> Result<String, String> {
-    run_blocking(move || {
-        let conn = db::open_db()?;
-        let id = db::new_id();
-        let now = db::now_local();
-
-        // 块级化（§8.2）：block_type 限 page/block/reference，缺省 'page'
-        let block_type = match data["blockType"].as_str() {
-            Some("block") => "block",
-            Some("reference") => "reference",
-            _ => "page",
-        };
-
-        conn.execute(
-            "INSERT INTO knowledge_items (id, title, category, content, tags, source_type, source_id,
-             linked_case_id, law_name, article_no, effective_date, status, parent_id, block_type,
-             created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)",
-            rusqlite::params![
-                id,
-                data["title"].as_str().unwrap_or(""),
-                data["category"].as_str().unwrap_or("other"),
-                data["content"].as_str().unwrap_or(""),
-                data["tags"].as_str(),
-                data["sourceType"].as_str(),
-                data["sourceId"].as_str(),
-                data["linkedCaseId"].as_str(),
-                data["lawName"].as_str(),
-                data["articleNo"].as_str(),
-                data["effectiveDate"].as_str(),
-                data["status"].as_str().unwrap_or("current"),
-                data["parentId"].as_str(),
-                block_type,
-                now,
-            ],
-        )?;
-
-        Ok(id)
-    })
-    .await
-}
-
-/// 列出某知识条目下的块（§8.2 知识块级化）
 #[tauri::command]
 pub async fn list_knowledge_blocks(parent_id: String) -> Result<Vec<serde_json::Value>, String> {
     run_blocking(move || {
@@ -428,6 +385,88 @@ pub async fn diff_knowledge_versions(
 }
 
 /// 从选中文本创建知识条目
+/// 创建知识条目输入（B1 类型化；全部可选，缺省口径与原 Value 版一致）
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CreateKnowledgeInput {
+    pub block_type: String,
+    pub title: String,
+    pub category: String,
+    pub content: String,
+    pub tags: Option<String>,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
+    pub linked_case_id: Option<String>,
+    pub law_name: Option<String>,
+    pub article_no: Option<String>,
+    pub effective_date: Option<String>,
+    pub status: String,
+    pub parent_id: Option<String>,
+}
+
+impl Default for CreateKnowledgeInput {
+    fn default() -> Self {
+        Self {
+            block_type: "page".to_string(),
+            title: String::new(),
+            category: "other".to_string(),
+            content: String::new(),
+            tags: None,
+            source_type: None,
+            source_id: None,
+            linked_case_id: None,
+            law_name: None,
+            article_no: None,
+            effective_date: None,
+            status: "current".to_string(),
+            parent_id: None,
+        }
+    }
+}
+
+pub async fn create_knowledge(data: CreateKnowledgeInput) -> Result<String, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let id = db::new_id();
+        let now = db::now_local();
+
+        // 块级化（§8.2）：block_type 限 page/block/reference，缺省 'page'
+        let block_type = match data.block_type.as_str() {
+            "block" => "block",
+            "reference" => "reference",
+            _ => "page",
+        };
+
+        conn.execute(
+            "INSERT INTO knowledge_items (id, title, category, content, tags, source_type, source_id,
+             linked_case_id, law_name, article_no, effective_date, status, parent_id, block_type,
+             created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)",
+            rusqlite::params![
+                id,
+                data.title.as_str(),
+                data.category.as_str(),
+                data.content.as_str(),
+                data.tags.as_deref(),
+                data.source_type.as_deref(),
+                data.source_id.as_deref(),
+                data.linked_case_id.as_deref(),
+                data.law_name.as_deref(),
+                data.article_no.as_deref(),
+                data.effective_date.as_deref(),
+                data.status.as_str(),
+                data.parent_id.as_deref(),
+                block_type,
+                now,
+            ],
+        )?;
+
+        Ok(id)
+    })
+    .await
+}
+
+/// 列出某知识条目下的块（§8.2 知识块级化）
 #[tauri::command]
 pub async fn create_knowledge_from_selection(
     text: String,

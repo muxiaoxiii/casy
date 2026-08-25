@@ -1503,7 +1503,7 @@ let unregisterKeys = []
   padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
   color: var(--c-text-regular);
   font-size: 13px;
 }
@@ -1529,7 +1529,7 @@ let unregisterKeys = []
 .tab-item.custom-perspective .perspective-more {
   margin-left: 4px;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--motion-base);
   cursor: pointer;
 }
 
@@ -1794,7 +1794,7 @@ let unregisterKeys = []
   border: 2px solid var(--c-border);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
   text-align: center;
 }
 

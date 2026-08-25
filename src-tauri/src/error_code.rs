@@ -3,7 +3,7 @@
 //! 格式：`CAS-<域名缩写><序号>|<人话消息>`
 //! - 前端 tauriBridge 原样透传 error 字符串，UI 展示 `|` 后的人话部分即可
 //! - 支持侧按 `CAS-` 前缀聚合定位；升级为结构化错误对象后本模块成为映射表
-//! - 序号分段规划：1xxx=tasks 2xxx=calendar 3xxx=inbox 4xxx=cases/projects 5xxx=sync/integrations
+//! - 序号分段规划：1xxx=tasks 2xxx=calendar 3xxx=inbox 4xxx=cases/projects 5xxx=sync/integrations 8xxx=settings
 
 pub mod codes {
     // 1xxx tasks
@@ -25,6 +25,8 @@ pub mod codes {
     pub const PROJECT_LEGAL_READONLY: &str = "CAS-4005";
     // 5xxx sync/integrations
     pub const SYNC_MATCH_FIELD_MISSING: &str = "CAS-5001";
+    // 8xxx settings
+    pub const SETTINGS_MISSING_FIELD: &str = "CAS-8001";
     pub const CALDAV_NOT_CONFIGURED: &str = "CAS-5002";
 }
 

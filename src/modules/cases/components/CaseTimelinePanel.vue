@@ -91,7 +91,7 @@ function formatMonthLabel(ym) {
   gap: 10px;
   padding: 8px;
   border-radius: 6px;
-  transition: background 0.2s;
+  transition: background var(--motion-base);
 }
 
 .timeline-item:hover {

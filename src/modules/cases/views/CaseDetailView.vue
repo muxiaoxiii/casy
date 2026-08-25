@@ -942,7 +942,7 @@ onUnmounted(() => {
   background: #FFFFFF;
   border-radius: 8px;
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  transition: box-shadow var(--motion-base);
 }
 
 .next-action-card:hover {
@@ -985,7 +985,7 @@ onUnmounted(() => {
   padding: 12px;
   background: #FAFAFA;
   border-radius: 8px;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
 }
 
 .sequential-task.current {
@@ -1074,7 +1074,7 @@ onUnmounted(() => {
   background: #FAFAFA;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
 }
 
 .resource-card:hover {
@@ -1156,7 +1156,7 @@ onUnmounted(() => {
 /* 新增样式 */
 .clickable {
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color var(--motion-base);
 }
 
 .clickable:hover {

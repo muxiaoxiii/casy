@@ -334,7 +334,7 @@ function trendPath(data, maxVal, width, height, padding) {
   border: 1px solid var(--c-border);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
 }
 
 .stat-card:hover {

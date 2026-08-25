@@ -310,7 +310,7 @@ function handleReject() {
   background: #FAFAFA;
   border: 1px solid var(--c-border);
   border-radius: 6px;
-  transition: all 0.2s;
+  transition: all var(--motion-base) var(--ease-out);
 }
 
 .confirm-item.accepted {
