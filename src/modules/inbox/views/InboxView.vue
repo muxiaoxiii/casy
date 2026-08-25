@@ -747,7 +747,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 拷贝进度条 -->
-    <el-dialog v-model="copyProgress" title="正在拷贝文件..." width="400" :close-on-click-modal="false" :show-close="false">
+    <el-dialog v-model="copyProgress" title="正在拷贝文件..." width="480" :close-on-click-modal="false" :show-close="false">
       <div class="copy-progress-dialog">
         <el-progress :percentage="copyProgress?.percent || 0" :stroke-width="12" />
         <div class="copy-progress-info">
@@ -1024,7 +1024,7 @@ onUnmounted(() => {
     </el-tabs>
 
     <!-- 添加笔记弹窗 -->
-    <el-dialog v-model="showAddNoteDialog" title="添加笔记" width="500">
+    <el-dialog v-model="showAddNoteDialog" title="添加笔记" width="560">
       <el-input v-model="newNote" type="textarea" :rows="5" placeholder="输入笔记内容..." />
       <template #footer>
         <el-button @click="showAddNoteDialog = false">取消</el-button>
@@ -1056,7 +1056,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <el-form v-if="confirmAction === 'file_to_case'" label-width="60px" class="confirm-form">
+        <el-form v-if="confirmAction === 'file_to_case'" label-width="80px" class="confirm-form">
           <el-form-item label="案件">
             <el-select v-model="confirmCaseId" filterable placeholder="选择案件" style="width: 100%;">
               <el-option

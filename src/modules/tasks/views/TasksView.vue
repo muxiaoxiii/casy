@@ -1122,7 +1122,7 @@ let unregisterKeys = []
     </div>
 
     <!-- 新建任务弹窗（增强版） -->
-    <el-dialog v-model="showCreateDialog" title="新建任务" width="500">
+    <el-dialog v-model="showCreateDialog" title="新建任务" width="560">
       <el-form label-width="80px" size="small">
         <el-form-item label="任务名称" required>
           <el-input v-model="newTask.taskName" placeholder="记下你脑中的想法..." />
@@ -1179,7 +1179,7 @@ let unregisterKeys = []
     </el-dialog>
 
     <!-- 厘清对话框 -->
-    <el-dialog v-model="showTriageDialog" title="厘清任务" width="500" :close-on-click-modal="false">
+    <el-dialog v-model="showTriageDialog" title="厘清任务" width="560" :close-on-click-modal="false">
       <!-- 任务预览 -->
       <div v-if="triagingTask" class="triage-preview">
         <div class="triage-preview-header">

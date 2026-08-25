@@ -319,7 +319,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
     <h3>文件命名规则</h3>
     <p class="desc">配置文件归档时的命名格式。支持变量: {date}, {category}, {case_no}, {hash}, {ext}</p>
 
-    <el-form label-width="140px" size="small" class="naming-form">
+    <el-form label-width="100px" size="small" class="naming-form">
       <el-form-item label="日期格式">
         <el-input v-model="namingSettings.folder_naming_date_format" placeholder="YYYY-MM-DD" />
       </el-form-item>

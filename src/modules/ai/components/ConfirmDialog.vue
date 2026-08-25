@@ -126,7 +126,7 @@ function handleReject() {
   <el-dialog
     v-model="dialogVisible"
     title="AI 推荐确认"
-    width="520"
+    width="560"
     :close-on-click-modal="false"
   >
     <div v-if="recommendation" class="confirm-content">

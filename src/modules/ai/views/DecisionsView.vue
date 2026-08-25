@@ -381,7 +381,7 @@ onMounted(() => {
     </div>
 
     <!-- 详情对话框 -->
-    <el-dialog v-model="showDetailDialog" title="决策详情" width="600">
+    <el-dialog v-model="showDetailDialog" title="决策详情" width="560">
       <div v-if="selectedDecision" class="detail-content">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="ID" :span="2">

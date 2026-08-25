@@ -119,7 +119,7 @@ async function finish() {
 
     <!-- 步骤 ①：姓名 / 执业领域 -->
     <div v-show="step === 0" class="wizard-body">
-      <el-form label-width="90px" size="default">
+      <el-form label-width="80px" size="default">
         <el-form-item label="姓名">
           <el-input v-model="form.name" placeholder="如何称呼你（如：王）" style="width: 220px" />
         </el-form-item>
@@ -133,7 +133,7 @@ async function finish() {
 
     <!-- 步骤 ②：常用案件类型 / 工作时段 -->
     <div v-show="step === 1" class="wizard-body">
-      <el-form label-width="110px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="常用案件类型">
           <el-checkbox-group v-model="form.common_case_types">
             <el-checkbox v-for="opt in caseTypeOptions" :key="opt.value" :value="opt.value">
@@ -152,7 +152,7 @@ async function finish() {
 
     <!-- 步骤 ③：提醒通道 -->
     <div v-show="step === 2" class="wizard-body">
-      <el-form label-width="90px" size="default">
+      <el-form label-width="80px" size="default">
         <el-form-item label="提醒通道">
           <el-checkbox-group v-model="form.reminder_channels">
             <el-checkbox v-for="opt in channelOptions" :key="opt.value" :value="opt.value">

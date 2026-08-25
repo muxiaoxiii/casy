@@ -124,7 +124,7 @@ onMounted(() => {
 
       <!-- 添加新账号 -->
       <h4>添加 IMAP 账号</h4>
-      <el-form label-width="120px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="邮箱地址">
           <el-input v-model="imapForm.emailAddress" placeholder="user@example.com" />
         </el-form-item>

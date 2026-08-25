@@ -54,7 +54,7 @@ onMounted(() => {
 
       <p class="tip">画像用于首页问候、提醒时段与通道偏好，不会影响案件数据。</p>
 
-      <el-form label-width="110px" size="default" class="profile-form">
+      <el-form label-width="100px" size="default" class="profile-form">
         <el-form-item label="姓名">
           <span class="profile-value">{{ profileStore.name || '未设置' }}</span>
         </el-form-item>

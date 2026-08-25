@@ -71,7 +71,7 @@ onMounted(() => {
     <el-card>
       <template #header><strong>⚙️ 通用设置</strong></template>
 
-      <el-form label-width="140px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="案件文件夹路径">
           <div class="folder-input">
             <el-input v-model="settingsStore.caseFolderBase" placeholder="默认: ~/Documents/Casy/cases" readonly />

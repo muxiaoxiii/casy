@@ -617,7 +617,7 @@ onMounted(async () => {
 
     <!-- 添加子块对话框 -->
     <el-dialog v-model="showAddBlockDialog" title="添加子块" width="520px">
-      <el-form label-width="70px">
+      <el-form label-width="80px">
         <el-form-item label="标题">
           <el-input v-model="addBlockForm.title" placeholder="子块标题" maxlength="100" />
         </el-form-item>

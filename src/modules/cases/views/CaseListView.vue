@@ -188,7 +188,7 @@ async function exportCases() {
     </div>
 
     <!-- 新建案件弹窗 -->
-    <el-dialog v-model="showCreateDialog" title="新建案件" width="500">
+    <el-dialog v-model="showCreateDialog" title="新建案件" width="560">
       <el-form label-width="80px">
         <el-form-item label="案件名称" required>
           <el-input v-model="newCase.caseName" placeholder="如：隆基244号无效" />

@@ -164,7 +164,7 @@ onMounted(() => {
     </el-table>
 
     <el-dialog v-model="dialogVisible" :title="editingRule ? '编辑提醒规则' : '新建提醒规则'" width="460px">
-      <el-form label-width="90px">
+      <el-form label-width="80px">
         <el-form-item label="规则名称">
           <el-input v-model="form.name" placeholder="如：期限前 7 天提醒" />
         </el-form-item>

@@ -53,7 +53,7 @@ async function testWebdavConnection() {
 
       <p class="tip">通过 WebDAV 同步数据库到云端，支持坚果云、NextCloud 等服务。</p>
 
-      <el-form label-width="120px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="WebDAV URL">
           <el-input
             v-model="settingsStore.webdavUrl"

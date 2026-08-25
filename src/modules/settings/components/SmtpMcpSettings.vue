@@ -264,7 +264,7 @@ onMounted(loadPendingWrites)
 
       <p class="tip">用于发送日历邀请（ICS）。配置后可将日程以邮件邀请形式发给同事或客户。</p>
 
-      <el-form label-width="120px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="SMTP 服务器">
           <el-input v-model="settingsStore.smtp_host" placeholder="如 smtp.exmail.qq.com" />
         </el-form-item>
@@ -304,7 +304,7 @@ onMounted(loadPendingWrites)
         同步后提醒由日历服务商准时推送，Casy 离线也不影响。日程内容会出现在日历应用中，高敏案件请注意（可开启脱敏）。
       </p>
 
-      <el-form label-width="120px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="CalDAV 地址">
           <el-input v-model="settingsStore.caldav_url" placeholder="如 https://caldav.example.com/calendars/user/default" />
         </el-form-item>
@@ -373,7 +373,7 @@ onMounted(loadPendingWrites)
 
       <p class="tip">本地只读接口 127.0.0.1:37877，供外部 AI 工具读取案件/任务数据，重启生效。</p>
 
-      <el-form label-width="120px" size="default">
+      <el-form label-width="100px" size="default">
         <el-form-item label="启用 MCP">
           <el-switch v-model="mcpEnabled" />
           <span class="field-hint">仅监听本机回环地址，数据只读</span>

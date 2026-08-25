@@ -488,7 +488,7 @@ filtersStore.loadFilters('cases')
     </div>
 
     <!-- 保存筛选方案弹窗 -->
-    <el-dialog v-model="showSaveFilterDialog" title="保存筛选方案" width="400">
+    <el-dialog v-model="showSaveFilterDialog" title="保存筛选方案" width="480">
       <el-form label-width="80px">
         <el-form-item label="方案名称">
           <el-input v-model="savedFilterName" placeholder="如：我的待办、本月到期案件" />
