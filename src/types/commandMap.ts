@@ -26,6 +26,8 @@ import type {
   ExportResponse,
   FeishuSyncReport,
   ImportReport,
+  InboxItemDto,
+  InboxProgress,
   McpPendingWrite,
   QuickJudgeResult,
   RecordDiff,
@@ -126,6 +128,18 @@ export type CommandMap = {
   get_command_route_info: Cmd<Record<string, unknown>, CommandRoute>
   quick_judge_inbox_item: Cmd<{ id: string }, QuickJudgeResult>
   list_mcp_pending_writes: Cmd<Record<string, unknown>, McpPendingWrite[]>
+
+  // ── 收件箱域（B1 类型化首批）──
+  add_inbox_item: Cmd<{
+    sourceType: string
+    title?: string | null
+    contentText?: string | null
+    sourcePath?: string | null
+  }, string>
+  list_inbox_items: Cmd<{ status?: string }, InboxItemDto[]>
+  file_inbox_item: Cmd<{ itemId: string; caseId: string; category: string }, void>
+  dismiss_inbox_item: Cmd<{ id: string }, void>
+  get_inbox_progress: Cmd<Record<string, unknown>, InboxProgress>
 
   // ── 文书引擎 ──
   list_docsy_templates: Cmd<Record<string, unknown>, TemplateListResponse>

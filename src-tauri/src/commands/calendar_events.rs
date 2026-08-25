@@ -145,7 +145,10 @@ pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Resul
             ],
         )?;
         if changed == 0 {
-            return Err(anyhow::anyhow!("日程不存在"));
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::CALENDAR_NOT_FOUND,
+                "日程不存在",
+            )));
         }
         Ok(())
     })
@@ -173,7 +176,10 @@ pub async fn move_calendar_event(
             ],
         )?;
         if changed == 0 {
-            return Err(anyhow::anyhow!("日程不存在"));
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::CALENDAR_NOT_FOUND,
+                "日程不存在",
+            )));
         }
         Ok(())
     })

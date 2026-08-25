@@ -2,6 +2,38 @@ use super::run_blocking;
 use crate::{db, parse};
 use chrono::Datelike;
 
+/// 收件箱列表项（B1 类型化：返回侧 Value → 强类型；字段对齐 schema 全列）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxItemDto {
+    pub id: String,
+    pub source_type: String,
+    pub source_path: Option<String>,
+    pub source_url: Option<String>,
+    pub source_time: Option<String>,
+    pub title: Option<String>,
+    pub content_text: Option<String>,
+    pub ai_category: Option<String>,
+    pub ai_confidence: Option<f64>,
+    /// AI 抽取的原始 JSON（结构随文档类型变化）
+    pub ai_extracted: Option<serde_json::Value>,
+    pub ai_suggested_case_id: Option<String>,
+    pub status: String,
+    pub user_category: Option<String>,
+    pub linked_case_id: Option<String>,
+    pub created_at: Option<String>,
+    pub processed_at: Option<String>,
+}
+
+/// 批处理进度
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxProgress {
+    pub total: i64,
+    pub processed: i64,
+    pub pending: i64,
+}
+
 #[tauri::command]
 pub async fn add_inbox_item(
     source_type: String,
@@ -70,7 +102,7 @@ pub async fn add_inbox_item(
 }
 
 #[tauri::command]
-pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut sql = String::from("SELECT * FROM inbox_items WHERE 1=1");
@@ -86,25 +118,30 @@ pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<serde_json::
 
         let mut stmt = conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let items: Vec<serde_json::Value> = stmt
+        let items: Vec<InboxItemDto> = stmt
             .query_map(param_refs.as_slice(), |row| {
                 let ai_extracted: Option<String> = row.get("ai_extracted")?;
                 let parsed_extracted: Option<serde_json::Value> = ai_extracted
                     .and_then(|s| serde_json::from_str(&s).ok());
 
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>("id")?,
-                    "sourceType": row.get::<_, String>("source_type")?,
-                    "title": row.get::<_, Option<String>>("title")?,
-                    "contentText": row.get::<_, Option<String>>("content_text")?,
-                    "aiCategory": row.get::<_, Option<String>>("ai_category")?,
-                    "aiConfidence": row.get::<_, Option<f64>>("ai_confidence")?,
-                    "aiExtracted": parsed_extracted,
-                    "aiSuggestedCaseId": row.get::<_, Option<String>>("ai_suggested_case_id")?,
-                    "status": row.get::<_, String>("status")?,
-                    "linkedCaseId": row.get::<_, Option<String>>("linked_case_id")?,
-                    "createdAt": row.get::<_, Option<String>>("created_at")?,
-                }))
+                Ok(InboxItemDto {
+                    id: row.get::<_, String>("id")?,
+                    source_type: row.get::<_, String>("source_type")?,
+                    source_path: row.get::<_, Option<String>>("source_path")?,
+                    source_url: row.get::<_, Option<String>>("source_url")?,
+                    source_time: row.get::<_, Option<String>>("source_time")?,
+                    title: row.get::<_, Option<String>>("title")?,
+                    content_text: row.get::<_, Option<String>>("content_text")?,
+                    ai_category: row.get::<_, Option<String>>("ai_category")?,
+                    ai_confidence: row.get::<_, Option<f64>>("ai_confidence")?,
+                    ai_extracted: parsed_extracted,
+                    ai_suggested_case_id: row.get::<_, Option<String>>("ai_suggested_case_id")?,
+                    status: row.get::<_, String>("status")?,
+                    user_category: row.get::<_, Option<String>>("user_category")?,
+                    linked_case_id: row.get::<_, Option<String>>("linked_case_id")?,
+                    created_at: row.get::<_, Option<String>>("created_at")?,
+                    processed_at: row.get::<_, Option<String>>("processed_at")?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -125,7 +162,12 @@ pub async fn process_inbox_item(id: String) -> Result<serde_json::Value, String>
                 rusqlite::params![id],
                 |r| r.get(0),
             )
-            .map_err(|_| anyhow::anyhow!("收件项不存在"))?;
+            .map_err(|e| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::INBOX_NOT_FOUND,
+                    format!("收件项不存在: {id} ({e})"),
+                ))
+            })?;
 
         // 尝试 AI 分类（使用 prompt 增强）
         let ai_config = crate::ai::load_ai_config();
@@ -766,11 +808,20 @@ pub async fn file_inbox_item(
                 rusqlite::params![item_id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(|e| anyhow::anyhow!("收件项不存在: {}", e))?;
+            .map_err(|e| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::INBOX_NOT_FOUND,
+                    format!("收件项不存在: {item_id} ({e})"),
+                ))
+            })?;
 
         // 获取案件信息
-        let case = db::cases::get_case(&conn, &case_id)
-            .map_err(|e| anyhow::anyhow!("案件不存在: {}", e))?;
+        let case = db::cases::get_case(&conn, &case_id).map_err(|e| {
+            anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::CASE_NOT_FOUND,
+                format!("案件不存在: {case_id} ({e})"),
+            ))
+        })?;
 
         // 如果有源文件，归档到案件目录
         let filed_path = if let Some(ref path_str) = source_path {
@@ -817,10 +868,16 @@ pub async fn file_inbox_item(
 pub async fn dismiss_inbox_item(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE inbox_items SET status = 'dismissed', processed_at = ?1 WHERE id = ?2",
             rusqlite::params![db::now_local(), id],
         )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::INBOX_NOT_FOUND,
+                format!("收件项不存在: {id}"),
+            )));
+        }
         Ok(())
     })
     .await
@@ -904,7 +961,12 @@ pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, Stri
                 rusqlite::params![id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
-            .map_err(|_| anyhow::anyhow!("收件项不存在"))?;
+            .map_err(|e| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::INBOX_NOT_FOUND,
+                    format!("收件项不存在: {id} ({e})"),
+                ))
+            })?;
 
         // 有源文件 → 文件归档意图；纯文本 → 文本意图判断（设计哲学 §10）
         let result = if source_path.is_some() {
@@ -1612,8 +1674,8 @@ pub async fn cancel_inbox_batch() -> Result<(), String> {
 
 /// 获取收件箱处理进度（占位）
 #[tauri::command]
-pub async fn get_inbox_progress() -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({"total": 0, "processed": 0, "pending": 0}))
+pub async fn get_inbox_progress() -> Result<InboxProgress, String> {
+    Ok(InboxProgress { total: 0, processed: 0, pending: 0 })
 }
 
 /// 重试收件箱项（占位）

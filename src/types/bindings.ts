@@ -26,6 +26,11 @@ export type TaskTemplate = { id: string; name: string; triggerType: string | nul
 export type FeishuSyncReport = { pulled: number; pushed: number; created: number; updated: number; skipped: number; errors: string[]; syncedAt: string }
 
 /**
+ * 收件箱列表项（B1 类型化：返回侧 Value → 强类型；字段对齐 schema 全列）
+ */
+export type InboxItemDto = { id: string; sourceType: string; sourcePath: string | null; sourceUrl: string | null; sourceTime: string | null; title: string | null; contentText: string | null; aiCategory: string | null; aiConfidence: number | null; aiExtracted: any | null; aiSuggestedCaseId: string | null; status: string; userCategory: string | null; linkedCaseId: string | null; createdAt: string | null; processedAt: string | null }
+
+/**
  * ai_chat 返回体（K-3 归因）：content + 本次对话的 ai_runs 关联键
  */
 export type AiChatResult = { content: string; runId: string | null }
@@ -68,8 +73,6 @@ export type DeadlineWarning = { deadlineId: string; caseId: string; caseName: st
  */
 export type RelatedCase = { relationId: string; relationType: string; label: string | null; caseId: string; caseName: string; caseNo: string | null; caseStatus: string | null; clientName: string; track: string }
 
-export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
-
 export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | null; model: string | null; dailyLimit: number | null }
 
 /**
@@ -78,14 +81,16 @@ export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | n
 export type RecordDiff = { same: RecordDiffItem[]; feishuOnly: RecordDiffItem[]; localOnly: RecordDiffItem[]; conflict: RecordDiffItem[] }
 
 /**
+ * 即时判断结果
+ */
+export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
+
+/**
  * 命令路由信息
  */
 export type CommandRoute = { commandName: string; routeType: string; description: string; requiresConfirmation: boolean; minConfirmLevel: string }
 
-/**
- * 即时判断结果
- */
-export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
+export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 /**
  * 导出结果响应
@@ -136,6 +141,11 @@ export type RecordDiffItem = { recordId: string | null; localId: string | null; 
 export type DocsyTemplate = { id: string; name: string; path: string; category: string; field_count: number; fields: TemplateField[]; description: string }
 
 export type ImportReport = { cases: number; logs: number; hearings: number; tasks: number; officials: number; errors: string[] }
+
+/**
+ * 批处理进度
+ */
+export type InboxProgress = { total: number; processed: number; pending: number }
 
 /**
  * 补同步结果
