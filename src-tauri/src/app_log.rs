@@ -16,6 +16,15 @@ pub fn log_dir_path() -> String {
     log_dir().to_string_lossy().to_string()
 }
 
+/// 追加一行崩溃记录（R-6：Rust panic 与前端异常共用目录，JSON 行，严格本地 D-13）
+pub fn append_crash_line(file_stem: &str, line: &str) {
+    use std::io::Write;
+    let path = log_dir().join(format!("{file_stem}.jsonl"));
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
 /// 初始化日志系统
 ///
 /// 输出到：
@@ -107,6 +116,18 @@ fn install_panic_hook() {
             .unwrap_or_else(|| "unknown location".to_string());
 
         tracing::error!(location = %location, payload = %payload, "PANIC");
+
+        // R-6 崩溃基线：结构化摘要写入 crash-rust.jsonl（版本号 + 时间戳；D-13 严格本地）
+        let line = serde_json::json!({
+            "ts": chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+            "version": env!("CARGO_PKG_VERSION"),
+            "kind": "rust_panic",
+            "thread": std::thread::current().name().unwrap_or("<unnamed>"),
+            "message": payload,
+            "location": location,
+        });
+        append_crash_line("crash-rust", &line.to_string());
+
         default_hook(info);
     }));
 }

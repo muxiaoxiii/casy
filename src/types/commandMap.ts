@@ -39,7 +39,10 @@ import type {
   SchemaDiff,
   SearchResult,
   SyncResult,
+  SearchTaskDto,
   SyncStatus,
+  TaskDto,
+  TaskFilter,
   TaskTemplate,
   TemplateListResponse,
   TimelineEvent,
@@ -130,6 +133,10 @@ export type CommandMap = {
   get_command_route_info: Cmd<Record<string, unknown>, CommandRoute>
   quick_judge_inbox_item: Cmd<{ id: string }, QuickJudgeResult>
   list_mcp_pending_writes: Cmd<Record<string, unknown>, McpPendingWrite[]>
+
+  // ── 任务域 ──
+  list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, TaskDto[]>
+  search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
 
   // ── 收件箱域（B1 类型化首批）──
   add_inbox_item: Cmd<{

@@ -2,7 +2,7 @@ use super::run_blocking;
 use crate::db;
 use chrono::Datelike;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskFilter {
     pub completed: Option<bool>,
@@ -60,7 +60,7 @@ pub struct SearchTaskDto {
 }
 
 #[tauri::command]
-pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, String> {
     run_blocking(move || {
         db::with_conn(|conn| {
         let mut sql = String::from("SELECT * FROM tasks WHERE 1=1");

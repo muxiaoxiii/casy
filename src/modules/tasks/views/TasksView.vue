@@ -952,18 +952,18 @@ let unregisterKeys = []
 
     <!-- Things 3 式快速捕获条（常驻，无弹窗） -->
     <div class="capture-bar">
-      <el-input
-        ref="captureInputRef"
-        v-model="captureInput"
-        placeholder="快速捕获：输入任务，回车进收件箱，Ctrl/Cmd+回车进今日"
-        clearable
-        :disabled="capturing"
-        @keydown.enter="onCaptureKeydown"
-      >
-        <template #prefix>
-          <el-icon><Plus /></el-icon>
-        </template>
-      </el-input>
+      <!-- U-3 自绘捕获输入：原生 input + 语义图标（替代 el-input） -->
+      <div class="capture-field" :class="{ disabled: capturing }">
+        <el-icon class="capture-prefix"><Plus /></el-icon>
+        <input
+          ref="captureInputRef"
+          v-model="captureInput"
+          class="capture-input-native"
+          placeholder="快速捕获：输入任务，回车进收件箱，Ctrl/Cmd+回车进今日"
+          :disabled="capturing"
+          @keydown.enter="onCaptureKeydown"
+        />
+      </div>
       <div class="capture-hint">
         <span>回车快速捕获</span>
         <span class="capture-hint-divider">·</span>
@@ -1580,6 +1580,34 @@ let unregisterKeys = []
 }
 
 /* 快速捕获条（Things 3 式） */
+.capture-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #E4E7ED;
+  border-radius: 6px;
+  padding: 0 12px;
+  height: 36px;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+.capture-field:focus-within {
+  border-color: var(--c-primary, #3E5C9A);
+  box-shadow: 0 0 0 2px rgba(62, 92, 154, 0.12);
+}
+.capture-field.disabled { opacity: 0.6; }
+.capture-prefix { color: #9BA2AF; font-size: 14px; }
+.capture-input-native {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #18181B;
+}
+.capture-input-native::placeholder { color: #A8ABB2; }
+
 .capture-bar {
   margin-bottom: 12px;
 }

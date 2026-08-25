@@ -17,12 +17,15 @@ pub mod codes {
     pub const INBOX_INVALID_STATE: &str = "CAS-3002";
     // 4xxx cases/projects
     pub const CASE_NOT_FOUND: &str = "CAS-4001";
+    pub const CASE_RELATION_INVALID: &str = "CAS-4006";
+    pub const CASE_RELATION_DUPLICATE: &str = "CAS-4007";
     pub const PROJECT_NOT_FOUND: &str = "CAS-4002";
     pub const PROJECT_HAS_ACTIVE_TASKS: &str = "CAS-4003";
     pub const PROJECT_NAME_REQUIRED: &str = "CAS-4004";
     pub const PROJECT_LEGAL_READONLY: &str = "CAS-4005";
     // 5xxx sync/integrations
     pub const SYNC_MATCH_FIELD_MISSING: &str = "CAS-5001";
+    pub const CALDAV_NOT_CONFIGURED: &str = "CAS-5002";
 }
 
 /// 组装带码错误串（供既有 `Result<T, String>` 命令签名直接返回）

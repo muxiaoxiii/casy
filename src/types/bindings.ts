@@ -21,8 +21,6 @@ export type ReminderRule = { id: string; name: string; triggerType: string; trig
  */
 export type RecentActivity = { eventType: string; title: string; detail: string | null; eventDate: string; caseId: string; caseName: string }
 
-export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
-
 export type FeishuSyncReport = { pulled: number; pushed: number; created: number; updated: number; skipped: number; errors: string[]; syncedAt: string }
 
 /**
@@ -53,6 +51,11 @@ export type RenderResponse = { html: string; text: string; used_fields: { [key: 
  * AI 处理结果（分类 + 置信度 + 抽取 + 自动路由动作）
  */
 export type ProcessedInboxResult = { category: string; confidence: number; suggestedCaseId: string | null; caseNo: string | null; extracted: any | null; routeActions: any[] }
+
+/**
+ * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
+ */
+export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null }
 
 export type Draft = { id: string; case_id: string | null; title: string; content: string | null; template_path: string | null; status: string; version: number; created_at: string; updated_at: string }
 
@@ -90,14 +93,26 @@ export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | n
 export type RecordDiff = { same: RecordDiffItem[]; feishuOnly: RecordDiffItem[]; localOnly: RecordDiffItem[]; conflict: RecordDiffItem[] }
 
 /**
+ * 补同步结果
+ */
+export type CalendarSyncReport = { total: number; synced: number; failed: number; skipped: number }
+
+/**
  * 命令路由信息
  */
 export type CommandRoute = { commandName: string; routeType: string; description: string; requiresConfirmation: boolean; minConfirmLevel: string }
+
+export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
 
 /**
  * 导出结果响应
  */
 export type ExportResponse = { output_path: string; file_size: number; exported_at: string }
+
+/**
+ * 全局搜索结果项（轻量列）
+ */
+export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 /**
  * 仪表盘聚合数据
@@ -108,6 +123,8 @@ export type DashboardStats = { activeCount: number; totalCount: number; closedCo
  * 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
  */
 export type ChatMessage = { role: string; content: string }
+
+export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
 
 export type DeadlineResult = { ruleId: string | null; ruleName: string; dueDate: string; daysLeft: number; urgency: string; deadlineSource: string; legalBasis: string | null; caseId: string; caseName: string }
 
@@ -155,11 +172,6 @@ export type ImportReport = { cases: number; logs: number; hearings: number; task
  * 即时判断结果
  */
 export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
-
-/**
- * 补同步结果
- */
-export type CalendarSyncReport = { total: number; synced: number; failed: number; skipped: number }
 
 export type TimelineEvent = { id: string; sourceTable: string; sourceId: string; eventDate: string; eventType: string; title: string; detail: string | null; icon: string; color: string }
 

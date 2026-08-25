@@ -7,6 +7,8 @@ export class TasksService extends Service {
   static inject: string[] = []
 
   async list(filter: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: Task[]; error?: string }> {
+    // TODO(B1 类型对齐)：切 CommandMap 注册表前需统一手写 Task 的字面量联合
+    // （priority/taskType/context/startBucket）与缺失字段 dueTime——涉全消费面，随主线协同
     return tauriCallSafe<Task[]>('list_tasks', { filter })
   }
 
@@ -75,6 +77,6 @@ export class TasksService extends Service {
 
   /** ⌘K 全局搜索：任务域（LIKE，本地规模足够；FTS 升级待 tasks_fts） */
   async searchTasks(query: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('search_tasks', { query })
+    return tauriCallSafe('search_tasks', { query })
   }
 }

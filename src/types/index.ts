@@ -252,10 +252,13 @@ export interface InboxItem {
 
 // ==================== 任务 ====================
 
-export type TaskPriority = 'urgent_important' | 'important' | 'urgent' | 'high' | 'normal' | 'low'
+// 与 schema CHECK 严格一致（DB 不含 high/low，历史手写为幻影成员）
+export type TaskPriority = 'urgent_important' | 'important' | 'urgent' | 'normal'
 export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'cancelled'
-export type TaskType = 'action' | 'waiting' | 'delegated' | 'someday' | 'note'
-export type Context = 'office' | 'phone' | 'court' | 'home' | 'anywhere' | 'computer' | 'outside'
+// DB 无 CHECK：约定值如下，但类型放宽为 string 以对齐 TaskDto 真实数据
+export type TaskType = string
+// DB 无 CHECK：上下文为自由文本（@前缀约定），类型放宽为 string
+export type Context = string
 export type StartBucket = 'inbox' | 'anytime' | 'someday' | 'today'
 
 /** 任务实体（GTD 字段 · 对齐后端 tasks.rs 返回） */

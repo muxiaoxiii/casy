@@ -41,7 +41,10 @@ pub async fn add_relation(
 ) -> Result<CaseRelation, String> {
     let valid_types = ["same_patent", "same_party", "appeal_of", "cross_reference"];
     if !valid_types.contains(&relation_type.as_str()) {
-        return Err(format!("无效的关系类型: {}", relation_type));
+        return Err(crate::error_code::err(
+            crate::error_code::codes::CASE_RELATION_INVALID,
+            format!("无效的关系类型: {relation_type}"),
+        ));
     }
     if case_id == related_id {
         return Err("不能与自身建立关系".to_string());
@@ -55,7 +58,16 @@ pub async fn add_relation(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![id, case_id, related_id, relation_type, label, now],
         )
-        .map_err(|e| anyhow::anyhow!(if e.to_string().contains("UNIQUE") { "该关系已存在".to_string() } else { e.to_string() }))?;
+        .map_err(|e| {
+            if e.to_string().contains("UNIQUE") {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::CASE_RELATION_DUPLICATE,
+                    "该关系已存在",
+                ))
+            } else {
+                anyhow::anyhow!(e.to_string())
+            }
+        })?;
         Ok(CaseRelation {
             id,
             source_case_id: case_id,

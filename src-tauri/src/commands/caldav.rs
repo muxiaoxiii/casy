@@ -63,7 +63,12 @@ pub(crate) fn parse_due_datetime(due_date: &str, due_time: Option<&str>) -> Opti
 fn open_client() -> Result<CalDavClient> {
     let conn = db::open_db()?;
     let config = caldav::load_caldav_config(&conn)?
-        .ok_or_else(|| anyhow::anyhow!("未配置 CalDAV（caldav_url / caldav_user / caldav_pass）"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::CALDAV_NOT_CONFIGURED,
+                "未配置 CalDAV（caldav_url / caldav_user / caldav_pass）",
+            ))
+        })?;
     CalDavClient::from_config(&config)
 }
 

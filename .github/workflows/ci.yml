@@ -1,0 +1,102 @@
+# R-3 CI 流水线（B4）
+#
+# 结构：
+#   frontend  —— typecheck + vite build（每次 push/PR）
+#   rust      —— cargo test 三平台矩阵 + bindings 漂移校验（ubuntu 承担）
+#   tauri-build —— 仅 v* tag 触发，三平台完整打包并上传 **草稿 Release**
+#
+# ── Windows runner 前置说明（SQLCipher 编译依赖）──────────────────────────
+# rusqlite 的 bundled-sqlcipher 特性会从源码编译 SQLCipher，其加密后端在
+# Windows 上要求：
+#   1. Perl        —— SQLCipher/OpenSSL 风格构建脚本需要（choco install strawberryperl）
+#   2. NASM        —— 汇编加速路径需要（choco install nasm），且需把 nasm 加入
+#                     本进程 PATH 并运行 vcvars64 使 MSVC 可见
+#   3. MSVC Build Tools —— GitHub windows-latest 自带
+# 启用 Windows 构建前先本地验证：`cargo test` 在干净 PowerShell 中通过。
+# 当前 rust 矩阵已包含 windows-latest；若首次跑红，优先排查上述三项，
+# 或临时把 windows 从矩阵移出、单独排障后再回归。
+# ────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # Windows SQLCipher 前置见文件头注释；首跑若红按注释排障后取消下行注释
+      # - if: runner.os == 'Windows'
+      #   run: choco install strawberryperl nasm
+      - run: cargo test
+      # bindings 漂移校验（D-3）：生成物过期 = 失败
+      - if: runner.os == 'Linux'
+        run: |
+          cargo test export_bindings
+          git diff --exit-code -- ../src/types/bindings.ts
+
+  # 三平台完整打包：仅在 v* tag 上执行，产物进草稿 Release（R-2 签名由主线就绪后接入）
+  tauri-build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [frontend, rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundles: 'src-tauri/target/release/bundle/deb/*.deb;src-tauri/target/release/bundle/appimage/*.AppImage'
+          - os: macos-latest
+            bundles: 'src-tauri/target/release/bundle/dmg/*.dmg;src-tauri/target/release/bundle/macos/*.app.tar.gz'
+          - os: windows-latest
+            bundles: 'src-tauri/target/release/bundle/msi/*.msi;src-tauri/target/release/bundle/nsis/*.exe'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # Windows 打包前置同文件头注释；未签名产物仅供内测草稿
+      - run: npm run tauri build
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: ${{ matrix.bundles }}
