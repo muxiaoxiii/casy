@@ -47,6 +47,9 @@ const props = defineProps<{
   snoozeOptions?: Array<{ value: string; label: string }>
   resolveCaseName?: (id: string) => string
   resolveAreaName?: (id: string) => string
+  /** A1-4 子任务 */
+  hasChildren?: boolean
+  expanded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -59,6 +62,7 @@ const emit = defineEmits<{
   (e: 'delete', task: RowTask): void
   (e: 'reviewed', task: RowTask): void
   (e: 'follow-up', task: RowTask): void
+  (e: 'toggle-expand', task: RowTask): void
 }>()
 
 const done = computed(() => props.task.completed === 1)
@@ -86,6 +90,15 @@ function areaName(id: string | null | undefined): string {
       blocked: task.blocked === 1,
     }"
   >
+    <!-- 子任务展开钮（Things3 惯例：有子项时显示） -->
+    <span
+      v-if="hasChildren"
+      class="twistie"
+      :class="{ open: expanded }"
+      @click.stop="emit('toggle-expand', task)"
+    >▸</span>
+    <span v-else class="twistie-spacer" />
+
     <!-- 完成圆圈：Things3 式填充动画 -->
     <div class="task-check" :class="{ done }" @click="emit('toggle', task)">
       <el-icon v-if="done"><Check /></el-icon>
@@ -215,6 +228,21 @@ function areaName(id: string | null | undefined): string {
 </template>
 
 <style scoped>
+/* ── 子任务展开钮 ── */
+.twistie {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+  color: #9BA2AF;
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--ease-out);
+  user-select: none;
+}
+.twistie.open { transform: rotate(90deg); }
+.twistie:hover { color: #18181B; }
+.twistie-spacer { width: 14px; flex-shrink: 0; }
+
 /* ── 行容器 ── */
 .task-card {
   display: flex;

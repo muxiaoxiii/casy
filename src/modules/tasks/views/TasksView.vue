@@ -68,7 +68,29 @@ const editForm = ref({
   startBucket: 'anytime',
   // 时间块排程（设计哲学 §7.2）
   timeBlock: '', // morning/afternoon/evening/night/flex
+  // A1-5 重复（kind 是 UI 拆解，rule 是落库串）
+  recurrenceRule: '',
+  recurrenceKind: '',
+  recurrenceWeekday: 1,
+  recurrenceMonthDay: 1,
 })
+
+/** rule 串 → 表单拆解字段 */
+function formFromRule(rule) {
+  const r = rule || ''
+  if (r === 'daily' || r === 'weekdays') return { recurrenceKind: r, recurrenceWeekday: 1, recurrenceMonthDay: 1 }
+  if (r.startsWith('weekly:')) return { recurrenceKind: '__weekly__', recurrenceWeekday: Number(r.split(':')[1]) || 1, recurrenceMonthDay: 1 }
+  if (r.startsWith('monthly:')) return { recurrenceKind: '__monthly__', recurrenceWeekday: 1, recurrenceMonthDay: Number(r.split(':')[1]) || 1 }
+  return { recurrenceKind: '', recurrenceWeekday: 1, recurrenceMonthDay: 1 }
+}
+
+/** 表单 → rule 串 */
+function ruleFromForm(f) {
+  if (f.recurrenceKind === 'daily' || f.recurrenceKind === 'weekdays') return f.recurrenceKind
+  if (f.recurrenceKind === '__weekly__') return `weekly:${f.recurrenceWeekday}`
+  if (f.recurrenceKind === '__monthly__') return `monthly:${f.recurrenceMonthDay || 1}`
+  return null
+}
 const savingTask = ref(false)
 const caseSearchQuery = ref('')
 const caseSearchResults = ref([])
@@ -303,6 +325,45 @@ async function onTodayDragEnd(evt) {
   }
 }
 
+// ── A1-4 子任务（parent_task_id 自引用）──
+const expandedParents = ref(new Set())
+const newChildText = ref({})
+
+const childrenMap = computed(() => {
+  const m = new Map()
+  for (const t of tasks.value) {
+    if (!t.parentId) continue
+    if (!m.has(t.parentId)) m.set(t.parentId, [])
+    m.get(t.parentId).push(t)
+  }
+  return m
+})
+
+function toggleExpand(task) {
+  const s = expandedParents.value
+  if (s.has(task.id)) s.delete(task.id)
+  else s.add(task.id)
+}
+
+async function addChild(parent) {
+  const name = (newChildText.value[parent.id] || '').trim()
+  if (!name) return
+  const result = await casyContext.tasks.create({
+    taskName: name,
+    parentId: parent.id,
+    startBucket: parent.startBucket || 'anytime',
+    dueDate: parent.dueDate || parent.deadline || null,
+    taskType: 'action',
+  })
+  if (result.ok) {
+    newChildText.value[parent.id] = ''
+    expandedParents.value.add(parent.id)
+    await loadTasks()
+  } else {
+    ElMessage.error(result.error || '子任务创建失败')
+  }
+}
+
 // GTD 统计
 const gtdStats = computed(() => {
   const today = new Date().toISOString().split('T')[0]
@@ -466,6 +527,7 @@ function openDrawer(task) {
     estimatedMinutes: task.estimatedMinutes || null,
     startBucket: task.startBucket || 'anytime',
     timeBlock: task.timeBlock || '',
+    ...formFromRule(task.recurrenceRule),
   }
   caseSearchQuery.value = ''
   caseSearchResults.value = []
@@ -482,6 +544,7 @@ async function saveTask() {
     id: editingTask.value.id,
     ...editForm.value,
     flagged: editForm.value.flagged ? 1 : 0,
+    recurrenceRule: ruleFromForm(editForm.value),
   }
   const result = await casyContext.tasks.update(data)
   savingTask.value = false
@@ -1014,6 +1077,8 @@ function handleKeydown(e) {
               :snooze-options="snoozeOptions"
               :resolve-case-name="getCaseName"
               :resolve-area-name="getAreaName"
+              :has-children="childrenMap.has(task.id)"
+              :expanded="expandedParents.has(task.id)"
               @toggle="toggleComplete"
               @open="openDrawer"
               @triage="openTriage"
@@ -1023,7 +1088,36 @@ function handleKeydown(e) {
               @delete="deleteTask"
               @reviewed="markReviewed"
               @follow-up="openFollowUp"
+              @toggle-expand="toggleExpand"
             />
+            <!-- A1-4 子任务区：展开后内联渲染 + 快速添加 -->
+            <template v-if="expandedParents.has(task.id)">
+              <div
+                v-for="child in (childrenMap.get(task.id) || [])"
+                :key="'sub-' + child.id"
+                class="subtask-wrap"
+              >
+                <TaskRow
+                  :task="child"
+                  :perspective="activePerspective"
+                  :snooze-options="snoozeOptions"
+                  :resolve-case-name="getCaseName"
+                  :resolve-area-name="getAreaName"
+                  @toggle="toggleComplete"
+                  @open="openDrawer"
+                  @delete="deleteTask"
+                  @snooze="snoozeTask"
+                />
+              </div>
+              <div class="subtask-add">
+                <el-input
+                  v-model="newChildText[task.id]"
+                  size="small"
+                  placeholder="+ 子任务，回车添加"
+                  @keyup.enter="addChild(task)"
+                />
+              </div>
+            </template>
           </component>
         </div>
       </template>
@@ -1251,7 +1345,35 @@ function handleKeydown(e) {
             <el-option label="某天" value="someday" />
           </el-select>
         </el-form-item>
-        
+
+        <!-- A1-5 重复任务最小集 -->
+        <el-form-item label="重复">
+          <div style="display: flex; gap: 8px; width: 100%;">
+            <el-select v-model="editForm.recurrenceKind" clearable placeholder="不重复" style="flex: 1;">
+              <el-option label="每天" value="daily" />
+              <el-option label="工作日" value="weekdays" />
+              <el-option label="每周…" value="__weekly__" />
+              <el-option label="每月…" value="__monthly__" />
+            </el-select>
+            <el-select
+              v-if="editForm.recurrenceKind === '__weekly__'"
+              v-model="editForm.recurrenceWeekday"
+              placeholder="周几"
+              style="width: 120px;"
+            >
+              <el-option v-for="(n, i) in weekDays" :key="n" :label="'周' + n" :value="i + 1" />
+            </el-select>
+            <el-input-number
+              v-if="editForm.recurrenceKind === '__monthly__'"
+              v-model="editForm.recurrenceMonthDay"
+              :min="1"
+              :max="31"
+              placeholder="几号"
+              style="width: 120px;"
+            />
+          </div>
+        </el-form-item>
+
         <!-- 时间块排程（设计哲学 §7.2） -->
         <el-form-item label="时间块">
           <el-select v-model="editForm.timeBlock" clearable placeholder="选择时间块（可选）" style="width: 100%">
@@ -1542,6 +1664,11 @@ function handleKeydown(e) {
   margin: 12px 0;
   font-size: 14px;
 }
+
+
+/* A1-4 子任务：缩进与快速添加 */
+.subtask-wrap { padding-left: 30px; }
+.subtask-add { padding: 2px 0 4px 34px; }
 
 .task-list {
   display: flex;

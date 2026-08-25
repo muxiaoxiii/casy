@@ -291,6 +291,9 @@ export interface Task {
   areaId: string | null
   knowledgeId: string | null
   caseId: string | null
+  // A1-4/A1-5（M-GTD-2）
+  parentId?: string | null         // 父任务（子任务自引用）
+  recurrenceRule?: string | null   // 'daily'|'weekdays'|'weekly:<1-7>'|'monthly:<DD>'
 }
 
 /** 任务过滤条件 */
