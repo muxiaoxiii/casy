@@ -857,7 +857,7 @@ const nowLineTop = computed(() => {
   return ((minutes - from) / span) * 100
 })
 
-/** 时刻线仅横贯今日列（Google Calendar 惯例） */
+/** 时刻线仅横贯今日列（Google Calendar 惯例）；top 相对 .week-body（恰为可见 840 分钟） */
 const nowLineStyle = computed(() => {
   if (nowLineTop.value === null) return { display: 'none' }
   const d = new Date()
@@ -875,6 +875,105 @@ function getWeekDay(dayIndex) {
   const diff = dayIndex - currentDay
   d.setDate(d.getDate() + diff)
   return d
+}
+
+// ── 周视图时长定位（Google Calendar 式）──────────────────
+const WEEK_START_MIN = 7 * 60   // 07:00
+const WEEK_SPAN_MIN = 14 * 60   // 至 21:00
+
+function toMin(t) {
+  if (!t) return null
+  const parts = String(t).split(':')
+  const h = Number(parts[0])
+  if (Number.isNaN(h)) return null
+  return h * 60 + (Number(parts[1]) || 0)
+}
+
+/** 七日列数据：allday chips + timed 绝对定位块（重叠聚类 → 贪心分列） */
+const weekColumns = computed(() => {
+  return Array.from({ length: 7 }, (_, di) => {
+    const date = getWeekDay(di + 1)
+    const dateStr = formatDate(date)
+
+    const allday = []
+    const timed = []
+    for (const e of events.value.filter(x => x.date === dateStr)) {
+      if (!e.time) {
+        allday.push({ ev: { ...e, isTask: false } })
+      } else {
+        timed.push({ ...e, isTask: false })
+      }
+    }
+    // 有具体时刻的任务并入时间块（§7：日历+待办合一）
+    for (const t of tasksForDay(date)) {
+      if (t.completed || !t.dueTime) continue
+      timed.push({
+        ...t,
+        id: 'task-' + t.id,
+        title: t.taskName,
+        time: t.dueTime,
+        endTime: null,
+        isTask: true,
+      })
+    }
+
+    const positioned = timed.map(e => {
+      let s = toMin(e.time) ?? WEEK_START_MIN
+      let en = toMin(e.endTime) ?? s + 60
+      s = Math.max(WEEK_START_MIN, Math.min(s, WEEK_START_MIN + WEEK_SPAN_MIN))
+      en = Math.max(s + 45, Math.min(en, WEEK_START_MIN + WEEK_SPAN_MIN))
+      return { ev: e, start: s, end: en }
+    })
+
+    positioned.sort((a, b) => a.start - b.start || a.end - b.end)
+    const clusters = []
+    let cur = null
+    for (const p of positioned) {
+      if (cur && p.start < cur.end) {
+        cur.items.push(p)
+        cur.end = Math.max(cur.end, p.end)
+      } else {
+        cur = { items: [p], end: p.end }
+        clusters.push(cur)
+      }
+    }
+    for (const cl of clusters) {
+      const colEnds = []
+      for (const p of cl.items) {
+        let ci = colEnds.findIndex(end => end <= p.start)
+        if (ci === -1) {
+          colEnds.push(p.end)
+          ci = colEnds.length - 1
+        } else {
+          colEnds[ci] = p.end
+        }
+        p.col = ci
+      }
+      const cols = colEnds.length
+      for (const p of cl.items) {
+        p.style = {
+          top: `${((p.start - WEEK_START_MIN) / WEEK_SPAN_MIN) * 100}%`,
+          height: `max(${((p.end - p.start) / WEEK_SPAN_MIN) * 100}%, 26px)`,
+          left: `calc(${(p.col / cols) * 100}% + 2px)`,
+          width: `calc(${100 / cols}% - 4px)`,
+        }
+        p.label = `${Math.floor(p.start / 60)}:${String(p.start % 60).padStart(2, '0')}${p.ev.endTime ? ' - ' + p.ev.endTime : ''}`
+      }
+    }
+
+    return { allday, timed: positioned }
+  })
+})
+
+/** 投放换算：timed 层按 offsetY 反解小时；allday 层 hour=null */
+function onDropToSlot(e, dayIndex, kind) {
+  let hour = null
+  if (kind === 'timed') {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = (e.clientY - rect.top) / rect.height
+    hour = Math.min(21, Math.max(7, Math.floor(WEEK_START_MIN / 60 + ratio * 14)))
+  }
+  onDropToTime(formatDate(getWeekDay(dayIndex)), hour)
 }
 
 function getWeekDayHourEvents(date, hour) {
@@ -921,8 +1020,11 @@ function onDragOver(dateStr, event) {
 async function onDropToTime(dateStr, hour) {
   if (!draggedTask.value) return
   const task = draggedTask.value
-  const timeStr = String(hour).padStart(2, '0') + ':00'
-  if (task.dueDate === dateStr && (task.dueTime || '00:00').slice(0, 2) === String(hour).padStart(2, '0')) return
+  // 全天投放（hour=null）：保留原时刻或默认 09:00
+  const timeStr = hour == null
+    ? (task.dueTime || '09:00')
+    : String(hour).padStart(2, '0') + ':00'
+  if (task.dueDate === dateStr && (task.dueTime || '00:00').slice(0, 2) === timeStr.slice(0, 2)) return
   const result = await casyContext.tasks.update({
     id: task.id,
     dueDate: dateStr,
@@ -1199,11 +1301,9 @@ async function onDrop(dateStr, event) {
       </div>
     </div>
 
-    <!-- 周视图（时间块） -->
+    <!-- 周视图（时间块 · Google Calendar 式时长定位） -->
     <div v-if="activeView === 'week'" class="week-container">
       <div class="week-grid">
-        <!-- 当前时刻线（仅今日列，7:00-21:00 可见区间内） -->
-        <div v-if="nowLineStyle" class="now-line" :style="nowLineStyle" />
         <!-- 时间轴 + 星期头 -->
         <div class="week-header-row">
           <div class="week-time-gutter" />
@@ -1215,26 +1315,72 @@ async function onDrop(dateStr, event) {
           </div>
         </div>
 
-        <!-- 时间行 -->
-        <div v-for="hour in weekHours" :key="hour" class="week-hour-row">
-          <div class="week-time-label">{{ String(hour).padStart(2, '0') }}:00</div>
-          <div v-for="day in 7" :key="day" class="week-cell" :class="{ today: isToday(getWeekDay(day)) }">
+        <!-- 全天 / 无固定时刻行 -->
+        <div class="week-allday-row">
+          <div class="week-time-label">全天</div>
+          <div
+            v-for="day in 7"
+            :key="'a' + day"
+            class="week-allday-cell"
+            :class="{ today: isToday(getWeekDay(day)) }"
+          >
             <div
-              v-for="ev in getWeekDayHourEvents(getWeekDay(day), hour)"
-              :key="ev.id"
-              class="week-event"
-              :class="{ 'week-event-task': ev.isTask }"
-              :style="{ borderLeftColor: ev.isTask ? '#3E5C9A' : getEventColor(ev), background: ev.isTask ? '#EFF4FC' : getEventBgColor(ev) }"
+              v-for="p in weekColumns[day - 1].allday"
+              :key="p.ev.id"
+              class="week-event allday-chip"
+              :style="{ borderLeftColor: getEventColor(p.ev), background: getEventBgColor(p.ev) }"
             >
-              <span class="week-event-title">{{ ev.title }}</span>
-              <span class="week-event-time">{{ ev.time }}</span>
+              <span class="week-event-title">{{ p.ev.title }}</span>
             </div>
             <div
               class="week-dropzone"
               @dragover.prevent
-              @drop.prevent="onDropToTime(formatDate(getWeekDay(day)), hour)"
+              @drop.prevent="onDropToSlot($event, day, null)"
             />
           </div>
+        </div>
+
+        <!-- 时段主体：背景小时线 + 绝对定位事件层（时长渲染 + 重叠分列） -->
+        <div class="week-body">
+          <div v-for="hour in weekHours" :key="hour" class="week-hour-row">
+            <div class="week-time-label">{{ String(hour).padStart(2, '0') }}:00</div>
+            <div
+              v-for="day in 7"
+              :key="day"
+              class="week-cell-bg"
+              :class="{ today: isToday(getWeekDay(day)) }"
+            />
+          </div>
+
+          <div
+            v-for="day in 7"
+            :key="'c' + day"
+            class="week-day-layer"
+            :style="{
+              left: `calc(56px + (100% - 56px) * ${(day - 1) / 7})`,
+              width: `calc((100% - 56px) / 7)`,
+            }"
+            @dragover.prevent
+            @drop.prevent="onDropToSlot($event, day, 'timed')"
+          >
+            <div
+              v-for="p in weekColumns[day - 1].timed"
+              :key="p.ev.id"
+              class="week-event-abs"
+              :class="{ 'week-event-task': p.ev.isTask }"
+              :style="{
+                ...p.style,
+                borderLeftColor: p.ev.isTask ? '#3E5C9A' : getEventColor(p.ev),
+                background: p.ev.isTask ? '#EFF4FC' : getEventBgColor(p.ev),
+              }"
+            >
+              <span class="we-title">{{ p.ev.title }}</span>
+              <span class="we-time">{{ p.label }}</span>
+            </div>
+          </div>
+
+          <!-- 当前时刻线（相对时段主体，仅今日列） -->
+          <div v-if="nowLineStyle" class="now-line" :style="nowLineStyle" />
         </div>
       </div>
     </div>
@@ -2046,6 +2192,73 @@ async function onDrop(dateStr, event) {
 .week-event-time {
   font-size: 10px;
   color: #9BA2AF;
+}
+
+/* ── 周视图 v2：时长定位层（Google Calendar 式）── */
+.week-allday-row {
+  display: grid;
+  grid-template-columns: 56px repeat(7, 1fr);
+  border-bottom: 1px solid #E4E7ED;
+  min-height: 30px;
+}
+.week-allday-cell {
+  border-left: 1px solid #EEF0F3;
+  padding: 2px 3px;
+  position: relative;
+  min-height: 30px;
+}
+.week-allday-cell.today { background: rgba(62, 92, 154, 0.03); }
+.allday-chip {
+  display: block;
+}
+
+.week-body {
+  position: relative;
+}
+/* 背景小时行：纯线条，不承载内容 */
+.week-body .week-hour-row {
+  min-height: 48px;
+}
+.week-cell-bg {
+  border-left: 1px solid #EEF0F3;
+}
+.week-cell-bg.today { background: rgba(62, 92, 154, 0.03); }
+
+/* 每日定位层：覆盖时段主体的一列，自身接收拖放 */
+.week-day-layer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: auto;
+}
+.week-event-abs {
+  position: absolute;
+  overflow: hidden;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border-left: 3px solid;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: box-shadow var(--motion-fast) var(--ease-out);
+  z-index: 1;
+}
+.week-event-abs:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  z-index: 2;
+}
+.we-title {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: #27272A;
+}
+.we-time {
+  display: block;
+  font-size: 10px;
+  color: #6B7280;
 }
 
 /* ============================================================
