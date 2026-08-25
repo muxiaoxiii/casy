@@ -855,7 +855,6 @@ pub async fn feishu_import_all(
 ) -> Result<ImportResult, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
 
         // 获取所有飞书记录
         let records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
@@ -899,7 +898,6 @@ pub async fn feishu_import_selected(
 ) -> Result<ImportResult, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
 
         // 获取所有记录（飞书 API 不支持按 record_id 过滤）
         let all_records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
@@ -948,7 +946,6 @@ pub async fn feishu_import_incremental(
 ) -> Result<ImportResult, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
 
         // 解析时间
         let since_dt = chrono::NaiveDateTime::parse_from_str(
@@ -1226,11 +1223,10 @@ pub async fn feishu_sync_pull(
     app_token: String,
     table_id: String,
     local_table: String,
-    mappings_json: serde_json::Value,
+    mappings: Vec<MappingEntry>,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
         let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
             .into_iter()
             .map(|m| sync::feishu::SyncMappingEntry {
@@ -1254,11 +1250,10 @@ pub async fn feishu_sync_push(
     app_token: String,
     table_id: String,
     local_table: String,
-    mappings_json: serde_json::Value,
+    mappings: Vec<MappingEntry>,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
         let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
             .into_iter()
             .map(|m| sync::feishu::SyncMappingEntry {

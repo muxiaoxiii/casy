@@ -679,11 +679,14 @@ function goToCase(id) {
   background: var(--c-surface);
   border-radius: var(--radius-card);
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
 }
 
 .summary-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .summary-icon {
@@ -990,7 +993,7 @@ function goToCase(id) {
   margin-bottom: 8px;
   background: var(--c-surface);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
 
 .reco-item:hover {
@@ -1084,7 +1087,7 @@ function goToCase(id) {
   border-radius: 6px;
   font-size: 12.5px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
 
 .warning-item.level-r1 {

@@ -46,6 +46,9 @@
   --c-bg-page: #F6F7F9;
   --c-bg-card: #FFFFFF;
   --c-bg-sidebar: #FFFFFF;
+  /* 别名（视图层既有引用，集中在此定义防静默失效） */
+  --c-surface: var(--c-bg-card);
+  --c-text-muted: var(--c-text-secondary);
   --c-bg-hover: #F0F2F5;
   --c-border: #E0E3E9;
   --c-border-light: #EEF0F3;
@@ -57,6 +60,7 @@
   --c-radius-lg: 8px;
   --c-radius-xl: 12px;
   --c-radius-full: 9999px;
+  --radius-card: var(--c-radius-lg);
 
   /* ── 阴影（克制）──────────────────────────────────── */
   --shadow-sm: 0 1px 2px rgba(31,36,48,.05);
