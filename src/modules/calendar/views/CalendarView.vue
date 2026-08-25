@@ -976,6 +976,67 @@ function onDropToSlot(e, dayIndex, kind) {
   onDropToTime(formatDate(getWeekDay(dayIndex)), hour)
 }
 
+// ── 日视图时间轴（Sunsama 式单日排期）──────────────────
+const selectedDateStr = computed(() => formatDate(selectedDay.value?.date || new Date()))
+const isTodaySelected = computed(() => isToday(selectedDay.value?.date || new Date()))
+
+/** 当日时间块：有时刻的日程 + 未完成任务(dueTime)，统一绝对定位 */
+const dayTimedItems = computed(() => {
+  const d = selectedDay.value?.date || new Date()
+  const evs = eventsForDay(d)
+    .filter(e => e.time)
+    .map(e => ({ ...e, isTask: false }))
+  const tks = tasksForDay(d)
+    .filter(t => !t.completed && t.dueTime)
+    .map(t => ({
+      id: 'task-' + t.id,
+      title: t.taskName,
+      time: t.dueTime,
+      endTime: null,
+      isTask: true,
+    }))
+
+  return [...evs, ...tks].map(e => {
+    let s = toMin(e.time) ?? WEEK_START_MIN
+    let en = toMin(e.endTime) ?? s + 60
+    s = Math.max(WEEK_START_MIN, Math.min(s, WEEK_START_MIN + WEEK_SPAN_MIN))
+    en = Math.max(s + 40, Math.min(en, WEEK_START_MIN + WEEK_SPAN_MIN))
+    return {
+      ev: e,
+      style: {
+        top: `${((s - WEEK_START_MIN) / WEEK_SPAN_MIN) * 100}%`,
+        height: `max(${((en - s) / WEEK_SPAN_MIN) * 100}%, 24px)`,
+        left: '4px',
+        right: '6px',
+      },
+      time: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`,
+    }
+  })
+})
+
+/** 拖入日时间轴：按 offsetY 反解整点，落库 dueDate+dueTime */
+async function onDropToDayHour(e) {
+  if (!draggedTask.value) return
+  const rect = e.currentTarget.getBoundingClientRect()
+  const ratio = (e.clientY - rect.top) / rect.height
+  const minutes = WEEK_START_MIN + Math.floor((ratio * WEEK_SPAN_MIN) / 60) * 60
+  const hhmm = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:00`
+  const dateStr = selectedDateStr.value
+
+  const task = draggedTask.value
+  const result = await casyContext.tasks.update({
+    id: task.id,
+    dueDate: dateStr,
+    deadline: dateStr,
+    dueTime: hhmm,
+  })
+  if (result.ok) {
+    ElMessage.success(`已排期到 ${dateStr} ${hhmm}`)
+    await loadTasks()
+  }
+  draggedTask.value = null
+}
+
 function getWeekDayHourEvents(date, hour) {
   const dateStr = formatDate(date)
   const evs = events.value.filter(e => {
@@ -1388,56 +1449,48 @@ async function onDrop(dateStr, event) {
     <!-- 日视图（硬性/弹性/成长时间块 · 设计哲学 §7） -->
     <div v-if="activeView === 'day'" class="day-container">
       <div class="day-grid">
-        <!-- 左：时间轴 -->
+        <!-- 左：小时时间轴（Sunsama 式 · §7 硬性红/弹性蓝语义着色） -->
         <div class="day-timeline">
           <div class="day-header">
             <span class="day-header-date">{{ formatDate(selectedDay?.date || new Date()) }}</span>
             <span class="day-header-weekday">周{{ weekDays[(selectedDay?.date || new Date()).getDay() === 0 ? 6 : (selectedDay?.date || new Date()).getDay() - 1] }}</span>
           </div>
 
-          <!-- 硬性日程区 -->
-          <div class="day-section">
-            <div class="day-section-label hard">
-              <el-icon><Bell /></el-icon> 硬性日程
+          <div
+            class="day-hour-body"
+            @dragover.prevent
+            @drop.prevent="onDropToDayHour($event)"
+          >
+            <div v-for="hour in weekHours" :key="hour" class="week-hour-row">
+              <span class="week-time-label">{{ String(hour).padStart(2, '0') }}:00</span>
+              <div class="day-cell-bg" />
+            </div>
+            <div class="day-event-layer">
+              <div
+                v-for="p in dayTimedItems"
+                :key="p.ev.id"
+                class="week-event-abs"
+                :class="{ 'week-event-task': p.ev.isTask }"
+                :style="{
+                  ...p.style,
+                  borderLeftColor: p.ev.isTask ? '#3E5C9A' : getEventColor(p.ev),
+                  background: p.ev.isTask ? '#EFF4FC' : getEventBgColor(p.ev),
+                }"
+              >
+                <span class="we-title">{{ p.ev.title }}</span>
+                <span class="we-time">{{ p.time }}</span>
+              </div>
             </div>
             <div
-              v-for="event in (selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date())).filter(e => e.type === 'court' || e.type === 'hearing')"
-              :key="event.id"
-              class="day-slot hard"
-            >
-              <span class="slot-time">{{ event.time || '--:--' }}</span>
-              <span class="slot-title">{{ event.title }}</span>
-              <el-tag size="small" type="danger">硬性</el-tag>
-            </div>
-            <div v-if="(selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date())).filter(e => e.type === 'court' || e.type === 'hearing').length === 0" class="day-empty">
-              无硬性日程
-            </div>
-          </div>
-
-          <!-- 弹性任务区 -->
-          <div class="day-section">
-            <div class="day-section-label flex">
-              <el-icon><Finished /></el-icon> 弹性任务
-            </div>
-            <div
-              v-for="task in (selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).filter(t => !t.completed)"
-              :key="task.id"
-              class="day-slot flex"
-              draggable="true"
-              @dragstart="onDragStart(task, $event)"
-            >
-              <span class="slot-time">{{ task.estimatedMinutes ? `${task.estimatedMinutes}m` : '--' }}</span>
-              <span class="slot-title">{{ task.taskName }}</span>
-              <el-tag size="small" type="primary">弹性</el-tag>
-            </div>
-            <div v-if="(selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).filter(t => !t.completed).length === 0" class="day-empty">
-              无弹性任务
-            </div>
+              v-if="isTodaySelected && nowLineStyle"
+              class="now-line"
+              :style="{ top: `${nowLineTop}%`, left: '44px', right: '6px', width: 'auto' }"
+            />
           </div>
 
           <!-- 提示 -->
           <div class="day-tip">
-            时间分配遵循「先硬性 → 再弹性 → 最后成长」。拖拽任务到其他日期 = 改期。
+            右侧「弹性任务」可拖到左侧时间轴排期；硬性日程（庭审/期限）以红色块呈现，不可移动。
           </div>
         </div>
 
@@ -2275,6 +2328,26 @@ async function onDrop(dateStr, event) {
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 16px;
+}
+
+/* ── 日视图时间轴（复用 week-hour-row / week-time-label / now-line）── */
+.day-hour-body {
+  position: relative;
+  background: #fff;
+  border: 1px solid #E4E7ED;
+  border-radius: 8px;
+  overflow: hidden;
+}
+/* 单日列：覆盖 week-hour-row 的 7 列模板 */
+.day-hour-body .week-hour-row {
+  grid-template-columns: 44px 1fr;
+}
+.day-cell-bg {
+  border-left: 1px solid #F2F3F5;
+}
+.day-event-layer {
+  position: absolute;
+  inset: 0;
 }
 
 .day-header {
