@@ -105,7 +105,7 @@ async function runSearch(q: string) {
         icon: Folder,
         title: p.name,
         meta: p.kind === 'legal' ? '法律项目' : '个人项目',
-        route: '', // 项目视图待 A1-1 阶段二；先占位
+        route: '/projects',
       })
     }
   }

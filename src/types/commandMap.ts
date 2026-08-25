@@ -77,10 +77,10 @@ export type CommandMap = {
   // ── 案件域 ──
   get_case: Cmd<{ id: string }, Case>
   list_cases: Cmd<{ filter?: Partial<CaseFilter> }, CaseListResult>
-  search_cases: Cmd<{ keyword: string }, Case[]>
+  search_cases: Cmd<{ query: string }, Case[]>
   case_stats: Cmd<Record<string, unknown>, CaseStats>
   get_dashboard_stats: Cmd<Record<string, unknown>, DashboardStats>
-  update_case_status: Cmd<{ id: string; status: string }, Case>
+  update_case_status: Cmd<Record<string, unknown>, Case>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
 
   // ── 关系 / 时间线 ──
@@ -91,7 +91,7 @@ export type CommandMap = {
 
   // ── 文件 ──
   list_case_files: Cmd<{ caseId: string }, CaseFile[]>
-  add_case_file: Cmd<{ caseId: string; filePath: string; category?: string }, CaseFile>
+  add_case_file: Cmd<{ caseId: string; fileName: string; filePath: string; category: string }, CaseFile>
 
   // ── 提醒域 ──
   list_reminder_rules: Cmd<Record<string, unknown>, ReminderRule[]>
@@ -105,13 +105,13 @@ export type CommandMap = {
   webdav_push: Cmd<Record<string, unknown>, SyncResult>
   webdav_pull: Cmd<Record<string, unknown>, SyncResult>
   webdav_startup_sync: Cmd<Record<string, unknown>, SyncResult>
-  webdav_resolve_keep_local: Cmd<{ conflictId: string }, SyncResult>
-  webdav_resolve_keep_remote: Cmd<{ conflictId: string }, SyncResult>
-  sync_feishu_pull: Cmd<Record<string, unknown>, FeishuSyncReport>
-  sync_feishu_push: Cmd<Record<string, unknown>, FeishuSyncReport>
-  feishu_compare_table: Cmd<Record<string, unknown>, SchemaDiff>
-  feishu_compare_records: Cmd<Record<string, unknown>, RecordDiff>
-  import_feishu_data: Cmd<{ path: string }, ImportReport>
+  webdav_resolve_keep_local: Cmd<{ url: string; username: string; password: string }, SyncResult>
+  webdav_resolve_keep_remote: Cmd<{ url: string; username: string; password: string }, SyncResult>
+  sync_feishu_pull: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
+  sync_feishu_push: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
+  feishu_compare_table: Cmd<{ appToken: string; tableId: string; localTable: unknown }, SchemaDiff>
+  feishu_compare_records: Cmd<{ appToken: string; tableId: string; localTable: unknown; matchField: string }, RecordDiff>
+  import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
   sync_reminders_to_calendar: Cmd<Record<string, unknown>, CalendarSyncReport>
 
   // ── AI 域 ──
@@ -129,8 +129,8 @@ export type CommandMap = {
 
   // ── 文书引擎 ──
   list_docsy_templates: Cmd<Record<string, unknown>, TemplateListResponse>
-  render_docsy_template: Cmd<Record<string, unknown>, RenderResponse>
-  export_docx: Cmd<Record<string, unknown>, ExportResponse>
+  render_docsy_template: Cmd<{ templateId: string; caseId: string }, RenderResponse>
+  export_docx: Cmd<{ templateId: string; caseId: string; outputPath?: string | null }, ExportResponse>
 
   // ── 知识检索 ──
   hybrid_search_knowledge: Cmd<{ query: string; limit?: number }, SearchResult>

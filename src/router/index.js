@@ -45,6 +45,12 @@ const routes = [
     meta: { title: '任务' },
   },
   {
+    path: '/projects',
+    name: 'projects',
+    component: () => import('../modules/projects/views/ProjectsView.vue'),
+    meta: { title: '项目' },
+  },
+  {
     path: '/inbox',
     name: 'inbox',
     component: () => import('../modules/inbox/views/InboxView.vue'),

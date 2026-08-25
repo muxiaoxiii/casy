@@ -100,6 +100,7 @@ const navGroups = [
     label: '核心',
     items: [
       { name: 'cases', label: '案件', icon: Briefcase },
+      { name: 'projects', label: '项目', icon: Folder },
       { name: 'tasks', label: '任务', icon: Finished },
       { name: 'calendar', label: '日历', icon: Calendar },
       { name: 'dashboard', label: '数据看板', icon: Cpu },
