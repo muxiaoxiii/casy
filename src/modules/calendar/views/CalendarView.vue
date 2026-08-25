@@ -1744,7 +1744,7 @@ async function onDrop(dateStr, event) {
 }
 
 .capture-bar .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px var(--c-primary, #3E5C9A) inset;
+  box-shadow: 0 0 0 1px var(--c-primary, var(--c-primary)) inset;
 }
 
 .capture-hint {
@@ -1753,7 +1753,7 @@ async function onDrop(dateStr, event) {
   gap: 6px;
   margin-top: 6px;
   font-size: 11px;
-  color: var(--c-text-secondary, #9BA2AF);
+  color: var(--c-text-secondary, var(--c-text-secondary));
 }
 
 .capture-hint-divider {
@@ -1779,7 +1779,7 @@ async function onDrop(dateStr, event) {
   font-weight: 600;
   min-width: 120px;
   text-align: center;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 /* 日历网格 */
@@ -1793,8 +1793,8 @@ async function onDrop(dateStr, event) {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 1px;
-  background: #E4E7ED;
-  border: 1px solid #E4E7ED;
+  background: var(--c-border);
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -1805,7 +1805,7 @@ async function onDrop(dateStr, event) {
   text-align: center;
   font-size: 13px;
   font-weight: 500;
-  color: #52525B;
+  color: var(--c-text-regular);
 }
 
 .day-cell {
@@ -1831,15 +1831,15 @@ async function onDrop(dateStr, event) {
 
 .day-cell.selected {
   background: #C3CFE3;
-  box-shadow: inset 0 0 0 2px #3E5C9A;
+  box-shadow: inset 0 0 0 2px var(--c-primary);
 }
 
 .day-cell.has-hard {
-  border-top: 2px solid #B4554F;
+  border-top: 2px solid var(--c-danger);
 }
 
 .day-cell.has-overdue {
-  border-top: 2px solid #B0823A;
+  border-top: 2px solid var(--c-warning);
 }
 
 .day-header {
@@ -1852,15 +1852,15 @@ async function onDrop(dateStr, event) {
 .day-number {
   font-size: 13px;
   font-weight: 500;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .day-cell.other-month .day-number {
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .day-cell.today .day-number {
-  color: #3E5C9A;
+  color: var(--c-primary);
   font-weight: 600;
 }
 
@@ -1870,11 +1870,11 @@ async function onDrop(dateStr, event) {
 }
 
 .day-indicator.hard {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .day-indicator.overdue {
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .day-events {
@@ -1895,17 +1895,17 @@ async function onDrop(dateStr, event) {
 
 .event-badge.hard {
   background: #F6EDEC;
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .event-badge.deadline {
   background: #F7F1E3;
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .event-badge.task {
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
 }
 
 .event-text {
@@ -1917,7 +1917,7 @@ async function onDrop(dateStr, event) {
 
 .event-more {
   font-size: 10px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
   text-align: center;
 }
 
@@ -1926,21 +1926,21 @@ async function onDrop(dateStr, event) {
   width: 300px;
   background: #FFFFFF;
   border-radius: 8px;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   overflow: hidden;
 }
 
 .panel-header {
   padding: 16px;
   background: #FAFAFA;
-  border-bottom: 1px solid #E4E7ED;
+  border-bottom: 1px solid var(--c-border);
 }
 
 .panel-header h3 {
   margin: 0 0 8px;
   font-size: 16px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .panel-stats {
@@ -1960,22 +1960,22 @@ async function onDrop(dateStr, event) {
 
 .stat.hard {
   background: #F6EDEC;
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .stat.deadline {
   background: #F7F1E3;
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .stat.task {
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
 }
 
 .stat.overdue {
   background: #F6EDEC;
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .panel-content {
@@ -1988,7 +1988,7 @@ async function onDrop(dateStr, event) {
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #52525B;
+  color: var(--c-text-regular);
 }
 
 .detail-event,
@@ -2005,7 +2005,7 @@ async function onDrop(dateStr, event) {
 
 .detail-event:hover,
 .detail-task:hover {
-  background: #F4F4F5;
+  background: var(--gray-50);
 }
 
 .event-info,
@@ -2019,7 +2019,7 @@ async function onDrop(dateStr, event) {
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: #18181B;
+  color: var(--c-text);
   margin-bottom: 2px;
 }
 
@@ -2027,12 +2027,12 @@ async function onDrop(dateStr, event) {
 .task-meta {
   display: block;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .empty-day {
   text-align: center;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
   font-size: 13px;
   padding: 20px;
 }
@@ -2053,7 +2053,7 @@ async function onDrop(dateStr, event) {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #52525B;
+  color: var(--c-text-regular);
 }
 
 .legend-dot {
@@ -2067,7 +2067,7 @@ async function onDrop(dateStr, event) {
    ============================================================ */
 .year-container {
   background: #FFFFFF;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   padding: 20px;
 }
@@ -2085,7 +2085,7 @@ async function onDrop(dateStr, event) {
 .year-month-title {
   font-size: 13px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
   margin-bottom: 6px;
   cursor: pointer;
   width: fit-content;
@@ -2094,8 +2094,8 @@ async function onDrop(dateStr, event) {
   transition: background var(--motion-fast) var(--ease-out);
 }
 .year-month-title:hover {
-  background: var(--c-bg-hover, #F0F2F5);
-  color: var(--c-primary, #3E5C9A);
+  background: var(--c-bg-hover, var(--c-bg-hover));
+  color: var(--c-primary, var(--c-primary));
 }
 .year-weekdays {
   display: grid;
@@ -2106,7 +2106,7 @@ async function onDrop(dateStr, event) {
 .year-weekdays span {
   text-align: center;
   font-size: 10px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 .year-days {
   display: grid;
@@ -2121,7 +2121,7 @@ async function onDrop(dateStr, event) {
   font-size: 11px;
   line-height: 1;
   border-radius: 4px;
-  color: #52525B;
+  color: var(--c-text-regular);
   cursor: pointer;
   transition:
     transform var(--motion-fast) var(--ease-out),
@@ -2134,14 +2134,14 @@ async function onDrop(dateStr, event) {
   position: relative;
 }
 /* 负载热度：绿→琥珀渐进（与任务语义色一致），硬性日程日由 title 提示 */
-.year-day.yl-0 { color: #C8CCD4; background: transparent; }
+.year-day.yl-0 { color: var(--gray-300); background: transparent; }
 .year-day.outside { opacity: 0.35; }
 .year-day.yl-1 { background: #DCE8DF; }
 .year-day.yl-2 { background: #B9D4C0; }
 .year-day.yl-3 { background: #8FBDA0; color: #FFFFFF; }
-.year-day.yl-4 { background: #4C8067; color: #FFFFFF; font-weight: 600; }
+.year-day.yl-4 { background: var(--c-success); color: #FFFFFF; font-weight: 600; }
 .year-day.today {
-  box-shadow: inset 0 0 0 2px var(--c-primary, #3E5C9A);
+  box-shadow: inset 0 0 0 2px var(--c-primary, var(--c-primary));
   font-weight: 700;
 }
 .year-legend {
@@ -2150,7 +2150,7 @@ async function onDrop(dateStr, event) {
   gap: 6px;
   margin-top: 16px;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 .year-legend .year-day {
   aspect-ratio: auto;
@@ -2162,7 +2162,7 @@ async function onDrop(dateStr, event) {
 .year-legend em {
   margin-left: 10px;
   font-style: normal;
-  color: #C8CCD4;
+  color: var(--gray-300);
 }
 
 /* ============================================================
@@ -2170,7 +2170,7 @@ async function onDrop(dateStr, event) {
    ============================================================ */
 .week-container {
   background: #FFFFFF;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: auto;
   max-height: calc(100vh - 200px);
@@ -2203,7 +2203,7 @@ async function onDrop(dateStr, event) {
 .week-header-row {
   display: grid;
   grid-template-columns: 56px repeat(7, 1fr);
-  border-bottom: 1px solid #E4E7ED;
+  border-bottom: 1px solid var(--c-border);
   position: sticky;
   top: 0;
   background: #FFFFFF;
@@ -2217,7 +2217,7 @@ async function onDrop(dateStr, event) {
 .week-day-header {
   padding: 8px 0;
   text-align: center;
-  border-left: 1px solid #EEF0F3;
+  border-left: 1px solid var(--c-border-light);
 }
 
 .week-day-header.today {
@@ -2226,14 +2226,14 @@ async function onDrop(dateStr, event) {
 
 .week-day-name {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   letter-spacing: .5px;
 }
 
 .week-day-number {
   font-size: 16px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
   margin-top: 2px;
 }
 
@@ -2241,7 +2241,7 @@ async function onDrop(dateStr, event) {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #3E5C9A;
+  background: var(--c-primary);
   color: #fff;
   display: inline-flex;
   align-items: center;
@@ -2251,20 +2251,20 @@ async function onDrop(dateStr, event) {
 .week-hour-row {
   display: grid;
   grid-template-columns: 56px repeat(7, 1fr);
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
   min-height: 48px;
 }
 
 .week-time-label {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-family: var(--font-mono);
   text-align: right;
   padding: 4px 8px 0 0;
 }
 
 .week-cell {
-  border-left: 1px solid #EEF0F3;
+  border-left: 1px solid var(--c-border-light);
   padding: 2px 3px;
   position: relative;
 }
@@ -2293,18 +2293,18 @@ async function onDrop(dateStr, event) {
 
 .week-event-time {
   font-size: 10px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 /* ── 周视图 v2：时长定位层（Google Calendar 式）── */
 .week-allday-row {
   display: grid;
   grid-template-columns: 56px repeat(7, 1fr);
-  border-bottom: 1px solid #E4E7ED;
+  border-bottom: 1px solid var(--c-border);
   min-height: 30px;
 }
 .week-allday-cell {
-  border-left: 1px solid #EEF0F3;
+  border-left: 1px solid var(--c-border-light);
   padding: 2px 3px;
   position: relative;
   min-height: 30px;
@@ -2322,7 +2322,7 @@ async function onDrop(dateStr, event) {
   min-height: 48px;
 }
 .week-cell-bg {
-  border-left: 1px solid #EEF0F3;
+  border-left: 1px solid var(--c-border-light);
 }
 .week-cell-bg.today { background: rgba(62, 92, 154, 0.03); }
 
@@ -2355,12 +2355,12 @@ async function onDrop(dateStr, event) {
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
-  color: #27272A;
+  color: var(--c-text);
 }
 .we-time {
   display: block;
   font-size: 10px;
-  color: #6B7280;
+  color: var(--gray-500);
 }
 
 /* ============================================================
@@ -2368,7 +2368,7 @@ async function onDrop(dateStr, event) {
    ============================================================ */
 .day-container {
   background: #FFFFFF;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   padding: 16px;
 }
@@ -2383,7 +2383,7 @@ async function onDrop(dateStr, event) {
 .day-hour-body {
   position: relative;
   background: #fff;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -2392,7 +2392,7 @@ async function onDrop(dateStr, event) {
   grid-template-columns: 44px 1fr;
 }
 .day-cell-bg {
-  border-left: 1px solid #F2F3F5;
+  border-left: 1px solid var(--c-border-lighter);
 }
 .day-event-layer {
   position: absolute;
@@ -2406,12 +2406,12 @@ async function onDrop(dateStr, event) {
 .day-header-date {
   font-size: 18px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .day-header-weekday {
   font-size: 14px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-left: 8px;
 }
 
@@ -2427,12 +2427,12 @@ async function onDrop(dateStr, event) {
   font-weight: 600;
   padding: 6px 0;
   margin-bottom: 8px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
-.day-section-label.hard { color: #B4554F; }
-.day-section-label.flex { color: #3E5C9A; }
-.day-section-label.grow { color: #4C8067; }
+.day-section-label.hard { color: var(--c-danger); }
+.day-section-label.flex { color: var(--c-primary); }
+.day-section-label.grow { color: var(--c-success); }
 
 .day-slot {
   display: flex;
@@ -2452,17 +2452,17 @@ async function onDrop(dateStr, event) {
 }
 
 .day-slot.hard {
-  border-left: 3px solid #B4554F;
+  border-left: 3px solid var(--c-danger);
 }
 
 .day-slot.flex {
-  border-left: 3px solid #3E5C9A;
+  border-left: 3px solid var(--c-primary);
 }
 
 .slot-time {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   width: 44px;
   flex-shrink: 0;
 }
@@ -2470,19 +2470,19 @@ async function onDrop(dateStr, event) {
 .slot-title {
   flex: 1;
   font-size: 13px;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .day-empty {
   text-align: center;
   padding: 16px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 12px;
 }
 
 .day-tip {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   padding: 8px 0;
   border-top: 1px dashed #E0E3E9;
   margin-top: 8px;
@@ -2491,10 +2491,10 @@ async function onDrop(dateStr, event) {
 .day-agenda .card-header {
   font-size: 12px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   padding-bottom: 10px;
   margin-bottom: 10px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .agenda-item {
@@ -2502,7 +2502,7 @@ async function onDrop(dateStr, event) {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .agenda-item:last-child { border-bottom: none; }
@@ -2522,13 +2522,13 @@ async function onDrop(dateStr, event) {
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .agenda-time {
   display: block;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 1px;
 }
 
@@ -2541,7 +2541,7 @@ async function onDrop(dateStr, event) {
 
 .agenda-task-name {
   font-size: 13px;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 /* ============================================================
@@ -2559,14 +2559,14 @@ async function onDrop(dateStr, event) {
   min-width: 0;
   background: #FFFFFF;
   border-radius: 8px;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   overflow: hidden;
 }
 
 .forecast-section-header {
   padding: 12px 16px;
   background: #FAFAFA;
-  border-bottom: 1px solid #E4E7ED;
+  border-bottom: 1px solid var(--c-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2576,12 +2576,12 @@ async function onDrop(dateStr, event) {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .forecast-hint {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .forecast-day-groups {
@@ -2591,7 +2591,7 @@ async function onDrop(dateStr, event) {
 }
 
 .forecast-day-group {
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
   padding: 8px 16px;
   transition: background 0.15s;
 }
@@ -2609,7 +2609,7 @@ async function onDrop(dateStr, event) {
 }
 
 .forecast-group-label.overdue {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .forecast-group-header {
@@ -2622,27 +2622,27 @@ async function onDrop(dateStr, event) {
 .forecast-group-label {
   font-size: 13px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
   min-width: 44px;
 }
 
 .forecast-group-label.today {
-  color: #3E5C9A;
+  color: var(--c-primary);
 }
 
 .forecast-group-weekday {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .forecast-group-count {
   margin-left: auto;
   font-size: 11px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .forecast-group-count.has-items {
-  color: #3E5C9A;
+  color: var(--c-primary);
   font-weight: 500;
 }
 
@@ -2663,17 +2663,17 @@ async function onDrop(dateStr, event) {
 }
 
 .forecast-list-item.hard {
-  border-left-color: #B4554F;
+  border-left-color: var(--c-danger);
   background: #F6EDEC;
 }
 
 .forecast-list-item.deadline {
-  border-left-color: #B0823A;
+  border-left-color: var(--c-warning);
   background: #F7F1E3;
 }
 
 .forecast-list-item.warning {
-  border-left-color: #B0823A;
+  border-left-color: var(--c-warning);
   background: #F7F1E3;
 }
 
@@ -2686,7 +2686,7 @@ async function onDrop(dateStr, event) {
   display: block;
   font-size: 12px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2695,13 +2695,13 @@ async function onDrop(dateStr, event) {
 .forecast-list-meta {
   display: block;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 1px;
 }
 
 .forecast-group-empty {
   font-size: 11px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
   padding: 2px 8px;
 }
 
@@ -2714,18 +2714,18 @@ async function onDrop(dateStr, event) {
 .forecast-timeline {
   background: #FFFFFF;
   border-radius: 8px;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   overflow: hidden;
 }
 
 .forecast-today-date {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .timeline-section {
   padding: 10px 16px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .timeline-section-label {
@@ -2735,18 +2735,18 @@ async function onDrop(dateStr, event) {
   font-size: 12px;
   font-weight: 600;
   padding: 4px 0 8px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
   margin-bottom: 8px;
 }
 
-.timeline-section-label.hard { color: #B4554F; }
-.timeline-section-label.flex { color: #3E5C9A; }
+.timeline-section-label.hard { color: var(--c-danger); }
+.timeline-section-label.flex { color: var(--c-primary); }
 
 /* 时间块分区（§7.2）：块范围 / 计数 / 弹性分区底色 */
 .timeline-section-label .block-range {
   font-size: 10px;
   font-weight: 400;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-family: var(--font-mono, monospace);
 }
 
@@ -2755,7 +2755,7 @@ async function onDrop(dateStr, event) {
 }
 
 .timeline-count.has-items {
-  color: #3E5C9A;
+  color: var(--c-primary);
   background: #EDF1F8;
 }
 
@@ -2766,17 +2766,17 @@ async function onDrop(dateStr, event) {
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.5;
-  color: #B0823A;
+  color: var(--c-warning);
   background: #F7F1E3;
-  border-left: 3px solid #B0823A;
+  border-left: 3px solid var(--c-warning);
 }
 
 .timeline-count {
   margin-left: auto;
   font-size: 11px;
   font-weight: 500;
-  color: #9BA2AF;
-  background: #F4F4F5;
+  color: var(--c-text-secondary);
+  background: var(--gray-50);
   border-radius: 999px;
   padding: 0 8px;
   line-height: 16px;
@@ -2800,30 +2800,30 @@ async function onDrop(dateStr, event) {
 }
 
 .timeline-slot.hard {
-  border-left: 3px solid #B4554F;
+  border-left: 3px solid var(--c-danger);
   background: #F6EDEC;
 }
 
 .timeline-slot.flex {
-  border-left: 3px solid #3E5C9A;
+  border-left: 3px solid var(--c-primary);
   background: #EDF1F8;
 }
 
 .timeline-slot.flex.done {
-  border-left-color: #4C8067;
+  border-left-color: var(--c-success);
   background: #EDF3EF;
   opacity: 0.75;
 }
 
 .timeline-slot.flex.done .timeline-title {
-  color: #4C8067;
+  color: var(--c-success);
   text-decoration: line-through;
 }
 
 .timeline-time {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   width: 44px;
   flex-shrink: 0;
 }
@@ -2832,7 +2832,7 @@ async function onDrop(dateStr, event) {
   flex: 1;
   min-width: 0;
   font-size: 13px;
-  color: #1F2430;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2840,7 +2840,7 @@ async function onDrop(dateStr, event) {
 
 .timeline-case {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   flex-shrink: 0;
   max-width: 100px;
   overflow: hidden;
@@ -2851,13 +2851,13 @@ async function onDrop(dateStr, event) {
 .timeline-empty {
   text-align: center;
   padding: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 12px;
 }
 
 .forecast-tip {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   padding: 10px 16px;
   border-top: 1px dashed #E0E3E9;
 }

@@ -350,13 +350,13 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .desc {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin: 0 0 16px;
 }
 
 .template-list {
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -366,7 +366,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
   justify-content: space-between;
   align-items: center;
   padding: 10px 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   font-weight: 600;
   font-size: 14px;
 }
@@ -374,7 +374,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 .section-label {
   padding: 6px 12px;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   background: #fafafa;
   border-top: 1px solid #ebeef5;
 }
@@ -390,7 +390,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .template-item:hover {
-  background: #f5f7fa;
+  background: var(--gray-50);
 }
 
 .template-item.active {
@@ -409,7 +409,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 
 .template-preview,
 .template-editor {
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   padding: 16px;
 }
@@ -429,7 +429,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .preview-type {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin: 0 0 12px;
 }
@@ -451,7 +451,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .dir-id {
-  color: #909399;
+  color: var(--gray-400);
   font-family: monospace;
   min-width: 24px;
 }
@@ -461,7 +461,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .dir-desc {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
 }
 
@@ -503,7 +503,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
   align-items: center;
   justify-content: center;
   min-height: 200px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
 }
 

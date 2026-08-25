@@ -805,7 +805,7 @@ onMounted(async () => {
 }
 
 .header-desc {
-  color: #6b7280;
+  color: var(--gray-500);
   font-size: 13px;
   margin-left: 12px;
 }
@@ -827,7 +827,7 @@ onMounted(async () => {
 }
 
 .status-label {
-  color: #6b7280;
+  color: var(--gray-500);
   font-size: 13px;
 }
 
@@ -902,7 +902,7 @@ onMounted(async () => {
 
 .tool-category {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--gray-500);
   background: #f3f4f6;
   padding: 2px 6px;
   border-radius: 4px;
@@ -910,7 +910,7 @@ onMounted(async () => {
 
 .tool-description {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--gray-500);
 }
 
 /* 推荐引擎样式（设计哲学 §11.6） */
@@ -926,12 +926,12 @@ onMounted(async () => {
   margin: 0 0 4px;
   font-size: 16px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .recommend-sub {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .recommend-cards {
@@ -955,8 +955,8 @@ onMounted(async () => {
   padding: 12px 16px;
   font-size: 14px;
   font-weight: 600;
-  color: #1F2430;
-  border-bottom: 1px solid #EEF0F3;
+  color: var(--c-text);
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .recommend-icon {
@@ -988,7 +988,7 @@ onMounted(async () => {
   height: 24px;
   border-radius: 6px;
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
   font-size: 12px;
   font-weight: 700;
   display: grid;
@@ -1004,19 +1004,19 @@ onMounted(async () => {
 .recommend-name {
   font-size: 13px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .recommend-reason {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 2px;
 }
 
 .recommend-empty {
   text-align: center;
   padding: 24px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 
@@ -1057,7 +1057,7 @@ onMounted(async () => {
 
 .insight-meta {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   padding: 4px 12px 8px;
 }
 
@@ -1069,7 +1069,7 @@ onMounted(async () => {
 }
 
 .insight-block {
-  border: 1px solid #EEF0F3;
+  border: 1px solid var(--c-border-light);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -1077,7 +1077,7 @@ onMounted(async () => {
 .insight-block-title {
   font-size: 12px;
   font-weight: 600;
-  color: #4B5160;
+  color: var(--c-text-regular);
   margin-bottom: 6px;
 }
 
@@ -1090,13 +1090,13 @@ onMounted(async () => {
 }
 
 .insight-key {
-  color: #1F2430;
+  color: var(--c-text);
   font-weight: 500;
   flex-shrink: 0;
 }
 
 .insight-val {
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   text-align: right;
 }
 
@@ -1126,20 +1126,20 @@ onMounted(async () => {
   min-width: 0;
   font-size: 13px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .summary-time {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   flex-shrink: 0;
 }
 
 .summary-content {
   padding: 4px 12px 12px;
-  border-top: 1px solid #EEF0F3;
+  border-top: 1px solid var(--c-border-light);
   font-size: 13px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   line-height: 1.7;
 }
 
@@ -1148,7 +1148,7 @@ onMounted(async () => {
 .summary-content :deep(h5) {
   margin: 8px 0 4px;
   font-size: 13px;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .summary-content :deep(ul) {

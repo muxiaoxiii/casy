@@ -493,12 +493,12 @@ onMounted(loadPendingWrites)
 .write-tool {
   font-size: 13px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .write-time {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .write-args {
@@ -513,28 +513,28 @@ onMounted(loadPendingWrites)
 .writes-empty {
   text-align: center;
   padding: 20px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 
 .tip {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin-bottom: 16px;
 }
 
 .field-hint {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
   margin-left: 8px;
 }
 
 .text-warning {
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .text-danger {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .sync-status {
@@ -557,7 +557,7 @@ onMounted(loadPendingWrites)
 }
 
 .sync-time {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
 }
 </style>

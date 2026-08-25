@@ -283,7 +283,7 @@ onMounted(async () => {
 
 .stat-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .stat-value {
@@ -307,7 +307,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 8px;
   transition: all 0.3s;
 }

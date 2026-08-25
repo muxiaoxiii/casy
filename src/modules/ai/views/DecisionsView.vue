@@ -450,7 +450,7 @@ onMounted(() => {
 
 .stat-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-top: 4px;
 }
 
@@ -468,7 +468,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .monospace {
@@ -500,7 +500,7 @@ onMounted(() => {
 }
 
 .basis-json {
-  background: #F5F7FA;
+  background: var(--gray-50);
   padding: 12px;
   border-radius: 4px;
   font-family: monospace;
@@ -548,12 +548,12 @@ onMounted(() => {
 
 .review-type {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .review-due {
   font-size: 12px;
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .review-decision {
@@ -564,7 +564,7 @@ onMounted(() => {
 
 .review-basis {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -578,17 +578,17 @@ onMounted(() => {
 }
 
 .recursive-ok {
-  color: #4C8067;
+  color: var(--c-success);
 }
 
 .recursive-warn {
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .gap-list {
   margin: 2px 0 0;
   padding-left: 18px;
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .review-actions {

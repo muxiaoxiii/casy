@@ -177,7 +177,7 @@ onMounted(async () => {
 .badge-label {
   font-size: 12px;
   font-weight: 600;
-  color: #6B7280;
+  color: var(--gray-500);
   letter-spacing: 0.5px;
 }
 
@@ -213,7 +213,7 @@ onMounted(async () => {
 .popover-status-text {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--gray-700);
 }
 
 .popover-settings-icon {
@@ -223,7 +223,7 @@ onMounted(async () => {
 }
 
 .popover-settings-icon:hover {
-  color: #6B7280;
+  color: var(--gray-500);
 }
 
 /* 配额区域 */
@@ -249,7 +249,7 @@ onMounted(async () => {
 .quota-value {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--gray-700);
 }
 
 .quota-value.quota-low {
@@ -264,7 +264,7 @@ onMounted(async () => {
 
 .popover-hint p {
   font-size: 12px;
-  color: #6B7280;
+  color: var(--gray-500);
   margin-bottom: 8px;
   line-height: 1.5;
 }

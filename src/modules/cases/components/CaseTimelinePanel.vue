@@ -95,7 +95,7 @@ function formatMonthLabel(ym) {
 }
 
 .timeline-item:hover {
-  background: #f5f7fa;
+  background: var(--gray-50);
 }
 
 .timeline-marker {
@@ -155,6 +155,6 @@ function formatMonthLabel(ym) {
 .month-divider {
   flex: 1;
   height: 1px;
-  background: #e4e7ed;
+  background: var(--c-border);
 }
 </style>

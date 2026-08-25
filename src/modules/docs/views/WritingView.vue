@@ -630,7 +630,7 @@ onBeforeUnmount(() => {
 
 .field-panel-title {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-bottom: 6px;
 }
 
@@ -701,7 +701,7 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 9999;
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   padding: 4px 0;
@@ -711,7 +711,7 @@ onBeforeUnmount(() => {
 .ctx-menu-header {
   padding: 8px 16px;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   border-bottom: 1px solid #f0f0f0;
   font-weight: 600;
 }
@@ -746,7 +746,7 @@ onBeforeUnmount(() => {
   max-height: 120px;
   overflow-y: auto;
   padding: 8px 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 4px;
   font-size: 13px;
   line-height: 1.6;
@@ -770,7 +770,7 @@ onBeforeUnmount(() => {
 
 .ai-dialog-hint {
   font-size: 13px;
-  color: #909399;
+  color: var(--gray-400);
   line-height: 1.5;
 }
 
@@ -854,8 +854,8 @@ onBeforeUnmount(() => {
 
 :deep(.block-ref-type) {
   font-size: 0.8em;
-  color: #909399;
-  background: #f4f4f5;
+  color: var(--gray-400);
+  background: var(--gray-50);
   padding: 0 4px;
   border-radius: 2px;
 }
@@ -868,7 +868,7 @@ onBeforeUnmount(() => {
 :deep(.wiki-link-suggestions) {
   position: absolute;
   background: white;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 4px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   max-height: 240px;
@@ -889,7 +889,7 @@ onBeforeUnmount(() => {
 
 :deep(.wiki-link-item:hover),
 :deep(.wiki-link-item.selected) {
-  background: #f5f7fa;
+  background: var(--gray-50);
 }
 
 :deep(.wiki-link-item .title) {
@@ -899,9 +899,9 @@ onBeforeUnmount(() => {
 
 :deep(.wiki-link-item .category) {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-left: auto;
-  background: #f4f4f5;
+  background: var(--gray-50);
   padding: 2px 6px;
   border-radius: 2px;
 }

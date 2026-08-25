@@ -262,24 +262,24 @@ function getStatusColor(status) {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .client-list-header h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .client-count {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .client-search {
   padding: 8px 12px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .client-search input {
@@ -293,7 +293,7 @@ function getStatusColor(status) {
 }
 
 .client-search input:focus {
-  border-color: #3E5C9A;
+  border-color: var(--c-primary);
 }
 
 .client-list {
@@ -317,7 +317,7 @@ function getStatusColor(status) {
 
 .client-item.active {
   background: #EDF1F8;
-  border-left-color: #3E5C9A;
+  border-left-color: var(--c-primary);
 }
 
 .client-avatar {
@@ -325,7 +325,7 @@ function getStatusColor(status) {
   height: 32px;
   border-radius: 50%;
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -337,12 +337,12 @@ function getStatusColor(status) {
 .client-name {
   font-size: 13px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .client-meta {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 1px;
 }
 
@@ -355,7 +355,7 @@ function getStatusColor(status) {
   height: 48px;
   border-radius: 50%;
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -381,13 +381,13 @@ function getStatusColor(status) {
 .stat-value {
   font-size: 24px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   line-height: 1;
 }
 
 .stat-label {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 4px;
 }
 
@@ -396,7 +396,7 @@ function getStatusColor(status) {
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -429,20 +429,20 @@ function getStatusColor(status) {
   gap: 8px;
   font-size: 12px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   padding: 14px 16px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .card-header .sub {
   font-weight: 400;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 11px;
   margin-left: auto;
 }
 
 .empty-state {
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 </style>

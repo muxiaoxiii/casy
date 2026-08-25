@@ -182,13 +182,13 @@ async function finish() {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .wizard-subtitle {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .wizard-steps {
@@ -208,7 +208,7 @@ async function finish() {
 .wizard-hint {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .wizard-footer {

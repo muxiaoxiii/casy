@@ -353,21 +353,21 @@ function trendPath(data, maxVal, width, height, padding) {
   flex-shrink: 0;
 }
 
-.stat-icon.blue { background: #EDF1F8; color: #3E5C9A; }
-.stat-icon.amber { background: #F7F1E3; color: #B0823A; }
-.stat-icon.green { background: #EDF3EF; color: #4C8067; }
-.stat-icon.red { background: #F6EDEC; color: #B4554F; }
+.stat-icon.blue { background: #EDF1F8; color: var(--c-primary); }
+.stat-icon.amber { background: #F7F1E3; color: var(--c-warning); }
+.stat-icon.green { background: #EDF3EF; color: var(--c-success); }
+.stat-icon.red { background: #F6EDEC; color: var(--c-danger); }
 
 .stat-value {
   font-size: 24px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   line-height: 1;
 }
 
 .stat-label {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 2px;
 }
 
@@ -389,15 +389,15 @@ function trendPath(data, maxVal, width, height, padding) {
   gap: 8px;
   font-size: 12px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   padding-bottom: 10px;
   margin-bottom: 10px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .chart-card .card-header .sub {
   font-weight: 400;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 11px;
   margin-left: auto;
 }
@@ -436,7 +436,7 @@ function trendPath(data, maxVal, width, height, padding) {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #4B5160;
+  color: var(--c-text-regular);
 }
 
 .legend-dot {
@@ -449,7 +449,7 @@ function trendPath(data, maxVal, width, height, padding) {
   margin-left: auto;
   font-family: var(--font-mono);
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 /* 分布条 */
@@ -463,7 +463,7 @@ function trendPath(data, maxVal, width, height, padding) {
 
 .dist-label {
   width: 84px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -481,7 +481,7 @@ function trendPath(data, maxVal, width, height, padding) {
   flex: 1;
   height: 7px;
   border-radius: 4px;
-  background: #EEF0F3;
+  background: var(--c-border-light);
   overflow: hidden;
 }
 
@@ -495,7 +495,7 @@ function trendPath(data, maxVal, width, height, padding) {
   width: 40px;
   text-align: right;
   font-family: var(--font-mono);
-  color: #4B5160;
+  color: var(--c-text-regular);
   font-size: 12px;
 }
 
@@ -510,7 +510,7 @@ function trendPath(data, maxVal, width, height, padding) {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .timeline-row:last-child { border-bottom: none; }
@@ -518,7 +518,7 @@ function trendPath(data, maxVal, width, height, padding) {
 .timeline-time {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   width: 80px;
   flex-shrink: 0;
 }
@@ -530,8 +530,8 @@ function trendPath(data, maxVal, width, height, padding) {
   flex-shrink: 0;
 }
 
-.timeline-dot.hearing { background: #B4554F; }
-.timeline-dot.deadline { background: #B0823A; }
+.timeline-dot.hearing { background: var(--c-danger); }
+.timeline-dot.deadline { background: var(--c-warning); }
 
 .timeline-content {
   flex: 1;
@@ -540,7 +540,7 @@ function trendPath(data, maxVal, width, height, padding) {
 
 .timeline-title {
   font-size: 13px;
-  color: #1F2430;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -548,14 +548,14 @@ function trendPath(data, maxVal, width, height, padding) {
 
 .timeline-meta {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 1px;
 }
 
 .empty-timeline {
   text-align: center;
   padding: 24px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 </style>

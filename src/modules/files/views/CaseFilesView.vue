@@ -249,7 +249,7 @@ onMounted(() => {
 }
 
 .category-item:hover {
-  background-color: #f5f7fa;
+  background-color: var(--gray-50);
 }
 
 .category-item.active {

@@ -87,7 +87,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
   gap: 10px;
   padding: 10px 20px;
   background: #FDF6EC;
-  border-bottom: 2px solid #B0823A;
+  border-bottom: 2px solid var(--c-warning);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -95,7 +95,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 .banner-body {
@@ -115,7 +115,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
 
 .banner-time {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .banner-actions {

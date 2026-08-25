@@ -186,7 +186,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
 
 .banner-date {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .banner-actions {

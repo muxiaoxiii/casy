@@ -179,7 +179,7 @@ onMounted(() => {
 }
 
 .tip {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin-bottom: 16px;
 }

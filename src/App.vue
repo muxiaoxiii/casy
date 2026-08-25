@@ -492,7 +492,7 @@ function onMenuSelect(name) {
   display: flex;
   height: 100vh;
   background: #F6F7F9;
-  color: #1F2430;
+  color: var(--c-text);
   font-size: 13px;
 }
 
@@ -519,7 +519,7 @@ function onMenuSelect(name) {
   align-items: center;
   gap: 10px;
   padding: 0 16px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -528,7 +528,7 @@ function onMenuSelect(name) {
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: #3E5C9A;
+  background: var(--c-primary);
   color: #fff;
   display: grid;
   place-items: center;
@@ -540,7 +540,7 @@ function onMenuSelect(name) {
 .brand-name {
   font-size: 15px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   letter-spacing: -0.2px;
   white-space: nowrap;
 }
@@ -559,7 +559,7 @@ function onMenuSelect(name) {
 .nav-group-label {
   font-size: 10px;
   font-weight: 600;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.8px;
   padding: 10px 10px 4px;
@@ -574,7 +574,7 @@ function onMenuSelect(name) {
   padding: 0 10px;
   border-radius: 6px;
   cursor: pointer;
-  color: #4B5160;
+  color: var(--c-text-regular);
   transition: all 0.12s ease;
   position: relative;
   white-space: nowrap;
@@ -582,13 +582,13 @@ function onMenuSelect(name) {
 }
 
 .nav-item:hover {
-  background: #F0F2F5;
-  color: #1F2430;
+  background: var(--c-bg-hover);
+  color: var(--c-text);
 }
 
 .nav-item.active {
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
   font-weight: 500;
 }
 
@@ -599,7 +599,7 @@ function onMenuSelect(name) {
   top: 6px;
   bottom: 6px;
   width: 3px;
-  background: #3E5C9A;
+  background: var(--c-primary);
   border-radius: 0 2px 2px 0;
 }
 
@@ -613,7 +613,7 @@ function onMenuSelect(name) {
 
 .sidebar-footer {
   padding: 8px;
-  border-top: 1px solid #EEF0F3;
+  border-top: 1px solid var(--c-border-light);
 }
 
 /* ── 主区 ─────────────────────────────────────────────── */
@@ -650,7 +650,7 @@ function onMenuSelect(name) {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  color: #4B5160;
+  color: var(--c-text-regular);
   cursor: pointer;
   border: none;
   background: transparent;
@@ -659,7 +659,7 @@ function onMenuSelect(name) {
 }
 
 .icon-btn:hover {
-  background: #F0F2F5;
+  background: var(--c-bg-hover);
 }
 
 /* 今日概览 */
@@ -680,7 +680,7 @@ function onMenuSelect(name) {
 }
 
 .ts-item:hover {
-  background: #F0F2F5;
+  background: var(--c-bg-hover);
 }
 
 .ts-dot {
@@ -690,20 +690,20 @@ function onMenuSelect(name) {
   flex-shrink: 0;
 }
 
-.ts-dot.danger { background: #B4554F; }
-.ts-dot.warning { background: #B0823A; }
-.ts-dot.gray { background: #9BA2AF; }
-.ts-dot.success { background: #4C8067; }
+.ts-dot.danger { background: var(--c-danger); }
+.ts-dot.warning { background: var(--c-warning); }
+.ts-dot.gray { background: var(--c-text-secondary); }
+.ts-dot.success { background: var(--c-success); }
 
 .ts-value {
   font-size: 14px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .ts-label {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   white-space: nowrap;
 }
 
@@ -722,13 +722,13 @@ function onMenuSelect(name) {
   border: 1px solid #E0E3E9;
   border-radius: 6px;
   padding: 5px 10px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   width: 220px;
   transition: all 0.15s;
 }
 
 .topbar-search:focus-within {
-  border-color: #3E5C9A;
+  border-color: var(--c-primary);
   background: #fff;
   box-shadow: 0 0 0 3px rgba(62, 92, 154, 0.1);
 }
@@ -739,13 +739,13 @@ function onMenuSelect(name) {
   flex: 1;
   background: transparent;
   font-size: 12.5px;
-  color: #1F2430;
+  color: var(--c-text);
   font-family: inherit;
 }
 
 .kbd-hint {
   font-size: 10px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   border: 1px solid #E0E3E9;
   border-radius: 4px;
   padding: 1px 5px;
@@ -765,7 +765,7 @@ function onMenuSelect(name) {
   gap: 6px;
   padding: 6px 14px;
   border-radius: 6px;
-  background: #3E5C9A;
+  background: var(--c-primary);
   color: #fff;
   border: none;
   cursor: pointer;
@@ -796,14 +796,14 @@ function onMenuSelect(name) {
   padding: 7px 12px;
   border-radius: 6px;
   font-size: 13px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   cursor: pointer;
   transition: background 0.12s;
 }
 
 .capture-item:hover {
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
 }
 
 /* ── 内容区 ───────────────────────────────────────────── */
@@ -826,7 +826,7 @@ function onMenuSelect(name) {
   padding: 6px 14px;
   border-radius: 6px 6px 0 0;
   font-size: 12.5px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   cursor: pointer;
   font-weight: 500;
   transition: all 0.12s;
@@ -834,14 +834,14 @@ function onMenuSelect(name) {
 }
 
 .tab-item:hover {
-  color: #1F2430;
+  color: var(--c-text);
   background: #fff;
 }
 
 .tab-item.active {
-  color: #3E5C9A;
+  color: var(--c-primary);
   background: #fff;
-  border-bottom-color: #3E5C9A;
+  border-bottom-color: var(--c-primary);
 }
 
 .content-scroll {

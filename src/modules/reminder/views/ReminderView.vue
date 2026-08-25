@@ -298,7 +298,7 @@ onMounted(loadLogs)
 
 .stat-card {
   background: #fff;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-left: 3px solid #ddd;
   border-radius: 8px;
   padding: 14px 16px;
@@ -327,7 +327,7 @@ onMounted(loadLogs)
 
 .stat-card-desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 /* ── Tab 行 ─────────────────────────────────── */
@@ -336,7 +336,7 @@ onMounted(loadLogs)
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -354,7 +354,7 @@ onMounted(loadLogs)
   padding: 6px 14px;
   border-radius: 6px;
   font-size: 13px;
-  color: #52525B;
+  color: var(--c-text-regular);
   cursor: pointer;
   transition: all 0.15s ease;
   display: flex;
@@ -363,7 +363,7 @@ onMounted(loadLogs)
 }
 
 .tab-btn:hover {
-  background: #F4F4F5;
+  background: var(--gray-50);
 }
 
 .tab-btn.active {
@@ -374,7 +374,7 @@ onMounted(loadLogs)
 
 .tab-count {
   font-size: 11px;
-  background: #E4E7ED;
+  background: var(--c-border);
   color: #606266;
   border-radius: 999px;
   padding: 1px 6px;
@@ -404,7 +404,7 @@ onMounted(loadLogs)
   align-items: center;
   justify-content: center;
   height: 300px;
-  color: #C0C4CC;
+  color: var(--gray-300);
 }
 
 .empty-state p {
@@ -495,7 +495,7 @@ onMounted(loadLogs)
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .meta-date {
@@ -506,7 +506,7 @@ onMounted(loadLogs)
 
 .meta-channel {
   padding: 1px 6px;
-  background: #F4F4F5;
+  background: var(--gray-50);
   border-radius: 4px;
 }
 

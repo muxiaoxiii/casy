@@ -102,13 +102,13 @@ async function testWebdavConnection() {
 }
 
 .tip {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin-bottom: 16px;
 }
 
 .field-hint {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
   margin-left: 8px;
 }

@@ -113,7 +113,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
 .rt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .rt-icon { color: #e6a23c; font-size: 16px; }
 .rt-title { font-weight: 600; font-size: 13px; flex: 1; }
-.rt-time { font-size: 11px; color: #909399; }
+.rt-time { font-size: 11px; color: var(--gray-400); }
 .rt-body {
   font-size: 13px;
   color: #303133;

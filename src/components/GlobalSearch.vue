@@ -260,10 +260,10 @@ function onKeydown(e: KeyboardEvent) {
   align-items: center;
   gap: 10px;
   padding: 14px 16px;
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
 }
 .cmdk-search-icon {
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 16px;
 }
 .cmdk-input {
@@ -271,14 +271,14 @@ function onKeydown(e: KeyboardEvent) {
   border: none;
   outline: none;
   font-size: 15px;
-  color: #18181B;
+  color: var(--c-text);
   background: transparent;
 }
-.cmdk-input::placeholder { color: #C8CCD4; }
+.cmdk-input::placeholder { color: var(--gray-300); }
 .cmdk-esc {
   font-size: 10px;
-  color: #9BA2AF;
-  border: 1px solid #E4E7ED;
+  color: var(--c-text-secondary);
+  border: 1px solid var(--c-border);
   border-radius: 4px;
   padding: 1px 5px;
 }
@@ -290,7 +290,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 .cmdk-group-label {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   padding: 8px 10px 4px;
   font-weight: 600;
 }
@@ -305,28 +305,28 @@ function onKeydown(e: KeyboardEvent) {
 .cmdk-item[data-active='true'] {
   background: #F0F4FA;
 }
-.cmdk-item-icon { color: #6B7280; flex-shrink: 0; }
+.cmdk-item-icon { color: var(--gray-500); flex-shrink: 0; }
 .cmdk-item-title {
   flex: 1;
   min-width: 0;
   font-size: 13.5px;
-  color: #27272A;
+  color: var(--c-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .cmdk-item-meta {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   flex-shrink: 0;
 }
-.cmdk-enter-hint { color: #9BA2AF; font-size: 13px; }
+.cmdk-enter-hint { color: var(--c-text-secondary); font-size: 13px; }
 
 .cmdk-empty {
   padding: 28px 12px;
   text-align: center;
   font-size: 13px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .cmdk-footer {
@@ -334,24 +334,24 @@ function onKeydown(e: KeyboardEvent) {
   gap: 14px;
   align-items: center;
   padding: 8px 14px;
-  border-top: 1px solid #EEF0F3;
+  border-top: 1px solid var(--c-border-light);
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 .cmdk-footer kbd {
   font-family: var(--font-mono);
   font-size: 10px;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-bottom-width: 2px;
   border-radius: 3px;
   padding: 0 4px;
   margin-right: 2px;
-  background: #FAFAFB;
+  background: var(--gray-50);
 }
 .cmdk-footer-brand {
   margin-left: auto;
   font-weight: 600;
-  color: #C8CCD4;
+  color: var(--gray-300);
 }
 
 /* 出入场（M-UI-0 Motion Tokens） */

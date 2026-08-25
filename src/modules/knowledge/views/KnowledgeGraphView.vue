@@ -299,12 +299,12 @@ function goToNode(node) {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .graph-sub {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .graph-legend {
@@ -318,7 +318,7 @@ function goToNode(node) {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #4B5160;
+  color: var(--c-text-regular);
 }
 
 .legend-dot {
@@ -330,7 +330,7 @@ function goToNode(node) {
 .legend-hint {
   margin-left: auto;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .degrade-banner {
@@ -362,7 +362,7 @@ function goToNode(node) {
 
 .node-label {
   font-size: 10px;
-  fill: #4B5160;
+  fill: var(--c-text-regular);
   pointer-events: none;
   user-select: none;
 }
@@ -373,7 +373,7 @@ function goToNode(node) {
   justify-content: center;
   height: 100%;
   min-height: 400px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 
@@ -400,7 +400,7 @@ function goToNode(node) {
 
 .node-type {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   text-transform: uppercase;
 }
 
@@ -408,7 +408,7 @@ function goToNode(node) {
   margin-left: auto;
   background: none;
   border: none;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   cursor: pointer;
   font-size: 14px;
 }
@@ -416,13 +416,13 @@ function goToNode(node) {
 .node-name {
   font-size: 14px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
   margin-bottom: 4px;
 }
 
 .node-meta {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-bottom: 4px;
 }
 
@@ -440,7 +440,7 @@ function goToNode(node) {
 }
 
 .btn-primary {
-  background: #3E5C9A;
+  background: var(--c-primary);
   color: white;
 }
 </style>

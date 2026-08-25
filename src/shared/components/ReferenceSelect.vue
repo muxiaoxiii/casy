@@ -251,7 +251,7 @@ watch(options, (newOpts) => {
 
 .option-sublabel {
   font-size: 11px;
-  color: #909399;
+  color: var(--gray-400);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

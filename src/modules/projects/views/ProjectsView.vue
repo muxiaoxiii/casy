@@ -213,7 +213,7 @@ onMounted(() => {
 }
 .shortcut-hint {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-left: 10px;
 }
 
@@ -224,8 +224,8 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 8px;
 }
-.section-title { font-size: 14px; font-weight: 600; color: #18181B; }
-.section-note { font-size: 12px; color: #A1A1AA; }
+.section-title { font-size: 14px; font-weight: 600; color: var(--c-text); }
+.section-note { font-size: 12px; color: var(--c-text-secondary); }
 
 .proj-create {
   display: flex;
@@ -235,7 +235,7 @@ onMounted(() => {
 
 .proj-list {
   background: #fff;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -244,11 +244,11 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid #F2F3F5;
+  border-bottom: 1px solid var(--c-border-lighter);
   transition: background var(--motion-fast) var(--ease-out);
 }
 .proj-row:last-child { border-bottom: none; }
-.proj-row:hover { background: #FAFAFB; }
+.proj-row:hover { background: var(--gray-50); }
 .proj-row:hover .row-actions { opacity: 1; }
 
 .proj-dot {
@@ -257,12 +257,12 @@ onMounted(() => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.proj-dot.personal { background: #4C8067; }
-.proj-dot.legal { background: #6C6A9C; }
-.proj-name { font-size: 14px; color: #18181B; }
+.proj-dot.personal { background: var(--c-success); }
+.proj-dot.legal { background: var(--c-info); }
+.proj-name { font-size: 14px; color: var(--c-text); }
 .proj-desc {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -270,7 +270,7 @@ onMounted(() => {
 .proj-status {
   margin-left: auto;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 .row-actions {
   display: flex;
@@ -281,11 +281,11 @@ onMounted(() => {
 
 .proj-empty {
   padding: 22px 14px;
-  border: 1px dashed #E4E7ED;
+  border: 1px dashed var(--c-border);
   border-radius: 8px;
   font-size: 13px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   line-height: 1.7;
-  background: #FAFAFB;
+  background: var(--gray-50);
 }
 </style>

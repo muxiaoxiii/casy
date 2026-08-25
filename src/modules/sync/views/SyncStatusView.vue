@@ -542,7 +542,7 @@ onMounted(() => {
 }
 
 .conflict-detail code {
-  background: #f5f7fa;
+  background: var(--gray-50);
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;

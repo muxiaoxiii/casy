@@ -361,7 +361,7 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 8px;
   border-top: 3px solid transparent;
 }
@@ -401,7 +401,7 @@ onMounted(async () => {
 
 .column-empty {
   text-align: center;
-  color: #c0c4cc;
+  color: var(--gray-300);
   font-size: 12px;
   padding: 32px 8px;
 }
@@ -447,7 +447,7 @@ onMounted(async () => {
 
 .card-case-no {
   font-size: 11px;
-  color: #909399;
+  color: var(--gray-400);
   margin-top: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -464,7 +464,7 @@ onMounted(async () => {
 }
 
 .card-parties .vs {
-  color: #c0c4cc;
+  color: var(--gray-300);
   margin: 0 4px;
 }
 

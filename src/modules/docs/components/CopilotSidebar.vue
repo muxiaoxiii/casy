@@ -332,13 +332,13 @@ function formatScore(score) {
   flex-direction: column;
   height: 100%;
   background: #fafbfc;
-  border-left: 1px solid #e4e7ed;
+  border-left: 1px solid var(--c-border);
   overflow: hidden;
 }
 
 .sidebar-search {
   padding: 12px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--c-border);
   background: #fff;
 }
 
@@ -368,7 +368,7 @@ function formatScore(score) {
 }
 
 .section-header:hover {
-  background: #f0f2f5;
+  background: var(--c-bg-hover);
 }
 
 .section-icon {
@@ -384,8 +384,8 @@ function formatScore(score) {
 
 .section-count {
   font-size: 11px;
-  color: #909399;
-  background: #f0f2f5;
+  color: var(--gray-400);
+  background: var(--c-bg-hover);
   padding: 1px 6px;
   border-radius: 10px;
   min-width: 18px;
@@ -394,7 +394,7 @@ function formatScore(score) {
 
 .section-arrow {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   transition: transform 0.2s;
 }
 
@@ -409,14 +409,14 @@ function formatScore(score) {
 .section-empty {
   padding: 12px 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   text-align: center;
 }
 
 /* 知识卡片 */
 .knowledge-card {
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 6px;
   margin-bottom: 6px;
   transition: box-shadow 0.15s;
@@ -476,7 +476,7 @@ function formatScore(score) {
 
 .card-source {
   font-size: 11px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .card-body {
@@ -491,7 +491,7 @@ function formatScore(score) {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  background: #f5f7fa;
+  background: var(--gray-50);
   padding: 8px;
   border-radius: 4px;
 }

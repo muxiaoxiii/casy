@@ -243,7 +243,7 @@ function handleReject() {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: #F5F7FA;
+  background: var(--gray-50);
   border-left: 3px solid;
   border-radius: 4px;
 }
@@ -257,7 +257,7 @@ function handleReject() {
 
 .level-desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .recommend-section h4,
@@ -293,7 +293,7 @@ function handleReject() {
 
 .policy-desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .item-list {
@@ -308,7 +308,7 @@ function handleReject() {
   align-items: center;
   padding: 10px 12px;
   background: #FAFAFA;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 6px;
   transition: all 0.2s;
 }
@@ -332,7 +332,7 @@ function handleReject() {
 }
 
 .item-index {
-  color: #909399;
+  color: var(--gray-400);
   flex-shrink: 0;
 }
 

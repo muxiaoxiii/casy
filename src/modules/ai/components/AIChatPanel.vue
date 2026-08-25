@@ -354,7 +354,7 @@ function clearChat() {
   border-radius: 8px;
   padding: 12px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--gray-500);
   white-space: pre-wrap;
 }
 
@@ -447,7 +447,7 @@ function clearChat() {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #6b7280;
+  color: var(--gray-500);
 }
 
 .loading-icon {

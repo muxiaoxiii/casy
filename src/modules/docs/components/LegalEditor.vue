@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 9999;
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   padding: 4px 0;
@@ -384,7 +384,7 @@ onBeforeUnmount(() => {
 .ctx-menu-header {
   padding: 8px 16px;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   border-bottom: 1px solid #f0f0f0;
   font-weight: 600;
 }
@@ -420,7 +420,7 @@ onBeforeUnmount(() => {
   max-height: 120px;
   overflow-y: auto;
   padding: 8px 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 4px;
   font-size: 13px;
   line-height: 1.6;

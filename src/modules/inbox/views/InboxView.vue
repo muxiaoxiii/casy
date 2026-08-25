@@ -1110,13 +1110,13 @@ onUnmounted(() => {
   font-size: 13.5px;
   line-height: 1.6;
   background: transparent;
-  color: #1F2430;
+  color: var(--c-text);
   font-family: inherit;
   min-height: 22px;
 }
 
 .capture-bar textarea::placeholder {
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .capture-bar-tools {
@@ -1125,7 +1125,7 @@ onUnmounted(() => {
   gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px dashed #EEF0F3;
+  border-top: 1px dashed var(--c-border-light);
 }
 
 .capture-btn {
@@ -1137,7 +1137,7 @@ onUnmounted(() => {
   border: 1px solid #E0E3E9;
   background: #FFFFFF;
   font-size: 12px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s;
@@ -1155,8 +1155,8 @@ onUnmounted(() => {
 
 /* 语音速记录制态 */
 .voice-btn.recording {
-  border-color: #B4554F;
-  color: #B4554F;
+  border-color: var(--c-danger);
+  color: var(--c-danger);
   background: #F6EDEC;
 }
 
@@ -1164,7 +1164,7 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #B4554F;
+  background: var(--c-danger);
   animation: rec-pulse 1s ease-in-out infinite;
 }
 
@@ -1185,7 +1185,7 @@ onUnmounted(() => {
 .capture-hint {
   margin-left: auto;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 /* 收件箱状态概览 */
@@ -1207,7 +1207,7 @@ onUnmounted(() => {
 .inbox-hero-title {
   font-size: 15px;
   font-weight: 700;
-  color: #1F2430;
+  color: var(--c-text);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1215,7 +1215,7 @@ onUnmounted(() => {
 
 .inbox-hero-sub {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 2px;
 }
 
@@ -1234,16 +1234,16 @@ onUnmounted(() => {
   font-weight: 700;
   font-family: 'SF Mono', Menlo, monospace;
   line-height: 1.1;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .hero-stat-num.red {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .hero-stat-label {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 2px;
 }
 
@@ -1275,7 +1275,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #909399;
+  color: var(--gray-400);
   font-size: 14px;
 }
 
@@ -1355,7 +1355,7 @@ onUnmounted(() => {
 }
 
 .confidence-label {
-  color: #909399;
+  color: var(--gray-400);
   white-space: nowrap;
 }
 
@@ -1400,7 +1400,7 @@ onUnmounted(() => {
 }
 
 .rec-reason {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
 }
 
@@ -1435,7 +1435,7 @@ onUnmounted(() => {
 }
 
 .field-label {
-  color: #909399;
+  color: var(--gray-400);
   min-width: 60px;
 }
 
@@ -1454,7 +1454,7 @@ onUnmounted(() => {
 
 .filed-info {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-top: 4px;
 }
 
@@ -1537,21 +1537,21 @@ onUnmounted(() => {
 .batch-title {
   font-size: 13.5px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .batch-sub {
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .batch-status {
   font-size: 12px;
-  color: #3E5C9A;
+  color: var(--c-primary);
 }
 
 .batch-status.paused {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .batch-detail {
@@ -1560,12 +1560,12 @@ onUnmounted(() => {
   gap: 12px;
   margin-top: 6px;
   font-size: 12px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   font-family: 'SF Mono', Menlo, monospace;
 }
 
 .batch-failed {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .batch-current {
@@ -1575,7 +1575,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: inherit;
-  color: #4B5160;
+  color: var(--c-text-regular);
 }
 
 .batch-actions {
@@ -1620,7 +1620,7 @@ onUnmounted(() => {
 
 .copy-progress-info {
   margin-top: 12px;
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
 }
 </style>

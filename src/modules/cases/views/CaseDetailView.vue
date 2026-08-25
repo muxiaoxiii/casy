@@ -762,7 +762,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .summary-meta {
@@ -771,7 +771,7 @@ onUnmounted(() => {
   gap: 16px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #52525B;
+  color: var(--c-text-regular);
 }
 
 .meta-item {
@@ -818,7 +818,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 /* 项目总览 */
@@ -843,13 +843,13 @@ onUnmounted(() => {
 
 .item-label {
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
   margin-bottom: 8px;
 }
 
 .goal-display {
   font-size: 14px;
-  color: #18181B;
+  color: var(--c-text);
   min-height: 40px;
 }
 
@@ -880,7 +880,7 @@ onUnmounted(() => {
   display: block;
   font-size: 20px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .stat-value.overdue {
@@ -889,7 +889,7 @@ onUnmounted(() => {
 
 .stat-label {
   font-size: 11px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 /* 进度环 */
@@ -913,20 +913,20 @@ onUnmounted(() => {
 }
 
 .metric-label {
-  color: #52525B;
+  color: var(--c-text-regular);
 }
 
 .metric-value {
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .metric-danger {
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .metric-warn {
-  color: #B0823A;
+  color: var(--c-warning);
 }
 
 /* 下一步行动 */
@@ -960,7 +960,7 @@ onUnmounted(() => {
 .action-title {
   font-size: 14px;
   font-weight: 500;
-  color: #18181B;
+  color: var(--c-text);
   margin-bottom: 4px;
 }
 
@@ -968,7 +968,7 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 /* 顺序项目 */
@@ -1012,13 +1012,13 @@ onUnmounted(() => {
 
 .task-name {
   font-size: 14px;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .blocked-hint {
   display: block;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
   margin-top: 2px;
 }
 
@@ -1030,7 +1030,7 @@ onUnmounted(() => {
 }
 
 .track-card {
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -1044,7 +1044,7 @@ onUnmounted(() => {
 .track-name {
   font-size: 14px;
   font-weight: 500;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .track-body {
@@ -1078,7 +1078,7 @@ onUnmounted(() => {
 }
 
 .resource-card:hover {
-  background: #F4F4F5;
+  background: var(--gray-50);
 }
 
 .resource-info {
@@ -1089,12 +1089,12 @@ onUnmounted(() => {
 .resource-count {
   font-size: 18px;
   font-weight: 600;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .resource-label {
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 /* 动态轨迹 */
@@ -1110,7 +1110,7 @@ onUnmounted(() => {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: #E4E7ED;
+  background: var(--c-border);
 }
 
 .timeline-item {
@@ -1130,13 +1130,13 @@ onUnmounted(() => {
 
 .timeline-title {
   font-size: 13px;
-  color: #18181B;
+  color: var(--c-text);
   margin-bottom: 2px;
 }
 
 .timeline-date {
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .empty-timeline {
@@ -1145,7 +1145,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 40px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .empty-timeline p {
@@ -1178,12 +1178,12 @@ onUnmounted(() => {
 
 .progress-text {
   font-size: 12px;
-  color: #6B7280;
+  color: var(--gray-500);
   white-space: nowrap;
 }
 
 .context {
-  color: #6B7280;
+  color: var(--gray-500);
   background: #F3F4F6;
   padding: 2px 6px;
   border-radius: 4px;

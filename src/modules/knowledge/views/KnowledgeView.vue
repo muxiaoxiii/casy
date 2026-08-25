@@ -741,8 +741,8 @@ onMounted(async () => {
   gap: 8px;
   margin-bottom: 12px;
   padding: 12px;
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
+  background: var(--gray-50);
+  border: 1px solid var(--c-border);
   border-radius: 8px;
 }
 
@@ -756,7 +756,7 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 16px;
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 8px;
 }
 
@@ -769,7 +769,7 @@ onMounted(async () => {
   cursor: pointer;
   transition: all 0.2s;
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--c-border);
 }
 
 .category-tab:hover {
@@ -842,12 +842,12 @@ onMounted(async () => {
 .rel-counts {
   display: flex;
   gap: 8px;
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
 }
 
 .rel-empty {
-  color: #c0c4cc;
+  color: var(--gray-300);
 }
 
 /* 双链展示区 */
@@ -866,7 +866,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 6px;
 }
 
@@ -880,7 +880,7 @@ onMounted(async () => {
 .link-label {
   flex-shrink: 0;
   width: 64px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .task-links {
@@ -902,12 +902,12 @@ onMounted(async () => {
 
 .block-item {
   padding: 8px 0 8px 0;
-  border-bottom: 1px solid #f0f2f5;
+  border-bottom: 1px solid var(--c-bg-hover);
   cursor: pointer;
 }
 
 .block-item:hover {
-  background: #f5f7fa;
+  background: var(--gray-50);
 }
 
 .block-item:last-child {
@@ -946,7 +946,7 @@ onMounted(async () => {
 
 .content-text {
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 4px;
   white-space: pre-wrap;
   font-size: 14px;
@@ -978,7 +978,7 @@ onMounted(async () => {
 }
 
 .tip {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
 }
 
@@ -1001,7 +1001,7 @@ onMounted(async () => {
 .diff-version-info {
   flex: 1;
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 4px;
 }
 
@@ -1040,7 +1040,7 @@ onMounted(async () => {
 
 .line-number {
   width: 40px;
-  color: #909399;
+  color: var(--gray-400);
   text-align: right;
   margin-right: 12px;
   user-select: none;

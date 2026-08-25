@@ -234,13 +234,13 @@ function areaName(id: string | null | undefined): string {
   flex-shrink: 0;
   text-align: center;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   cursor: pointer;
   transition: transform var(--motion-fast) var(--ease-out);
   user-select: none;
 }
 .twistie.open { transform: rotate(90deg); }
-.twistie:hover { color: #18181B; }
+.twistie:hover { color: var(--c-text); }
 .twistie-spacer { width: 14px; flex-shrink: 0; }
 
 /* ── 行容器 ── */
@@ -249,7 +249,7 @@ function areaName(id: string | null | undefined): string {
   align-items: center;
   gap: 8px;
   background: #ffffff;
-  border: 1px solid var(--c-border-light, #E4E7ED);
+  border: 1px solid var(--c-border-light, var(--c-border));
   border-left: 3px solid #E5E7EB;
   border-radius: 8px;
   padding: 12px 16px;
@@ -262,14 +262,14 @@ function areaName(id: string | null | undefined): string {
 .task-card.overdue { border-left-color: #EF4444; background: #FEF2F2; }
 .task-card.due-soon { border-left-color: #F59E0B; }
 .task-card.flagged { background: #FFFBEB; }
-.task-card.blocked { border-left-color: #9BA2AF; opacity: 0.85; }
+.task-card.blocked { border-left-color: var(--c-text-secondary); opacity: 0.85; }
 
 /* ── 完成圆圈：Things3 式填充动画 ── */
 .task-check {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid #C0C4CC;
+  border: 2px solid var(--gray-300);
   background: transparent;
   cursor: pointer;
   flex-shrink: 0;
@@ -288,7 +288,7 @@ function areaName(id: string | null | undefined): string {
   position: absolute;
   inset: 1px;
   border-radius: 50%;
-  background: var(--c-success, #4C8067);
+  background: var(--c-success, var(--c-success));
   transform: scale(0);
   transition: transform var(--motion-base) var(--ease-spring);
 }
@@ -303,9 +303,9 @@ function areaName(id: string | null | undefined): string {
     opacity var(--motion-fast) ease-out,
     transform var(--motion-base) var(--ease-spring);
 }
-.task-check:hover { border-color: #4C8067; transform: scale(1.08); }
+.task-check:hover { border-color: var(--c-success); transform: scale(1.08); }
 .task-check:active { transform: scale(0.92); }
-.task-check.done { border-color: #4C8067; }
+.task-check.done { border-color: var(--c-success); }
 .task-check.done::before { transform: scale(1); }
 .task-check.done .el-icon {
   opacity: 1;
@@ -322,7 +322,7 @@ function areaName(id: string | null | undefined): string {
   gap: 8px;
   font-size: 14px;
   font-weight: 500;
-  color: #18181B;
+  color: var(--c-text);
   margin-bottom: 4px;
 }
 
@@ -338,7 +338,7 @@ function areaName(id: string | null | undefined): string {
 }
 .task-name-text.struck {
   background-size: 100% 1px;
-  color: var(--c-text-secondary, #9BA2AF);
+  color: var(--c-text-secondary, var(--c-text-secondary));
 }
 
 .task-meta {
@@ -346,7 +346,7 @@ function areaName(id: string | null | undefined): string {
   flex-wrap: wrap;
   gap: 8px;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 .meta-item { display: flex; align-items: center; gap: 3px; }
 .meta-item.case { color: var(--c-primary, #409EFF); }
@@ -354,15 +354,15 @@ function areaName(id: string | null | undefined): string {
 .meta-item.deadline.overdue { color: var(--c-danger, #F56C6C); }
 .meta-item.waiting { color: var(--c-warning, #E6A23C); }
 .meta-item.flagged { color: #F59E0B; }
-.meta-item.estimated { color: #6B7280; }
-.meta-item.blocked { color: #9BA2AF; }
+.meta-item.estimated { color: var(--gray-500); }
+.meta-item.blocked { color: var(--c-text-secondary); }
 
 .waiting-days { color: var(--c-danger, #F56C6C); }
 .waiting-warning { color: #F59E0B; font-weight: 500; }
 .follow-up-btn { margin-left: 8px; font-size: 11px; padding: 2px 6px; }
 .meta-item.context {
-  color: #909399;
-  background: #F4F4F5;
+  color: var(--gray-400);
+  background: var(--gray-50);
   padding: 1px 5px;
   border-radius: 3px;
 }
@@ -371,7 +371,7 @@ function areaName(id: string | null | undefined): string {
 .task-actions { flex-shrink: 0; }
 .review-info {
   font-size: 11px;
-  color: var(--c-text-secondary, #9BA2AF);
+  color: var(--c-text-secondary, var(--c-text-secondary));
   margin-right: 8px;
   white-space: nowrap;
 }
@@ -379,10 +379,10 @@ function areaName(id: string | null | undefined): string {
   margin-right: 8px;
   font-size: 12px;
   padding: 4px 10px;
-  --el-button-border-color: #6C6A9C;
-  --el-button-text-color: #6C6A9C;
-  --el-button-hover-border-color: #6C6A9C;
+  --el-button-border-color: var(--c-info);
+  --el-button-text-color: var(--c-info);
+  --el-button-hover-border-color: var(--c-info);
   --el-button-hover-text-color: #ffffff;
-  --el-button-hover-bg-color: #6C6A9C;
+  --el-button-hover-bg-color: var(--c-info);
 }
 </style>

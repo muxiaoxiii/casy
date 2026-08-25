@@ -96,7 +96,7 @@ onMounted(() => {
 }
 
 .tip {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin-bottom: 16px;
 }
@@ -107,6 +107,6 @@ onMounted(() => {
 
 .profile-value {
   font-size: 13px;
-  color: #1F2430;
+  color: var(--c-text);
 }
 </style>

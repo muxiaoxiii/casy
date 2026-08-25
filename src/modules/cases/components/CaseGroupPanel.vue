@@ -200,7 +200,7 @@ function deadlineIcon(row) {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 4px;
   cursor: pointer;
   user-select: none;

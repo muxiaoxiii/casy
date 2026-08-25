@@ -224,7 +224,7 @@ onMounted(async () => {
 .brief-subtitle {
   margin: 2px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 /* 统计区域 */
@@ -280,7 +280,7 @@ onMounted(async () => {
 
 .stat-text {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-top: 2px;
 }
 

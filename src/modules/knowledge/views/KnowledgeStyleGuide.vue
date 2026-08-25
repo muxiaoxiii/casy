@@ -216,7 +216,7 @@ onMounted(() => {
 
 .subtitle {
   margin: 0;
-  color: #909399;
+  color: var(--gray-400);
   font-size: 14px;
 }
 
@@ -248,7 +248,7 @@ onMounted(() => {
 }
 
 .style-nav-item:hover {
-  background: #f5f7fa;
+  background: var(--gray-50);
 }
 
 .style-nav-item.active {
@@ -322,12 +322,12 @@ onMounted(() => {
 .empty-hint {
   padding: 24px;
   text-align: center;
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   line-height: 1.8;
   background: #fafafa;
   border-radius: 8px;
-  border: 1px dashed #e4e7ed;
+  border: 1px dashed var(--c-border);
 }
 
 .knowledge-cards {
@@ -374,6 +374,6 @@ onMounted(() => {
 
 .card-date {
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--gray-300);
 }
 </style>

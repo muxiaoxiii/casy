@@ -1464,8 +1464,8 @@ let unregisterKeys = []
 
 .shortcut-hint {
   font-size: 11px;
-  color: #A1A1AA;
-  background: #F4F4F5;
+  color: var(--c-text-secondary);
+  background: var(--gray-50);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -1504,12 +1504,12 @@ let unregisterKeys = []
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  color: #52525B;
+  color: var(--c-text-regular);
   font-size: 13px;
 }
 
 .tab-item:hover {
-  background: #F4F4F5;
+  background: var(--gray-50);
 }
 
 .tab-item.active {
@@ -1539,7 +1539,7 @@ let unregisterKeys = []
 
 .tab-item.create-perspective {
   border: 1px dashed #d0d0d0;
-  color: #909399;
+  color: var(--gray-400);
   cursor: pointer;
 }
 
@@ -1586,27 +1586,27 @@ let unregisterKeys = []
   align-items: center;
   gap: 8px;
   background: #fff;
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 6px;
   padding: 0 12px;
   height: 36px;
   transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .capture-field:focus-within {
-  border-color: var(--c-primary, #3E5C9A);
+  border-color: var(--c-primary, var(--c-primary));
   box-shadow: 0 0 0 2px rgba(62, 92, 154, 0.12);
 }
 .capture-field.disabled { opacity: 0.6; }
-.capture-prefix { color: #9BA2AF; font-size: 14px; }
+.capture-prefix { color: var(--c-text-secondary); font-size: 14px; }
 .capture-input-native {
   flex: 1;
   border: none;
   outline: none;
   background: transparent;
   font-size: 14px;
-  color: #18181B;
+  color: var(--c-text);
 }
-.capture-input-native::placeholder { color: #A8ABB2; }
+.capture-input-native::placeholder { color: var(--c-text-secondary); }
 
 .capture-bar {
   margin-bottom: 12px;
@@ -1614,11 +1614,11 @@ let unregisterKeys = []
 
 .capture-bar .el-input__wrapper {
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 1px #E4E7ED inset;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 1px var(--c-border) inset;
 }
 
 .capture-bar .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px #3E5C9A inset, 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 0 0 1px var(--c-primary) inset, 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .capture-hint {
@@ -1627,7 +1627,7 @@ let unregisterKeys = []
   gap: 6px;
   margin-top: 6px;
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   padding-left: 4px;
 }
 
@@ -1648,7 +1648,7 @@ let unregisterKeys = []
   margin-bottom: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #3E5C9A;
+  color: var(--c-primary);
   border-bottom: 1px solid #EEF0F4;
 }
 
@@ -1663,8 +1663,8 @@ let unregisterKeys = []
 .group-count {
   font-size: 11px;
   font-weight: 500;
-  color: #9BA2AF;
-  background: #F4F4F5;
+  color: var(--c-text-secondary);
+  background: var(--gray-50);
   padding: 1px 6px;
   border-radius: 8px;
 }
@@ -1683,7 +1683,7 @@ let unregisterKeys = []
   align-items: center;
   justify-content: center;
   height: 300px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .empty-state p {
@@ -1741,7 +1741,7 @@ let unregisterKeys = []
 /* 厘清预览 */
 .triage-preview {
   padding: 16px;
-  background: #F4F4F5;
+  background: var(--gray-50);
   border-radius: 8px;
 }
 
@@ -1755,7 +1755,7 @@ let unregisterKeys = []
 .triage-preview-header strong {
   flex: 1;
   font-size: 15px;
-  color: #18181B;
+  color: var(--c-text);
 }
 
 .triage-flagged {
@@ -1765,14 +1765,14 @@ let unregisterKeys = []
 .triage-description {
   margin: 0 0 8px;
   font-size: 13px;
-  color: #52525B;
+  color: var(--c-text-regular);
 }
 
 .triage-meta {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 
 .triage-deadline,
@@ -1791,7 +1791,7 @@ let unregisterKeys = []
 
 .triage-type-card {
   padding: 12px;
-  border: 2px solid #E4E7ED;
+  border: 2px solid var(--c-border);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
@@ -1816,12 +1816,12 @@ let unregisterKeys = []
 .type-label {
   font-size: 14px;
   font-weight: 500;
-  color: #18181B;
+  color: var(--c-text);
   margin-bottom: 4px;
 }
 
 .type-desc {
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 </style>

@@ -411,7 +411,7 @@ onMounted(() => {
 
 .template-info-card {
   padding: 16px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 8px;
   margin-bottom: 16px;
 }
@@ -439,7 +439,7 @@ onMounted(() => {
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .field-preview {
@@ -464,7 +464,7 @@ onMounted(() => {
 }
 
 .field-value.empty {
-  color: #c0c4cc;
+  color: var(--gray-300);
   font-style: italic;
 }
 

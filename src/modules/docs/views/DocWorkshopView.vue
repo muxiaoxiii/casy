@@ -434,7 +434,7 @@ onUnmounted(() => {
 
 .draft-status.draft { background: #fdf6ec; color: #e6a23c; }
 .draft-status.final { background: #f0f9eb; color: #67c23a; }
-.draft-status.archived { background: #f4f4f5; color: #909399; }
+.draft-status.archived { background: var(--gray-50); color: var(--gray-400); }
 
 .draft-delete {
   position: absolute;

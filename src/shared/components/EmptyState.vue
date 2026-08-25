@@ -160,7 +160,7 @@ function handleAction() {
 .empty-title {
   font-size: 15px;
   font-weight: 600;
-  color: #6B7280;
+  color: var(--gray-500);
   margin: 0 0 6px 0;
   line-height: 1.4;
 }

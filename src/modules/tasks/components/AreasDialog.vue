@@ -226,7 +226,7 @@ async function removeArea(area: AreaRow) {
   transition: background var(--motion-fast) var(--ease-out);
 }
 .area-row:hover {
-  background: var(--c-bg-hover, #f5f7fa);
+  background: var(--c-bg-hover, var(--gray-50));
 }
 .area-row .el-input {
   flex: 1;
@@ -246,11 +246,11 @@ async function removeArea(area: AreaRow) {
 .area-name {
   font-size: 14px;
   font-weight: 500;
-  color: var(--c-text-primary, #18181B);
+  color: var(--c-text-primary, var(--c-text));
 }
 .area-desc {
   font-size: 12px;
-  color: var(--c-text-secondary, #9BA2AF);
+  color: var(--c-text-secondary, var(--c-text-secondary));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -269,7 +269,7 @@ async function removeArea(area: AreaRow) {
   padding: 24px 12px;
   text-align: center;
   font-size: 13px;
-  color: var(--c-text-secondary, #9BA2AF);
+  color: var(--c-text-secondary, var(--c-text-secondary));
   line-height: 1.6;
 }
 </style>

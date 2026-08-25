@@ -140,13 +140,13 @@ onMounted(() => {
 }
 
 .tip {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 13px;
   margin-bottom: 16px;
 }
 
 .field-hint {
-  color: #909399;
+  color: var(--gray-400);
   font-size: 12px;
   margin-left: 8px;
 }
@@ -168,7 +168,7 @@ onMounted(() => {
 .holidays-json-format {
   margin-top: 16px;
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--gray-50);
   border-radius: 6px;
 }
 

@@ -260,7 +260,7 @@ onMounted(() => {
 
 .stat-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--gray-400);
   margin-top: 4px;
 }
 
@@ -278,7 +278,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #909399;
+  color: var(--gray-400);
 }
 
 .hash-text {

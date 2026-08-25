@@ -112,7 +112,7 @@ onMounted(() => {
 }
 .backup-intro {
   font-size: 13px;
-  color: #52525B;
+  color: var(--c-text-regular);
   line-height: 1.7;
   margin-bottom: 14px;
 }
@@ -122,7 +122,7 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 .backup-list {
-  border: 1px solid #E4E7ED;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   min-height: 80px;
 }
@@ -131,25 +131,25 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
-  border-bottom: 1px solid #F2F3F5;
+  border-bottom: 1px solid var(--c-border-lighter);
 }
 .backup-row:last-child { border-bottom: none; }
 .bf-name {
   flex: 1;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: #27272A;
+  color: var(--c-text);
 }
-.bf-meta { font-size: 12px; color: #9BA2AF; }
+.bf-meta { font-size: 12px; color: var(--c-text-secondary); }
 .backup-empty {
   padding: 24px;
   text-align: center;
   font-size: 13px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 .backup-note {
   margin-top: 12px;
   font-size: 12px;
-  color: #A1A1AA;
+  color: var(--c-text-secondary);
 }
 </style>

@@ -204,7 +204,7 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 .section-head h4 { margin: 0 0 4px; }
-.desc { font-size: 12px; color: #909399; margin: 0; }
+.desc { font-size: 12px; color: var(--gray-400); margin: 0; }
 .head-actions { display: flex; align-items: center; gap: 8px; }
 .engine-badge {
   display: inline-flex;
@@ -213,8 +213,8 @@ onMounted(() => {
   font-size: 12px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: #f4f4f5;
-  color: #909399;
+  background: var(--gray-50);
+  color: var(--gray-400);
 }
 .engine-badge.running { background: #f0f9eb; color: #67c23a; }
 .chan-tag { margin-right: 4px; }

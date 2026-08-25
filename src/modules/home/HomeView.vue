@@ -636,12 +636,12 @@ function goToCase(id) {
    视觉 Token
    ============================================================ */
 :root {
-  --c-primary: #3E5C9A;
+  --c-primary: var(--c-primary);
   --c-bg: #FAFAFA;
   --c-surface: #FFFFFF;
-  --c-text: #18181B;
-  --c-text-secondary: #52525B;
-  --c-text-muted: #A1A1AA;
+  --c-text: var(--c-text);
+  --c-text-secondary: var(--c-text-regular);
+  --c-text-muted: var(--c-text-secondary);
   --c-red: #EF4444;
   --c-amber: #F59E0B;
   --c-green: #10B981;
@@ -707,7 +707,7 @@ function goToCase(id) {
 }
 
 .icon-default {
-  background: #F4F4F5;
+  background: var(--gray-50);
   color: var(--c-text-muted);
 }
 
@@ -751,7 +751,7 @@ function goToCase(id) {
   font-size: 14px;
   font-weight: 600;
   color: var(--c-text);
-  border-bottom: 1px solid #F4F4F5;
+  border-bottom: 1px solid var(--gray-50);
 }
 
 .panel-header .el-icon {
@@ -802,7 +802,7 @@ function goToCase(id) {
 }
 
 .tag-default {
-  background: #F4F4F5;
+  background: var(--gray-50);
   color: var(--c-text-muted);
 }
 
@@ -925,7 +925,7 @@ function goToCase(id) {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #F4F4F5;
+  background: var(--gray-50);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1003,7 +1003,7 @@ function goToCase(id) {
   height: 20px;
   border-radius: 6px;
   background: #EDF1F8;
-  color: #3E5C9A;
+  color: var(--c-primary);
   font-size: 12px;
   font-weight: 700;
   display: grid;
@@ -1019,12 +1019,12 @@ function goToCase(id) {
 .reco-title {
   font-size: 13px;
   font-weight: 500;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .reco-why {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   margin-top: 1px;
 }
 
@@ -1058,12 +1058,12 @@ function goToCase(id) {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .sk {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 /* ============================================================
@@ -1089,7 +1089,7 @@ function goToCase(id) {
 
 .warning-item.level-r1 {
   background: #F6F7F9;
-  color: #4B5160;
+  color: var(--c-text-regular);
 }
 
 .warning-item.level-r2 {
@@ -1100,7 +1100,7 @@ function goToCase(id) {
 .warning-item.level-r3,
 .warning-item.level-r4 {
   background: #F6EDEC;
-  color: #B4554F;
+  color: var(--c-danger);
 }
 
 .warning-dot {
@@ -1122,7 +1122,7 @@ function goToCase(id) {
 
 .warning-case {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   flex-shrink: 0;
 }
 
@@ -1139,14 +1139,14 @@ function goToCase(id) {
   border-radius: 8px;
   padding: 10px 16px;
   font-size: 12.5px;
-  color: #4B5160;
+  color: var(--c-text-regular);
 }
 
 .ai-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #4C8067;
+  background: var(--c-success);
   flex-shrink: 0;
 }
 
@@ -1159,23 +1159,23 @@ function goToCase(id) {
 }
 
 .ai-banner-content strong {
-  color: #1F2430;
+  color: var(--c-text);
   font-weight: 600;
 }
 
 .ai-banner-summary {
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
 }
 
 .ai-banner-time {
   font-size: 11px;
-  color: #9BA2AF;
+  color: var(--c-text-secondary);
   flex-shrink: 0;
 }
 
 .ai-banner-degraded {
   font-size: 11px;
-  color: #B0823A;
+  color: var(--c-warning);
   background: #F7F1E3;
   border: 1px solid #E4D3A8;
   border-radius: 4px;
@@ -1190,7 +1190,7 @@ function goToCase(id) {
   border-radius: 8px;
   padding: 12px 16px;
   font-size: 12.5px;
-  color: #4B5160;
+  color: var(--c-text-regular);
   max-height: 220px;
   overflow-y: auto;
   line-height: 1.7;
@@ -1202,7 +1202,7 @@ function goToCase(id) {
   margin: 8px 0 4px;
   font-size: 13px;
   font-weight: 600;
-  color: #1F2430;
+  color: var(--c-text);
 }
 
 .brief-body :deep(p) {
