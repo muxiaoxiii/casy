@@ -21,6 +21,12 @@ export type ReminderRule = { id: string; name: string; triggerType: string; trig
  */
 export type RecentActivity = { eventType: string; title: string; detail: string | null; eventDate: string; caseId: string; caseName: string }
 
+/**
+ * 保存自定义模板（创建或更新），禁止编辑内置模板
+ * 文件夹模板输入（directories 保持自由 JSON 结构）
+ */
+export type FolderTemplateInput = { id: string | null; name: string | null; caseType: string | null; directories: any | null; fileNaming: any | null }
+
 export type FeishuSyncReport = { pulled: number; pushed: number; created: number; updated: number; skipped: number; errors: string[]; syncedAt: string }
 
 /**
@@ -34,6 +40,11 @@ export type AiChatResult = { content: string; runId: string | null }
 export type CaseFilter = { track: string | null; client: string | null; court: string | null; status: string | null; search: string | null; dateFrom: string | null; dateTo: string | null; sortBy: string | null; page: number | null; perPage: number | null; caseRoute: string | null; civilStatus: string | null; invalidationStatus: string | null; adminStatus: string | null }
 
 export type FieldDiffItem = { feishuField: string | null; feishuType: string | null; feishuTypeCode: number | null; localColumn: string | null; localType: string | null; status: string }
+
+/**
+ * 创建知识条目输入（B1 类型化；全部可选，缺省口径与原 Value 版一致）
+ */
+export type CreateKnowledgeInput = { blockType: string; title: string; category: string; content: string; tags: string | null; sourceType: string | null; sourceId: string | null; linkedCaseId: string | null; lawName: string | null; articleNo: string | null; effectiveDate: string | null; status: string; parentId: string | null }
 
 export type SyncResult = { direction: string; success: boolean; message: string; conflict: boolean; localEtag: string | null; remoteEtag: string | null }
 
@@ -150,6 +161,11 @@ export type TemplateField = { name: string; field_type: string; default_value: s
 
 export type ImapAccountConfig = { id: string | null; emailAddress: string; imapServer: string; imapPort: number; username: string; password: string; useTls: boolean; watchFolders: string; filterFrom: string | null; filterSubject: string | null; enabled: boolean }
 
+/**
+ * 文件夹命名设置（三项均可选，缺省项跳过不写库——与原 Value 版语义一致）
+ */
+export type FolderNamingSettingsInput = { folderNamingDateFormat: string | null; folderNamingCaseNoFormat: string | null; folderNamingFileFormat: string | null }
+
 export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 /**
@@ -172,6 +188,11 @@ export type ImportReport = { cases: number; logs: number; hearings: number; task
  * 即时判断结果
  */
 export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
+
+/**
+ * 映射条目（B1 类型化：入参直用强类型，缺省口径与原 parse_mappings 一致）
+ */
+export type MappingEntry = { feishuFieldName: string; feishuFieldType: number; localColumn: string; syncDirection: string; isFormula: boolean; isLink: boolean }
 
 export type TimelineEvent = { id: string; sourceTable: string; sourceId: string; eventDate: string; eventType: string; title: string; detail: string | null; icon: string; color: string }
 

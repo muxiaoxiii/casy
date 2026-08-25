@@ -25,9 +25,12 @@ import type {
   Draft,
   ExportResponse,
   FeishuSyncReport,
-  ImportReport,
-  InboxItemDto,
+  CreateKnowledgeInput,
+  FolderNamingSettingsInput,
+  FolderTemplateInput,
+  ImportReport,  InboxItemDto,
   InboxProgress,
+  MappingEntry,
   McpPendingWrite,
   ProcessedInboxResult,
   QuickJudgeResult,
@@ -114,8 +117,8 @@ export type CommandMap = {
   webdav_startup_sync: Cmd<Record<string, unknown>, SyncResult>
   webdav_resolve_keep_local: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_resolve_keep_remote: Cmd<{ url: string; username: string; password: string }, SyncResult>
-  sync_feishu_pull: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
-  sync_feishu_push: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
+  sync_feishu_pull: Cmd<{ appToken: string; tableId: string; localTable: string; mappings: MappingEntry[] }, FeishuSyncReport>
+  sync_feishu_push: Cmd<{ appToken: string; tableId: string; localTable: string; mappings: MappingEntry[] }, FeishuSyncReport>
   feishu_compare_table: Cmd<{ appToken: string; tableId: string; localTable: unknown }, SchemaDiff>
   feishu_compare_records: Cmd<{ appToken: string; tableId: string; localTable: unknown; matchField: string }, RecordDiff>
   import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
@@ -137,6 +140,9 @@ export type CommandMap = {
   // ── 任务域 ──
   list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, TaskDto[]>
   search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
+
+  // ── 知识域 ──
+  create_knowledge: Cmd<{ data: CreateKnowledgeInput }, string>
 
   // ── 收件箱域（B1 类型化首批）──
   add_inbox_item: Cmd<{

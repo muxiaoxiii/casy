@@ -147,7 +147,6 @@ pub async fn get_folder_template(template_id: String) -> Result<serde_json::Valu
 }
 
 /// 保存自定义模板（创建或更新），禁止编辑内置模板
-#[tauri::command]
 /// 文件夹模板输入（directories 保持自由 JSON 结构）
 #[derive(Debug, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -156,6 +155,7 @@ pub struct FolderTemplateInput {
     pub name: Option<String>,
     pub case_type: Option<String>,
     pub directories: Option<serde_json::Value>,
+    pub file_naming: Option<serde_json::Value>,
 }
 
 /// 文件夹命名设置（三项均可选，缺省项跳过不写库——与原 Value 版语义一致）
@@ -167,6 +167,7 @@ pub struct FolderNamingSettingsInput {
     pub folder_naming_file_format: Option<String>,
 }
 
+#[tauri::command]
 pub async fn save_folder_template(data: FolderTemplateInput) -> Result<String, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
@@ -191,7 +192,7 @@ pub async fn save_folder_template(data: FolderTemplateInput) -> Result<String, S
                 "缺少目录结构",
             ))
         })?;
-        let directories_json = serde_json::to_string(directories)?;
+        let directories_json = serde_json::to_string(&directories)?;
 
         // 检查是否为内置模板
         let is_builtin: i32 = conn
@@ -206,7 +207,8 @@ pub async fn save_folder_template(data: FolderTemplateInput) -> Result<String, S
         }
 
         let file_naming_json = data
-            .get("fileNaming")
+            .file_naming
+            .as_ref()
             .map(|v| serde_json::to_string(v).unwrap_or_default());
 
         conn.execute(

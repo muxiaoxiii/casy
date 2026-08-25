@@ -65,7 +65,7 @@ export class SyncService extends Service {
 
   /** v3.0: 全量导入 */
   async feishuImportAll(appToken: string, tableId: string, localTable: string, mappingsJson: unknown[]): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('feishu_import_all', { appToken, tableId, localTable, mappingsJson })
+    return tauriCallSafe('feishu_import_all', { appToken, tableId, localTable, mappings: mappingsJson })
   }
 
   /** v3.0: 增量导入 */

@@ -82,7 +82,7 @@ pub async fn list_knowledge(filter: Option<KnowledgeFilter>) -> Result<Vec<serde
     .await
 }
 
-#[tauri::command]
+/// 列出某知识条目下的块（§8.2 知识块级化）
 #[tauri::command]
 pub async fn list_knowledge_blocks(parent_id: String) -> Result<Vec<serde_json::Value>, String> {
     run_blocking(move || {
@@ -384,7 +384,6 @@ pub async fn diff_knowledge_versions(
     .await
 }
 
-/// 从选中文本创建知识条目
 /// 创建知识条目输入（B1 类型化；全部可选，缺省口径与原 Value 版一致）
 #[derive(Debug, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
@@ -424,6 +423,7 @@ impl Default for CreateKnowledgeInput {
     }
 }
 
+#[tauri::command]
 pub async fn create_knowledge(data: CreateKnowledgeInput) -> Result<String, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
@@ -466,7 +466,7 @@ pub async fn create_knowledge(data: CreateKnowledgeInput) -> Result<String, Stri
     .await
 }
 
-/// 列出某知识条目下的块（§8.2 知识块级化）
+/// 从选中文本创建知识条目
 #[tauri::command]
 pub async fn create_knowledge_from_selection(
     text: String,

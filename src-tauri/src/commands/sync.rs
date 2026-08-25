@@ -1238,10 +1238,11 @@ pub async fn feishu_sync_pull(
     app_token: String,
     table_id: String,
     local_table: String,
-    mappings: Vec<MappingEntry>,
+    mappings_json: serde_json::Value,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
+        let mappings = parse_mappings(&mappings_json)?;
         let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
             .into_iter()
             .map(|m| sync::feishu::SyncMappingEntry {
@@ -1265,10 +1266,11 @@ pub async fn feishu_sync_push(
     app_token: String,
     table_id: String,
     local_table: String,
-    mappings: Vec<MappingEntry>,
+    mappings_json: serde_json::Value,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
+        let mappings = parse_mappings(&mappings_json)?;
         let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
             .into_iter()
             .map(|m| sync::feishu::SyncMappingEntry {
