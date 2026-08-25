@@ -10,13 +10,17 @@
 import type {
   AiChatResult,
   AiConfig,
+  CalendarEvent,
+  CalendarEventRow,
+  CalendarSyncReport,
   Case,
   CaseFile,
   CaseFilter,
   CaseListResult,
   CaseRelation,
   CaseStats,
-  CalendarSyncReport,
+  CaseTypeMetrics,
+  CaseUnifiedView,
   ChatMessage,
   CommandRoute,
   DashboardStats,
@@ -25,6 +29,8 @@ import type {
   Draft,
   ExportResponse,
   FeishuSyncReport,
+  FieldGroup,
+  HolidayNotice,
   CreateKnowledgeInput,
   FolderNamingSettingsInput,
   FolderTemplateInput,
@@ -51,6 +57,7 @@ import type {
   TaskTemplate,
   TemplateListResponse,
   TimelineEvent,
+  TodayStats,
 } from './bindings'
 import type { InboxStatus } from './index'
 
@@ -94,6 +101,15 @@ export type CommandMap = {
   get_dashboard_stats: Cmd<Record<string, unknown>, DashboardStats>
   update_case_status: Cmd<Record<string, unknown>, Case>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
+  // B1 类型化：create_case/update_case 参数因「缺键跳过 vs null 清除」三态语义复杂，保持 Record
+  create_case: Cmd<{ data: Record<string, unknown> }, Case>
+  update_case: Cmd<{ id: string; data: Record<string, unknown> }, Case>
+  // B1 类型化：新增类型化命令
+  list_field_groups: Cmd<{ caseType?: string }, FieldGroup[]>
+  get_case_unified_view: Cmd<{ filters?: Record<string, unknown> }, CaseUnifiedView[]>
+  get_today_stats: Cmd<Record<string, unknown>, TodayStats>
+  get_case_type_metrics: Cmd<{ caseId: string }, CaseTypeMetrics>
+  get_all_case_type_metrics: Cmd<Record<string, unknown>, CaseTypeMetrics[]>
 
   // ── 关系 / 时间线 ──
   add_relation: Cmd<Record<string, unknown>, CaseRelation>
@@ -165,6 +181,15 @@ export type CommandMap = {
   file_inbox_item: Cmd<{ itemId: string; caseId: string; category: string }, void>
   dismiss_inbox_item: Cmd<{ id: string }, void>
   get_inbox_progress: Cmd<Record<string, unknown>, InboxProgress>
+  parse_holiday_notice: Cmd<{ content: string }, HolidayNotice>
+
+  // ── 日历域 ──
+  get_calendar_events: Cmd<{ year: number; month: number }, CalendarEvent[]>
+  list_calendar_events: Cmd<{ startDate: string; endDate: string }, CalendarEventRow[]>
+  create_calendar_event: Cmd<{ data: Record<string, unknown> }, CalendarEventRow>
+  update_calendar_event: Cmd<{ id: string; data: Record<string, unknown> }, void>
+  move_calendar_event: Cmd<{ id: string; newDate: string; newStart?: string }, void>
+  delete_calendar_event: Cmd<{ id: string }, void>
 
   // ── 文书引擎 ──
   list_docsy_templates: Cmd<Record<string, unknown>, TemplateListResponse>

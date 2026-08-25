@@ -6,8 +6,8 @@
 use super::run_blocking;
 use crate::db;
 
-/// 独立日程行（与投影 CalendarEvent 分离；投影时合并进月历数据）
-#[derive(serde::Serialize)]
+/// 独立日程行（与投影 CalendarEvent 分离；投影时合并进月历数据）（B1 类型化）
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarEventRow {
     pub id: String,

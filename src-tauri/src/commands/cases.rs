@@ -130,6 +130,72 @@ pub struct CaseStats {
     pub by_client: Vec<(String, i64)>,
 }
 
+/// 字段分组项（B1 类型化）
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldGroupItem {
+    pub id: String,
+    pub column_name: String,
+    pub label: String,
+    pub field_type: String,
+    pub options: serde_json::Value,
+    pub required: bool,
+    pub sort_order: i32,
+}
+
+/// 字段分组（B1 类型化）
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldGroup {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub case_types: Option<serde_json::Value>,
+    pub court_levels: Option<serde_json::Value>,
+    pub sort_order: i32,
+    pub items: Vec<FieldGroupItem>,
+}
+
+/// 案件统一视图行（B1 类型化）
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CaseUnifiedView {
+    pub id: String,
+    pub case_name: Option<String>,
+    pub case_no: Option<String>,
+    pub client_name: Option<String>,
+    pub cause_action: Option<String>,
+    pub track: Option<String>,
+    pub status: Option<String>,
+    pub court: Option<String>,
+    pub case_level: Option<String>,
+    pub operator: Option<String>,
+    pub trial_date: Option<String>,
+    pub filing_date: Option<String>,
+    pub next_deadline: Option<String>,
+    pub next_hearing: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// 今日面板统计（B1 类型化）
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TodayStats {
+    pub hard_schedule: i32,
+    pub due_today: i32,
+    pub waiting_overdue: i32,
+    pub need_review: i32,
+}
+
+/// 案件类型差异化评估指标（B1 类型化）
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CaseTypeMetrics {
+    pub case_id: String,
+    pub case_type: String,
+    pub metrics: serde_json::Value,
+}
+
 #[tauri::command]
 pub async fn case_stats() -> Result<CaseStats, String> {
     run_blocking(move || {
@@ -376,9 +442,9 @@ fn cases_to_csv(cases: &[db::cases::Case]) -> anyhow::Result<String> {
     String::from_utf8(data).map_err(|e| anyhow::anyhow!(e))
 }
 
-/// 动态字段分组查询命令
+/// 动态字段分组查询命令（B1 类型化）
 #[tauri::command]
-pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<FieldGroup>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -390,7 +456,7 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<serde_js
             )
             ?;
 
-        let groups: Vec<serde_json::Value> = stmt
+        let groups: Vec<FieldGroup> = stmt
             .query_map([], |row| {
                 let id: String = row.get(0)?;
                 let name: String = row.get(1)?;
@@ -421,15 +487,15 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<serde_js
                 // 查询该分组下的字段项
                 let items = query_field_group_items(&conn, &id).unwrap_or_default();
 
-                serde_json::json!({
-                    "id": id,
-                    "name": name,
-                    "description": description,
-                    "caseTypes": case_types_json.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-                    "courtLevels": court_levels_json.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-                    "sortOrder": sort_order,
-                    "items": items,
-                })
+                FieldGroup {
+                    id,
+                    name,
+                    description,
+                    case_types: case_types_json.and_then(|s| serde_json::from_str(&s).ok()),
+                    court_levels: court_levels_json.and_then(|s| serde_json::from_str(&s).ok()),
+                    sort_order,
+                    items,
+                }
             })
             .collect();
 
@@ -438,7 +504,7 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<serde_js
     .await
 }
 
-fn query_field_group_items(conn: &rusqlite::Connection, group_id: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+fn query_field_group_items(conn: &rusqlite::Connection, group_id: &str) -> anyhow::Result<Vec<FieldGroupItem>> {
     let mut stmt = conn.prepare(
         "SELECT id, column_name, label, field_type, options, required, sort_order
          FROM field_group_items WHERE group_id = ?1 ORDER BY sort_order"
@@ -452,23 +518,23 @@ fn query_field_group_items(conn: &rusqlite::Connection, group_id: &str) -> anyho
         let options: Option<String> = row.get(4)?;
         let required: i32 = row.get(5)?;
         let sort_order: i32 = row.get(6)?;
-        Ok(serde_json::json!({
-            "id": id,
-            "columnName": column_name,
-            "label": label,
-            "fieldType": field_type,
-            "options": options.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-            "required": required != 0,
-            "sortOrder": sort_order,
-        }))
+        Ok(FieldGroupItem {
+            id,
+            column_name,
+            label,
+            field_type,
+            options: options.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::Value::Null),
+            required: required != 0,
+            sort_order,
+        })
     })?.filter_map(|r| r.ok()).collect();
 
     Ok(items)
 }
 
-/// 跨类型统一视图查询命令
+/// 跨类型统一视图查询命令（B1 类型化）
 #[tauri::command]
-pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result<Vec<CaseUnifiedView>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -564,26 +630,26 @@ pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "caseName": row.get::<_, Option<String>>(1)?,
-                "caseNo": row.get::<_, Option<String>>(2)?,
-                "clientName": row.get::<_, Option<String>>(3)?,
-                "causeAction": row.get::<_, Option<String>>(4)?,
-                "track": row.get::<_, Option<String>>(5)?,
-                "status": row.get::<_, Option<String>>(6)?,
-                "court": row.get::<_, Option<String>>(7)?,
-                "caseLevel": row.get::<_, Option<String>>(8)?,
-                "operator": row.get::<_, Option<String>>(9)?,
-                "trialDate": row.get::<_, Option<String>>(10)?,
-                "filingDate": row.get::<_, Option<String>>(11)?,
-                "nextDeadline": row.get::<_, Option<String>>(12)?,
-                "nextHearing": row.get::<_, Option<String>>(13)?,
-                "updatedAt": row.get::<_, Option<String>>(14)?,
-            }))
+            Ok(CaseUnifiedView {
+                id: row.get::<_, String>(0)?,
+                case_name: row.get::<_, Option<String>>(1)?,
+                case_no: row.get::<_, Option<String>>(2)?,
+                client_name: row.get::<_, Option<String>>(3)?,
+                cause_action: row.get::<_, Option<String>>(4)?,
+                track: row.get::<_, Option<String>>(5)?,
+                status: row.get::<_, Option<String>>(6)?,
+                court: row.get::<_, Option<String>>(7)?,
+                case_level: row.get::<_, Option<String>>(8)?,
+                operator: row.get::<_, Option<String>>(9)?,
+                trial_date: row.get::<_, Option<String>>(10)?,
+                filing_date: row.get::<_, Option<String>>(11)?,
+                next_deadline: row.get::<_, Option<String>>(12)?,
+                next_hearing: row.get::<_, Option<String>>(13)?,
+                updated_at: row.get::<_, Option<String>>(14)?,
+            })
         })?;
 
-        let results: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+        let results: Vec<CaseUnifiedView> = rows.filter_map(|r| r.ok()).collect();
         Ok(results)
     })
     .await
@@ -706,9 +772,9 @@ fn compute_aggregate_status(
     }
 }
 
-/// 获取今日概览统计
+/// 获取今日概览统计（B1 类型化）
 #[tauri::command]
-pub async fn get_today_stats() -> Result<serde_json::Value, String> {
+pub async fn get_today_stats() -> Result<TodayStats, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -741,12 +807,12 @@ pub async fn get_today_stats() -> Result<serde_json::Value, String> {
             |row| row.get(0),
         ).unwrap_or(0);
 
-        Ok(serde_json::json!({
-            "hardSchedule": hard_schedule,
-            "dueToday": due_today,
-            "waitingOverdue": waiting_overdue,
-            "needReview": need_review,
-        }))
+        Ok(TodayStats {
+            hard_schedule,
+            due_today,
+            waiting_overdue,
+            need_review,
+        })
     })
     .await
 }
@@ -777,11 +843,11 @@ fn count_overdue_tasks(conn: &rusqlite::Connection, case_id: &str) -> anyhow::Re
     Ok(n)
 }
 
-/// 计算单个案件的类型差异化指标
+/// 计算单个案件的类型差异化指标（B1 类型化）
 pub fn compute_case_type_metrics(
     conn: &rusqlite::Connection,
     case_id: &str,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<CaseTypeMetrics> {
     let case_type: Option<String> = conn
         .query_row(
             "SELECT case_type FROM cases WHERE id=?1",
@@ -911,16 +977,16 @@ pub fn compute_case_type_metrics(
         }
     };
 
-    Ok(serde_json::json!({
-        "caseId": case_id,
-        "caseType": case_type.as_deref().unwrap_or("generic"),
-        "metrics": metrics,
-    }))
+    Ok(CaseTypeMetrics {
+        case_id: case_id.to_string(),
+        case_type: case_type.unwrap_or_else(|| "generic".to_string()),
+        metrics,
+    })
 }
 
-/// 获取单个案件的类型差异化评估指标
+/// 获取单个案件的类型差异化评估指标（B1 类型化）
 #[tauri::command]
-pub async fn get_case_type_metrics(case_id: String) -> Result<serde_json::Value, String> {
+pub async fn get_case_type_metrics(case_id: String) -> Result<CaseTypeMetrics, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         compute_case_type_metrics(&conn, &case_id)
@@ -928,9 +994,9 @@ pub async fn get_case_type_metrics(case_id: String) -> Result<serde_json::Value,
     .await
 }
 
-/// 批量获取所有案件的类型差异化评估指标（单个案件失败不影响其余）
+/// 批量获取所有案件的类型差异化评估指标（单个案件失败不影响其余）（B1 类型化）
 #[tauri::command]
-pub async fn get_all_case_type_metrics() -> Result<Vec<serde_json::Value>, String> {
+pub async fn get_all_case_type_metrics() -> Result<Vec<CaseTypeMetrics>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare("SELECT id FROM cases ORDER BY created_at")?;
@@ -1003,12 +1069,12 @@ mod case_type_metrics_tests {
         add_task(&conn, "t3", "c1", 0, Some("2000-01-01"), 0);
 
         let m = compute_case_type_metrics(&conn, "c1").unwrap();
-        assert_eq!(m["caseType"], "computational");
-        assert_eq!(m["metrics"]["completedTotal"], 2);
-        assert_eq!(m["metrics"]["completedWithDue"], 2);
-        assert_eq!(m["metrics"]["onTimeCompleted"], 1);
-        assert_eq!(m["metrics"]["onTimeRate"], 0.5);
-        assert_eq!(m["metrics"]["overdueCount"], 1);
+        assert_eq!(m.case_type, "computational");
+        assert_eq!(m.metrics["completedTotal"], 2);
+        assert_eq!(m.metrics["completedWithDue"], 2);
+        assert_eq!(m.metrics["onTimeCompleted"], 1);
+        assert_eq!(m.metrics["onTimeRate"], 0.5);
+        assert_eq!(m.metrics["overdueCount"], 1);
     }
 
     #[test]
@@ -1024,12 +1090,12 @@ mod case_type_metrics_tests {
         conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h3', 'c2', datetime('now','localtime','-120 days'))", []).unwrap();
 
         let m = compute_case_type_metrics(&conn, "c2").unwrap();
-        assert_eq!(m["caseType"], "exploratory");
-        assert_eq!(m["metrics"]["trackTransitions90d"], 2);
-        assert_eq!(m["metrics"]["totalTasks"], 3);
-        assert_eq!(m["metrics"]["blockedTotal"], 2);
-        assert_eq!(m["metrics"]["blockedRemaining"], 1);
-        assert_eq!(m["metrics"]["blockedResolved"], 1);
+        assert_eq!(m.case_type, "exploratory");
+        assert_eq!(m.metrics["trackTransitions90d"], 2);
+        assert_eq!(m.metrics["totalTasks"], 3);
+        assert_eq!(m.metrics["blockedTotal"], 2);
+        assert_eq!(m.metrics["blockedRemaining"], 1);
+        assert_eq!(m.metrics["blockedResolved"], 1);
     }
 
     #[test]
@@ -1043,9 +1109,9 @@ mod case_type_metrics_tests {
         conn.execute("INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e3', 't1', 'moved', datetime('now','localtime','-40 days'))", []).unwrap();
 
         let m = compute_case_type_metrics(&conn, "c3").unwrap();
-        assert_eq!(m["caseType"], "growth");
-        assert_eq!(m["metrics"]["activeDays30d"], 2);
-        assert_eq!(m["metrics"]["inactiveStreakDays"], 0); // 今天有活动
+        assert_eq!(m.case_type, "growth");
+        assert_eq!(m.metrics["activeDays30d"], 2);
+        assert_eq!(m.metrics["inactiveStreakDays"], 0); // 今天有活动
     }
 
     #[test]
@@ -1057,11 +1123,11 @@ mod case_type_metrics_tests {
         add_task(&conn, "t3", "c4", 0, None, 0);
 
         let m = compute_case_type_metrics(&conn, "c4").unwrap();
-        assert_eq!(m["caseType"], "generic");
-        assert_eq!(m["metrics"]["totalTasks"], 3);
-        assert_eq!(m["metrics"]["completedTasks"], 1);
-        assert_eq!(m["metrics"]["overdueCount"], 1);
-        let rate = m["metrics"]["completionRate"].as_f64().unwrap();
+        assert_eq!(m.case_type, "generic");
+        assert_eq!(m.metrics["totalTasks"], 3);
+        assert_eq!(m.metrics["completedTasks"], 1);
+        assert_eq!(m.metrics["overdueCount"], 1);
+        let rate = m.metrics["completionRate"].as_f64().unwrap();
         assert!((rate - 1.0 / 3.0).abs() < 1e-9);
     }
 

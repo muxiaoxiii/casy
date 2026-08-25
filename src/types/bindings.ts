@@ -3,6 +3,11 @@
 export type ReminderLogEntry = { id: string; ruleId: string; caseId: string | null; taskId: string | null; channel: string; message: string; level: string | null; status: string; sentAt: string | null }
 
 /**
+ * 今日面板统计（B1 类型化）
+ */
+export type TodayStats = { hardSchedule: number; dueToday: number; waitingOverdue: number; needReview: number }
+
+/**
  * 列表查询结果
  */
 export type CaseListResult = { items: Case[]; total: number; page: number; perPage: number }
@@ -15,11 +20,6 @@ export type SyncStatus = { webdavConnected: boolean; webdavUrl: string; lastSync
 export type SchemaDiff = { feishuOnly: FieldDiffItem[]; localOnly: FieldDiffItem[]; typeConflict: FieldDiffItem[]; mapped: FieldDiffItem[] }
 
 export type ReminderRule = { id: string; name: string; triggerType: string; triggerValue: number | null; channels: string; messageTemplate: string | null; caseTypes: string | null; enabled: boolean; createdAt: string | null }
-
-/**
- * 最近活动条目
- */
-export type RecentActivity = { eventType: string; title: string; detail: string | null; eventDate: string; caseId: string; caseName: string }
 
 /**
  * 保存自定义模板（创建或更新），禁止编辑内置模板
@@ -38,6 +38,11 @@ export type AiChatResult = { content: string; runId: string | null }
  * 列表查询过滤条件
  */
 export type CaseFilter = { track: string | null; client: string | null; court: string | null; status: string | null; search: string | null; dateFrom: string | null; dateTo: string | null; sortBy: string | null; page: number | null; perPage: number | null; caseRoute: string | null; civilStatus: string | null; invalidationStatus: string | null; adminStatus: string | null }
+
+/**
+ * 案件类型差异化评估指标（B1 类型化）
+ */
+export type CaseTypeMetrics = { caseId: string; caseType: string; metrics: any }
 
 export type FieldDiffItem = { feishuField: string | null; feishuType: string | null; feishuTypeCode: number | null; localColumn: string | null; localType: string | null; status: string }
 
@@ -83,6 +88,16 @@ export type McpPendingWrite = { id: string; tool: string; arguments: string; sta
 export type DeadlineWarning = { deadlineId: string; caseId: string; caseName: string; deadlineName: string; dueDate: string; daysLeft: number; level: string; levelLabel: string; levelColor: string; message: string }
 
 /**
+ * 独立日程行（与投影 CalendarEvent 分离；投影时合并进月历数据）（B1 类型化）
+ */
+export type CalendarEventRow = { id: string; title: string; eventDate: string; startTime: string | null; endTime: string | null; allDay: boolean; color: string | null; location: string | null; notes: string | null; caseId: string | null; taskId: string | null }
+
+/**
+ * 即时判断结果
+ */
+export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
+
+/**
  * 收件箱列表项（B1 类型化：返回侧 Value → 强类型）
  * 
  * 空值口径：title/contentText/aiCategory/aiConfidence/sourcePath/userCategory/createdAt
@@ -95,6 +110,8 @@ export type InboxItemDto = { id: string; sourceType: string; sourcePath: string;
  * 关联案件（含案件摘要信息）
  */
 export type RelatedCase = { relationId: string; relationType: string; label: string | null; caseId: string; caseName: string; caseNo: string | null; caseStatus: string | null; clientName: string; track: string }
+
+export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | null; model: string | null; dailyLimit: number | null }
 
@@ -109,9 +126,19 @@ export type RecordDiff = { same: RecordDiffItem[]; feishuOnly: RecordDiffItem[];
 export type CalendarSyncReport = { total: number; synced: number; failed: number; skipped: number }
 
 /**
+ * 字段分组项（B1 类型化）
+ */
+export type FieldGroupItem = { id: string; columnName: string; label: string; fieldType: string; options: any; required: boolean; sortOrder: number }
+
+/**
  * 命令路由信息
  */
 export type CommandRoute = { commandName: string; routeType: string; description: string; requiresConfirmation: boolean; minConfirmLevel: string }
+
+/**
+ * 案件统一视图行（B1 类型化）
+ */
+export type CaseUnifiedView = { id: string; caseName: string | null; caseNo: string | null; clientName: string | null; causeAction: string | null; track: string | null; status: string | null; court: string | null; caseLevel: string | null; operator: string | null; trialDate: string | null; filingDate: string | null; nextDeadline: string | null; nextHearing: string | null; updatedAt: string | null }
 
 export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
 
@@ -126,11 +153,6 @@ export type ExportResponse = { output_path: string; file_size: number; exported_
 export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 /**
- * 仪表盘聚合数据
- */
-export type DashboardStats = { activeCount: number; totalCount: number; closedCount: number; deadlineWarnings: DeadlineResult[]; recentActivities: RecentActivity[]; byTrack: ([string, number])[] }
-
-/**
  * 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
  */
 export type ChatMessage = { role: string; content: string }
@@ -143,6 +165,11 @@ export type DeadlineResult = { ruleId: string | null; ruleName: string; dueDate:
  * 关系记录
  */
 export type CaseRelation = { id: string; sourceCaseId: string; targetCaseId: string; relationType: string; label: string | null; createdAt: string | null }
+
+/**
+ * 仪表盘聚合数据
+ */
+export type DashboardStats = { activeCount: number; totalCount: number; closedCount: number; deadlineWarnings: DeadlineResult[]; recentActivities: RecentActivity[]; byTrack: ([string, number])[] }
 
 /**
  * 模板列表响应
@@ -166,12 +193,15 @@ export type ImapAccountConfig = { id: string | null; emailAddress: string; imapS
  */
 export type FolderNamingSettingsInput = { folderNamingDateFormat: string | null; folderNamingCaseNoFormat: string | null; folderNamingFileFormat: string | null }
 
-export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
-
 /**
  * 案件数据结构
  */
 export type Case = { id: string; track: string; caseName: string; caseNo: string | null; internalNo: string | null; causeAction: string | null; clientName: string; ourRole: string | null; opponentName: string; opponentRole: string | null; opponentFirm: string | null; opponentAgent: string | null; court: string | null; judgePanel: string | null; clerk: string | null; attorneys: string | null; caseLevel: string | null; caseStatus: string | null; caseProgress: string | null; caseResult: string | null; patentName: string | null; patentAppNo: string | null; procedureType: string | null; filingDate: string | null; complaintReceivedDate: string | null; trialDate: string | null; trial2Date: string | null; trial3Date: string | null; verdictType: string | null; verdictDate: string | null; stayDate: string | null; reliefDeadline: string | null; petitionerFirstInvalid: string | null; petitionerSuppDeadline: string | null; petitionerSubmitDate: string | null; petitionerReceivedDate: string | null; petitionerReplyDeadline: string | null; patenteeReceivedDate: string | null; patenteeStatementDeadline: string | null; patenteeReceivedSuppDate: string | null; patenteeSuppDeadline: string | null; patenteeSubmitSuppDate: string | null; caseRoute: string | null; civilStatus: string | null; invalidationStatus: string | null; adminStatus: string | null; invalidationDecisionDate: string | null; invalidationDecisionType: string | null; adminFilingDate: string | null; adminVerdictDate: string | null; adminTrial2Date: string | null; folderPath: string | null; folderTemplateId: string | null; lastDocPath: string | null; lastDocAt: string | null; completedText: string | null; notes: string | null; createdAt: string | null; updatedAt: string | null; deadlineUrgency?: string | null }
+
+/**
+ * 最近活动条目
+ */
+export type RecentActivity = { eventType: string; title: string; detail: string | null; eventDate: string; caseId: string; caseName: string }
 
 export type CaseStats = { total: number; active: number; closed: number; byTrack: ([string, number])[]; byClient: ([string, number])[] }
 
@@ -185,9 +215,16 @@ export type DocsyTemplate = { id: string; name: string; path: string; category: 
 export type ImportReport = { cases: number; logs: number; hearings: number; tasks: number; officials: number; errors: string[] }
 
 /**
- * 即时判断结果
+ * 节假日解析结果（B1 类型化）
  */
-export type QuickJudgeResult = { category: string; confidence: number; strength: string; recommendations: QuickRecommendation[]; aiAvailable: boolean; aiAnalyzed: boolean }
+export type HolidayNotice = { year: number; holidays: string[]; workdays: string[] }
+
+export type CalendarEvent = { id: string; date: string; title: string; eventType: string; caseId: string; caseName: string; startTime?: string | null; endTime?: string | null; allDay?: boolean | null }
+
+/**
+ * 字段分组（B1 类型化）
+ */
+export type FieldGroup = { id: string; name: string; description: string | null; caseTypes: any | null; courtLevels: any | null; sortOrder: number; items: FieldGroupItem[] }
 
 /**
  * 映射条目（B1 类型化：入参直用强类型，缺省口径与原 parse_mappings 一致）

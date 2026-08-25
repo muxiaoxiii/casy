@@ -50,6 +50,15 @@ pub struct ProcessedInboxResult {
     pub route_actions: Vec<serde_json::Value>,
 }
 
+/// 节假日解析结果（B1 类型化）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HolidayNotice {
+    pub year: i32,
+    pub holidays: Vec<String>,
+    pub workdays: Vec<String>,
+}
+
 #[tauri::command]
 pub async fn add_inbox_item(
     source_type: String,
@@ -587,8 +596,8 @@ fn auto_import_legal_provisions(
     Ok(count)
 }
 
-/// 解析节假日日期
-fn parse_holiday_dates(content: &str) -> Result<serde_json::Value, String> {
+/// 解析节假日日期（B1 类型化）
+fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String> {
     let year_re = regex::Regex::new(r"(\d{4})\s*年").unwrap();
     let year = year_re
         .captures(content)
@@ -611,11 +620,11 @@ fn parse_holiday_dates(content: &str) -> Result<serde_json::Value, String> {
         workdays.push(format!("{:04}-{:02}-{:02}", year, month, day));
     }
 
-    Ok(serde_json::json!({
-        "year": year,
-        "holidays": holidays,
-        "workdays": workdays,
-    }))
+    Ok(HolidayNotice {
+        year,
+        holidays,
+        workdays,
+    })
 }
 
 /// 从 extracted 中提取日期字段
@@ -908,9 +917,9 @@ pub async fn dismiss_inbox_item(id: String) -> Result<(), String> {
     .await
 }
 
-/// 解析节假日通知并更新日历
+/// 解析节假日通知并更新日历（B1 类型化）
 #[tauri::command]
-pub async fn parse_holiday_notice(content: String) -> Result<serde_json::Value, String> {
+pub async fn parse_holiday_notice(content: String) -> Result<HolidayNotice, String> {
     run_blocking(move || {
         parse_holiday_dates(&content).map_err(|e| anyhow::anyhow!(e))
     })

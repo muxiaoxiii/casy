@@ -2,7 +2,7 @@ use super::run_blocking;
 use crate::db;
 use chrono::Datelike;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarEvent {
     pub id: String,
