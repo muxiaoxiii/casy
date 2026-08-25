@@ -1,6 +1,7 @@
 pub mod areas;
 pub mod caldav;
 pub mod calendar;
+pub mod backup;
 pub mod calendar_events;
 pub mod projects;
 pub mod cases;
@@ -50,6 +51,31 @@ pub async fn get_deadline_warnings() -> Result<Vec<crate::deadline::engine::Dead
         let conn = crate::db::open_db()?;
         let engine = crate::deadline::engine::DeadlineEngine::new(&conn)?;
         engine.generate_all_warnings(&conn)
+    })
+    .await
+}
+
+/// 前端崩溃/未捕获异常落盘（R-6；D-13 严格本地不上报）
+#[tauri::command]
+pub async fn append_fe_crash(
+    message: String,
+    stack: Option<String>,
+    url: Option<String>,
+) -> Result<(), String> {
+    run_blocking(move || {
+        crate::app_log::append_crash_line(
+            "crash-fe",
+            &serde_json::json!({
+                "ts": chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                "version": env!("CARGO_PKG_VERSION"),
+                "kind": "fe_exception",
+                "message": message,
+                "stack": stack,
+                "url": url,
+            })
+            .to_string(),
+        );
+        Ok(())
     })
     .await
 }
@@ -104,6 +130,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         import_feishu_data,
         get_deadline_warnings,
         record_ai_tool_audit,
+        append_fe_crash,
         tasks::list_tasks,
         tasks::create_task,
         tasks::toggle_task,
@@ -122,6 +149,9 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         projects::create_personal_project,
         projects::update_personal_project,
         projects::delete_project,
+        backup::create_backup,
+        backup::list_backups,
+        backup::restore_backup,
         timeline::get_case_timeline,
         timeline::add_case_log,
         timeline::delete_case_log,

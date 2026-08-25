@@ -10,6 +10,7 @@ import FolderTemplateSettings from './components/FolderTemplateSettings.vue'
 import ReminderSettings from './components/ReminderSettings.vue'
 import SmtpMcpSettings from './components/SmtpMcpSettings.vue'
 import ProfileSettings from './components/ProfileSettings.vue'
+import BackupSettings from './components/BackupSettings.vue'
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('feishu')
@@ -49,6 +50,9 @@ onMounted(async () => {
       </el-tab-pane>
       <el-tab-pane label="提醒" name="reminder">
         <ReminderSettings />
+      </el-tab-pane>
+      <el-tab-pane label="数据备份" name="backup">
+        <BackupSettings />
       </el-tab-pane>
     </el-tabs>
   </div>
