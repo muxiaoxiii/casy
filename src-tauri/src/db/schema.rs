@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 17;
+pub const CURRENT_SCHEMA_VERSION: i64 = 18;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -659,6 +659,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("15", MIGRATION_V15_SQL),
     ("16", MIGRATION_V16_SQL),
     ("17", MIGRATION_V17_SQL),
+    ("18", MIGRATION_V18_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1914,6 +1915,11 @@ ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id);
 ALTER TABLE tasks ADD COLUMN recurrence_rule TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
+"#;
+
+pub const MIGRATION_V18_SQL: &str = r#"
+-- A1-6+/序时参考：今日重点（Top-3 纪律，配合 Today Reset 整理仪式）
+ALTER TABLE tasks ADD COLUMN is_focus INTEGER NOT NULL DEFAULT 0;
 "#;
 
 pub const MIGRATION_V17_SQL: &str = r#"

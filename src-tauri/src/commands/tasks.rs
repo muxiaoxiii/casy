@@ -46,6 +46,9 @@ pub struct TaskDto {
     pub next_review_date: Option<String>,
     pub area_id: Option<String>,
     pub knowledge_id: Option<String>,
+    pub parent_task_id: Option<String>,
+    pub recurrence_rule: Option<String>,
+    pub is_focus: i32,
 }
 
 /// 全局搜索结果项（轻量列）
@@ -141,6 +144,9 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
                     next_review_date: row.get::<_, Option<String>>("next_review_date")?,
                     area_id: row.get::<_, Option<String>>("area_id")?,
                     knowledge_id: row.get::<_, Option<String>>("knowledge_id")?,
+                    parent_task_id: row.get::<_, Option<String>>("parent_task_id")?,
+                    recurrence_rule: row.get::<_, Option<String>>("recurrence_rule")?,
+                    is_focus: row.get::<_, i32>("is_focus")?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -194,8 +200,8 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         conn.execute(
             "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
              task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
-             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at, parent_task_id, recurrence_rule)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
+             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at, parent_task_id, recurrence_rule, is_focus)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)",
             rusqlite::params![
                 id,
                 case_id,
@@ -227,6 +233,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
                 // A1-4/A1-5
                 data["parentId"].as_str(),
                 data["recurrenceRule"].as_str(),
+                data["isFocus"].as_i64().unwrap_or(0),
             ],
         )?;
 
@@ -513,7 +520,8 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 updated_at = ?19,
                 actual_minutes = COALESCE(?20, actual_minutes),
                 parent_task_id = ?21,
-                recurrence_rule = ?22
+                recurrence_rule = ?22,
+                is_focus = COALESCE(?24, is_focus)
              WHERE id = ?23",
             rusqlite::params![
                 data["taskName"].as_str(),
@@ -538,6 +546,7 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
                 data["actualMinutes"].as_i64(),
                 data["parentId"].as_str(),
                 data["recurrenceRule"].as_str(),
+                data["isFocus"].as_i64(),
                 id,
             ],
         )?;
