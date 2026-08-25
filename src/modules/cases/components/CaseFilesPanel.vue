@@ -12,6 +12,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { Folder, Document, Picture, Box, Setting, FolderOpened, Plus, Search } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
+import FilePreviewPanel from './FilePreviewPanel.vue'
 
 const props = defineProps<{ caseId: string; caseNo?: string }>()
 
@@ -35,6 +36,8 @@ const visibleFiles = computed(() =>
 
 /** 磁盘上未入库文件（针对当前目录） */
 const unregistered = ref<any[]>([])
+const previewFile = ref<any>(null)
+const previewOpen = ref(false)
 const unregisteredForSelected = computed(() =>
   unregistered.value.filter(u => !selectedRel.value || u.path.includes(`/${selectedRel.value}/`)),
 )
@@ -245,7 +248,7 @@ onUnmounted(() => {
             <div class="f-ico" :class="fileIconType(f.fileName, f.fileType)">
               <el-icon><Document /></el-icon>
             </div>
-            <div class="f-main">
+            <div class="f-main" style="cursor: pointer" title="点击预览" @click.stop="previewFile = f; previewOpen = true">
               <div class="fn">{{ f.fileName }}</div>
               <div class="fm">
                 <span>{{ f.fileType || '—' }}</span>
@@ -255,9 +258,9 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="f-ops">
-              <el-button size="small" text :icon="FolderOpened" title="在 Finder 中显示" @click="revealFile(f)" />
-              <el-button size="small" text title="打开" @click="openFile(f)">开</el-button>
-              <el-button size="small" text type="danger" title="移除登记" @click="removeFile(f)">删</el-button>
+              <el-button size="small" text :icon="FolderOpened" title="在 Finder 中显示" @click.stop="revealFile(f)" />
+              <el-button size="small" text title="打开" @click.stop="openFile(f)">开</el-button>
+              <el-button size="small" text type="danger" title="移除登记" @click.stop="removeFile(f)">删</el-button>
             </div>
           </div>
         </div>
@@ -274,6 +277,9 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
+
+  <!-- 文件预览侧板 -->
+  <FilePreviewPanel v-model="previewOpen" :file="previewFile" />
 </template>
 
 <style scoped>
