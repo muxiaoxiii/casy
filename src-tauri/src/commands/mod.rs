@@ -2,6 +2,7 @@ pub mod areas;
 pub mod caldav;
 pub mod calendar;
 pub mod backup;
+pub mod dashboard;
 pub mod calendar_events;
 pub mod projects;
 pub mod cases;
@@ -152,6 +153,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         backup::create_backup,
         backup::list_backups,
         backup::restore_backup,
+        dashboard::get_project_status_distribution,
+        dashboard::get_track_distribution,
+        dashboard::get_monthly_task_trend,
+        dashboard::get_upcoming_hearings,
         timeline::get_case_timeline,
         timeline::add_case_log,
         timeline::delete_case_log,

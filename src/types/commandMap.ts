@@ -40,8 +40,11 @@ import type {
   InboxProgress,
   MappingEntry,
   McpPendingWrite,
+  MonthTrendPoint,
+  NameCount,
   ProcessedInboxResult,
   QuickJudgeResult,
+  UpcomingHearing,
   RecordDiff,
   RelatedCase,
   ReminderLogEntry,
@@ -139,6 +142,12 @@ export type CommandMap = {
 
   // ── 文件 ──
   list_case_files: Cmd<{ caseId: string }, CaseFile[]>
+
+  // ── 仪表盘（B4 数据可视化）──
+  get_project_status_distribution: Cmd<Record<string, unknown>, NameCount[]>
+  get_track_distribution: Cmd<Record<string, unknown>, NameCount[]>
+  get_monthly_task_trend: Cmd<{ months?: number }, MonthTrendPoint[]>
+  get_upcoming_hearings: Cmd<{ days?: number }, UpcomingHearing[]>
   add_case_file: Cmd<{ caseId: string; fileName: string; filePath: string; category: string }, CaseFile>
 
   // ── 提醒域 ──
