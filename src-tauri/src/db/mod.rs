@@ -15,9 +15,33 @@ const KEY_FILE_NAME: &str = "casy.db.key";
 /// 全局加密密钥（进程内只读取/生成一次）
 static ENCRYPTION_KEY: OnceLock<String> = OnceLock::new();
 
+/// 共享连接（B1 连接池底座）：SQLCipher 每次开连接都要重做 PBKDF2 密钥推导，
+/// 逐命令开关的开销随命令数线性放大；共享单连接 + 互斥串行化是当前规模下
+/// 最小侵入的池化形态。存量 open_db() 调用点不受影响，按域逐步迁移。
+static SHARED_CONN: OnceLock<std::sync::Mutex<Connection>> = OnceLock::new();
+
 /// 打开数据库连接（自动加密，兼容旧版明文 DB 迁移）
 pub fn open_db() -> Result<Connection> {
     open_db_encrypted()
+}
+
+/// 在共享连接上执行一个数据库操作单元（B1 底座，新代码优先使用）
+///
+/// - 连接懒初始化且进程内复用（密钥推导只发生一次）
+/// - `Mutex` 串行化：同一时刻仅一个命令持有连接，天然规避写冲突
+/// - 错误类型与既有 anyhow 链路一致
+pub fn with_conn<T>(f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    if SHARED_CONN.get().is_none() {
+        let conn = open_db_encrypted()?;
+        let _ = SHARED_CONN.set(std::sync::Mutex::new(conn));
+    }
+    let mutex = SHARED_CONN
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("共享数据库连接初始化失败"))?;
+    let guard = mutex
+        .lock()
+        .map_err(|e| anyhow::anyhow!("数据库连接锁中毒: {e}"))?;
+    f(&guard)
 }
 
 /// 获取或生成数据库加密密钥

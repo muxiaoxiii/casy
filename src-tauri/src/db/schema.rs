@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 15;
+pub const CURRENT_SCHEMA_VERSION: i64 = 16;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -657,6 +657,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("13", MIGRATION_V13_SQL),
     ("14", MIGRATION_V14_SQL),
     ("15", MIGRATION_V15_SQL),
+    ("16", MIGRATION_V16_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1900,12 +1901,32 @@ CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events(event_dat
 CREATE INDEX IF NOT EXISTS idx_calendar_events_case ON calendar_events(case_id);
 "#;
 
+pub const MIGRATION_V16_SQL: &str = r#"
+-- ============================================================
+-- A1-4 子任务 + A1-5 重复任务最小集（M-GTD-2）
+-- ============================================================
+-- 子任务：保持单表自引用，SQL 可直接查询层级
+ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id);
+
+-- 重复规则（RRULE 极简子集，完成后由 toggle 生成下一实例）：
+--   'daily' | 'weekdays' | 'weekly:<1-7>'(周一=1) | 'monthly:<DD>'
+ALTER TABLE tasks ADD COLUMN recurrence_rule TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
+"#;
+
 /// 执行迁移：从 from_version 之后的版本逐条应用
+/// 守卫以库内 PRAGMA user_version 为权威（from_version 仅作下限提示）——
+/// 重复调用幂等，ALTER 类迁移不会被二次执行
 #[allow(dead_code)]
 pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow::Error> {
+    let already_applied: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(0);
+    let floor = already_applied.max(from_version);
     for (version, sql) in MIGRATIONS {
         let v: i64 = version.parse().unwrap_or(0);
-        if v > from_version {
+        if v > floor {
             conn.execute_batch(sql)?;
             conn.execute_batch(&format!("PRAGMA user_version = {};", v))?;
             log::info!("Migration v{} applied", v);

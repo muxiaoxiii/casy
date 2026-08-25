@@ -5,6 +5,7 @@ mod credentials;
 mod db;
 mod docsy_engine;
 mod email;
+mod error_code;
 mod files;
 mod formula;
 mod deadline;

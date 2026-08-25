@@ -21,8 +21,6 @@ export type ReminderRule = { id: string; name: string; triggerType: string; trig
  */
 export type RecentActivity = { eventType: string; title: string; detail: string | null; eventDate: string; caseId: string; caseName: string }
 
-export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
-
 export type FeishuSyncReport = { pulled: number; pushed: number; created: number; updated: number; skipped: number; errors: string[]; syncedAt: string }
 
 /**
@@ -120,6 +118,8 @@ export type TemplateListResponse = { templates: DocsyTemplate[]; total: number }
 export type TemplateField = { name: string; field_type: string; default_value: string | null; required: boolean }
 
 export type ImapAccountConfig = { id: string | null; emailAddress: string; imapServer: string; imapPort: number; username: string; password: string; useTls: boolean; watchFolders: string; filterFrom: string | null; filterSubject: string | null; enabled: boolean }
+
+export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
 
 /**
  * 案件数据结构
