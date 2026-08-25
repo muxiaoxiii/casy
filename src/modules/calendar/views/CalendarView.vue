@@ -1065,6 +1065,38 @@ function getWeekDayHourEvents(date, hour) {
  * 拖拽相关（改期 = casyContext.tasks.update）
  */
 const draggedTask = ref(null)
+const draggedEvent = ref(null)
+
+/** 独立日程拖拽（仅 type='event'；庭审/期限是案件域投影不可移动） */
+function onEventDragStart(ev, e) {
+  if (ev.type !== 'event') return
+  draggedEvent.value = ev
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', String(ev.id))
+}
+
+/** 月视图投放路由：任务走 tasks.update，独立日程走 calendar.moveEvent */
+async function onMonthDrop(e, day) {
+  const dateStr = day && day.date ? formatDate(day.date) : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return
+
+  if (draggedTask.value) {
+    await onDrop(dateStr, e)
+    return
+  }
+  if (draggedEvent.value) {
+    const ev = draggedEvent.value
+    draggedEvent.value = null
+    if (ev.date === dateStr) return
+    const result = await casyContext.calendar.moveEvent(ev.id, dateStr, ev.time ?? null)
+    if (result.ok) {
+      ElMessage.success(`日程已移动到 ${dateStr}`)
+      await loadEvents()
+    } else {
+      ElMessage.error(result.error || '移动失败')
+    }
+  }
+}
 
 function onDragStart(task, event) {
   draggedTask.value = task
@@ -1191,6 +1223,8 @@ async function onDrop(dateStr, event) {
             'has-due-soon': getDayStatus(day.date) === 'due-soon',
           }]"
           @click="selectDay(day)"
+          @dragover.prevent="onDragOver(formatDate(day.date), $event)"
+          @drop.prevent="onMonthDrop($event, day)"
         >
           <div class="day-header">
             <span class="day-number">{{ day.date.getDate() }}</span>
@@ -1224,12 +1258,27 @@ async function onDrop(dateStr, event) {
               <span class="event-text">{{ event.title }}</span>
             </div>
 
-            <!-- 任务 -->
+            <!-- 独立日程（D-7）：可拖拽改期 -->
+            <div
+              v-for="event in eventsForDay(day.date).filter(e => e.type === 'event').slice(0, 2)"
+              :key="'ev-' + event.id"
+              class="event-badge event"
+              :style="{ backgroundColor: getEventBgColor(event), color: getEventColor(event) }"
+              :title="event.title + '（拖拽可改期）'"
+              draggable="true"
+              @dragstart="onEventDragStart(event, $event)"
+            >
+              <span class="event-text">{{ event.time ? event.time + ' ' : '' }}{{ event.title }}</span>
+            </div>
+
+            <!-- 任务（可拖拽改期） -->
             <div
               v-for="task in tasksForDay(day.date).slice(0, 2)"
               :key="task.id"
               class="event-badge task"
-              :title="task.taskName"
+              :title="task.taskName + '（拖拽可改期）'"
+              draggable="true"
+              @dragstart="onDragStart(task, $event)"
             >
               <span class="event-text">{{ task.dueTime ? task.dueTime + ' ' : '' }}{{ task.taskName }}</span>
             </div>
