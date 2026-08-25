@@ -18,6 +18,7 @@ import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
+import { registerShortcut } from '../../../shared/keyboard'
 
 // ============================================================
 // 原有状态（保留）
@@ -392,11 +393,23 @@ onMounted(() => {
   } else if (tasksStore.activePerspective) {
     activePerspective.value = tasksStore.activePerspective
   }
-  document.addEventListener('keydown', handleKeydown)
+  // U-4：快捷键迁移至 KeyboardCenter
+  unregisterKeys.push(
+    registerShortcut('meta+t', () => {
+      if (captureInputRef.value) captureInputRef.value.focus()
+    }, { description: '聚焦快速捕获' }),
+    registerShortcut('ctrl+t', () => {
+      if (captureInputRef.value) captureInputRef.value.focus()
+    }, { description: '聚焦快速捕获' }),
+    registerShortcut('meta+z', () => {
+      if (canUndo()) undoLast()
+    }, { description: '撤销完成/删除/稍后' }),
+  )
 })
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeydown)
+  unregisterKeys.forEach(fn => fn())
+  unregisterKeys = []
 })
 
 async function loadData() {
@@ -896,23 +909,8 @@ async function markReviewed(task) {
 // ============================================================
 // 快捷键
 // ============================================================
-function handleKeydown(e) {
-  // Ctrl/Cmd+T: 聚焦快速捕获输入框
-  if ((e.metaKey || e.ctrlKey) && e.key === 't') {
-    e.preventDefault()
-    if (captureInputRef.value) captureInputRef.value.focus()
-  }
-  // M-GTD-1 A0-3：Cmd/Ctrl+Z 撤销完成/删除/稍后
-  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-    const target = e.target
-    const tag = target && target.tagName ? String(target.tagName).toLowerCase() : ''
-    const inEditable = tag === 'input' || tag === 'textarea' || (target && target.isContentEditable)
-    if (inEditable) return // 输入框内保留原生撤销
-    if (!canUndo()) return
-    e.preventDefault()
-    undoLast()
-  }
-}
+let unregisterKeys = []
+
 
 </script>
 

@@ -11,6 +11,7 @@ import OverdueMorningBrief from './shared/components/OverdueMorningBrief.vue'
 import AIStatusBadge from './shared/components/AIStatusBadge.vue'
 import OnboardingWizard from './shared/components/OnboardingWizard.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
+import { registerShortcut } from './shared/keyboard'
 import { useProfileStore } from './stores/profile'
 import {
   DataBoard,
@@ -280,22 +281,23 @@ function formatDate(d) {
 // ============================================================
 // 生命周期
 // ============================================================
-/** ⌘K 全局搜索（A1-6）：输入框聚焦时让位于原生行为 */
-function onGlobalKeydown(e) {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-    const t = e.target
-    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-    if (typing) return
-    e.preventDefault()
-    showGlobalSearch.value = !showGlobalSearch.value
-  }
-}
+// U-4：全局快捷键统一走 KeyboardCenter（src/shared/keyboard.ts）
+let unregisterShortcuts = []
 
 onMounted(() => {
   loadTodayStats()
   checkOnboarding()
   setupQuickCaptureListener()
-  window.addEventListener('keydown', onGlobalKeydown)
+
+  // ⌘K 全局搜索：输入框聚焦时让位于原生行为（默认守卫）
+  unregisterShortcuts.push(
+    registerShortcut(
+      'meta+k',
+      () => { showGlobalSearch.value = !showGlobalSearch.value },
+      { description: '全局搜索面板开关' },
+    ),
+    registerShortcut('ctrl+k', () => { showGlobalSearch.value = !showGlobalSearch.value }, { description: '全局搜索面板开关' }),
+  )
 
   if (route.query.tab) {
     activeTab.value = route.query.tab
@@ -304,7 +306,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (unlistenQuickCapture) unlistenQuickCapture()
-  window.removeEventListener('keydown', onGlobalKeydown)
+  unregisterShortcuts.forEach(fn => fn())
+  unregisterShortcuts = []
 })
 
 watch(() => route.name, () => {

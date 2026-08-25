@@ -12,6 +12,53 @@ pub struct TaskFilter {
     pub start_bucket: Option<String>,
 }
 
+/// 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDto {
+    pub id: String,
+    pub case_id: Option<String>,
+    pub task_name: String,
+    pub description: Option<String>,
+    pub created_date: String,
+    pub deadline: Option<String>,
+    pub priority: Option<String>,
+    pub completed: i32,
+    pub assignee: Option<String>,
+    pub finish_note: Option<String>,
+    pub task_type: String,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
+    pub waiting_for: Option<String>,
+    pub follow_up_date: Option<String>,
+    pub context: Option<String>,
+    pub flagged: i32,
+    pub sequential: i32,
+    pub blocked: i32,
+    pub sequence_order: i32,
+    pub start_bucket: String,
+    pub today_index: i32,
+    pub estimated_minutes: Option<i32>,
+    pub actual_minutes: Option<i32>,
+    pub is_overdue: i32,
+    pub due_soon: i32,
+    pub last_review_date: Option<String>,
+    pub next_review_date: Option<String>,
+    pub area_id: Option<String>,
+    pub knowledge_id: Option<String>,
+}
+
+/// 全局搜索结果项（轻量列）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchTaskDto {
+    pub id: String,
+    pub task_name: String,
+    pub due_date: Option<String>,
+    pub completed: i64,
+    pub start_bucket: Option<String>,
+}
+
 #[tauri::command]
 pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Value>, String> {
     run_blocking(move || {
@@ -60,44 +107,41 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Va
 
         let mut stmt = conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let tasks: Vec<serde_json::Value> = stmt
+        let tasks: Vec<TaskDto> = stmt
             .query_map(param_refs.as_slice(), |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>("id")?,
-                    "caseId": row.get::<_, Option<String>>("case_id")?,
-                    "taskName": row.get::<_, String>("task_name")?,
-                    "description": row.get::<_, Option<String>>("description")?,
-                    "createdDate": row.get::<_, String>("created_date")?,
-                    "deadline": row.get::<_, Option<String>>("deadline")?,
-                    "priority": row.get::<_, Option<String>>("priority")?,
-                    "completed": row.get::<_, i32>("completed")?,
-                    "assignee": row.get::<_, Option<String>>("assignee")?,
-                    "finishNote": row.get::<_, Option<String>>("finish_note")?,
+                Ok(TaskDto {
+                    id: row.get::<_, String>("id")?,
+                    case_id: row.get::<_, Option<String>>("case_id")?,
+                    task_name: row.get::<_, String>("task_name")?,
+                    description: row.get::<_, Option<String>>("description")?,
+                    created_date: row.get::<_, String>("created_date")?,
+                    deadline: row.get::<_, Option<String>>("deadline")?,
+                    priority: row.get::<_, Option<String>>("priority")?,
+                    completed: row.get::<_, i32>("completed")?,
+                    assignee: row.get::<_, Option<String>>("assignee")?,
+                    finish_note: row.get::<_, Option<String>>("finish_note")?,
                     // GTD 字段
-                    "taskType": row.get::<_, Option<String>>("task_type")?.unwrap_or_else(|| "action".to_string()),
-                    "startDate": row.get::<_, Option<String>>("start_date")?,
-                    "dueDate": row.get::<_, Option<String>>("due_date")?,
-                    "waitingFor": row.get::<_, Option<String>>("waiting_for")?,
-                    "followUpDate": row.get::<_, Option<String>>("follow_up_date")?,
-                    "context": row.get::<_, Option<String>>("context")?,
-                    "flagged": row.get::<_, Option<i32>>("flagged")?.unwrap_or(0),
-                    "sequential": row.get::<_, Option<i32>>("sequential")?.unwrap_or(0),
-                    "blocked": row.get::<_, Option<i32>>("blocked")?.unwrap_or(0),
-                    "sequenceOrder": row.get::<_, Option<i32>>("sequence_order")?.unwrap_or(0),
-                    "startBucket": row.get::<_, Option<String>>("start_bucket")?.unwrap_or_else(|| "anytime".to_string()),
-                    "todayIndex": row.get::<_, Option<i32>>("today_index")?.unwrap_or(0),
-                    "estimatedMinutes": row.get::<_, Option<i32>>("estimated_minutes")?,
-                    "actualMinutes": row.get::<_, Option<i32>>("actual_minutes")?,
-                    "isOverdue": row.get::<_, Option<i32>>("is_overdue")?.unwrap_or(0),
-                    "dueSoon": row.get::<_, Option<i32>>("due_soon")?.unwrap_or(0),
-                    "lastReviewDate": row.get::<_, Option<String>>("last_review_date")?,
-                    "nextReviewDate": row.get::<_, Option<String>>("next_review_date")?,
-                    "areaId": row.get::<_, Option<String>>("area_id")?,
-                    "knowledgeId": row.get::<_, Option<String>>("knowledge_id")?,
-                    // A1-4/A1-5
-                    "parentId": row.get::<_, Option<String>>("parent_task_id")?,
-                    "recurrenceRule": row.get::<_, Option<String>>("recurrence_rule")?,
-                }))
+                    task_type: row.get::<_, Option<String>>("task_type")?.unwrap_or_else(|| "action".to_string()),
+                    start_date: row.get::<_, Option<String>>("start_date")?,
+                    due_date: row.get::<_, Option<String>>("due_date")?,
+                    waiting_for: row.get::<_, Option<String>>("waiting_for")?,
+                    follow_up_date: row.get::<_, Option<String>>("follow_up_date")?,
+                    context: row.get::<_, Option<String>>("context")?,
+                    flagged: row.get::<_, Option<i32>>("flagged")?.unwrap_or(0),
+                    sequential: row.get::<_, Option<i32>>("sequential")?.unwrap_or(0),
+                    blocked: row.get::<_, Option<i32>>("blocked")?.unwrap_or(0),
+                    sequence_order: row.get::<_, Option<i32>>("sequence_order")?.unwrap_or(0),
+                    start_bucket: row.get::<_, Option<String>>("start_bucket")?.unwrap_or_else(|| "anytime".to_string()),
+                    today_index: row.get::<_, Option<i32>>("today_index")?.unwrap_or(0),
+                    estimated_minutes: row.get::<_, Option<i32>>("estimated_minutes")?,
+                    actual_minutes: row.get::<_, Option<i32>>("actual_minutes")?,
+                    is_overdue: row.get::<_, Option<i32>>("is_overdue")?.unwrap_or(0),
+                    due_soon: row.get::<_, Option<i32>>("due_soon")?.unwrap_or(0),
+                    last_review_date: row.get::<_, Option<String>>("last_review_date")?,
+                    next_review_date: row.get::<_, Option<String>>("next_review_date")?,
+                    area_id: row.get::<_, Option<String>>("area_id")?,
+                    knowledge_id: row.get::<_, Option<String>>("knowledge_id")?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -768,7 +812,7 @@ pub async fn apply_task_template(
 /// ⌘K 全局搜索的任务域查询（A1-6）
 /// 本地规模用 LIKE 足够；FTS 升级待 tasks_fts 落地（B1 可选）
 #[tauri::command]
-pub async fn search_tasks(query: String) -> Result<Vec<serde_json::Value>, String> {
+pub async fn search_tasks(query: String) -> Result<Vec<SearchTaskDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let q = query.trim();
@@ -787,13 +831,13 @@ pub async fn search_tasks(query: String) -> Result<Vec<serde_json::Value>, Strin
         )?;
         let rows = stmt
             .query_map(rusqlite::params![like], |r| {
-                Ok(serde_json::json!({
-                    "id": r.get::<_, String>("id")?,
-                    "taskName": r.get::<_, String>("task_name")?,
-                    "dueDate": r.get::<_, Option<String>>("due_date")?,
-                    "completed": r.get::<_, i64>("completed")?,
-                    "startBucket": r.get::<_, Option<String>>("start_bucket")?,
-                }))
+                Ok(SearchTaskDto {
+                    id: r.get::<_, String>("id")?,
+                    task_name: r.get::<_, String>("task_name")?,
+                    due_date: r.get::<_, Option<String>>("due_date")?,
+                    completed: r.get::<_, i64>("completed")?,
+                    start_bucket: r.get::<_, Option<String>>("start_bucket")?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
