@@ -50,6 +50,8 @@ const props = defineProps<{
   /** A1-4 子任务 */
   hasChildren?: boolean
   expanded?: boolean
+  /** 序时参考：今日重点星标（仅 today 透视启用） */
+  focusable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -63,6 +65,7 @@ const emit = defineEmits<{
   (e: 'reviewed', task: RowTask): void
   (e: 'follow-up', task: RowTask): void
   (e: 'toggle-expand', task: RowTask): void
+  (e: 'toggle-focus', task: RowTask): void
 }>()
 
 const done = computed(() => props.task.completed === 1)
@@ -71,6 +74,20 @@ const overdue = computed(() => !done.value && isOverdue(dueText.value))
 const waitingDays = computed(() =>
   props.task.taskType === 'waiting' ? getWaitingDays(props.task) : 0
 )
+
+/** 时间盒：dueTime+预估 → 「14:00–15:00」区间展示（序时参考三元组） */
+const timeRange = computed(() => {
+  const start = props.task.dueTime as string | null | undefined
+  const est = props.task.estimatedMinutes as number | null | undefined
+  if (!start || !est || est <= 0) return null
+  const [h, m] = String(start).split(':').map(Number)
+  if (Number.isNaN(h)) return null
+  const endMin = h * 60 + (m || 0) + est
+  const eh = Math.floor(endMin / 60) % 24
+  const em = endMin % 60
+  return `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}–${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
+})
+const focused = computed(() => props.task.isFocus === 1)
 
 function caseName(id: string | null | undefined): string {
   return id && props.resolveCaseName ? props.resolveCaseName(id) : ''
@@ -98,6 +115,15 @@ function areaName(id: string | null | undefined): string {
       @click.stop="emit('toggle-expand', task)"
     >▸</span>
     <span v-else class="twistie-spacer" />
+
+    <!-- 今日重点星标 -->
+    <span
+      v-if="focusable"
+      class="focus-star"
+      :class="{ on: focused }"
+      :title="focused ? '取消重点' : '设为今日重点'"
+      @click.stop="emit('toggle-focus', task)"
+    >★</span>
 
     <!-- 完成圆圈：Things3 式填充动画 -->
     <div class="task-check" :class="{ done }" @click="emit('toggle', task)">
@@ -139,7 +165,7 @@ function areaName(id: string | null | undefined): string {
           :class="{ overdue }"
         >
           <el-icon><Calendar /></el-icon>
-          {{ formatDate(dueText) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
+          {{ formatDate(dueText) }}{{ timeRange ? ' ' + timeRange : task.dueTime ? ' ' + task.dueTime : '' }}
         </span>
 
         <span v-if="task.estimatedMinutes" class="meta-item estimated">
@@ -242,6 +268,19 @@ function areaName(id: string | null | undefined): string {
 .twistie.open { transform: rotate(90deg); }
 .twistie:hover { color: var(--c-text); }
 .twistie-spacer { width: 14px; flex-shrink: 0; }
+
+.focus-star {
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--gray-300);
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+.focus-star:hover { transform: scale(1.25); }
+.focus-star.on { color: var(--c-warning); }
 
 /* ── 行容器 ── */
 .task-card {

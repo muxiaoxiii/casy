@@ -71,7 +71,7 @@ export type ProcessedInboxResult = { category: string; confidence: number; sugge
 /**
  * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
  */
-export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null }
+export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null; parentTaskId: string | null; recurrenceRule: string | null; isFocus: number }
 
 export type Draft = { id: string; case_id: string | null; title: string; content: string | null; template_path: string | null; status: string; version: number; created_at: string; updated_at: string }
 
@@ -115,6 +115,8 @@ export type QuickRecommendation = { action: string; targetCaseId: string | null;
 
 export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | null; model: string | null; dailyLimit: number | null }
 
+export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
+
 /**
  * 比较飞书记录 vs 本地记录
  */
@@ -140,17 +142,10 @@ export type CommandRoute = { commandName: string; routeType: string; description
  */
 export type CaseUnifiedView = { id: string; caseName: string | null; caseNo: string | null; clientName: string | null; causeAction: string | null; track: string | null; status: string | null; court: string | null; caseLevel: string | null; operator: string | null; trialDate: string | null; filingDate: string | null; nextDeadline: string | null; nextHearing: string | null; updatedAt: string | null }
 
-export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
-
 /**
  * 导出结果响应
  */
 export type ExportResponse = { output_path: string; file_size: number; exported_at: string }
-
-/**
- * 全局搜索结果项（轻量列）
- */
-export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 /**
  * 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
@@ -225,6 +220,11 @@ export type CalendarEvent = { id: string; date: string; title: string; eventType
  * 字段分组（B1 类型化）
  */
 export type FieldGroup = { id: string; name: string; description: string | null; caseTypes: any | null; courtLevels: any | null; sortOrder: number; items: FieldGroupItem[] }
+
+/**
+ * 全局搜索结果项（轻量列）
+ */
+export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 /**
  * 映射条目（B1 类型化：入参直用强类型，缺省口径与原 parse_mappings 一致）

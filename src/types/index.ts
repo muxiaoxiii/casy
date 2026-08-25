@@ -298,6 +298,7 @@ export interface Task {
   // A1-4/A1-5（M-GTD-2）
   parentId?: string | null         // 父任务（子任务自引用）
   recurrenceRule?: string | null   // 'daily'|'weekdays'|'weekly:<1-7>'|'monthly:<DD>'
+  isFocus?: number                 // 今日重点（序时参考：Top-3 纪律）
 }
 
 /** 任务过滤条件 */

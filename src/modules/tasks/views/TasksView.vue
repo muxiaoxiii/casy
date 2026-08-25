@@ -16,6 +16,7 @@ import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
+import TodayResetDialog from '../components/TodayResetDialog.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 import { registerShortcut } from '../../../shared/keyboard'
@@ -236,11 +237,12 @@ const gtdTasks = computed(() => {
       )
     
     case 'today':
+      // 序时参考：今日重点（★）排在最前，其余按 todayIndex
       return tasks.value.filter(t => 
         !t.completed && 
         (t.startBucket === 'today' || 
          (t.startDate && t.startDate <= today))
-      ).sort((a, b) => (a.todayIndex || 0) - (b.todayIndex || 0))
+      ).sort((a, b) => ((b.isFocus || 0) - (a.isFocus || 0)) || ((a.todayIndex || 0) - (b.todayIndex || 0)))
     
     case 'review':
       return tasks.value.filter(t => 
@@ -344,6 +346,23 @@ function toggleExpand(task) {
   const s = expandedParents.value
   if (s.has(task.id)) s.delete(task.id)
   else s.add(task.id)
+}
+
+// ── 序时参考：今日重点 + 整理今天 ──
+const showTodayReset = ref(false)
+const todayAll = computed(() =>
+  tasks.value.filter(t => t.startBucket === 'today' && !t.completed)
+)
+const focusCount = computed(() => todayAll.value.filter(t => t.isFocus === 1).length)
+
+async function toggleFocus(task) {
+  const nv = task.isFocus ? 0 : 1
+  task.isFocus = nv // 乐观
+  const result = await casyContext.tasks.update({ id: task.id, isFocus: nv })
+  if (!result.ok) {
+    task.isFocus = nv ? 0 : 1
+    ElMessage.error(result.error || '操作失败')
+  }
 }
 
 async function addChild(parent) {
@@ -942,6 +961,9 @@ let unregisterKeys = []
         </el-dropdown>
         <el-button size="small" text type="primary" @click="saveCurrentFilter">保存筛选</el-button>
         <el-button size="small" text @click="showAreasDialog = true">领域</el-button>
+        <el-button v-if="activePerspective === 'today'" size="small" type="warning" plain @click="showTodayReset = true">
+          整理今天{{ todayAll.length > 5 ? ' · ' + todayAll.length : '' }}
+        </el-button>
 
         <el-button type="primary" size="small" @click="showCreateDialog = true">
           <el-icon><Plus /></el-icon>
@@ -1077,7 +1099,9 @@ let unregisterKeys = []
               :resolve-area-name="getAreaName"
               :has-children="childrenMap.has(task.id)"
               :expanded="expandedParents.has(task.id)"
+              :focusable="activePerspective === 'today'"
               @toggle="toggleComplete"
+              @toggle-focus="toggleFocus"
               @open="openDrawer"
               @triage="openTriage"
               @move-today="moveToToday"
@@ -1435,6 +1459,9 @@ let unregisterKeys = []
 
     <!-- A1-2 领域管理 -->
     <AreasDialog v-model="showAreasDialog" @changed="loadAreas" />
+
+    <!-- 序时参考：整理今天 -->
+    <TodayResetDialog v-model="showTodayReset" :tasks="todayAll" @changed="loadTasks" />
   </div>
 </template>
 
