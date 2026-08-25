@@ -10,6 +10,7 @@ import DecisionReviewNotice from './shared/components/DecisionReviewNotice.vue'
 import OverdueMorningBrief from './shared/components/OverdueMorningBrief.vue'
 import AIStatusBadge from './shared/components/AIStatusBadge.vue'
 import OnboardingWizard from './shared/components/OnboardingWizard.vue'
+import GlobalSearch from './components/GlobalSearch.vue'
 import { useProfileStore } from './stores/profile'
 import {
   DataBoard,
@@ -58,6 +59,7 @@ const sidebarCollapsed = ref(false)
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
+const showGlobalSearch = ref(false)
 
 // ============================================================
 // 今日面板数据
@@ -277,10 +279,22 @@ function formatDate(d) {
 // ============================================================
 // 生命周期
 // ============================================================
+/** ⌘K 全局搜索（A1-6）：输入框聚焦时让位于原生行为 */
+function onGlobalKeydown(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    const t = e.target
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    if (typing) return
+    e.preventDefault()
+    showGlobalSearch.value = !showGlobalSearch.value
+  }
+}
+
 onMounted(() => {
   loadTodayStats()
   checkOnboarding()
   setupQuickCaptureListener()
+  window.addEventListener('keydown', onGlobalKeydown)
 
   if (route.query.tab) {
     activeTab.value = route.query.tab
@@ -289,6 +303,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (unlistenQuickCapture) unlistenQuickCapture()
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 
 watch(() => route.name, () => {
@@ -460,6 +475,9 @@ function onMenuSelect(name) {
       </el-button>
     </template>
   </el-dialog>
+
+  <!-- ⌘K 全局搜索（A1-6） -->
+  <GlobalSearch v-model="showGlobalSearch" />
 </template>
 
 <style scoped>

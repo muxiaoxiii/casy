@@ -109,6 +109,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::delete_task,
         tasks::snooze_task,
         tasks::update_task,
+        tasks::search_tasks,
         tasks::generate_hearing_prep_tasks,
         calendar::get_calendar_events,
         calendar_events::list_calendar_events,

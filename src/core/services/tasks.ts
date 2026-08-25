@@ -72,4 +72,9 @@ export class TasksService extends Service {
   async snooze(id: string, option: string, newDueDate?: string | null): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe<void>('snooze_task', { id, option, newDueDate: newDueDate ?? null })
   }
+
+  /** ⌘K 全局搜索：任务域（LIKE，本地规模足够；FTS 升级待 tasks_fts） */
+  async searchTasks(query: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('search_tasks', { query })
+  }
 }

@@ -15,7 +15,7 @@ pub struct TaskFilter {
 #[tauri::command]
 pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Value>, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        db::with_conn(|conn| {
         let mut sql = String::from("SELECT * FROM tasks WHERE 1=1");
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
@@ -99,6 +99,7 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<serde_json::Va
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(tasks)
+        })
     })
     .await
 }
@@ -110,14 +111,8 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         let id = db::new_id();
         let now = db::now_local();
 
-        // 自动设置 Review 周期：默认下周日（设计哲学 §5.4）
-        let next_review = {
-            let d = chrono::Local::now().naive_local().date();
-            let day = d.weekday().num_days_from_sunday();
-            let diff = (7 - day) % 7;
-            let diff = if diff == 0 { 7 } else { diff };
-            (d + chrono::Duration::days(diff as i64)).format("%Y-%m-%d").to_string()
-        };
+        // A1-7 修复：next_review_date 仅在用户显式设置时写入。
+        // 原实现默认填下周日，导致 Review 透视被无回顾意图的任务淹没（噪音缺陷）。
 
         // ── 案件级顺序项目自动继承（设计哲学 §3.3）─────────────────────
         // 如果关联案件设置了 sequential=1，新任务自动继承 sequential
@@ -180,7 +175,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
                 data["todayIndex"].as_i64().unwrap_or(0),
                 data["estimatedMinutes"].as_i64(),
                 data["areaId"].as_str(),
-                data["nextReviewDate"].as_str().unwrap_or(&next_review),
+                data["nextReviewDate"].as_str(), // A1-7：仅显式设置才写入
                 now,
             ],
         )?;
@@ -212,15 +207,22 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
 pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), String> {
     let task_id = id.clone();
     let unlock_result = run_blocking(move || {
-        let conn = db::open_db()?;
+        db::with_conn(|conn| {
         let now = db::now_local();
 
-        // 获取当前状态
-        let current: i32 = conn.query_row(
-            "SELECT completed FROM tasks WHERE id = ?1",
-            rusqlite::params![id],
-            |row| row.get(0),
-        )?;
+        // 获取当前状态（错误码试点：CAS-1001 任务不存在）
+        let current: i32 = conn
+            .query_row(
+                "SELECT completed FROM tasks WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::TASK_NOT_FOUND,
+                    format!("任务不存在: {id} ({e})"),
+                ))
+            })?;
 
         let new_status = if current == 0 { 1 } else { 0 };
 
@@ -290,6 +292,7 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
         }
 
         Ok((new_status == 1, unlocked_task_id))
+        })
     })
     .await?;
 
@@ -710,6 +713,42 @@ pub async fn apply_task_template(
         }
 
         Ok(created)
+    })
+    .await
+}
+
+/// ⌘K 全局搜索的任务域查询（A1-6）
+/// 本地规模用 LIKE 足够；FTS 升级待 tasks_fts 落地（B1 可选）
+#[tauri::command]
+pub async fn search_tasks(query: String) -> Result<Vec<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let like = format!("%{}%", q.replace('%', ""));
+        let mut stmt = conn.prepare(
+            "SELECT id, task_name, due_date, completed, start_bucket
+             FROM tasks
+             WHERE task_name LIKE ?1
+             ORDER BY completed ASC,
+                      CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
+                      due_date ASC
+             LIMIT 20",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![like], |r| {
+                Ok(serde_json::json!({
+                    "id": r.get::<_, String>("id")?,
+                    "taskName": r.get::<_, String>("task_name")?,
+                    "dueDate": r.get::<_, Option<String>>("due_date")?,
+                    "completed": r.get::<_, i64>("completed")?,
+                    "startBucket": r.get::<_, Option<String>>("start_bucket")?,
+                }))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     })
     .await
 }
