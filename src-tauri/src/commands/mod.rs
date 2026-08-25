@@ -2,6 +2,7 @@ pub mod areas;
 pub mod caldav;
 pub mod calendar;
 pub mod calendar_events;
+pub mod projects;
 pub mod cases;
 pub mod decisions;
 pub mod docs;
@@ -117,6 +118,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         calendar_events::update_calendar_event,
         calendar_events::move_calendar_event,
         calendar_events::delete_calendar_event,
+        projects::list_projects,
+        projects::create_personal_project,
+        projects::update_personal_project,
+        projects::delete_project,
         timeline::get_case_timeline,
         timeline::add_case_log,
         timeline::delete_case_log,

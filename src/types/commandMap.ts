@@ -47,7 +47,33 @@ export interface Cmd<P = Record<string, unknown>, R = unknown> {
   readonly result: R
 }
 
+/** A1-1 项目行（projects 表；specta 覆盖待 CalendarEvent 同批补齐） */
+export interface ProjectRow {
+  id: string
+  name: string
+  kind: 'legal' | 'personal'
+  description: string | null
+  status: string
+  areaId: string | null
+  color: string | null
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type CommandMap = {
+  // ── 项目域（A1-1 绞杀式阶段一）──
+  list_projects: Cmd<{ query?: string }, ProjectRow[]>
+  create_personal_project: Cmd<
+    { data: { name: string; description?: string | null; areaId?: string | null; color?: string | null } },
+    ProjectRow
+  >
+  update_personal_project: Cmd<
+    { id: string; data: { name?: string; description?: string | null; status?: string; areaId?: string | null; color?: string | null } },
+    null
+  >
+  delete_project: Cmd<{ id: string }, null>
+
   // ── 案件域 ──
   get_case: Cmd<{ id: string }, Case>
   list_cases: Cmd<{ filter?: Partial<CaseFilter> }, CaseListResult>

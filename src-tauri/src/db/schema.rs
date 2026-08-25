@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 16;
+pub const CURRENT_SCHEMA_VERSION: i64 = 17;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -658,6 +658,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("14", MIGRATION_V14_SQL),
     ("15", MIGRATION_V15_SQL),
     ("16", MIGRATION_V16_SQL),
+    ("17", MIGRATION_V17_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -1913,6 +1914,211 @@ ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id);
 ALTER TABLE tasks ADD COLUMN recurrence_rule TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
+"#;
+
+pub const MIGRATION_V17_SQL: &str = r#"
+-- ============================================================
+-- A1-1/D-9 项目垂直拆表 · 阶段一（绞杀式）
+-- projects 精简主表承载通用列 + case_legal_details 法律专列侧表；
+-- 存量 cases 全量回填为 kind='legal'；cases 本阶段仍为法律流事实源，
+-- 由触发器单向同步到 projects/case_legal_details，个人项目直写 projects。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS projects (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL DEFAULT 'personal' CHECK(kind IN ('legal','personal')),
+  description TEXT,
+  status      TEXT NOT NULL DEFAULT 'active',
+  area_id     TEXT REFERENCES areas(id),
+  color       TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS case_legal_details (
+  project_id      TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  track           TEXT,
+  case_no         TEXT,
+  internal_no     TEXT,
+  cause_action    TEXT,
+  client_name     TEXT,
+  our_role        TEXT,
+  opponent_name   TEXT,
+  opponent_role   TEXT,
+  opponent_firm   TEXT,
+  opponent_agent  TEXT,
+  court           TEXT,
+  judge_panel     TEXT,
+  clerk           TEXT,
+  attorneys       TEXT,
+  case_level      TEXT,
+  case_progress   TEXT,
+  case_result     TEXT,
+  patent_name     TEXT,
+  patent_app_no   TEXT,
+  procedure_type  TEXT,
+  filing_date     TEXT,
+  complaint_received_date TEXT,
+  trial_date      TEXT,
+  trial2_date     TEXT,
+  trial3_date     TEXT,
+  verdict_type    TEXT,
+  verdict_date    TEXT,
+  stay_date       TEXT,
+  relief_deadline TEXT,
+  petitioner_first_invalid    TEXT,
+  petitioner_supp_deadline    TEXT,
+  petitioner_submit_date      TEXT,
+  petitioner_received_date    TEXT,
+  petitioner_reply_deadline   TEXT,
+  patentee_received_date      TEXT,
+  patentee_statement_deadline TEXT,
+  patentee_received_supp_date TEXT,
+  patentee_supp_deadline      TEXT,
+  patentee_submit_supp_date   TEXT,
+  folder_path     TEXT,
+  last_doc_path   TEXT,
+  last_doc_at     TEXT,
+  completed_text  TEXT,
+  notes           TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_kind ON projects(kind);
+CREATE INDEX IF NOT EXISTS idx_projects_area ON projects(area_id);
+CREATE INDEX IF NOT EXISTS idx_cld_client ON case_legal_details(client_name);
+CREATE INDEX IF NOT EXISTS idx_cld_court ON case_legal_details(court);
+
+-- 存量回填：cases → projects(通用) + case_legal_details(法律专列)
+INSERT INTO projects (id, name, kind, status, area_id, created_at, updated_at)
+SELECT id, case_name, 'legal',
+       COALESCE(NULLIF(case_status,''), 'active'),
+       area_id,
+       COALESCE(created_at, datetime('now','localtime')),
+       COALESCE(updated_at, datetime('now','localtime'))
+FROM cases;
+
+INSERT INTO case_legal_details (project_id, track, case_no, internal_no, cause_action,
+  client_name, our_role, opponent_name, opponent_role, opponent_firm, opponent_agent,
+  court, judge_panel, clerk, attorneys, case_level, case_progress, case_result,
+  patent_name, patent_app_no, procedure_type,
+  filing_date, complaint_received_date, trial_date, trial2_date, trial3_date,
+  verdict_type, verdict_date, stay_date, relief_deadline,
+  petitioner_first_invalid, petitioner_supp_deadline, petitioner_submit_date,
+  petitioner_received_date, petitioner_reply_deadline,
+  patentee_received_date, patentee_statement_deadline, patentee_received_supp_date,
+  patentee_supp_deadline, patentee_submit_supp_date,
+  folder_path, last_doc_path, last_doc_at, completed_text, notes)
+SELECT id, track, case_no, internal_no, cause_action,
+  client_name, our_role, opponent_name, opponent_role, opponent_firm, opponent_agent,
+  court, judge_panel, clerk, attorneys, case_level, case_progress, case_result,
+  patent_name, patent_app_no, procedure_type,
+  filing_date, complaint_received_date, trial_date, trial2_date, trial3_date,
+  verdict_type, verdict_date, stay_date, relief_deadline,
+  petitioner_first_invalid, petitioner_supp_deadline, petitioner_submit_date,
+  petitioner_received_date, petitioner_reply_deadline,
+  patentee_received_date, patentee_statement_deadline, patentee_received_supp_date,
+  patentee_supp_deadline, patentee_submit_supp_date,
+  folder_path, last_doc_path, last_doc_at, completed_text, notes
+FROM cases;
+
+-- 绞杀式同步：cases（法律流事实源）→ projects / case_legal_details
+CREATE TRIGGER IF NOT EXISTS trg_cases_to_proj_ins
+AFTER INSERT ON cases FOR EACH ROW
+BEGIN
+  INSERT INTO projects (id,name,kind,status,area_id,created_at,updated_at)
+  VALUES (NEW.id, NEW.case_name,'legal', COALESCE(NULLIF(NEW.case_status,''),'active'), NEW.area_id, NEW.created_at, NEW.updated_at)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name, status=excluded.status, updated_at=excluded.updated_at;
+  INSERT INTO case_legal_details (project_id,track,case_no,internal_no,cause_action,
+    client_name,our_role,opponent_name,opponent_role,opponent_firm,opponent_agent,
+    court,judge_panel,clerk,attorneys,case_level,case_progress,case_result,
+    patent_name,patent_app_no,procedure_type,filing_date,complaint_received_date,
+    trial_date,trial2_date,trial3_date,verdict_type,verdict_date,stay_date,relief_deadline,
+    petitioner_first_invalid,petitioner_supp_deadline,petitioner_submit_date,
+    petitioner_received_date,petitioner_reply_deadline,
+    patentee_received_date,patentee_statement_deadline,patentee_received_supp_date,
+    patentee_supp_deadline,patentee_submit_supp_date,
+    folder_path,last_doc_path,last_doc_at,completed_text,notes)
+  VALUES (NEW.id,NEW.track,NEW.case_no,NEW.internal_no,NEW.cause_action,
+    NEW.client_name,NEW.our_role,NEW.opponent_name,NEW.opponent_role,NEW.opponent_firm,NEW.opponent_agent,
+    NEW.court,NEW.judge_panel,NEW.clerk,NEW.attorneys,NEW.case_level,NEW.case_progress,NEW.case_result,
+    NEW.patent_name,NEW.patent_app_no,NEW.procedure_type,NEW.filing_date,NEW.complaint_received_date,
+    NEW.trial_date,NEW.trial2_date,NEW.trial3_date,NEW.verdict_type,NEW.verdict_date,NEW.stay_date,NEW.relief_deadline,
+    NEW.petitioner_first_invalid,NEW.petitioner_supp_deadline,NEW.petitioner_submit_date,
+    NEW.petitioner_received_date,NEW.petitioner_reply_deadline,
+    NEW.patentee_received_date,NEW.patentee_statement_deadline,NEW.patentee_received_supp_date,
+    NEW.patentee_supp_deadline,NEW.patentee_submit_supp_date,
+    NEW.folder_path,NEW.last_doc_path,NEW.last_doc_at,NEW.completed_text,NEW.notes)
+  ON CONFLICT(project_id) DO UPDATE SET
+    track=excluded.track, case_no=excluded.case_no, internal_no=excluded.internal_no,
+    cause_action=excluded.cause_action, client_name=excluded.client_name, our_role=excluded.our_role,
+    opponent_name=excluded.opponent_name, opponent_role=excluded.opponent_role,
+    opponent_firm=excluded.opponent_firm, opponent_agent=excluded.opponent_agent,
+    court=excluded.court, judge_panel=excluded.judge_panel, clerk=excluded.clerk,
+    attorneys=excluded.attorneys, case_level=excluded.case_level,
+    case_progress=excluded.case_progress, case_result=excluded.case_result,
+    patent_name=excluded.patent_name, patent_app_no=excluded.patent_app_no,
+    procedure_type=excluded.procedure_type, filing_date=excluded.filing_date,
+    complaint_received_date=excluded.complaint_received_date,
+    trial_date=excluded.trial_date, trial2_date=excluded.trial2_date, trial3_date=excluded.trial3_date,
+    verdict_type=excluded.verdict_type, verdict_date=excluded.verdict_date,
+    stay_date=excluded.stay_date, relief_deadline=excluded.relief_deadline,
+    petitioner_first_invalid=excluded.petitioner_first_invalid,
+    petitioner_supp_deadline=excluded.petitioner_supp_deadline,
+    petitioner_submit_date=excluded.petitioner_submit_date,
+    petitioner_received_date=excluded.petitioner_received_date,
+    petitioner_reply_deadline=excluded.petitioner_reply_deadline,
+    patentee_received_date=excluded.patentee_received_date,
+    patentee_statement_deadline=excluded.patentee_statement_deadline,
+    patentee_received_supp_date=excluded.patentee_received_supp_date,
+    patentee_supp_deadline=excluded.patentee_supp_deadline,
+    patentee_submit_supp_date=excluded.patentee_submit_supp_date,
+    folder_path=excluded.folder_path, last_doc_path=excluded.last_doc_path,
+    last_doc_at=excluded.last_doc_at, completed_text=excluded.completed_text, notes=excluded.notes;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_to_proj_upd
+AFTER UPDATE ON cases FOR EACH ROW
+BEGIN
+  UPDATE projects SET name=NEW.case_name,
+    status=COALESCE(NULLIF(NEW.case_status,''),'active'),
+    area_id=NEW.area_id, updated_at=NEW.updated_at
+  WHERE id=NEW.id;
+  UPDATE case_legal_details SET
+    track=NEW.track, case_no=NEW.case_no, internal_no=NEW.internal_no,
+    cause_action=NEW.cause_action, client_name=NEW.client_name, our_role=NEW.our_role,
+    opponent_name=NEW.opponent_name, opponent_role=NEW.opponent_role,
+    opponent_firm=NEW.opponent_firm, opponent_agent=NEW.opponent_agent,
+    court=NEW.court, judge_panel=NEW.judge_panel, clerk=NEW.clerk,
+    attorneys=NEW.attorneys, case_level=NEW.case_level,
+    case_progress=NEW.case_progress, case_result=NEW.case_result,
+    patent_name=NEW.patent_name, patent_app_no=NEW.patent_app_no,
+    procedure_type=NEW.procedure_type, filing_date=NEW.filing_date,
+    complaint_received_date=NEW.complaint_received_date,
+    trial_date=NEW.trial_date, trial2_date=NEW.trial2_date, trial3_date=NEW.trial3_date,
+    verdict_type=NEW.verdict_type, verdict_date=NEW.verdict_date,
+    stay_date=NEW.stay_date, relief_deadline=NEW.relief_deadline,
+    petitioner_first_invalid=NEW.petitioner_first_invalid,
+    petitioner_supp_deadline=NEW.petitioner_supp_deadline,
+    petitioner_submit_date=NEW.petitioner_submit_date,
+    petitioner_received_date=NEW.petitioner_received_date,
+    petitioner_reply_deadline=NEW.petitioner_reply_deadline,
+    patentee_received_date=NEW.patentee_received_date,
+    patentee_statement_deadline=NEW.patentee_statement_deadline,
+    patentee_received_supp_date=NEW.patentee_received_supp_date,
+    patentee_supp_deadline=NEW.patentee_supp_deadline,
+    patentee_submit_supp_date=NEW.patentee_submit_supp_date,
+    folder_path=NEW.folder_path, last_doc_path=NEW.last_doc_path,
+    last_doc_at=NEW.last_doc_at, completed_text=NEW.completed_text, notes=NEW.notes
+  WHERE project_id=NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_to_proj_del
+AFTER DELETE ON cases FOR EACH ROW
+BEGIN
+  DELETE FROM case_legal_details WHERE project_id = OLD.id;
+  DELETE FROM projects WHERE id = OLD.id;
+END;
 "#;
 
 /// 执行迁移：从 from_version 之后的版本逐条应用

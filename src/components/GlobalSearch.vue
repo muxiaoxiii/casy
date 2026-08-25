@@ -11,7 +11,7 @@
 import { ref, watch, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Finished, Folder, Reading } from '@element-plus/icons-vue'
+import { Search, Finished, Folder, Reading, Briefcase } from '@element-plus/icons-vue'
 import { casyContext } from '../core/plugin/context'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -29,7 +29,7 @@ const loading = ref(false)
 
 interface ResultItem {
   key: string
-  group: '任务' | '案件' | '知识'
+  group: '任务' | '案件' | '知识' | '项目'
   icon: typeof Finished
   title: string
   meta: string
@@ -50,10 +50,11 @@ async function runSearch(q: string) {
     return
   }
   loading.value = true
-  const [tasksRes, casesRes, knRes] = await Promise.all([
+  const [tasksRes, casesRes, knRes, projRes] = await Promise.all([
     casyContext.tasks.searchTasks(text),
     casyContext.cases.search(text),
     casyContext.knowledge.search(text),
+    casyContext.projects.list(text),
   ])
   loading.value = false
 
@@ -96,6 +97,19 @@ async function runSearch(q: string) {
     }
   }
 
+  if (projRes.ok && Array.isArray(projRes.data)) {
+    for (const p of projRes.data as Array<{ id: string; name: string; kind: string; description: string | null }>) {
+      out.push({
+        key: 'proj-' + p.id,
+        group: '项目',
+        icon: Folder,
+        title: p.name,
+        meta: p.kind === 'legal' ? '法律项目' : '个人项目',
+        route: '', // 项目视图待 A1-1 阶段二；先占位
+      })
+    }
+  }
+
   results.value = out
   activeIndex.value = 0
 }
@@ -127,6 +141,10 @@ function move(delta: number) {
 function choose(item?: ResultItem) {
   const target = item ?? flatResults.value[activeIndex.value]
   if (!target) return
+  if (!target.route) {
+    ElMessage.info('「项目」独立视图在 A1-1 阶段二提供，当前可在任务页按案件/领域筛选')
+    return
+  }
   visible.value = false
   void router.push(target.route).catch(() => {
     ElMessage.warning('跳转失败：' + target.route)
@@ -170,14 +188,14 @@ function onKeydown(e: KeyboardEvent) {
           <div ref="listRef" class="cmdk-list">
             <template v-if="flatResults.length">
               <template
-                v-for="(group, gi) in ['任务', '案件', '知识']"
+                v-for="(group, gi) in ['项目', '任务', '案件', '知识']"
                 :key="group"
               >
                 <div
                   v-if="flatResults.some(r => r.group === group)"
                   class="cmdk-group-label"
                 >
-                  {{ ['任务', '案件', '知识'][gi] }}
+                  {{ ['项目', '任务', '案件', '知识'][gi] }}
                 </div>
                 <template v-for="r in flatResults.filter(x => x.group === group)" :key="r.key">
                   <div
