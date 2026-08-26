@@ -117,16 +117,30 @@ fn read_key_file() -> Result<Option<String>> {
     Ok(Some(key))
 }
 
-/// 写入本地密钥文件（权限 0600）
-fn write_key_file(key: &str) -> Result<()> {
+/// 写入本地密钥文件（Unix 权限 0600；Windows 无该 API，依赖目录 ACL）
+#[cfg(unix)]
+fn write_key_file_impl(path: &std::path::Path, key: &str) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    let path = key_file_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, key)?;
-    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    std::fs::write(path, key)?;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_key_file_impl(path: &std::path::Path, key: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, key)?;
+    Ok(())
+}
+
+fn write_key_file(key: &str) -> Result<()> {
+    let path = key_file_path();
+    write_key_file_impl(&path, key)
 }
 
 /// 打开加密数据库连接

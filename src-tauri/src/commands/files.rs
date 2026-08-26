@@ -361,7 +361,7 @@ pub async fn reveal_path(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer").args(["/select,", &path]).spawn().map_err(|e| anyhow::anyhow!("{e}"))?;
+        std::process::Command::new("explorer").args(["/select,", &path]).spawn().map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -381,7 +381,7 @@ pub async fn open_file_with_default(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd").args(["/C", "start", "", &path]).spawn().map_err(|e| anyhow::anyhow!("{e}"))?;
+        std::process::Command::new("cmd").args(["/C", "start", "", &path]).spawn().map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
