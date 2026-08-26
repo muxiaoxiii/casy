@@ -84,25 +84,25 @@ pub async fn list_knowledge(filter: Option<KnowledgeFilter>) -> Result<Vec<serde
 
 /// 列出某知识条目下的块（§8.2 知识块级化）
 #[tauri::command]
-pub async fn list_knowledge_blocks(parent_id: String) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_knowledge_blocks(parent_id: String) -> Result<Vec<KnowledgeBlockDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, title, category, content, tags, block_type, created_at, updated_at
              FROM knowledge_items WHERE parent_id = ?1 ORDER BY created_at ASC",
         )?;
-        let blocks: Vec<serde_json::Value> = stmt
+        let blocks: Vec<KnowledgeBlockDto> = stmt
             .query_map(rusqlite::params![parent_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>(0)?,
-                    "title": row.get::<_, String>(1)?,
-                    "category": row.get::<_, String>(2)?,
-                    "content": row.get::<_, String>(3)?,
-                    "tags": row.get::<_, Option<String>>(4)?,
-                    "blockType": row.get::<_, Option<String>>(5)?,
-                    "createdAt": row.get::<_, Option<String>>(6)?,
-                    "updatedAt": row.get::<_, Option<String>>(7)?,
-                }))
+                Ok(KnowledgeBlockDto {
+                    id: row.get::<_, String>(0)?,
+                    title: row.get::<_, String>(1)?,
+                    category: row.get::<_, String>(2)?,
+                    content: row.get::<_, String>(3)?,
+                    tags: row.get::<_, Option<String>>(4)?,
+                    block_type: row.get::<_, Option<String>>(5)?,
+                    created_at: row.get::<_, Option<String>>(6)?,
+                    updated_at: row.get::<_, Option<String>>(7)?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(blocks)
@@ -112,8 +112,10 @@ pub async fn list_knowledge_blocks(parent_id: String) -> Result<Vec<serde_json::
 
 /// 获取知识条目及其块树（§8.2；深度上限 5 层、总块数上限 100，防自引用环）
 #[tauri::command]
-pub async fn get_knowledge_with_blocks(id: String) -> Result<serde_json::Value, String> {
+pub async fn get_knowledge_with_blocks(id: String) -> Result<KnowledgeWithBlocksDto, String> {
     run_blocking(move || {
+        const MAX_DEPTH: usize = 5;
+        const MAX_BLOCKS: usize = 100;
         let conn = db::open_db()?;
 
         let item = conn
@@ -123,31 +125,28 @@ pub async fn get_knowledge_with_blocks(id: String) -> Result<serde_json::Value, 
                  FROM knowledge_items WHERE id = ?1",
                 rusqlite::params![id],
                 |row| {
-                    Ok(serde_json::json!({
-                        "id": row.get::<_, String>(0)?,
-                        "title": row.get::<_, String>(1)?,
-                        "category": row.get::<_, String>(2)?,
-                        "content": row.get::<_, String>(3)?,
-                        "tags": row.get::<_, Option<String>>(4)?,
-                        "sourceType": row.get::<_, Option<String>>(5)?,
-                        "linkedCaseId": row.get::<_, Option<String>>(6)?,
-                        "parentId": row.get::<_, Option<String>>(7)?,
-                        "blockType": row.get::<_, Option<String>>(8)?,
-                        "createdAt": row.get::<_, Option<String>>(9)?,
-                        "updatedAt": row.get::<_, Option<String>>(10)?,
-                    }))
+                    Ok(KnowledgeItemDto {
+                        id: row.get::<_, String>(0)?,
+                        title: row.get::<_, String>(1)?,
+                        category: row.get::<_, String>(2)?,
+                        content: row.get::<_, String>(3)?,
+                        tags: row.get::<_, Option<String>>(4)?,
+                        source_type: row.get::<_, Option<String>>(5)?,
+                        linked_case_id: row.get::<_, Option<String>>(6)?,
+                        parent_id: row.get::<_, Option<String>>(7)?,
+                        block_type: row.get::<_, Option<String>>(8)?,
+                        created_at: row.get::<_, Option<String>>(9)?,
+                        updated_at: row.get::<_, Option<String>>(10)?,
+                    })
                 },
             )
             .map_err(|e| anyhow::anyhow!("知识条目不存在: {}", e))?;
 
-        // 逐层展开块树（BFS，带深度与总量上限；已访问集合防环）
-        const MAX_DEPTH: usize = 5;
-        const MAX_BLOCKS: usize = 100;
+        let mut blocks: Vec<KnowledgeTreeBlockDto> = Vec::new();
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
-        visited.insert(id.clone());
-        let mut blocks: Vec<serde_json::Value> = Vec::new();
-        let mut frontier = vec![id.clone()];
+        visited.insert(item.id.clone());
 
+        let mut frontier: Vec<String> = vec![id.clone()];
         for _ in 0..MAX_DEPTH {
             if frontier.is_empty() || blocks.len() >= MAX_BLOCKS {
                 break;
@@ -158,19 +157,19 @@ pub async fn get_knowledge_with_blocks(id: String) -> Result<serde_json::Value, 
                     "SELECT id, title, category, content, tags, block_type, parent_id, created_at, updated_at
                      FROM knowledge_items WHERE parent_id = ?1 ORDER BY created_at ASC",
                 )?;
-                let rows: Vec<serde_json::Value> = stmt
+                let rows: Vec<KnowledgeTreeBlockDto> = stmt
                     .query_map(rusqlite::params![pid], |row| {
-                        Ok(serde_json::json!({
-                            "id": row.get::<_, String>(0)?,
-                            "title": row.get::<_, String>(1)?,
-                            "category": row.get::<_, String>(2)?,
-                            "content": row.get::<_, String>(3)?,
-                            "tags": row.get::<_, Option<String>>(4)?,
-                            "blockType": row.get::<_, Option<String>>(5)?,
-                            "parentId": row.get::<_, Option<String>>(6)?,
-                            "createdAt": row.get::<_, Option<String>>(7)?,
-                            "updatedAt": row.get::<_, Option<String>>(8)?,
-                        }))
+                        Ok(KnowledgeTreeBlockDto {
+                            id: row.get::<_, String>(0)?,
+                            title: row.get::<_, String>(1)?,
+                            category: row.get::<_, String>(2)?,
+                            content: row.get::<_, String>(3)?,
+                            tags: row.get::<_, Option<String>>(4)?,
+                            block_type: row.get::<_, Option<String>>(5)?,
+                            parent_id: row.get::<_, Option<String>>(6)?,
+                            created_at: row.get::<_, Option<String>>(7)?,
+                            updated_at: row.get::<_, Option<String>>(8)?,
+                        })
                     })?
                     .filter_map(|r| r.ok())
                     .collect();
@@ -178,21 +177,16 @@ pub async fn get_knowledge_with_blocks(id: String) -> Result<serde_json::Value, 
                     if blocks.len() >= MAX_BLOCKS {
                         break;
                     }
-                    if let Some(bid) = block["id"].as_str() {
-                        if visited.insert(bid.to_string()) {
-                            next_frontier.push(bid.to_string());
-                            blocks.push(block);
-                        }
+                    if visited.insert(block.id.clone()) {
+                        next_frontier.push(block.id.clone());
+                        blocks.push(block);
                     }
                 }
             }
             frontier = next_frontier;
         }
 
-        Ok(serde_json::json!({
-            "item": item,
-            "blocks": blocks,
-        }))
+        Ok(KnowledgeWithBlocksDto { item, blocks })
     })
     .await
 }
@@ -258,24 +252,24 @@ pub async fn delete_knowledge(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn search_knowledge(query: String) -> Result<Vec<serde_json::Value>, String> {
+pub async fn search_knowledge(query: String) -> Result<Vec<SearchKnowledgeDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT ki.* FROM knowledge_fts f JOIN knowledge_items ki ON ki.rowid = f.rowid
              WHERE knowledge_fts MATCH ?1 ORDER BY rank LIMIT 50"
         )?;
-        let items: Vec<serde_json::Value> = stmt
+        let items: Vec<SearchKnowledgeDto> = stmt
             .query_map(rusqlite::params![query], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>("id")?,
-                    "title": row.get::<_, String>("title")?,
-                    "category": row.get::<_, String>("category")?,
-                    "content": row.get::<_, String>("content")?,
-                    "tags": row.get::<_, Option<String>>("tags")?,
-                    "lawName": row.get::<_, Option<String>>("law_name")?,
-                    "articleNo": row.get::<_, Option<String>>("article_no")?,
-                }))
+                Ok(SearchKnowledgeDto {
+                    id: row.get::<_, String>("id")?,
+                    title: row.get::<_, String>("title")?,
+                    category: row.get::<_, String>("category")?,
+                    content: row.get::<_, String>("content")?,
+                    tags: row.get::<_, Option<String>>("tags")?,
+                    law_name: row.get::<_, Option<String>>("law_name")?,
+                    article_no: row.get::<_, Option<String>>("article_no")?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(items)
@@ -284,7 +278,7 @@ pub async fn search_knowledge(query: String) -> Result<Vec<serde_json::Value>, S
 }
 
 #[tauri::command]
-pub async fn knowledge_stats() -> Result<serde_json::Value, String> {
+pub async fn knowledge_stats() -> Result<KnowledgeStatsDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -295,31 +289,28 @@ pub async fn knowledge_stats() -> Result<serde_json::Value, String> {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        Ok(serde_json::json!({
-            "total": total,
-            "byCategory": by_category,
-        }))
+        Ok(KnowledgeStatsDto { total, by_category })
     })
     .await
 }
 
 /// 获取知识条目的版本历史
 #[tauri::command]
-pub async fn list_knowledge_versions(item_id: String) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_knowledge_versions(item_id: String) -> Result<Vec<KnowledgeVersionDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, content, changed_at, change_reason FROM knowledge_versions
              WHERE item_id = ?1 ORDER BY changed_at DESC LIMIT 50"
         )?;
-        let versions: Vec<serde_json::Value> = stmt
+        let versions: Vec<KnowledgeVersionDto> = stmt
             .query_map(rusqlite::params![item_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>("id")?,
-                    "content": row.get::<_, String>("content")?,
-                    "changedAt": row.get::<_, Option<String>>("changed_at")?,
-                    "changeReason": row.get::<_, Option<String>>("change_reason")?,
-                }))
+                Ok(KnowledgeVersionDto {
+                    id: row.get::<_, String>("id")?,
+                    content: row.get::<_, String>("content")?,
+                    changed_at: row.get::<_, Option<String>>("changed_at")?,
+                    change_reason: row.get::<_, Option<String>>("change_reason")?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(versions)
@@ -332,7 +323,7 @@ pub async fn list_knowledge_versions(item_id: String) -> Result<Vec<serde_json::
 pub async fn diff_knowledge_versions(
     version_id_1: String,
     version_id_2: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<KnowledgeDiffVersionsResult, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -351,7 +342,7 @@ pub async fn diff_knowledge_versions(
         // 简单逐行差异对比
         let lines1: Vec<&str> = content1.lines().collect();
         let lines2: Vec<&str> = content2.lines().collect();
-        let mut diffs = Vec::new();
+        let mut diffs: Vec<DiffLineDto> = Vec::new();
 
         let max_len = lines1.len().max(lines2.len());
         for i in 0..max_len {
@@ -359,27 +350,27 @@ pub async fn diff_knowledge_versions(
             let new_line = lines2.get(i).copied();
             match (old_line, new_line) {
                 (Some(o), Some(n)) if o == n => {
-                    diffs.push(serde_json::json!({ "type": "equal", "line": i + 1, "text": o }));
+                    diffs.push(DiffLineDto { diff_type: "equal".into(), line: i + 1, text: o.to_string() });
                 }
                 (Some(o), Some(n)) => {
-                    diffs.push(serde_json::json!({ "type": "removed", "line": i + 1, "text": o }));
-                    diffs.push(serde_json::json!({ "type": "added", "line": i + 1, "text": n }));
+                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
+                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
                 }
                 (Some(o), None) => {
-                    diffs.push(serde_json::json!({ "type": "removed", "line": i + 1, "text": o }));
+                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
                 }
                 (None, Some(n)) => {
-                    diffs.push(serde_json::json!({ "type": "added", "line": i + 1, "text": n }));
+                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
                 }
                 _ => {}
             }
         }
 
-        Ok(serde_json::json!({
-            "version1": { "id": id1, "changedAt": changed_at1, "changeReason": reason1 },
-            "version2": { "id": id2, "changedAt": changed_at2, "changeReason": reason2 },
-            "diffs": diffs,
-        }))
+        Ok(KnowledgeDiffVersionsResult {
+            version1: VersionMetaDto { id: id1, changed_at: changed_at1, change_reason: reason1 },
+            version2: VersionMetaDto { id: id2, changed_at: changed_at2, change_reason: reason2 },
+            diffs,
+        })
     })
     .await
 }
@@ -421,6 +412,159 @@ impl Default for CreateKnowledgeInput {
             parent_id: None,
         }
     }
+}
+
+// ── B1 返回侧 Dto（knowledge 域）──
+
+/// 知识块（列表视图，8 字段）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeBlockDto {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub content: String,
+    pub tags: Option<String>,
+    pub block_type: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// 知识树块（含 parent_id，9 字段）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeTreeBlockDto {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub content: String,
+    pub tags: Option<String>,
+    pub block_type: Option<String>,
+    pub parent_id: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// 知识条目主体
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeItemDto {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub content: String,
+    pub tags: Option<String>,
+    pub source_type: Option<String>,
+    pub linked_case_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub block_type: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// 条目 + 块树
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeWithBlocksDto {
+    pub item: KnowledgeItemDto,
+    pub blocks: Vec<KnowledgeTreeBlockDto>,
+}
+
+/// 全文检索命中项
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchKnowledgeDto {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub content: String,
+    pub tags: Option<String>,
+    pub law_name: Option<String>,
+    pub article_no: Option<String>,
+}
+
+/// 统计（byCategory 保持原 [分类,计数] 元组数组形状）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeStatsDto {
+    pub total: i64,
+    pub by_category: Vec<(String, i64)>,
+}
+
+/// 版本历史项
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeVersionDto {
+    pub id: String,
+    pub content: String,
+    pub changed_at: Option<String>,
+    pub change_reason: Option<String>,
+}
+
+/// 差异行
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLineDto {
+    #[serde(rename = "type")]
+    pub diff_type: String,
+    pub line: usize,
+    pub text: String,
+}
+
+/// 版本元信息
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionMetaDto {
+    pub id: String,
+    pub changed_at: Option<String>,
+    pub change_reason: Option<String>,
+}
+
+/// 双版本对比结果
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeDiffVersionsResult {
+    pub version1: VersionMetaDto,
+    pub version2: VersionMetaDto,
+    pub diffs: Vec<DiffLineDto>,
+}
+
+/// 版本 vs 当前 对比结果
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeDiffCurrentResult {
+    pub version: VersionMetaDto,
+    pub current_content: String,
+    pub diffs: Vec<DiffLineDto>,
+}
+
+/// 图谱节点
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNodeDto {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    pub category: Option<String>,
+}
+
+/// 图谱边
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphEdgeDto {
+    pub source: String,
+    pub target: String,
+    #[serde(rename = "type")]
+    pub edge_type: String,
+}
+
+/// 知识图谱
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeGraphDto {
+    pub nodes: Vec<GraphNodeDto>,
+    pub edges: Vec<GraphEdgeDto>,
 }
 
 #[tauri::command]
@@ -563,7 +707,7 @@ pub async fn link_knowledge_to_law(
 pub async fn diff_knowledge_with_current(
     version_id: String,
     item_id: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<KnowledgeDiffCurrentResult, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -582,7 +726,7 @@ pub async fn diff_knowledge_with_current(
         // 逐行差异对比
         let lines_old: Vec<&str> = version_content.lines().collect();
         let lines_new: Vec<&str> = current_content.lines().collect();
-        let mut diffs = Vec::new();
+        let mut diffs: Vec<DiffLineDto> = Vec::new();
 
         let max_len = lines_old.len().max(lines_new.len());
         for i in 0..max_len {
@@ -590,27 +734,27 @@ pub async fn diff_knowledge_with_current(
             let new_line = lines_new.get(i).copied();
             match (old_line, new_line) {
                 (Some(o), Some(n)) if o == n => {
-                    diffs.push(serde_json::json!({ "type": "equal", "line": i + 1, "text": o }));
+                    diffs.push(DiffLineDto { diff_type: "equal".into(), line: i + 1, text: o.to_string() });
                 }
                 (Some(o), Some(n)) => {
-                    diffs.push(serde_json::json!({ "type": "removed", "line": i + 1, "text": o }));
-                    diffs.push(serde_json::json!({ "type": "added", "line": i + 1, "text": n }));
+                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
+                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
                 }
                 (Some(o), None) => {
-                    diffs.push(serde_json::json!({ "type": "removed", "line": i + 1, "text": o }));
+                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
                 }
                 (None, Some(n)) => {
-                    diffs.push(serde_json::json!({ "type": "added", "line": i + 1, "text": n }));
+                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
                 }
                 _ => {}
             }
         }
 
-        Ok(serde_json::json!({
-            "version": { "id": vid, "changedAt": changed_at, "changeReason": reason },
-            "currentContent": current_content,
-            "diffs": diffs,
-        }))
+        Ok(KnowledgeDiffCurrentResult {
+            version: VersionMetaDto { id: vid, changed_at, change_reason: reason },
+            current_content,
+            diffs,
+        })
     })
     .await
 }
@@ -621,13 +765,13 @@ pub async fn diff_knowledge_with_current(
 /// - edges：knowledge_relations 知识↔知识关系、
 ///   knowledge_items.linked_case_id 知识→案件、tasks.knowledge_id 任务→知识
 #[tauri::command]
-pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<serde_json::Value, String> {
+pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<KnowledgeGraphDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let limit = limit.unwrap_or(100).clamp(1, 500);
 
-        let mut nodes: Vec<serde_json::Value> = Vec::new();
-        let mut edges: Vec<serde_json::Value> = Vec::new();
+        let mut nodes: Vec<GraphNodeDto> = Vec::new();
+        let mut edges: Vec<GraphEdgeDto> = Vec::new();
         let mut knowledge_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut case_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -644,28 +788,27 @@ pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<serde_json::Val
                 .collect::<std::result::Result<Vec<_>, _>>()?;
 
             for (id, title, category, linked_case_id) in items {
-                // 知识 → 案件 边（linked_case_id 外键）
                 if let Some(cid) = linked_case_id {
                     if !cid.is_empty() {
-                        edges.push(serde_json::json!({
-                            "source": format!("k-{}", id),
-                            "target": format!("c-{}", cid),
-                            "type": "linked_case",
-                        }));
+                        edges.push(GraphEdgeDto {
+                            source: format!("k-{}", id),
+                            target: format!("c-{}", cid),
+                            edge_type: "linked_case".into(),
+                        });
                         case_ids.insert(cid);
                     }
                 }
-                nodes.push(serde_json::json!({
-                    "id": format!("k-{}", id),
-                    "name": title,
-                    "type": "knowledge",
-                    "category": category,
-                }));
+                nodes.push(GraphNodeDto {
+                    id: format!("k-{}", id),
+                    name: title,
+                    node_type: "knowledge".into(),
+                    category: Some(category),
+                });
                 knowledge_ids.insert(id);
             }
         }
 
-        // 知识 ↔ 知识 边（knowledge_relations 表，两端都需在节点集内）
+        // 知识 ↔ 知识 边（两端都需在节点集内）
         {
             let mut stmt = conn.prepare(
                 "SELECT source_id, target_id, relation_type FROM knowledge_relations",
@@ -675,11 +818,11 @@ pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<serde_json::Val
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             for (source, target, rel_type) in rels {
                 if knowledge_ids.contains(&source) && knowledge_ids.contains(&target) {
-                    edges.push(serde_json::json!({
-                        "source": format!("k-{}", source),
-                        "target": format!("k-{}", target),
-                        "type": rel_type,
-                    }));
+                    edges.push(GraphEdgeDto {
+                        source: format!("k-{}", source),
+                        target: format!("k-{}", target),
+                        edge_type: rel_type,
+                    });
                 }
             }
         }
@@ -700,11 +843,12 @@ pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<serde_json::Val
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             for (id, name) in cases {
-                nodes.push(serde_json::json!({
-                    "id": format!("c-{}", id),
-                    "name": name,
-                    "type": "case",
-                }));
+                nodes.push(GraphNodeDto {
+                    id: format!("c-{}", id),
+                    name,
+                    node_type: "case".into(),
+                    category: None,
+                });
             }
         }
 
@@ -718,21 +862,22 @@ pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<serde_json::Val
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             for (id, name, kid) in tasks {
                 if knowledge_ids.contains(&kid) {
-                    nodes.push(serde_json::json!({
-                        "id": format!("t-{}", id),
-                        "name": name,
-                        "type": "task",
-                    }));
-                    edges.push(serde_json::json!({
-                        "source": format!("t-{}", id),
-                        "target": format!("k-{}", kid),
-                        "type": "references",
-                    }));
+                    nodes.push(GraphNodeDto {
+                        id: format!("t-{}", id),
+                        name,
+                        node_type: "task".into(),
+                        category: None,
+                    });
+                    edges.push(GraphEdgeDto {
+                        source: format!("t-{}", id),
+                        target: format!("k-{}", kid),
+                        edge_type: "references".into(),
+                    });
                 }
             }
         }
 
-        Ok(serde_json::json!({ "nodes": nodes, "edges": edges }))
+        Ok(KnowledgeGraphDto { nodes, edges })
     })
     .await
 }

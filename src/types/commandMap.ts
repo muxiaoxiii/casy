@@ -10,6 +10,8 @@
 import type {
   AiChatResult,
   AiConfig,
+  AreaDto,
+  AreaStatsDto,
   CalendarEvent,
   CalendarEventRow,
   CalendarSyncReport,
@@ -24,6 +26,7 @@ import type {
   ChatMessage,
   CommandRoute,
   DashboardStats,
+  DiffLineDto,
   DeadlineResult,
   DeadlineWarning,
   Draft,
@@ -31,13 +34,28 @@ import type {
   FeishuSyncReport,
   FieldGroup,
   HolidayNotice,
+  CreateAreaInput,
+  CreateAreaOutput,
   CreateKnowledgeInput,
   FolderNamingSettingsInput,
+  FolderNamingSettingsOutput,
   FolderTemplateInput,
+  FolderTemplateOutput,
   ImportReport,
+  GraphEdgeDto,
+  GraphNodeDto,
   ImportResult,
   InboxItemDto,
   InboxProgress,
+  KnowledgeBlockDto,
+  KnowledgeDiffCurrentResult,
+  KnowledgeDiffVersionsResult,
+  KnowledgeGraphDto,
+  KnowledgeItemDto,
+  KnowledgeWithBlocksDto,
+  KnowledgeStatsDto,
+  KnowledgeTreeBlockDto,
+  KnowledgeVersionDto,
   MappingEntry,
   McpPendingWrite,
   TodayKpis,
@@ -52,12 +70,14 @@ import type {
   ReminderRule,
   RenderResponse,
   SchemaDiff,
+  SearchKnowledgeDto,
   SearchResult,
   SyncResult,
   SearchTaskDto,
   SyncStatus,
   TaskDto,
   TaskFilter,
+  UpdateAreaInput,
   TaskTemplate,
   TemplateListResponse,
   TimelineEvent,
@@ -173,6 +193,10 @@ export type CommandMap = {
   webdav_resolve_keep_remote: Cmd<{ url: string; username: string; password: string }, SyncResult>
   sync_feishu_pull: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
   sync_feishu_push: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
+  get_folder_template: Cmd<{ templateId: string }, FolderTemplateOutput>
+  list_folder_templates: Cmd<Record<string, unknown>, FolderTemplateOutput[]>
+  get_folder_naming_settings: Cmd<Record<string, unknown>, FolderNamingSettingsOutput>
+
   feishu_import_all: Cmd<{
     appToken: string
     tableId: string
@@ -201,8 +225,25 @@ export type CommandMap = {
   list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, TaskDto[]>
   search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
 
+  search_knowledge: Cmd<{ query: string }, SearchKnowledgeDto[]>
+  list_knowledge_blocks: Cmd<{ parentId: string }, KnowledgeBlockDto[]>
+  get_knowledge_with_blocks: Cmd<{ id: string }, KnowledgeWithBlocksDto>
+  knowledge_stats: Cmd<Record<string, unknown>, KnowledgeStatsDto>
+  list_knowledge_versions: Cmd<{ itemId: string }, KnowledgeVersionDto[]>
+  diff_knowledge_versions: Cmd<{ versionId1: string; versionId2: string }, KnowledgeDiffVersionsResult>
+  diff_knowledge_with_current: Cmd<{ versionId: string; itemId: string }, KnowledgeDiffCurrentResult>
+  get_knowledge_graph: Cmd<{ limit?: number }, KnowledgeGraphDto>
+
   // ── 知识域 ──
   create_knowledge: Cmd<{ data: CreateKnowledgeInput }, string>
+
+  // ── 领域域（DomainCommand 样板）──
+  list_areas: Cmd<Record<string, unknown>, AreaDto[]>
+  get_area: Cmd<{ id: string }, AreaDto>
+  create_area: Cmd<{ data: CreateAreaInput }, CreateAreaOutput>
+  update_area: Cmd<{ id: string; data: UpdateAreaInput }, void>
+  delete_area: Cmd<{ id: string }, void>
+  get_area_stats: Cmd<{ id: string }, AreaStatsDto>
 
   // ── 收件箱域（B1 类型化首批）──
   add_inbox_item: Cmd<{

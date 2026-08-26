@@ -88,7 +88,7 @@ pub async fn get_holidays_summary() -> Result<serde_json::Value, String> {
 
 /// 列出所有文件夹模板
 #[tauri::command]
-pub async fn list_folder_templates() -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_folder_templates() -> Result<Vec<FolderTemplateOutput>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn
@@ -98,17 +98,22 @@ pub async fn list_folder_templates() -> Result<Vec<serde_json::Value>, String> {
             )
             ?;
         let rows = stmt
-            .query_map([], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>(0)?,
-                    "name": row.get::<_, String>(1)?,
-                    "caseType": row.get::<_, String>(2)?,
-                    "isBuiltin": row.get::<_, i32>(3)?,
-                    "directories": serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(4).unwrap_or_default()).unwrap_or(serde_json::Value::Array(vec![])),
-                    "fileNaming": row.get::<_, Option<String>>(5)?.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-                    "createdAt": row.get::<_, Option<String>>(6)?,
-                }))
-            })
+            .query_map([],                     |row| {
+                        Ok(FolderTemplateOutput {
+                            id: row.get::<_, String>(0)?,
+                            name: row.get::<_, String>(1)?,
+                            case_type: row.get::<_, String>(2)?,
+                            is_builtin: row.get::<_, i32>(3)?,
+                            directories: serde_json::from_str::<serde_json::Value>(
+                                &row.get::<_, String>(4).unwrap_or_default(),
+                            )
+                            .unwrap_or(serde_json::Value::Array(vec![])),
+                            file_naming: row
+                                .get::<_, Option<String>>(5)?
+                                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                            created_at: row.get::<_, Option<String>>(6)?,
+                        })
+                    })
             ?;
         let mut templates = Vec::new();
         for row in rows {
@@ -121,7 +126,7 @@ pub async fn list_folder_templates() -> Result<Vec<serde_json::Value>, String> {
 
 /// 获取单个模板
 #[tauri::command]
-pub async fn get_folder_template(template_id: String) -> Result<serde_json::Value, String> {
+pub async fn get_folder_template(template_id: String) -> Result<FolderTemplateOutput, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn
@@ -130,23 +135,50 @@ pub async fn get_folder_template(template_id: String) -> Result<serde_json::Valu
                  FROM case_folder_templates WHERE id = ?1",
             )
             ?;
-        let result = stmt.query_row(rusqlite::params![template_id], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "name": row.get::<_, String>(1)?,
-                "caseType": row.get::<_, String>(2)?,
-                "isBuiltin": row.get::<_, i32>(3)?,
-                "directories": serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(4).unwrap_or_default()).unwrap_or(serde_json::Value::Array(vec![])),
-                "fileNaming": row.get::<_, Option<String>>(5)?.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-                "createdAt": row.get::<_, Option<String>>(6)?,
-            }))
-        })?;
+        let result = stmt.query_row(rusqlite::params![template_id],                     |row| {
+                        Ok(FolderTemplateOutput {
+                            id: row.get::<_, String>(0)?,
+                            name: row.get::<_, String>(1)?,
+                            case_type: row.get::<_, String>(2)?,
+                            is_builtin: row.get::<_, i32>(3)?,
+                            directories: serde_json::from_str::<serde_json::Value>(
+                                &row.get::<_, String>(4).unwrap_or_default(),
+                            )
+                            .unwrap_or(serde_json::Value::Array(vec![])),
+                            file_naming: row
+                                .get::<_, Option<String>>(5)?
+                                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                            created_at: row.get::<_, Option<String>>(6)?,
+                        })
+                    })?;
         Ok(result)
     })
     .await
 }
 
 /// 保存自定义模板（创建或更新），禁止编辑内置模板
+/// 文件夹模板输出（B1 类型化）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderTemplateOutput {
+    pub id: String,
+    pub name: String,
+    pub case_type: String,
+    pub is_builtin: i32,
+    pub directories: serde_json::Value,
+    pub file_naming: Option<serde_json::Value>,
+    pub created_at: Option<String>,
+}
+
+/// 文件夹命名设置输出（缺省键以 null 呈现，前端按 ?? 默认值消费）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderNamingSettingsOutput {
+    pub folder_naming_date_format: Option<String>,
+    pub folder_naming_case_no_format: Option<String>,
+    pub folder_naming_file_format: Option<String>,
+}
+
 /// 文件夹模板输入（directories 保持自由 JSON 结构）
 #[derive(Debug, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -251,7 +283,7 @@ pub async fn delete_folder_template(template_id: String) -> Result<(), String> {
 
 /// 获取文件夹命名设置
 #[tauri::command]
-pub async fn get_folder_naming_settings() -> Result<serde_json::Value, String> {
+pub async fn get_folder_naming_settings() -> Result<FolderNamingSettingsOutput, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut map = serde_json::Map::new();
@@ -273,7 +305,17 @@ pub async fn get_folder_naming_settings() -> Result<serde_json::Value, String> {
                 map.insert(key.to_string(), parsed);
             }
         }
-        Ok(serde_json::Value::Object(map))
+        // 转强类型输出：缺省键 → None（序列化为 null，前端 ?? 默认值消费）
+        let get = |k: &str| {
+            map.get(k)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        };
+        Ok(FolderNamingSettingsOutput {
+            folder_naming_date_format: get("folder_naming_date_format"),
+            folder_naming_case_no_format: get("folder_naming_case_no_format"),
+            folder_naming_file_format: get("folder_naming_file_format"),
+        })
     })
     .await
 }
