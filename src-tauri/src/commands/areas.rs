@@ -1,8 +1,75 @@
 use super::run_blocking;
 use crate::db;
 
+// ============================================================
+// B1 DomainCommand 样板：强类型输入/输出 + specta 导出
+// （本域为全域类型化参考实现；空值语义见各结构体注释）
+// ============================================================
+
+/// 领域条目
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AreaDto {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub sort_order: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 领域统计
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AreaStatsDto {
+    pub area_id: String,
+    pub area_name: String,
+    pub total_tasks: i32,
+    pub completed_tasks: i32,
+    pub pending_tasks: i32,
+    pub total_cases: i32,
+}
+
+/// 新建领域输入
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAreaInput {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
+/// 更新领域输入（⚠️ A1-2 语义：description/icon 直接赋值——None 即清空；
+/// name/sort_order 为 COALESCE 保留语义。前端须整组提交。）
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UpdateAreaInput {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub sort_order: Option<i32>,
+}
+
+impl Default for UpdateAreaInput {
+    fn default() -> Self {
+        Self { name: None, description: None, icon: None, sort_order: None }
+    }
+}
+
+/// 新建结果（保持原 {id} 形状，消费方零改动）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAreaOutput {
+    pub id: String,
+}
+
 #[tauri::command]
-pub async fn list_areas() -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_areas() -> Result<Vec<AreaDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
@@ -10,27 +77,27 @@ pub async fn list_areas() -> Result<Vec<serde_json::Value>, String> {
              FROM areas ORDER BY sort_order ASC, name ASC"
         )?;
         
-        let areas: Vec<serde_json::Value> = stmt
+        let areas: Vec<AreaDto> = stmt
             .query_map([], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>("id")?,
-                    "name": row.get::<_, String>("name")?,
-                    "description": row.get::<_, Option<String>>("description")?,
-                    "icon": row.get::<_, Option<String>>("icon")?,
-                    "sortOrder": row.get::<_, i32>("sort_order")?,
-                    "createdAt": row.get::<_, String>("created_at")?,
-                    "updatedAt": row.get::<_, String>("updated_at")?,
-                }))
+                Ok(AreaDto {
+                    id: row.get::<_, String>("id")?,
+                    name: row.get::<_, String>("name")?,
+                    description: row.get::<_, Option<String>>("description")?,
+                    icon: row.get::<_, Option<String>>("icon")?,
+                    sort_order: row.get::<_, i32>("sort_order")?,
+                    created_at: row.get::<_, String>("created_at")?,
+                    updated_at: row.get::<_, String>("updated_at")?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        
+
         Ok(areas)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn get_area(id: String) -> Result<serde_json::Value, String> {
+pub async fn get_area(id: String) -> Result<AreaDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let area = conn.query_row(
@@ -38,51 +105,59 @@ pub async fn get_area(id: String) -> Result<serde_json::Value, String> {
              FROM areas WHERE id = ?1",
             rusqlite::params![id],
             |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>("id")?,
-                    "name": row.get::<_, String>("name")?,
-                    "description": row.get::<_, Option<String>>("description")?,
-                    "icon": row.get::<_, Option<String>>("icon")?,
-                    "sortOrder": row.get::<_, i32>("sort_order")?,
-                    "createdAt": row.get::<_, String>("created_at")?,
-                    "updatedAt": row.get::<_, String>("updated_at")?,
-                }))
+                Ok(AreaDto {
+                    id: row.get::<_, String>("id")?,
+                    name: row.get::<_, String>("name")?,
+                    description: row.get::<_, Option<String>>("description")?,
+                    icon: row.get::<_, Option<String>>("icon")?,
+                    sort_order: row.get::<_, i32>("sort_order")?,
+                    created_at: row.get::<_, String>("created_at")?,
+                    updated_at: row.get::<_, String>("updated_at")?,
+                })
             },
-        ).map_err(|e| anyhow::anyhow!(e))?;
-        
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+
         Ok(area)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn create_area(data: serde_json::Value) -> Result<serde_json::Value, String> {
+pub async fn create_area(data: CreateAreaInput) -> Result<CreateAreaOutput, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let id = db::new_id();
         let now = db::now_local();
         
+        if data.name.is_empty() {
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::AREA_NAME_REQUIRED,
+                "领域名称不能为空",
+            )));
+        }
+
         conn.execute(
             "INSERT INTO areas (id, name, description, icon, sort_order, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 id,
-                data["name"].as_str().ok_or_else(|| anyhow::anyhow!("Missing area name"))?,
-                data["description"].as_str(),
-                data["icon"].as_str(),
-                data["sortOrder"].as_i64().unwrap_or(0),
+                data.name.as_str(),
+                data.description.as_deref(),
+                data.icon.as_deref(),
+                data.sort_order,
                 now,
                 now,
             ],
         )?;
-        
-        Ok(serde_json::json!({ "id": id }))
+
+        Ok(CreateAreaOutput { id })
     })
     .await
 }
 
 #[tauri::command]
-pub async fn update_area(id: String, data: serde_json::Value) -> Result<(), String> {
+pub async fn update_area(id: String, data: UpdateAreaInput) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let now = db::now_local();
@@ -96,10 +171,10 @@ pub async fn update_area(id: String, data: serde_json::Value) -> Result<(), Stri
                 updated_at = ?5
              WHERE id = ?6",
             rusqlite::params![
-                data["name"].as_str(),
-                data["description"].as_str(),
-                data["icon"].as_str(),
-                data["sortOrder"].as_i64(),
+                data.name.as_deref(),
+                data.description.as_deref(),
+                data.icon.as_deref(),
+                data.sort_order,
                 now,
                 id,
             ],
@@ -133,7 +208,7 @@ pub async fn delete_area(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_area_stats(id: String) -> Result<serde_json::Value, String> {
+pub async fn get_area_stats(id: String) -> Result<AreaStatsDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         
@@ -168,14 +243,14 @@ pub async fn get_area_stats(id: String) -> Result<serde_json::Value, String> {
             |row| row.get(0),
         )?;
         
-        Ok(serde_json::json!({
-            "areaId": id,
-            "areaName": area_name,
-            "totalTasks": total_tasks,
-            "completedTasks": completed_tasks,
-            "pendingTasks": pending_tasks,
-            "totalCases": total_cases,
-        }))
+        Ok(AreaStatsDto {
+            area_id: id,
+            area_name,
+            total_tasks,
+            completed_tasks,
+            pending_tasks,
+            total_cases,
+        })
     })
     .await
 }
