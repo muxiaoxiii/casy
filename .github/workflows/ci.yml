@@ -60,6 +60,18 @@ jobs:
         working-directory: src-tauri
     steps:
       - uses: actions/checkout@v4
+      # Tauri v2 Linux 系统依赖（GTK/WebKit 等，tauri 官方 prerequisite 清单）
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            patchelf
       - uses: actions/download-artifact@v4
         with:
           name: dist
