@@ -89,6 +89,11 @@ jobs:
           # runner 预装 vcpkg；静态 MD 三元组含开发库 libcrypto.lib
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static-md
           Add-Content $env:GITHUB_ENV "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # 修 STATUS_ENTRYPOINT_NOT_FOUND：剔除 PATH 上 Perl/OpenSSL 冲突运行时 DLL
+          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch 'Strawberry|OpenSSL' }) -join ';'
       - run: cargo test
       # 审计#6：Clippy 零警告门禁 + 依赖漏洞审计
       - if: runner.os == 'Linux'
