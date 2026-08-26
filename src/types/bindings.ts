@@ -136,6 +136,8 @@ export type CalendarSyncReport = { total: number; synced: number; failed: number
  */
 export type FieldGroupItem = { id: string; columnName: string; label: string; fieldType: string; options: any; required: boolean; sortOrder: number }
 
+export type TodayKpis = { todayEvents: number; dueToday: number; waitingOverdue: number; reviewDue: number }
+
 /**
  * 命令路由信息
  */

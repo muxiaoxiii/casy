@@ -157,6 +157,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         dashboard::get_track_distribution,
         dashboard::get_monthly_task_trend,
         dashboard::get_upcoming_hearings,
+        dashboard::get_today_kpis,
         timeline::get_case_timeline,
         timeline::add_case_log,
         timeline::delete_case_log,

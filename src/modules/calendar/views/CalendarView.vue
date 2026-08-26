@@ -1031,8 +1031,9 @@ async function onDropToDayHour(e) {
     dueTime: hhmm,
   })
   if (result.ok) {
+    applyTaskMoveLocal(task.id, dateStr, hhmm)
     ElMessage.success(`已排期到 ${dateStr} ${hhmm}`)
-    await loadTasks()
+    await Promise.all([loadTasks(), loadEvents()])
   }
   draggedTask.value = null
 }
@@ -1109,6 +1110,22 @@ function onDragOver(dateStr, event) {
   event.dataTransfer.dropEffect = 'move'
 }
 
+
+/** 拖拽改期后：同步本地 tasks 条目与 events 任务投影（拖拽实时反应，不等重拉） */
+function applyTaskMoveLocal(taskId, dateStr, timeStr) {
+  const t = tasks.value.find(x => x.id === taskId)
+  if (t) {
+    t.dueDate = dateStr
+    t.deadline = dateStr
+    if (timeStr) t.dueTime = timeStr
+  }
+  const ev = events.value.find(x => x.id === taskId && x.type === 'task')
+  if (ev) {
+    ev.date = dateStr
+    if (timeStr) ev.time = timeStr
+  }
+}
+
 // 拖拽到时间点（设计哲学 §7.3：拖到时间轴某时刻 = 改日期 + 时间）
 async function onDropToTime(dateStr, hour) {
   if (!draggedTask.value) return
@@ -1125,6 +1142,7 @@ async function onDropToTime(dateStr, hour) {
     dueTime: timeStr,
   })
   if (result.ok) {
+    applyTaskMoveLocal(task.id, dateStr, timeStr)
     ElMessage.success('已改期到 ' + dateStr + ' ' + timeStr)
     await Promise.all([loadTasks(), loadTodayTasks()])
   }

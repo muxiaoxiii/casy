@@ -135,3 +135,47 @@ pub async fn get_upcoming_hearings(days: Option<i32>) -> Result<Vec<UpcomingHear
     })
     .await
 }
+
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TodayKpis {
+    pub today_events: i64,
+    pub due_today: i64,
+    pub waiting_overdue: i64,
+    pub review_due: i64,
+}
+
+/// 今日 KPI 四项（与首页摘要同口径，SQL 直算）
+#[tauri::command]
+pub async fn get_today_kpis() -> Result<TodayKpis, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let today = chrono::Local::now().date_naive().to_string();
+        let today_events: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM hearings WHERE hearing_date = ?1",
+            rusqlite::params![today],
+            |r| r.get(0),
+        )?;
+        let due_today: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks
+             WHERE completed = 0 AND (due_date = ?1 OR deadline = ?1)",
+            rusqlite::params![today],
+            |r| r.get(0),
+        )?;
+        let waiting_overdue: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks
+             WHERE completed = 0 AND task_type = 'waiting'
+               AND follow_up_date IS NOT NULL AND follow_up_date < ?1",
+            rusqlite::params![today],
+            |r| r.get(0),
+        )?;
+        let review_due: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks
+             WHERE completed = 0 AND next_review_date IS NOT NULL AND next_review_date <= ?1",
+            rusqlite::params![today],
+            |r| r.get(0),
+        )?;
+        Ok(TodayKpis { today_events, due_today, waiting_overdue, review_due })
+    })
+    .await
+}

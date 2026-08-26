@@ -203,16 +203,21 @@ async function onDragChange(columnKey: string, evt: Record<string, unknown>) {
   const result = await casyContext.cases.update(caseItem.id, { [statusField]: newStatus })
 
   if (result.ok) {
+    caseItem[statusField as keyof Case] = newStatus as never
     // 记录到 case_track_history
     await casyContext.cases.addLog({
       caseId: caseItem.id,
-      eventSummary: `看板拖拽: ${CASE_ROUTE_LABELS[activeRoute.value]}状态变更为「${getStatusLabel(caseItem)}」`,
+      eventSummary: `看板拖拽: ${CASE_ROUTE_LABELS[activeRoute.value]}状态变更为「${newStatus}」`,
       eventType: 'record',
       eventDate: new Date().toISOString().split('T')[0],
       content: `通过看板拖拽，${statusField} 从「${(caseItem as unknown as Record<string, unknown>)[statusField] || '未分类'}」变更为「${newStatus}」`,
     })
-    ElMessage.success(`案件状态已更新`)
-    // 重新加载
+    ElMessage.success('案件状态已更新')
+    await casesStore.loadCases()
+    assignCasesToColumns(casesStore.cases)
+  } else {
+    // 失败：回滚视图到数据真实态（可拖拽组件已乐观移动，必须重拉纠正）
+    ElMessage.error(result.error || '状态更新失败，已还原')
     await casesStore.loadCases()
     assignCasesToColumns(casesStore.cases)
   }

@@ -8,16 +8,19 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendCharts, PieChart, Histogram, Calendar } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { casyContext } from '../../core/plugin/context'
 import AreaLineChart from '../../shared/charts/AreaLineChart.vue'
 import DonutChart from '../../shared/charts/DonutChart.vue'
 import HBarChart from '../../shared/charts/HBarChart.vue'
 import GanttTimeline from '../../shared/charts/GanttTimeline.vue'
 
+const router = useRouter()
 const trend = ref([])
 const statusDist = ref([])
 const trackDist = ref([])
 const hearings = ref([])
+const kpis = ref({ today_events: 0, due_today: 0, waiting_overdue: 0, review_due: 0 })
 const loading = ref(true)
 
 // 状态 → 语义色（Slate）
@@ -42,22 +45,30 @@ const statusDonutData = computed(() =>
   })),
 )
 
+function onStatusSelect(d) {
+  const map = { active: '/projects', paused: '/projects', done: '/projects', archived: '/projects' }
+  void map
+  router.push('/projects')
+}
+
 const trackColor = label =>
   label.includes('无效') ? '#6C6A9C' : label.includes('行政') ? '#B0823A' : '#3E5C9A'
 
 async function load() {
   loading.value = true
-  const [t, s, tr, h] = await Promise.all([
+  const [t, s, tr, h, k] = await Promise.all([
     casyContext.dashboard.monthlyTaskTrend(6),
     casyContext.dashboard.projectStatusDistribution(),
     casyContext.dashboard.trackDistribution(),
     casyContext.dashboard.upcomingHearings(30),
+    casyContext.dashboard.todayKpis(),
   ])
   loading.value = false
   if (t.ok) trend.value = t.data || []
   if (s.ok) statusDist.value = s.data || []
   if (tr.ok) trackDist.value = tr.data || []
   if (h.ok) hearings.value = h.data || []
+  if (k.ok && k.data) kpis.value = k.data
   if (!t.ok && !s.ok && !tr.ok && !h.ok) ElMessage.error(t.error || '仪表盘数据加载失败')
 }
 
@@ -69,6 +80,26 @@ onMounted(() => {
 <template>
   <div class="dash-page" v-loading="loading">
     <h2 class="page-title">数据看板</h2>
+
+    <!-- KPI 行（点击下钻） -->
+    <div class="kpi-row">
+      <div class="kpi-card" @click="$router.push('/calendar')">
+        <span class="kv" :style="{ color: 'var(--c-primary)' }">{{ kpis.today_events }}</span>
+        <span class="kk">今日日程</span>
+      </div>
+      <div class="kpi-card" @click="$router.push({ name: 'tasks', query: { tab: 'today' } })">
+        <span class="kv">{{ kpis.due_today }}</span>
+        <span class="kk">今日到期</span>
+      </div>
+      <div class="kpi-card" @click="$router.push({ name: 'tasks', query: { tab: 'waiting' } })">
+        <span class="kv" :style="{ color: kpis.waiting_overdue > 0 ? 'var(--c-warning)' : undefined }">{{ kpis.waiting_overdue }}</span>
+        <span class="kk">等待超时</span>
+      </div>
+      <div class="kpi-card" @click="$router.push({ name: 'tasks', query: { tab: 'review' } })">
+        <span class="kv" :style="{ color: kpis.review_due > 0 ? 'var(--c-danger)' : undefined }">{{ kpis.review_due }}</span>
+        <span class="kk">需回顾</span>
+      </div>
+    </div>
 
     <div class="charts-row">
       <div class="card">
@@ -83,6 +114,7 @@ onMounted(() => {
           :data="statusDonutData"
           :size="170"
           center-sub="总项目"
+          @select="onStatusSelect"
         />
         <div v-else class="card-empty">暂无项目</div>
       </div>
@@ -97,6 +129,7 @@ onMounted(() => {
             value: d.value,
             color: trackColor(d.label),
           }))"
+          @select="() => $router.push({ name: 'cases-kanban' })"
         />
       </div>
       <div class="card">
@@ -120,6 +153,32 @@ onMounted(() => {
   font-weight: 700;
   color: var(--c-text);
 }
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.kpi-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.kv { font-size: 26px; font-weight: 700; color: var(--c-text); }
+.kk { font-size: 12px; color: var(--c-text-secondary); }
+
 .charts-row {
   display: grid;
   grid-template-columns: 1.4fr 1fr;

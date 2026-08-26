@@ -40,6 +40,7 @@ import type {
   InboxProgress,
   MappingEntry,
   McpPendingWrite,
+  TodayKpis,
   MonthTrendPoint,
   NameCount,
   ProcessedInboxResult,
@@ -148,6 +149,7 @@ export type CommandMap = {
   get_track_distribution: Cmd<Record<string, unknown>, NameCount[]>
   get_monthly_task_trend: Cmd<{ months?: number }, MonthTrendPoint[]>
   get_upcoming_hearings: Cmd<{ days?: number }, UpcomingHearing[]>
+  get_today_kpis: Cmd<Record<string, unknown>, TodayKpis>
   add_case_file: Cmd<{ caseId: string; fileName: string; filePath: string; category: string }, CaseFile>
 
   // ── 提醒域 ──
