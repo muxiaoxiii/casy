@@ -8,10 +8,11 @@
 # ── Windows runner 前置说明（SQLCipher 编译依赖）──────────────────────────
 # rusqlite 的 bundled-sqlcipher 特性会从源码编译 SQLCipher，其加密后端在
 # Windows 上要求：
-#   1. Perl        —— SQLCipher/OpenSSL 风格构建脚本需要（choco install strawberryperl）
-#   2. NASM        —— 汇编加速路径需要（choco install nasm），且需把 nasm 加入
-#                     本进程 PATH 并运行 vcvars64 使 MSVC 可见
-#   3. MSVC Build Tools —— GitHub windows-latest 自带
+#   1. Perl        —— 构建脚本需要（choco install strawberryperl）
+#   2. NASM        —— 汇编加速路径（choco install nasm 并入 PATH）
+#   3. OpenSSL     —— 加密后端链接需要（choco install openssl.light 且设 OPENSSL_DIR；
+#                     首跑报错即 Missing environment variable OPENSSL_DIR）
+#   4. MSVC Build Tools —— GitHub windows-latest 自带
 # 启用 Windows 构建前先本地验证：`cargo test` 在干净 PowerShell 中通过。
 # 当前 rust 矩阵已包含 windows-latest；若首次跑红，优先排查上述三项，
 # 或临时把 windows 从矩阵移出、单独排障后再回归。
@@ -80,9 +81,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      # Windows SQLCipher 前置见文件头注释；首跑若红按注释排障后取消下行注释
-      # - if: runner.os == 'Windows'
-      #   run: choco install strawberryperl nasm
+      # Windows SQLCipher 前置：Perl(构建脚本) + NASM(汇编) + OpenSSL(加密后端，需 OPENSSL_DIR)
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y strawberryperl nasm openssl.light
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
+          Add-Content $env:GITHUB_PATH "C:\Program Files\NASM"
       - run: cargo test
       # 审计#6：Clippy 零警告门禁 + 依赖漏洞审计
       - if: runner.os == 'Linux'
