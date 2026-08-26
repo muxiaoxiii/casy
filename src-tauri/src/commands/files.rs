@@ -366,7 +366,7 @@ pub async fn reveal_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         if let Some(parent) = std::path::Path::new(&path).parent() {
-            std::process::Command::new("xdg-open").arg(parent).spawn().map_err(|e| anyhow::anyhow!("{e}"))?;
+            std::process::Command::new("xdg-open").arg(parent).spawn().map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -385,7 +385,7 @@ pub async fn open_file_with_default(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| anyhow::anyhow!("{e}"))?;
+        std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
