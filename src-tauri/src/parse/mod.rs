@@ -163,7 +163,7 @@ fn parse_judgment(text: &str, doc: &mut ParsedDocument) {
     for caps in party_re.captures_iter(text) {
         let full = caps[0].to_string();
         let role = full
-            .split(|c: char| c == '：' || c == ':')
+            .split(['：', ':'])
             .next()
             .unwrap_or("")
             .trim()

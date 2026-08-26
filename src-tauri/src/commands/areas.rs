@@ -48,6 +48,7 @@ pub struct CreateAreaInput {
 /// name/sort_order 为 COALESCE 保留语义。前端须整组提交。）
 #[derive(Debug, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct UpdateAreaInput {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -55,11 +56,6 @@ pub struct UpdateAreaInput {
     pub sort_order: Option<i32>,
 }
 
-impl Default for UpdateAreaInput {
-    fn default() -> Self {
-        Self { name: None, description: None, icon: None, sort_order: None }
-    }
-}
 
 /// 新建结果（保持原 {id} 形状，消费方零改动）
 #[derive(Debug, serde::Serialize, specta::Type)]

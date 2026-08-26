@@ -259,7 +259,7 @@ impl FormulaEvaluator {
         let mut current = date;
 
         while remaining > 0 {
-            current = current + chrono::Duration::days(direction);
+            current += chrono::Duration::days(direction);
             if self.calendar.is_workday(current) {
                 remaining -= 1;
             }

@@ -1104,7 +1104,7 @@ pub async fn create_reminder_rule(data: serde_json::Value) -> Result<ReminderRul
         let id = data["id"]
             .as_str()
             .map(|s| s.to_string())
-            .unwrap_or_else(|| db::new_id());
+            .unwrap_or_else(db::new_id);
 
         let channels = data["channels"].to_string();
 

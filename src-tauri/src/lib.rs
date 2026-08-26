@@ -35,6 +35,12 @@ pub struct ConversionState {
     pub pid: AtomicU64,
 }
 
+impl Default for ConversionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConversionState {
     pub fn new() -> Self {
         Self {

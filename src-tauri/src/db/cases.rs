@@ -238,7 +238,7 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
     // 查询数据
     let mut stmt = conn.prepare(&sql)?;
     let cases = stmt
-        .query_map(param_refs.as_slice(), |row| row_to_case(row))?
+        .query_map(param_refs.as_slice(), row_to_case)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     // 计算每个案件的期限紧急度
@@ -261,7 +261,7 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
 /// 获取单个案件
 pub fn get_case(conn: &Connection, id: &str) -> Result<Case> {
     let mut stmt = conn.prepare("SELECT * FROM cases WHERE id = ?1")?;
-    let case = stmt.query_row(params![id], |row| row_to_case(row))?;
+    let case = stmt.query_row(params![id], row_to_case)?;
     Ok(case)
 }
 
@@ -392,7 +392,7 @@ pub fn search_cases(conn: &Connection, query: &str) -> Result<Vec<Case>> {
          WHERE cases_fts MATCH ?1 ORDER BY rank LIMIT 50"
     )?;
     let cases = stmt
-        .query_map(params![query], |row| row_to_case(row))?
+        .query_map(params![query], row_to_case)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(cases)
 }
@@ -403,7 +403,7 @@ pub fn active_cases(conn: &Connection) -> Result<Vec<Case>> {
         "SELECT * FROM cases WHERE case_status IS NULL OR case_status != '已完结' ORDER BY filing_date DESC"
     )?;
     let cases = stmt
-        .query_map([], |row| row_to_case(row))?
+        .query_map([], row_to_case)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(cases)
 }

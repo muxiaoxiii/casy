@@ -735,7 +735,7 @@ pub async fn feishu_save_mappings(mappings_json: serde_json::Value) -> Result<St
             let id = mapping["id"]
                 .as_str()
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| crate::db::new_id());
+                .unwrap_or_else(crate::db::new_id);
             let connection_id = mapping["connectionId"]
                 .as_str()
                 .unwrap_or("default");

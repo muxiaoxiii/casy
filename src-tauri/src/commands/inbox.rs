@@ -1066,12 +1066,10 @@ fn quick_judge(
         let case_iter = stmt.query_map(rusqlite::params![format!("%{}%", party)], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
-        for case_result in case_iter {
-            if let Ok((case_id, case_name)) = case_result {
-                matches.entry(case_id)
-                    .or_insert_with(|| (case_name, vec![]))
-                    .1.push(format!("文件名包含当事人 {}", party));
-            }
+        for (case_id, case_name) in case_iter.flatten() {
+            matches.entry(case_id)
+                .or_insert_with(|| (case_name, vec![]))
+                .1.push(format!("文件名包含当事人 {}", party));
         }
     }
 
@@ -1165,7 +1163,7 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
     }
 
     let due = extract_date_hint(text);
-    let mut intent_base = |action: &str, name: &str, reason: &str| -> QuickRecommendation {
+    let intent_base = |action: &str, _name: &str, reason: &str| -> QuickRecommendation {
         let mut intent = serde_json::json!({ "name": truncate_text(text, 60) });
         if let Some(d) = &due { intent["dueDate"] = serde_json::Value::String(d.clone()); }
         if let Some(c) = &matched_case { intent["caseId"] = serde_json::Value::String(c.0.clone()); }
@@ -1474,7 +1472,7 @@ pub async fn copy_file_with_progress(
         let mut file = std::fs::File::open(&target)?;
         let mut hasher = sha2::Sha256::new();
         std::io::copy(&mut file, &mut hasher)?;
-        let hash = format!("{:x}", hasher.finalize());
+        let _hash = format!("{:x}", hasher.finalize());
 
         Ok(target.to_string_lossy().to_string())
     })
@@ -1534,7 +1532,7 @@ pub async fn confirm_inbox_action(
         let now = db::now_local();
         
         // 获取收件箱项信息
-        let (content_text, source_type): (String, String) = conn.query_row(
+        let (content_text, _source_type): (String, String) = conn.query_row(
             "SELECT content_text, source_type FROM inbox_items WHERE id = ?1",
             rusqlite::params![inbox_item_id],
             |row| Ok((row.get(0)?, row.get(1)?)),

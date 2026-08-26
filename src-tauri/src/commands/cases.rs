@@ -400,7 +400,7 @@ fn cases_to_csv(cases: &[db::cases::Case]) -> anyhow::Result<String> {
     let mut wtr = csv::Writer::from_writer(vec![]);
 
     // 写入表头
-    wtr.write_record(&[
+    wtr.write_record([
         "案件名称", "案号", "内部卷号", "轨道", "案由", "客户", "我方地位",
         "对方", "对方地位", "对方代理", "法院", "审级", "案件进展",
         "案件结果", "专利名称", "专利申请号", "立案日期", "开庭日期",
@@ -414,7 +414,7 @@ fn cases_to_csv(cases: &[db::cases::Case]) -> anyhow::Result<String> {
             "civil_tort" => "民事侵权",
             _ => "其他",
         };
-        wtr.write_record(&[
+        wtr.write_record([
             c.case_name.as_str(),
             c.case_no.as_deref().unwrap_or(""),
             c.internal_no.as_deref().unwrap_or(""),
@@ -619,7 +619,6 @@ pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result
                 if !hearing_to.is_empty() {
                     sql.push_str(&format!(" AND next_hearing <= ?{}", param_idx));
                     params.push(Box::new(hearing_to.to_string()));
-                    param_idx += 1;
                 }
             }
         }

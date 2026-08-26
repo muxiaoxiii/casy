@@ -209,7 +209,6 @@ pub fn get_ai_runs(
     if let Some(p) = purpose {
         sql.push_str(&format!(" AND purpose = ?{}", idx));
         params.push(Box::new(p.to_string()));
-        idx += 1;
     }
     
     sql.push_str(" ORDER BY created_at DESC");

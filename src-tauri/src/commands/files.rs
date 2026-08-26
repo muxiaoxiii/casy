@@ -60,6 +60,10 @@ pub async fn add_case_file(
     run_blocking(move || {
         let conn = db::open_db()?;
         let id = db::new_id();
+        // 审计 P1#1：拒绝登记不存在的文件（防"有记录、没文件"假卷宗）
+        if !std::path::Path::new(&file_path).is_file() {
+            return Err(format!("文件不存在，拒绝登记: {file_path}"));
+        }
         let file_size = std::fs::metadata(&file_path)
             .ok()
             .map(|m| m.len() as i64);
@@ -238,7 +242,14 @@ pub async fn import_files_to_case(
                 i += 1;
             }
             let dest = dir.join(&final_name);
-            std::fs::copy(&src, &dest);
+            // 审计 P1#1：复制必须成功且字节数一致才允许登记
+            let copied = std::fs::copy(&src, &dest)
+                .map_err(|e| anyhow::anyhow!("复制 {orig_name} 失败: {e}"))?;
+            let src_len = std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
+            if copied != src_len {
+                let _ = std::fs::remove_file(&dest); // 清除残缺副本
+                return Err(anyhow::anyhow!("复制不完整({orig_name}): {copied}/{src_len} 字节"));
+            }
 
             // 登记（沿用 category='other'，前端可在详情里改）
             let fid = db::new_id();
@@ -460,11 +471,14 @@ pub async fn apply_case_file_renames(
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            conn.execute(
+            // 审计 P1#1：DB 更新失败时回滚磁盘，保证文件与登记一致
+            if let Err(db_err) = conn.execute(
                 "UPDATE case_files SET file_name = ?1, file_path = ?2 WHERE id = ?3",
                 rusqlite::params![final_name, new_path.to_string_lossy(), r.id],
-            )
-            .map_err(|e| anyhow::anyhow!("登记更新失败: {e}"))?;
+            ) {
+                let _ = std::fs::rename(&new_path, &old_path); // 回滚磁盘
+                return Err(anyhow::anyhow!("登记更新失败已回滚: {db_err}"));
+            }
 
             out.push(RenameOutcome {
                 id: r.id.clone(),

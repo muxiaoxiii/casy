@@ -24,6 +24,8 @@ export type ReminderLogEntry = { id: string; ruleId: string; caseId: string | nu
  */
 export type KnowledgeWithBlocksDto = { item: KnowledgeItemDto; blocks: KnowledgeTreeBlockDto[] }
 
+export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
+
 /**
  * 版本 vs 当前 对比结果
  */
@@ -47,6 +49,8 @@ export type SyncStatus = { webdavConnected: boolean; webdavUrl: string; lastSync
 export type SchemaDiff = { feishuOnly: FieldDiffItem[]; localOnly: FieldDiffItem[]; typeConflict: FieldDiffItem[]; mapped: FieldDiffItem[] }
 
 export type ReminderRule = { id: string; name: string; triggerType: string; triggerValue: number | null; channels: string; messageTemplate: string | null; caseTypes: string | null; enabled: boolean; createdAt: string | null }
+
+export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
 
 export type FeishuSyncReport = { pulled: number; pushed: number; created: number; updated: number; skipped: number; errors: string[]; syncedAt: string }
 
@@ -104,11 +108,6 @@ export type RenderResponse = { html: string; text: string; used_fields: { [key: 
  */
 export type ProcessedInboxResult = { category: string; confidence: number; suggestedCaseId: string | null; caseNo: string | null; extracted: any | null; routeActions: any[] }
 
-/**
- * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
- */
-export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null; parentTaskId: string | null; recurrenceRule: string | null; isFocus: number }
-
 export type Draft = { id: string; case_id: string | null; title: string; content: string | null; template_path: string | null; status: string; version: number; created_at: string; updated_at: string }
 
 export type CaseFile = { id: string; caseId: string; fileName: string; filePath: string; fileSize: number | null; fileType: string | null; category: string; subCategory: string | null; createdAt: string | null }
@@ -134,6 +133,11 @@ export type KnowledgeItemDto = { id: string; title: string; category: string; co
  * 独立日程行（与投影 CalendarEvent 分离；投影时合并进月历数据）（B1 类型化）
  */
 export type CalendarEventRow = { id: string; title: string; eventDate: string; startTime: string | null; endTime: string | null; allDay: boolean; color: string | null; location: string | null; notes: string | null; caseId: string | null; taskId: string | null }
+
+/**
+ * 新建结果（保持原 {id} 形状，消费方零改动）
+ */
+export type CreateAreaOutput = { id: string }
 
 /**
  * 即时判断结果
@@ -173,8 +177,6 @@ export type UpdateAreaInput = { name: string | null; description: string | null;
 export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | null; model: string | null; dailyLimit: number | null }
-
-export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
 
 /**
  * 比较飞书记录 vs 本地记录
@@ -256,8 +258,6 @@ export type FolderTemplateInput = { id: string | null; name: string | null; case
  */
 export type GraphEdgeDto = { source: string; target: string; type: string }
 
-export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
-
 export type DeadlineResult = { ruleId: string | null; ruleName: string; dueDate: string; daysLeft: number; urgency: string; deadlineSource: string; legalBasis: string | null; caseId: string; caseName: string }
 
 /**
@@ -314,6 +314,11 @@ export type ImportReport = { cases: number; logs: number; hearings: number; task
 export type HolidayNotice = { year: number; holidays: string[]; workdays: string[] }
 
 /**
+ * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
+ */
+export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null; parentTaskId: string | null; recurrenceRule: string | null; isFocus: number }
+
+/**
  * 新建领域输入
  */
 export type CreateAreaInput = { name: string; description?: string | null; icon?: string | null; sortOrder?: number }
@@ -321,19 +326,9 @@ export type CreateAreaInput = { name: string; description?: string | null; icon?
 export type CalendarEvent = { id: string; date: string; title: string; eventType: string; caseId: string; caseName: string; startTime?: string | null; endTime?: string | null; allDay?: boolean | null }
 
 /**
- * 新建结果（保持原 {id} 形状，消费方零改动）
- */
-export type CreateAreaOutput = { id: string }
-
-/**
  * 字段分组（B1 类型化）
  */
 export type FieldGroup = { id: string; name: string; description: string | null; caseTypes: any | null; courtLevels: any | null; sortOrder: number; items: FieldGroupItem[] }
-
-/**
- * 全局搜索结果项（轻量列）
- */
-export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 /**
  * 映射条目（B1 类型化：入参直用强类型，缺省口径与原 parse_mappings 一致）
@@ -349,6 +344,11 @@ export type ImportResult = { total: number; created: number; updated: number; sk
  * 知识树块（含 parent_id，9 字段）
  */
 export type KnowledgeTreeBlockDto = { id: string; title: string; category: string; content: string; tags: string | null; blockType: string | null; parentId: string | null; createdAt: string | null; updatedAt: string | null }
+
+/**
+ * 全局搜索结果项（轻量列）
+ */
+export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 export type TimelineEvent = { id: string; sourceTable: string; sourceId: string; eventDate: string; eventType: string; title: string; detail: string | null; icon: string; color: string }
 

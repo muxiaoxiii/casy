@@ -594,7 +594,7 @@ pub fn extract_field_value_as_string(
         },
         // Lookup → typically array, take as JSON
         19 => {
-            if value.is_null() || value.as_array().map_or(false, |a| a.is_empty()) {
+            if value.is_null() || value.as_array().is_some_and(|a| a.is_empty()) {
                 None
             } else {
                 Some(value.to_string())

@@ -250,7 +250,7 @@ pub fn recalculate_case_formulas(conn: &Connection, case_id: &str) -> Result<usi
                             // WORKDAY(ed, -1)
                             let mut d = ed - chrono::Duration::days(1);
                             while !cal.is_workday(d) {
-                                d = d - chrono::Duration::days(1);
+                                d -= chrono::Duration::days(1);
                             }
                             d
                         };
@@ -328,7 +328,7 @@ pub fn recalculate_all_formulas(conn: &Connection) -> Result<usize> {
 mod tests {
     use super::*;
     use ast::Value;
-    use eval::{FormulaEvaluator, SimpleRecordContext};
+    use eval::SimpleRecordContext;
 
     #[test]
     fn parse_and_evaluate_case_status_completed() {

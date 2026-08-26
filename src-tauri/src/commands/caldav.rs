@@ -158,7 +158,7 @@ pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
 /// 测试 CalDAV 连接
 #[tauri::command]
 pub async fn test_caldav_connection() -> Result<String, String> {
-    let client = run_blocking(|| open_client()).await?;
+    let client = run_blocking(open_client).await?;
     client.test_connection().await.map_err(|e| e.to_string())
 }
 

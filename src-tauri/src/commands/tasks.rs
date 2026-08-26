@@ -1,6 +1,5 @@
 use super::run_blocking;
 use crate::db;
-use chrono::Datelike;
 
 #[derive(serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -101,7 +100,6 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
                 if !start_bucket.is_empty() {
                     sql.push_str(&format!(" AND start_bucket = ?{}", idx));
                     params.push(Box::new(start_bucket.clone()));
-                    idx += 1;
                 }
             }
         }
@@ -576,7 +574,7 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
         if let Some(due) = data["dueDate"].as_str().or(data["deadline"].as_str()) {
             let _ = crate::commands::reminder::sync_task_reminder_calendar(
                 &conn,
-                &id,
+                id,
                 due,
                 data["dueTime"].as_str(),
                 data["taskName"].as_str().unwrap_or(""),

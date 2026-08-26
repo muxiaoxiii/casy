@@ -124,7 +124,7 @@ fn parse_template(path: &Path, base: &Path) -> Result<DocsyTemplate> {
     let relative = path.strip_prefix(base).unwrap_or(path);
     let id = format!(
         "{:x}",
-        md5_hash(&relative.to_string_lossy().as_bytes())
+        md5_hash(relative.to_string_lossy().as_bytes())
     );
 
     // 尝试从 docx 文件中提取字段

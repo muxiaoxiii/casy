@@ -144,7 +144,7 @@ impl HolidayCalendar {
         } else {
             let mut d = date + Duration::days(1);
             while !self.is_workday(d) {
-                d = d + Duration::days(1);
+                d += Duration::days(1);
             }
             d
         }
