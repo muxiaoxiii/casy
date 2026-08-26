@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
+import CaseFilesPanel from '../components/CaseFilesPanel.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Edit, Calendar, Finished, Document,
@@ -700,6 +701,14 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 案卷管理（index-v2 精装版 · 文件夹同步） -->
+    <div class="section">
+      <div class="section-header">
+        <h2>案卷管理</h2>
+      </div>
+      <CaseFilesPanel :case-id="caseId" :case-no="caseData?.caseNo" />
     </div>
 
     <!-- 动态轨迹 -->

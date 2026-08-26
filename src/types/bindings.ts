@@ -2,6 +2,11 @@
 
 export type MonthTrendPoint = { month: string; created: number; completed: number }
 
+/**
+ * 领域条目
+ */
+export type AreaDto = { id: string; name: string; description: string | null; icon: string | null; sortOrder: number; createdAt: string; updatedAt: string }
+
 export type ReminderLogEntry = { id: string; ruleId: string; caseId: string | null; taskId: string | null; channel: string; message: string; level: string | null; status: string; sentAt: string | null }
 
 /**
@@ -115,6 +120,12 @@ export type InboxItemDto = { id: string; sourceType: string; sourcePath: string;
  */
 export type RelatedCase = { relationId: string; relationType: string; label: string | null; caseId: string; caseName: string; caseNo: string | null; caseStatus: string | null; clientName: string; track: string }
 
+/**
+ * 更新领域输入（⚠️ A1-2 语义：description/icon 直接赋值——None 即清空；
+ * name/sort_order 为 COALESCE 保留语义。前端须整组提交。）
+ */
+export type UpdateAreaInput = { name: string | null; description: string | null; icon: string | null; sortOrder: number | null }
+
 export type QuickRecommendation = { action: string; targetCaseId: string | null; targetCaseName: string | null; targetFolder: string | null; intent: any | null; reason: string }
 
 export type AiConfig = { mode: string; apiUrl: string | null; apiKey: string | null; model: string | null; dailyLimit: number | null }
@@ -152,6 +163,11 @@ export type CaseUnifiedView = { id: string; caseName: string | null; caseNo: str
  * 导出结果响应
  */
 export type ExportResponse = { output_path: string; file_size: number; exported_at: string }
+
+/**
+ * 领域统计
+ */
+export type AreaStatsDto = { areaId: string; areaName: string; totalTasks: number; completedTasks: number; pendingTasks: number; totalCases: number }
 
 /**
  * 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
@@ -222,7 +238,17 @@ export type ImportReport = { cases: number; logs: number; hearings: number; task
  */
 export type HolidayNotice = { year: number; holidays: string[]; workdays: string[] }
 
+/**
+ * 新建领域输入
+ */
+export type CreateAreaInput = { name: string; description?: string | null; icon?: string | null; sortOrder?: number }
+
 export type CalendarEvent = { id: string; date: string; title: string; eventType: string; caseId: string; caseName: string; startTime?: string | null; endTime?: string | null; allDay?: boolean | null }
+
+/**
+ * 新建结果（保持原 {id} 形状，消费方零改动）
+ */
+export type CreateAreaOutput = { id: string }
 
 /**
  * 字段分组（B1 类型化）
