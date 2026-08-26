@@ -85,9 +85,10 @@ jobs:
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install -y strawberryperl nasm openssl.light
-          echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
-          Add-Content $env:GITHUB_PATH "C:\Program Files\NASM"
+          choco install -y strawberryperl nasm
+          # runner 预装 vcpkg；静态 MD 三元组含开发库 libcrypto.lib
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static-md
+          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
       - run: cargo test
       # 审计#6：Clippy 零警告门禁 + 依赖漏洞审计
       - if: runner.os == 'Linux'
