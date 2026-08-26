@@ -60,19 +60,31 @@ pub struct MonthTrendPoint {
 }
 
 /// 月度任务趋势：近 N 个月创建量 vs 完成量
-/// 创建取 tasks.created_date 前缀；完成取 task_events(event_type='completed') 的 occurred_at 前缀
+/// 审计 P2 修正：按真实日历月回推（原 30 天步进在月末会重复/跳月）
 #[tauri::command]
 pub async fn get_monthly_task_trend(months: Option<i32>) -> Result<Vec<MonthTrendPoint>, String> {
     run_blocking(move || {
         let n = months.unwrap_or(6).clamp(1, 24);
         let conn = db::open_db()?;
         let today = chrono::Local::now().date_naive();
-        let start = today - Duration::days(30 * (n as i64 - 1) + (today.day0() as i64));
+
+        // 从当前月起逐月回推，生成 n 个 (year, month)
+        let mut ym: Vec<(i32, u32)> = Vec::with_capacity(n as usize);
+        let (mut y, mut m) = (today.year(), today.month());
+        for _ in 0..n {
+            ym.push((y, m));
+            if m == 1 {
+                y -= 1;
+                m = 12;
+            } else {
+                m -= 1;
+            }
+        }
+        ym.reverse(); // 时间升序
 
         let mut out = Vec::new();
-        for i in 0..n {
-            let d = today - Duration::days(30 * (n as i64 - 1 - i as i64));
-            let key = format!("{:04}-{:02}", d.year(), d.month());
+        for (yy, mm) in &ym {
+            let key = format!("{yy:04}-{mm:02}");
             let created: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM tasks WHERE substr(created_date,1,7) = ?1",
                 rusqlite::params![key],

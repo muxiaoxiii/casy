@@ -60,6 +60,8 @@ export type FieldDiffItem = { feishuField: string | null; feishuType: string | n
  */
 export type CreateKnowledgeInput = { blockType: string; title: string; category: string; content: string; tags: string | null; sourceType: string | null; sourceId: string | null; linkedCaseId: string | null; lawName: string | null; articleNo: string | null; effectiveDate: string | null; status: string; parentId: string | null }
 
+export type TodayKpis = { todayEvents: number; dueToday: number; waitingOverdue: number; reviewDue: number }
+
 export type SyncResult = { direction: string; success: boolean; message: string; conflict: boolean; localEtag: string | null; remoteEtag: string | null }
 
 /**
@@ -95,6 +97,8 @@ export type McpPendingWrite = { id: string; tool: string; arguments: string; sta
  * 分级预警结果
  */
 export type DeadlineWarning = { deadlineId: string; caseId: string; caseName: string; deadlineName: string; dueDate: string; daysLeft: number; level: string; levelLabel: string; levelColor: string; message: string }
+
+export type UpcomingHearing = { id: string; title: string; date: string; caseId: string; caseName: string; daysLeft: number }
 
 /**
  * 独立日程行（与投影 CalendarEvent 分离；投影时合并进月历数据）（B1 类型化）
@@ -147,8 +151,6 @@ export type CalendarSyncReport = { total: number; synced: number; failed: number
  */
 export type FieldGroupItem = { id: string; columnName: string; label: string; fieldType: string; options: any; required: boolean; sortOrder: number }
 
-export type TodayKpis = { todayEvents: number; dueToday: number; waitingOverdue: number; reviewDue: number }
-
 /**
  * 命令路由信息
  */
@@ -173,8 +175,6 @@ export type AreaStatsDto = { areaId: string; areaName: string; totalTasks: numbe
  * 对话消息：role ∈ { system, user, assistant }（tool 结果由前端拼为 user 前缀）
  */
 export type ChatMessage = { role: string; content: string }
-
-export type UpcomingHearing = { id: string; title: string; date: string; caseId: string; caseName: string; daysLeft: number }
 
 export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
 

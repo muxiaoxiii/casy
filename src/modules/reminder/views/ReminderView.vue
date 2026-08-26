@@ -100,46 +100,20 @@ const tabs = [
 // ============================================================
 // 操作
 // ============================================================
+const loadError = ref('')
+
 async function loadLogs() {
   loading.value = true
+  loadError.value = ''
   const res = await casyContext.reminder.log(200)
   if (res.ok && res.data) {
     logs.value = res.data
   } else {
-    // 回退到占位数据
-    logs.value = generatePlaceholderData()
+    // 审计 P2：失败不得展示虚假"已发送"数据——显式错误态 + 可重试
+    loadError.value = res.error || '提醒记录加载失败'
+    logs.value = []
   }
   loading.value = false
-}
-
-function generatePlaceholderData() {
-  const today = new Date()
-  const items = []
-  const cases = ['华为专利侵权案', '小米商标异议', '腾讯软件著作权', '字节跳动商业秘密', '阿里域名争议']
-  const types = ['答复审查意见', '缴纳年费', '提交复审请求', '提交异议答辩', '提交续展申请']
-
-  for (let i = 0; i < 12; i++) {
-    const daysOffset = [3, 3, 2, 1, 1, 0, 0, -1, -2, -3, -5, -7][i]
-    const dueDate = new Date(today)
-    dueDate.setDate(dueDate.getDate() + daysOffset)
-    const dueDateStr = dueDate.toISOString().slice(0, 10)
-
-    const caseName = cases[i % cases.length]
-    const typeName = types[i % types.length]
-    const statusText = daysOffset < 0 ? `已逾期 ${Math.abs(daysOffset)} 天` : `剩余 ${daysOffset} 天`
-
-    items.push({
-      id: `placeholder-${i}`,
-      ruleId: 'auto',
-      caseId: `case-${i}`,
-      taskId: null,
-      channel: 'local',
-      message: `案件: ${caseName}\n期限: ${typeName}\n截止日期: ${dueDateStr}\n剩余: ${daysOffset} 天`,
-      status: 'sent',
-      sentAt: new Date(today.getTime() - i * 3600000).toISOString().replace('T', ' ').slice(0, 19),
-    })
-  }
-  return items
 }
 
 function getDaysTagType(days) {
