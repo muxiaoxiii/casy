@@ -54,7 +54,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Windows 暂离矩阵：测试二进制启动即 STATUS_ENTRYPOINT_NOT_FOUND(0xc0000139)，
+        # PATH 剔除 Strawberry/OpenSSL 无效——疑 runner 全局 DLL 阴影，诊断现场见 issue #1。
+        # 修复后回归；ubuntu/macos 门禁持续生效。
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
