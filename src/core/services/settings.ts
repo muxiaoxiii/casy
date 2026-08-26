@@ -73,6 +73,11 @@ export class SettingsService extends Service {
 
   // ── 文件夹模板 ──
 
+  /** 载入演示数据（仅空库可用；Dogfooding/可视化验证辅助） */
+  async seedDemoData() {
+    return tauriCallSafe('seed_demo_data', {})
+  }
+
   async folderTemplates(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
     return tauriCallSafe<unknown[]>('list_folder_templates', {})
   }

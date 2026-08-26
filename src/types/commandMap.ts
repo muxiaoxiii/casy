@@ -154,6 +154,7 @@ export type CommandMap = {
   get_monthly_task_trend: Cmd<{ months?: number }, MonthTrendPoint[]>
   get_upcoming_hearings: Cmd<{ days?: number }, UpcomingHearing[]>
   get_today_kpis: Cmd<Record<string, unknown>, TodayKpis>
+  seed_demo_data: Cmd<Record<string, unknown>, { cases: number; projectsPersonal: number; tasks: number; areas: number; knowledge: number; hearings: number }>
   add_case_file: Cmd<{ caseId: string; fileName: string; filePath: string; category: string }, CaseFile>
 
   // ── 提醒域 ──

@@ -3,6 +3,7 @@ pub mod caldav;
 pub mod calendar;
 pub mod backup;
 pub mod dashboard;
+pub mod demo;
 pub mod calendar_events;
 pub mod projects;
 pub mod cases;
@@ -158,6 +159,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         dashboard::get_monthly_task_trend,
         dashboard::get_upcoming_hearings,
         dashboard::get_today_kpis,
+        demo::seed_demo_data,
         timeline::get_case_timeline,
         timeline::add_case_log,
         timeline::delete_case_log,
