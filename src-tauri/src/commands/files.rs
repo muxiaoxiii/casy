@@ -62,7 +62,7 @@ pub async fn add_case_file(
         let id = db::new_id();
         // 审计 P1#1：拒绝登记不存在的文件（防"有记录、没文件"假卷宗）
         if !std::path::Path::new(&file_path).is_file() {
-            return Err(format!("文件不存在，拒绝登记: {file_path}"));
+            return Err(anyhow::anyhow!("文件不存在，拒绝登记: {file_path}"));
         }
         let file_size = std::fs::metadata(&file_path)
             .ok()

@@ -529,29 +529,16 @@ fn send_via_channel(
         "system" => send_system_notification(message),
         "calendar" => dispatch_calendar_channel(conn, rule_id, case_id, message, level, cal_ctx, None),
         "feishu_message" => {
-            // 异步发送飞书消息（不阻塞引擎循环）
-            let msg = message.to_string();
-            let rule_id = rule_id.to_string();
-            let log_rule_id = rule_id.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = send_feishu_reminder_async_generic(&msg).await {
-                    log::error!("飞书提醒发送失败 (rule {}): {}", rule_id, e);
-                }
-            });
-            log::info!("[提醒-飞书消息] 已入队: {}", log_rule_id);
-            Ok(())
+            // 审计 P1#2：同步等待发送结果——成功才算 sent，失败/未配置记 failed
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(send_feishu_reminder_async_generic(message))
+                .map_err(|e| anyhow::anyhow!("{e}"))
         }
         "feishu_task" => {
-            // 异步创建飞书任务
-            let msg = message.to_string();
-            let rule_id = rule_id.to_string();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = send_feishu_task_async_generic(&msg).await {
-                    log::error!("飞书任务提醒创建失败 (rule {}): {}", rule_id, e);
-                }
-            });
-            log::info!("[提醒-飞书任务] 已入队");
-            Ok(())
+            // 审计 P1#2：同步等待创建结果
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(send_feishu_task_async_generic(message))
+                .map_err(|e| anyhow::anyhow!("{e}"))
         }
         _ => Ok(()),
     }
@@ -1328,8 +1315,8 @@ async fn send_feishu_reminder_async_generic(message: &str) -> Result<()> {
         .unwrap_or_default();
 
     if receive_id.is_empty() {
-        log::warn!("飞书提醒未配置 receive_id，跳过发送");
-        return Ok(());
+        // 审计 P1#2：未配置不是成功——显式失败让 reminder_log 记 failed
+        return Err(anyhow::anyhow!("飞书提醒未配置 receive_id，未发送"));
     }
 
     let card = serde_json::json!({
@@ -1357,8 +1344,8 @@ async fn send_feishu_task_async_generic(message: &str) -> Result<()> {
         .unwrap_or_default();
 
     if receive_id.is_empty() {
-        log::warn!("飞书任务提醒未配置 receive_id，跳过创建");
-        return Ok(());
+        // 审计 P1#2：同上
+        return Err(anyhow::anyhow!("飞书任务未配置 receive_id，未创建"));
     }
 
     let summary = message.lines().next().unwrap_or("Casy 提醒").to_string();

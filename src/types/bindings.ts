@@ -117,11 +117,6 @@ export type CaseFile = { id: string; caseId: string; fileName: string; filePath:
  */
 export type McpPendingWrite = { id: string; tool: string; arguments: string; status: string; result: string | null; createdAt: string | null; resolvedAt: string | null }
 
-/**
- * 分级预警结果
- */
-export type DeadlineWarning = { deadlineId: string; caseId: string; caseName: string; deadlineName: string; dueDate: string; daysLeft: number; level: string; levelLabel: string; levelColor: string; message: string }
-
 export type UpcomingHearing = { id: string; title: string; date: string; caseId: string; caseName: string; daysLeft: number }
 
 /**
@@ -133,6 +128,11 @@ export type KnowledgeItemDto = { id: string; title: string; category: string; co
  * 独立日程行（与投影 CalendarEvent 分离；投影时合并进月历数据）（B1 类型化）
  */
 export type CalendarEventRow = { id: string; title: string; eventDate: string; startTime: string | null; endTime: string | null; allDay: boolean; color: string | null; location: string | null; notes: string | null; caseId: string | null; taskId: string | null }
+
+/**
+ * 分级预警结果
+ */
+export type DeadlineWarning = { deadlineId: string; caseId: string; caseName: string; deadlineName: string; dueDate: string; daysLeft: number; level: string; levelLabel: string; levelColor: string; message: string }
 
 /**
  * 新建结果（保持原 {id} 形状，消费方零改动）
