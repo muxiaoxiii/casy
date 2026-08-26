@@ -378,3 +378,105 @@ pub async fn open_file_with_default(path: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+// ============================================================
+// 智能重命名工作台（index-v2 · 规则版 v1）
+// ============================================================
+
+#[derive(serde::Deserialize)]
+pub struct RenameItem {
+    pub id: String,
+    pub new_name: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameOutcome {
+    pub id: String,
+    pub old_name: String,
+    pub new_name: String,
+}
+
+/// 批量应用重命名：磁盘同名目录内改名 + DB file_name/file_path 同步
+/// - 自动补扩展名（新名缺 ext 时保留原 ext）
+/// - 目标名冲突时自动追加 -1/-2 序号，不覆盖他人文件
+#[tauri::command]
+pub async fn apply_case_file_renames(
+    case_id: String,
+    renames: Vec<RenameItem>,
+) -> Result<Vec<RenameOutcome>, String> {
+    run_blocking(move || {
+        let conn = crate::db::open_db()?;
+        let mut out = Vec::new();
+        for r in &renames {
+            let row: (String, String) = conn
+                .query_row(
+                    "SELECT file_name, file_path FROM case_files WHERE id = ?1 AND case_id = ?2",
+                    rusqlite::params![r.id, case_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|_| anyhow::anyhow!("文件不存在: {}", r.id))?;
+            let (old_name, old_path_str) = row;
+            let old_path = PathBuf::from(&old_path_str);
+            let dir = old_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .ok_or_else(|| anyhow::anyhow!("无法解析原路径"))?;
+
+            // 扩展名保护：新名无 ext 时继承旧 ext
+            let old_ext = old_path
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy()))
+                .unwrap_or_default();
+            let mut target_name = r.new_name.trim().to_string();
+            if !target_name.is_empty() && !target_name.contains('.') && !old_ext.is_empty() {
+                target_name += &old_ext;
+            }
+            if target_name == old_name || target_name.contains('/') || target_name.contains("..") {
+                return Err(anyhow::anyhow!("非法新名称: {target_name}"));
+            }
+
+            // 冲突去重
+            let stem = PathBuf::from(&target_name)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| target_name.clone());
+            let ext = PathBuf::from(&target_name)
+                .extension()
+                .map(|s| format!(".{}", s.to_string_lossy()))
+                .unwrap_or_default();
+            let mut final_name = target_name.clone();
+            let mut i = 1;
+            while dir.join(&final_name).exists() && final_name != old_name {
+                final_name = format!("{stem}-{i}{ext}");
+                i += 1;
+            }
+
+            let new_path = dir.join(&final_name);
+            std::fs::rename(&old_path, &new_path)
+                .map_err(|e| anyhow::anyhow!("改名失败({old_name} → {final_name}): {e}"))?;
+
+            let rel_dir = dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            conn.execute(
+                "UPDATE case_files SET file_name = ?1, file_path = ?2 WHERE id = ?3",
+                rusqlite::params![final_name, new_path.to_string_lossy(), r.id],
+            )
+            .map_err(|e| anyhow::anyhow!("登记更新失败: {e}"))?;
+
+            out.push(RenameOutcome {
+                id: r.id.clone(),
+                old_name,
+                new_name: if rel_dir.is_empty() {
+                    final_name
+                } else {
+                    format!("{rel_dir}/{final_name}")
+                },
+            });
+        }
+        Ok(out)
+    })
+    .await
+}

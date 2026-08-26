@@ -13,6 +13,7 @@ import { Folder, Document, Picture, Box, Setting, FolderOpened, Plus, Search } f
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import FilePreviewPanel from './FilePreviewPanel.vue'
+import RenameWorkbench from './RenameWorkbench.vue'
 
 const props = defineProps<{ caseId: string; caseNo?: string }>()
 
@@ -36,6 +37,7 @@ const visibleFiles = computed(() =>
 
 /** 磁盘上未入库文件（针对当前目录） */
 const unregistered = ref<any[]>([])
+const renameMode = ref(false)
 const previewFile = ref<any>(null)
 const previewOpen = ref(false)
 const unregisteredForSelected = computed(() =>
@@ -198,6 +200,15 @@ onUnmounted(() => {
       </div>
       <div class="fs-actions">
         <el-button size="small" :icon="Plus" @click="createSubdir">新建文件夹</el-button>
+        <el-button
+          v-if="selectedRel"
+          size="small"
+          type="primary"
+          plain
+          @click="renameMode = !renameMode"
+        >
+          {{ renameMode ? '退出重命名' : '智能重命名' }}
+        </el-button>
         <el-button size="small" :icon="Search" @click="rescanUnregistered(); load()">扫描未入库</el-button>
       </div>
     </div>
@@ -232,8 +243,17 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 右：文件列表 -->
-      <div class="dir-files" @drop.prevent="onDropFiles" @dragover.prevent>
+      <!-- 右：重命名工作台 / 文件列表 -->
+      <div v-if="renameMode" class="dir-files">
+        <RenameWorkbench
+          :case-id="caseId"
+          :dir-name="selectedRel || rootName"
+          :files="visibleFiles"
+          @close="renameMode = false"
+          @applied="load"
+        />
+      </div>
+      <div v-else class="dir-files" @drop.prevent="onDropFiles" @dragover.prevent>
         <div class="df-head">
           <span class="df-title">{{ selectedRel || rootName }}</span>
           <span class="df-tag">{{ visibleFiles.length }} 项</span>

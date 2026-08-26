@@ -273,6 +273,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         files::register_existing_files,
         files::reveal_path,
         files::open_file_with_default,
+        files::apply_case_file_renames,
         // 提醒规则命令
         reminder::list_reminder_rules,
         reminder::create_reminder_rule,

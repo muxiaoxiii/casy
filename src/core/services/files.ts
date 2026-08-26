@@ -68,6 +68,14 @@ export class FilesService extends Service {
     return this.open(path)
   }
 
+  /** 批量重命名（磁盘 + DB 同步，冲突自动去重） */
+  async applyRenames(
+    caseId: string,
+    renames: Array<{ id: string; newName: string }>,
+  ) {
+    return tauriCallSafe('apply_case_file_renames', { caseId, renames })
+  }
+
   /** 按案件列出已登记文件（注册表类型：CaseFile[]） */
   async listByCase(caseId: string) {
     return tauriCallSafe('list_case_files', { caseId })

@@ -104,6 +104,10 @@ export type CommandMap = {
   register_existing_files: Cmd<{ caseId: string; paths: string[] }, number>
   reveal_path: Cmd<{ path: string }, null>
   open_file_with_default: Cmd<{ path: string }, null>
+  apply_case_file_renames: Cmd<
+    { caseId: string; renames: Array<{ id: string; newName: string }> },
+    Array<{ id: string; oldName: string; newName: string }>
+  >
 
   // ── 项目域（A1-1 绞杀式阶段一）──
   list_projects: Cmd<{ query?: string }, ProjectRow[]>
