@@ -447,6 +447,8 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 /// 生成日程提醒邮件（非 ICS 邀请，纯文本提醒）
+// 预留：邮件提醒通道（R 级别邮件模板）
+#[allow(dead_code)]
 pub fn generate_reminder_email(
     event: &CalendarEvent,
     days_until: i64,

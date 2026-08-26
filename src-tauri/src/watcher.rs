@@ -79,7 +79,7 @@ fn scan_existing_files(dir: &PathBuf) -> std::collections::HashSet<PathBuf> {
 }
 
 /// 判断是否为临时文件
-fn is_temp_file(path: &PathBuf) -> bool {
+fn is_temp_file(path: &std::path::Path) -> bool {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())

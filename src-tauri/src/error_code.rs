@@ -5,6 +5,9 @@
 //! - 支持侧按 `CAS-` 前缀聚合定位；升级为结构化错误对象后本模块成为映射表
 //! - 序号分段规划：1xxx=tasks 2xxx=calendar 3xxx=inbox 4xxx=cases/projects 5xxx=sync/integrations 8xxx=settings
 
+// 部分常量为预留分段（后续域接入时启用）
+#![allow(dead_code)]
+
 pub mod codes {
     // 1xxx tasks
     pub const TASK_NOT_FOUND: &str = "CAS-1001";

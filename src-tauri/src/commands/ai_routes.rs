@@ -35,7 +35,7 @@ impl ConfirmLevel {
         }
     }
 
-    pub fn to_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             ConfirmLevel::L1 => "L1",
             ConfirmLevel::L2 => "L2",
@@ -136,6 +136,7 @@ pub fn calculate_effective_policy(
 }
 
 /// 记录 AI 运行到 ai_runs 表
+#[allow(clippy::too_many_arguments)]
 pub fn log_ai_run(
     provider: &str,
     model: &str,
@@ -172,6 +173,8 @@ pub fn log_ai_run(
 }
 
 /// 记录 AI 上下文项到 ai_context_items 表
+// 预留：AI 上下文日志（B1 学习闭环接入时启用）
+#[allow(dead_code)]
 pub fn log_ai_context_item(
     run_id: &str,
     source_type: &str,
@@ -204,7 +207,7 @@ pub fn get_ai_runs(
          FROM ai_runs WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    let mut idx = 1;
+    let idx = 1;
     
     if let Some(p) = purpose {
         sql.push_str(&format!(" AND purpose = ?{}", idx));
@@ -272,5 +275,5 @@ pub async fn calculate_effective_policy_cmd(
         user_policy.as_deref(),
     ).map_err(|e| e.to_string())?;
     
-    Ok(policy.to_str().to_string())
+    Ok(policy.as_str().to_string())
 }

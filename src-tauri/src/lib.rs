@@ -94,7 +94,7 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyI);
                 let handle = app.handle().clone();
-                app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "note");
                     }
@@ -106,7 +106,7 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyE);
                 let handle = app.handle().clone();
-                app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "event");
                     }
@@ -118,7 +118,7 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyN);
                 let handle = app.handle().clone();
-                app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "note");
                     }
@@ -130,7 +130,7 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyT);
                 let handle = app.handle().clone();
-                app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "task");
                     }
@@ -298,9 +298,8 @@ fn recalc_all_deadlines() -> anyhow::Result<usize> {
     let count = warnings.len();
 
     // 逾期行为事件（设计哲学 §11.9：overdue 事件支撑延期模式分析，去重按天）
-    if let Ok(today) = chrono::Local::now().format("%Y-%m-%d").to_string().parse::<String>() {
-        let _ = record_overdue_events(&conn, &today);
-    }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let _ = record_overdue_events(&conn, &today);
 
     log::debug!("期限重算完成，共 {} 条预警", count);
 

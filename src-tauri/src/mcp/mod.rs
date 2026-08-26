@@ -48,8 +48,12 @@ pub struct JsonRpcError {
     pub data: Option<serde_json::Value>,
 }
 
+/// 写提交回调类型（MCP 工具写入本地库的受控入口）
+pub type WriteSubmitterFn = std::sync::Arc<dyn Fn(&str, serde_json::Value) -> Result<String, String> + Send + Sync>;
+
 /// MCP Initialize 请求参数
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // MCP 协议预留
 pub struct McpInitializeParams {
     #[serde(rename = "protocolVersion")]
     pub protocol_version: String,
@@ -59,6 +63,7 @@ pub struct McpInitializeParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // MCP 协议预留
 pub struct McpClientCapabilities {
     #[serde(default)]
     pub tools: Option<serde_json::Value>,
@@ -69,6 +74,7 @@ pub struct McpClientCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // MCP 协议预留
 pub struct McpClientInfo {
     pub name: String,
     pub version: String,
@@ -142,6 +148,7 @@ pub struct McpResource {
 
 /// MCP Resource 内容
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // MCP 协议预留
 pub struct McpResourceContent {
     pub uri: String,
     #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
@@ -162,7 +169,7 @@ pub struct McpServer {
     /// 是否允许写操作工具（HTTP server 通道下为 false）
     allow_write: bool,
     /// 只读模式下写工具的待确认队列提交器（测试注入替身；None = 写入数据库队列）
-    write_submitter: Option<std::sync::Arc<dyn Fn(&str, serde_json::Value) -> Result<String, String> + Send + Sync>>,
+    write_submitter: Option<WriteSubmitterFn>,
 }
 
 impl McpServer {

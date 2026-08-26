@@ -30,6 +30,19 @@ fn plus_days(n: i64) -> String {
 
 /// 同步实现核心（命令层负责事务与异步壳；测试可直接调用）
 /// 错误信息带 step_ 前缀用于定位失败语句。
+/// 演示任务规格行：(bucket, case_id, name, type, due_offset, due_time, est_minutes, focus, priority)
+type DemoTaskSpec<'a> = (
+    &'a str,
+    Option<&'a str>,
+    &'a str,
+    &'a str,
+    Option<i64>,
+    Option<&'a str>,
+    Option<i32>,
+    i32,
+    &'a str,
+);
+
 fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
     let existing: i64 = conn
         .query_row("SELECT COUNT(*) FROM cases", [], |r| r.get(0))
@@ -111,7 +124,7 @@ fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
     .map_err(|e| format!("step_project: {e}"))?;
 
     // ── 任务群（bucket, case_id:Option, name, type, due_offset, due_time, est, focus, priority）──
-    let tasks_spec: Vec<(&str, Option<&str>, &str, &str, Option<i64>, Option<&str>, Option<i32>, i32, &str)> = vec![
+    let tasks_spec: Vec<DemoTaskSpec> = vec![
         ("today", Some(case_a.as_str()), "核对口审证据清单", "action", Some(0), Some("09:30"), Some(45), 1, "urgent_important"),
         ("today", Some(case_a.as_str()), "起草答辩状初稿", "action", Some(0), None, Some(120), 0, "important"),
         ("today", Some(case_b.as_str()), "回复客户进度询问", "waiting", Some(0), Some("16:00"), None, 0, "normal"),
@@ -128,7 +141,7 @@ fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
     let mut focus_parent: Option<String> = None;
     for (bucket, cid, name, ttype, due_off, due_time, est, focus, prio) in &tasks_spec {
         let id = mkid();
-        let due_final = due_off.map(|d| plus_days(d));
+        let due_final = due_off.map(plus_days);
         conn.execute(
             "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed,
                 task_type, start_date, due_date, due_time, context, flagged, start_bucket, today_index,

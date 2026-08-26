@@ -8,11 +8,15 @@
 /** 截止日距今天的天数（负数=已逾期）；无效日期返回 null */
 export function daysUntil(deadline: string | null | undefined): number | null {
   if (!deadline) return null
-  const d = new Date(deadline)
+  // 审计后测试发现的时区 bug：'YYYY-MM-DD' 会被按 UTC 午夜解析，
+  // 与本地零点相减在东八区把"今天"算成 +1 天。改为按本地午夜解析两侧。
+  const parts = deadline.split('-').map(Number)
+  if (parts.length < 3 || parts.some(Number.isNaN)) return null
+  const d = new Date(parts[0], parts[1] - 1, parts[2])
   if (Number.isNaN(d.getTime())) return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  return Math.round((d.getTime() - today.getTime()) / 86400000)
 }
 
 export function isOverdue(deadline: string | null | undefined): boolean {

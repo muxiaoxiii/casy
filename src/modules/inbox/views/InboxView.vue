@@ -12,6 +12,8 @@ const { captureScreenshot, captureClipboard, startClipboardMonitor } = useCaptur
 
 // 语音速记（设计哲学 §10）：录音 → save_voice_note → add_inbox_item
 const { isRecording, recordingTime, startRecording, stopRecording, formatTime } = useVoiceNote()
+// 审计 P1#3：save_voice_note/transcribe_voice_note 后端为占位实现——入口显式禁用而非假成功
+const voiceBackendReady = false
 const micAvailable = ref(true)
 
 async function toggleVoiceNote() {
@@ -707,7 +709,11 @@ onUnmounted(() => {
         <button class="capture-btn" @click="pasteFromClipboard" title="粘贴剪贴板">
           <el-icon :size="13"><DocumentCopy /></el-icon> 粘贴
         </button>
-        <button class="capture-btn" @click="handleScreenshot" title="截屏捕获">
+        <button
+          class="capture-btn"
+          disabled
+          title="截屏捕获开发中，敬请期待"
+        >
           <el-icon :size="13"><Camera /></el-icon> 截屏
         </button>
         <button class="capture-btn" @click="showAddNoteDialog = true" title="添加笔记">
@@ -716,8 +722,8 @@ onUnmounted(() => {
         <button
           class="capture-btn voice-btn"
           :class="{ recording: isRecording }"
-          :disabled="!micAvailable"
-          :title="micAvailable ? (isRecording ? '点击停止并保存' : '语音速记') : '麦克风不可用或无权限'"
+          :disabled="!micAvailable || voiceBackendReady === false"
+          :title="!voiceBackendReady ? '语音速记开发中，敬请期待' : (micAvailable ? (isRecording ? '点击停止并保存' : '语音速记') : '麦克风不可用或无权限')"
           @click="toggleVoiceNote"
         >
           <span v-if="isRecording" class="rec-dot"></span>
@@ -979,7 +985,8 @@ onUnmounted(() => {
               <el-button
                 v-if="isAudioItem(item)"
                 size="small"
-                :loading="!!transcribingIds[item.id]"
+                disabled
+                title="转写功能开发中，敬请期待"
                 @click="transcribeItem(item)"
               >
                 转写

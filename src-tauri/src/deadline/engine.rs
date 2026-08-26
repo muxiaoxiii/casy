@@ -112,7 +112,8 @@ impl DeadlineEngine {
                     "day" => self.calendar.add_days_patent(trigger, rule.offset_value),
                     _ => continue,
                 },
-                "civil" | _ => match rule.offset_unit.as_str() {
+                // "civil" 与其余轨道共用默认偏移规则（行为保留）
+                _ => match rule.offset_unit.as_str() {
                     "calendar_month" => self.calendar.add_months_civil(trigger, rule.offset_value as u32),
                     "day" => self.calendar.add_days_civil(trigger, rule.offset_value),
                     _ => continue,

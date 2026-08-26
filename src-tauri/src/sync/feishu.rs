@@ -1988,7 +1988,6 @@ async fn execute_auto_push() -> Result<FeishuSyncReport> {
 /// 发送飞书消息（Bot 消息卡片）
 /// receive_id_type: "open_id" | "user_id" | "union_id" | "email" | "chat_id"
 #[allow(dead_code)]
-#[allow(dead_code)]
 pub async fn send_feishu_message(
     receive_id: &str,
     receive_id_type: &str,

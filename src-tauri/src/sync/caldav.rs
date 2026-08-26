@@ -53,8 +53,6 @@ impl CalDavError {
 fn classify_reqwest(e: reqwest::Error) -> CalDavError {
     if e.is_timeout() {
         CalDavError::Unknown(format!("请求超时（{}s）: {}", CALDAV_TIMEOUT_SECS, e))
-    } else if e.is_connect() || e.is_request() {
-        CalDavError::Network(e.to_string())
     } else {
         CalDavError::Network(e.to_string())
     }

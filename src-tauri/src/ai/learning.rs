@@ -3,6 +3,9 @@
 //! 从 task_events 分析用户模式 → 预估校准 / 活跃时段 / 延期模式
 
 use anyhow::Result;
+/// 学习校准统计：(维度键, 子键) → (权重, 偏移, 样本数)
+pub type LearningCalibrationMap = std::collections::HashMap<(String, String), (f64, f64, i64)>;
+
 use serde::{Deserialize, Serialize};
 
 /// 任务耗时统计
@@ -232,7 +235,7 @@ pub fn generate_learning_analysis(conn: &rusqlite::Connection) -> Result<Learnin
 /// 只保留样本数 >= 2 的组
 fn group_duration_avgs(
     conn: &rusqlite::Connection,
-) -> Result<std::collections::HashMap<(String, String), (f64, f64, i64)>> {
+) -> Result<LearningCalibrationMap> {
     let mut stmt = conn.prepare(
         "SELECT task_name, context, estimated_minutes, actual_minutes
          FROM tasks
@@ -273,7 +276,7 @@ fn group_duration_avgs(
 /// 只处理能算出历史均值的分组，不瞎填
 fn plan_calibration(
     conn: &rusqlite::Connection,
-) -> Result<(Vec<CalibrationPlanItem>, std::collections::HashMap<(String, String), (f64, f64, i64)>)> {
+) -> Result<(Vec<CalibrationPlanItem>, LearningCalibrationMap)> {
     let groups = group_duration_avgs(conn)?;
     if groups.is_empty() {
         return Ok((Vec::new(), groups));

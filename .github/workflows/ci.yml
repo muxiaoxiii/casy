@@ -62,7 +62,12 @@ jobs:
       # - if: runner.os == 'Windows'
       #   run: choco install strawberryperl nasm
       - run: cargo test
-      # bindings 漂移校验（D-3）：生成物过期 = 失败
+      # bindings 漂移校验（D-3）：生成物过期 = 失败      - if: runner.os == 'Linux'
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo install cargo-audit --locked
+          cargo audit
+
       - if: runner.os == 'Linux'
         run: |
           cargo test export_bindings

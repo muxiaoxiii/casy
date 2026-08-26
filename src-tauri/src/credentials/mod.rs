@@ -209,6 +209,8 @@ pub fn get_imap_password(email: &str, password_enc: &str) -> Result<String> {
 }
 
 /// 获取 AI API Key（优先 keychain，回退配置文件）
+// 预留：BYOK 密钥轮换流程使用
+#[allow(dead_code)]
 pub fn get_ai_api_key(config_key: &str) -> Result<Option<String>> {
     // 优先从 keychain 读取
     if let Ok(Some(key)) = get_credential(CredentialType::AiApiKey, "default") {

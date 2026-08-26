@@ -1634,7 +1634,7 @@ pub async fn confirm_inbox_action(
 /// AI 分析收件箱项（占位）
 #[tauri::command]
 pub async fn ai_analyze_inbox_item(_id: String) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({"cached": true, "intent": {}}))
+    Err("AI 分析功能开发中，敬请期待".into())
 }
 
 /// 下载送达文书（占位）
@@ -1651,25 +1651,25 @@ pub async fn download_service_delivery(
 pub async fn process_service_delivery(
     _inbox_item_id: String,
 ) -> Result<(), String> {
-    Ok(())
+    Err("送达文书处理功能开发中，敬请期待".into())
 }
 
 /// 捕获屏幕截图到收件箱（占位）
 #[tauri::command]
 pub async fn capture_screenshot() -> Result<String, String> {
-    Err("截图功能待实现".to_string())
+    Err("截图捕获功能开发中，敬请期待".into())
 }
 
 /// 捕获剪贴板内容到收件箱（占位）
 #[tauri::command]
 pub async fn capture_clipboard() -> Result<String, String> {
-    Err("剪贴板捕获功能待实现".to_string())
+    Err("剪贴板捕获功能开发中，敬请期待".into())
 }
 
 /// 启动剪贴板监听（占位）
 #[tauri::command]
 pub async fn start_clipboard_monitor() -> Result<(), String> {
-    Ok(())
+    Err("剪贴板监听功能开发中，敬请期待".into())
 }
 
 /// 保存语音速记（占位）
@@ -1678,19 +1678,19 @@ pub async fn save_voice_note(
     _audio_data: Vec<u8>,
     _duration_seconds: i32,
 ) -> Result<String, String> {
-    Err("语音速记功能待实现".to_string())
+    Err("语音速记功能开发中，敬请期待".into())
 }
 
 /// 语音转写（占位）
 #[tauri::command]
 pub async fn transcribe_voice_note(_voice_note_id: String) -> Result<String, String> {
-    Err("语音转写功能待实现".to_string())
+    Err("语音转写功能开发中，敬请期待".into())
 }
 
 /// 启动收件箱批量处理（占位）
 #[tauri::command]
 pub async fn start_inbox_batch() -> Result<(), String> {
-    Ok(())
+    Err("批量处理功能开发中，敬请期待".into())
 }
 
 /// 暂停收件箱批量处理（占位）

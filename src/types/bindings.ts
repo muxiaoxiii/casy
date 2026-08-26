@@ -13,6 +13,11 @@ export type GraphNodeDto = { id: string; name: string; type: string; category: s
 export type MonthTrendPoint = { month: string; created: number; completed: number }
 
 /**
+ * 待确认写记录
+ */
+export type McpPendingWrite = { id: string; tool: string; arguments: string; status: string; result: string | null; createdAt: string | null; resolvedAt: string | null }
+
+/**
  * 领域条目
  */
 export type AreaDto = { id: string; name: string; description: string | null; icon: string | null; sortOrder: number; createdAt: string; updatedAt: string }
@@ -111,11 +116,6 @@ export type ProcessedInboxResult = { category: string; confidence: number; sugge
 export type Draft = { id: string; case_id: string | null; title: string; content: string | null; template_path: string | null; status: string; version: number; created_at: string; updated_at: string }
 
 export type CaseFile = { id: string; caseId: string; fileName: string; filePath: string; fileSize: number | null; fileType: string | null; category: string; subCategory: string | null; createdAt: string | null }
-
-/**
- * 待确认写记录
- */
-export type McpPendingWrite = { id: string; tool: string; arguments: string; status: string; result: string | null; createdAt: string | null; resolvedAt: string | null }
 
 export type UpcomingHearing = { id: string; title: string; date: string; caseId: string; caseName: string; daysLeft: number }
 

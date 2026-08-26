@@ -234,6 +234,6 @@ fn generate_followup_suggestions(conn: &rusqlite::Connection) -> Result<Vec<Foll
         }
     }
 
-    suggestions.sort_by(|a, b| b.waiting_days.cmp(&a.waiting_days));
+    suggestions.sort_by_key(|b| std::cmp::Reverse(b.waiting_days));
     Ok(suggestions)
 }

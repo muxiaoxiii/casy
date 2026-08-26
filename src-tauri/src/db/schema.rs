@@ -2244,7 +2244,10 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
 
 /// 种子数据：法定期限规则
 pub fn seed_deadline_rules(conn: &Connection) -> Result<(), anyhow::Error> {
-    let rules: Vec<(&str, &str, &str, &str, &str, i64, &str, &str, &str, i32, Option<&str>)> = vec![
+/// 内置期限规则种子行类型
+type DeadlineRuleSeed = (&'static str, &'static str, &'static str, &'static str, &'static str, i64, &'static str, &'static str, &'static str, i32, Option<&'static str>);
+
+    let rules: Vec<DeadlineRuleSeed> = vec![
         // ── 专利无效（专利法实施细则算法）──
         ("rule-pi-001", "patent_invalidation", "专利权人陈述意见期限",
          "专利法实施细则第58条", "patentee_received_date", 1, "calendar_month", "patent", "statutory", 10, None),

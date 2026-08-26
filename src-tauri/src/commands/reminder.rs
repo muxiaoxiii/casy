@@ -420,6 +420,7 @@ fn compute_level(days_diff: i64, is_overdue: bool) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dispatch_reminder(
     conn: &Connection,
     rule_id: &str,
@@ -513,6 +514,7 @@ fn dispatch_reminder_at(
 }
 
 /// 通道发送（不含时段判断与日志写入）
+#[allow(clippy::too_many_arguments)]
 fn send_via_channel(
     conn: &Connection,
     rule_id: &str,
@@ -1436,10 +1438,8 @@ pub fn compute_reminder_level(days_left: i64) -> ReminderLevel {
         ReminderLevel::R3
     } else if days_left <= 1 {
         ReminderLevel::R2
-    } else if days_left <= 3 {
-        ReminderLevel::R1
     } else {
-        ReminderLevel::R1 // 默认 R1
+        ReminderLevel::R1 // ≤3 天与默认均归 R1
     }
 }
 

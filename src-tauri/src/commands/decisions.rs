@@ -7,6 +7,8 @@ use crate::db;
 /// decision_type 支持 recommend_today / recommend_priority / recommend_estimate 等（见 decisions 表 CHECK）
 /// review_due 为可选复核日期（ISO YYYY-MM-DD），到期后由决策复核调度主动提醒（设计哲学 §11.7）
 #[tauri::command]
+// 参数即领域字段全集；结构化重构随 B1 DomainCommand 一并处理
+#[allow(clippy::too_many_arguments)]
 pub async fn record_decision(
     entity_type: String,
     entity_id: String,
