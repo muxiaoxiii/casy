@@ -7,8 +7,10 @@
 //! - NoOpBackend: 无 AI 时的 fallback（规则匹配）
 
 pub mod distillation;
+pub mod gateway;
 pub mod insights;
 pub mod learning;
+pub mod page_index;
 pub mod recommender;
 pub mod recursive_check;
 pub mod reports;
@@ -116,10 +118,7 @@ pub enum RoutingDecision {
         confidence: f64,
     },
     /// 置信度低，标记待处理
-    NeedsReview {
-        category: String,
-        confidence: f64,
-    },
+    NeedsReview { category: String, confidence: f64 },
 }
 
 /// 根据分类结果进行路由决策
@@ -145,10 +144,7 @@ pub fn route_by_confidence(
         }
     } else if confidence >= 0.5 {
         // 置信度中等：列出候选
-        let candidates = matched_case_id
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let candidates = matched_case_id.iter().cloned().collect::<Vec<_>>();
         RoutingDecision::CandidateList {
             candidates,
             category: category.to_string(),
@@ -367,6 +363,88 @@ pub fn save_ai_config_cmd(config: &AiConfig) -> anyhow::Result<String> {
     Ok("AI 配置已保存".to_string())
 }
 
+/// 发起 LLM 请求并强制要求返回 JSON（用于结构化输出）
+pub async fn call_llm_json(
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<serde_json::Value, String> {
+    let config = load_ai_config();
+    if config.mode == "noop" || config.mode == "none" {
+        return Err("AI 后端未配置".to_string());
+    }
+
+    match config.mode.as_str() {
+        "ollama" => {
+            let url = config.api_url.as_deref().unwrap_or("http://localhost:11434");
+            let model = config.model.as_deref().unwrap_or("qwen2.5:7b");
+            let client = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| e.to_string())?;
+            let body = serde_json::json!({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "stream": false,
+                "format": "json" // 很多 Ollama 模型支持 format: json
+            });
+            let resp = client
+                .post(format!("{}/api/chat", url.trim_end_matches('/')))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            
+            if !resp.status().is_success() {
+                return Err(format!("Ollama API 错误: {}", resp.status()));
+            }
+            let result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            let content = result["message"]["content"].as_str().unwrap_or("{}");
+            
+            serde_json::from_str(content).map_err(|e| format!("无法解析 LLM 的 JSON 响应: {}", e))
+        }
+        "openai" => {
+            let url = config.api_url.as_deref().unwrap_or("https://api.openai.com/v1");
+            let key = config.api_key.as_deref().unwrap_or("");
+            let model = config.model.as_deref().unwrap_or("gpt-4o-mini");
+            let client = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| e.to_string())?;
+            let body = serde_json::json!({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.1,
+                "response_format": { "type": "json_object" }
+            });
+            let resp = client
+                .post(format!("{}/chat/completions", url.trim_end_matches('/')))
+                .header("Authorization", format!("Bearer {}", key))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+
+            if !resp.status().is_success() {
+                return Err(format!("OpenAI API 错误: {}", resp.status()));
+            }
+            
+            let result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            let content = result["choices"][0]["message"]["content"].as_str().unwrap_or("{}");
+            
+            serde_json::from_str(content).map_err(|e| format!("无法解析 LLM 的 JSON 响应: {}", e))
+        }
+        _ => Err(format!("不支持的 AI 模式: {}", config.mode)),
+    }
+}
+
 // ============================================================
 // AI 分类结果
 // ============================================================
@@ -416,9 +494,11 @@ pub trait AiBackend: Send + Sync {
             .filter(|m| m.role != "system")
             .map(|m| m.content.as_str())
             .collect::<Vec<_>>()
-            .join("
+            .join(
+                "
 
-");
+",
+            );
         self.chat_completion(system, &user).await
     }
 }
@@ -530,7 +610,10 @@ impl AiBackend for OllamaBackend {
 
 只返回 JSON，不要其他文字。"#;
 
-        let user_prompt = format!("请分类以下文档（前 1000 字）：\n\n{}", truncate_chars(text, 1000));
+        let user_prompt = format!(
+            "请分类以下文档（前 1000 字）：\n\n{}",
+            truncate_chars(text, 1000)
+        );
 
         let response = self.chat(system, &user_prompt).await?;
 
@@ -539,10 +622,7 @@ impl AiBackend for OllamaBackend {
             .unwrap_or_else(|_| serde_json::json!({"category": "other", "confidence": 0.3}));
 
         Ok(AiClassifyResult {
-            category: parsed["category"]
-                .as_str()
-                .unwrap_or("other")
-                .to_string(),
+            category: parsed["category"].as_str().unwrap_or("other").to_string(),
             confidence: parsed["confidence"].as_f64().unwrap_or(0.5),
             summary: parsed["summary"].as_str().map(|s| s.to_string()),
             extracted_info: Some(parsed.clone()),
@@ -560,12 +640,15 @@ impl AiBackend for OllamaBackend {
 
 请以 JSON 格式返回，只返回 JSON。"#;
 
-        let user_prompt = format!("请提取以下文档的关键信息（前 1500 字）：\n\n{}", truncate_chars(text, 1500));
+        let user_prompt = format!(
+            "请提取以下文档的关键信息（前 1500 字）：\n\n{}",
+            truncate_chars(text, 1500)
+        );
 
         let response = self.chat(system, &user_prompt).await?;
 
-        let parsed: serde_json::Value = serde_json::from_str(response.trim())
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let parsed: serde_json::Value =
+            serde_json::from_str(response.trim()).unwrap_or_else(|_| serde_json::json!({}));
 
         Ok(parsed)
     }
@@ -635,7 +718,8 @@ impl OpenAiBackend {
     }
 
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
-        self.chat_with_max_tokens(system_prompt, user_prompt, 500).await
+        self.chat_with_max_tokens(system_prompt, user_prompt, 500)
+            .await
     }
 
     /// 自由对话入口：max_tokens 可配（叙事/核对场景需要更长输出）
@@ -700,7 +784,10 @@ impl AiBackend for OpenAiBackend {
 
 只返回 JSON，不要其他文字。"#;
 
-        let user_prompt = format!("请分类以下文档（前 1000 字）：\n\n{}", truncate_chars(text, 1000));
+        let user_prompt = format!(
+            "请分类以下文档（前 1000 字）：\n\n{}",
+            truncate_chars(text, 1000)
+        );
 
         let response = self.chat(system, &user_prompt).await?;
 
@@ -708,10 +795,7 @@ impl AiBackend for OpenAiBackend {
             .unwrap_or_else(|_| serde_json::json!({"category": "other", "confidence": 0.3}));
 
         Ok(AiClassifyResult {
-            category: parsed["category"]
-                .as_str()
-                .unwrap_or("other")
-                .to_string(),
+            category: parsed["category"].as_str().unwrap_or("other").to_string(),
             confidence: parsed["confidence"].as_f64().unwrap_or(0.5),
             summary: parsed["summary"].as_str().map(|s| s.to_string()),
             extracted_info: Some(parsed.clone()),
@@ -729,12 +813,15 @@ impl AiBackend for OpenAiBackend {
 
 请以 JSON 格式返回，只返回 JSON。"#;
 
-        let user_prompt = format!("请提取以下文档的关键信息（前 1500 字）：\n\n{}", truncate_chars(text, 1500));
+        let user_prompt = format!(
+            "请提取以下文档的关键信息（前 1500 字）：\n\n{}",
+            truncate_chars(text, 1500)
+        );
 
         let response = self.chat(system, &user_prompt).await?;
 
-        let parsed: serde_json::Value = serde_json::from_str(response.trim())
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let parsed: serde_json::Value =
+            serde_json::from_str(response.trim()).unwrap_or_else(|_| serde_json::json!({}));
 
         Ok(parsed)
     }
@@ -748,7 +835,8 @@ impl AiBackend for OpenAiBackend {
     }
 
     async fn chat_completion(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
-        self.chat_with_max_tokens(system_prompt, user_prompt, 2000).await
+        self.chat_with_max_tokens(system_prompt, user_prompt, 2000)
+            .await
     }
 
     /// 多轮对话：OpenAI /chat/completions 原生支持 messages 数组
@@ -808,8 +896,7 @@ pub async fn classify_document_with_prompt(
     let active_cases = build_active_cases_context();
 
     // 注入上下文到 prompt（用于日志和调试）
-    let _system_prompt = CLASSIFY_PROMPT_TEMPLATE
-        .replace("{{ACTIVE_CASES}}", &active_cases);
+    let _system_prompt = CLASSIFY_PROMPT_TEMPLATE.replace("{{ACTIVE_CASES}}", &active_cases);
 
     // 调用后端分类
     let result = backend.classify_document(text).await?;
@@ -835,16 +922,16 @@ pub async fn extract_info_with_prompt(
         obj.entry("doc_type".to_string())
             .or_insert(serde_json::Value::String("other".to_string()));
         obj.entry("confidence".to_string())
-            .or_insert(serde_json::Value::Number(serde_json::Number::from_f64(0.5).unwrap()));
+            .or_insert(serde_json::Value::Number(
+                serde_json::Number::from_f64(0.5).unwrap(),
+            ));
     }
 
     Ok(result)
 }
 
 /// 处理收件箱项：分类 + 路由
-pub async fn process_inbox_with_ai(
-    text: &str,
-) -> Result<(AiClassifyResult, RoutingDecision)> {
+pub async fn process_inbox_with_ai(text: &str) -> Result<(AiClassifyResult, RoutingDecision)> {
     let config = load_ai_config();
     let backend = create_backend(&config);
     let provider = config.mode.clone();
@@ -875,7 +962,11 @@ pub async fn process_inbox_with_ai(
         &input_hash,
         status_and_output.1.as_deref(),
         status_and_output.0,
-        classify_result.as_ref().err().map(|e| e.to_string()).as_deref(),
+        classify_result
+            .as_ref()
+            .err()
+            .map(|e| e.to_string())
+            .as_deref(),
     ) {
         log::warn!("AI 审计日志写入失败: {}", e);
     }
@@ -1091,8 +1182,7 @@ pub async fn configure_ai(
         model,
         daily_limit,
     };
-    crate::commands::run_blocking(move || save_ai_config_cmd(&config))
-        .await
+    crate::commands::run_blocking(move || save_ai_config_cmd(&config)).await
 }
 
 /// 测试 AI 连通性
@@ -1162,7 +1252,9 @@ pub async fn ai_chat(
     let mut config = load_ai_config();
     if let Some(m) = mode {
         if m == "noop" || m == "none" {
-            return Err("未配置 AI 后端，请先在设置中配置（Ollama 或 OpenAI 兼容 API）".to_string());
+            return Err(
+                "未配置 AI 后端，请先在设置中配置（Ollama 或 OpenAI 兼容 API）".to_string(),
+            );
         }
         config.mode = m;
     }
@@ -1187,8 +1279,10 @@ pub async fn ai_chat(
         .iter()
         .map(|m| format!("{}:{}", m.role, m.content))
         .collect::<Vec<_>>()
-        .join("
-");
+        .join(
+            "
+",
+        );
     let input_hash = hex::encode(sha2::Sha256::digest(input_text.as_bytes()));
 
     let backend = create_backend(&config);
@@ -1222,7 +1316,10 @@ pub async fn ai_chat(
 
     let text = result.map_err(|e| e.to_string())?;
     let _ = budget.consume().await;
-    Ok(AiChatResult { content: text, run_id })
+    Ok(AiChatResult {
+        content: text,
+        run_id,
+    })
 }
 
 /// AI 写作辅助：根据意图、上下文、知识库和风格生成写作建议
@@ -1235,11 +1332,7 @@ pub async fn generate_writing_suggestion(
 ) -> Result<String, String> {
     // 检查配额
     let budget = get_token_budget();
-    if !budget
-        .check_quota()
-        .await
-        .map_err(|e| e.to_string())?
-    {
+    if !budget.check_quota().await.map_err(|e| e.to_string())? {
         return Err("AI 调用已达每日限额".to_string());
     }
 

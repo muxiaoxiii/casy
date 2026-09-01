@@ -109,7 +109,7 @@ fn extract_candidate_memories(conn: &rusqlite::Connection) -> Result<Vec<Candida
          JOIN tasks t ON t.id = te.task_id
          WHERE te.event_type = 'deferred'
          GROUP BY t.task_name
-         HAVING delay_count >= 2"
+         HAVING delay_count >= 2",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -142,18 +142,19 @@ fn extract_candidate_memories(conn: &rusqlite::Connection) -> Result<Vec<Candida
          GROUP BY hour
          HAVING cnt >= 5
          ORDER BY cnt DESC
-         LIMIT 3"
+         LIMIT 3",
     )?;
 
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, i32>(0)?, row.get::<_, i64>(1)?))
-    })?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, i32>(0)?, row.get::<_, i64>(1)?)))?;
 
     for row in rows {
         let (hour, count) = row?;
         candidates.push(CandidateMemory {
             id: uuid::Uuid::new_v4().to_string(),
-            content: format!("你在 {} 点时段完成任务最多（{} 次），建议安排重要任务", hour, count),
+            content: format!(
+                "你在 {} 点时段完成任务最多（{} 次），建议安排重要任务",
+                hour, count
+            ),
             source_type: "activity_pattern".to_string(),
             source_ids: vec![],
             confidence: 0.8,
@@ -213,16 +214,19 @@ fn merge_similar_memories(conn: &rusqlite::Connection) -> Result<i64> {
     let mut stmt = conn.prepare(
         "SELECT id, content, COALESCE(merged_from, '') FROM memory_entries
          WHERE layer = 'l2' AND status = 'active'
-         ORDER BY created_at DESC"
+         ORDER BY created_at DESC",
     )?;
 
-    let entries: Vec<(String, String, String)> = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })?.filter_map(|r| r.ok()).collect();
+    let entries: Vec<(String, String, String)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
 
     // key -> (keeper_id, 已吸收来源 ID 列表)
     let mut keepers: std::collections::HashMap<String, (String, Vec<String>)> =
@@ -487,11 +491,35 @@ mod tests {
         let conn = setup_db();
         let now = days_ago(0);
         // 31 天未引用 → stale
-        insert_memory(&conn, "m-old", "active", "旧记忆", Some(&days_ago(31)), &days_ago(60), &now);
+        insert_memory(
+            &conn,
+            "m-old",
+            "active",
+            "旧记忆",
+            Some(&days_ago(31)),
+            &days_ago(60),
+            &now,
+        );
         // 10 天前引用过 → 保持 active
-        insert_memory(&conn, "m-fresh", "active", "新记忆", Some(&days_ago(10)), &days_ago(60), &now);
+        insert_memory(
+            &conn,
+            "m-fresh",
+            "active",
+            "新记忆",
+            Some(&days_ago(10)),
+            &days_ago(60),
+            &now,
+        );
         // 从未引用但 40 天前创建 → 回退 created_at，stale
-        insert_memory(&conn, "m-never", "active", "未引用记忆", None, &days_ago(40), &now);
+        insert_memory(
+            &conn,
+            "m-never",
+            "active",
+            "未引用记忆",
+            None,
+            &days_ago(40),
+            &now,
+        );
         // 从未引用且刚创建 → 保持 active
         insert_memory(&conn, "m-new", "active", "新建记忆", None, &now, &now);
 
@@ -507,11 +535,35 @@ mod tests {
     fn test_archive_threshold_90_days() {
         let conn = setup_db();
         // stale 已 91 天（updated_at 近似 stale 起点）→ archived
-        insert_memory(&conn, "m-stale-old", "stale", "长期陈旧", None, &days_ago(200), &days_ago(91));
+        insert_memory(
+            &conn,
+            "m-stale-old",
+            "stale",
+            "长期陈旧",
+            None,
+            &days_ago(200),
+            &days_ago(91),
+        );
         // 刚变 stale → 保持 stale
-        insert_memory(&conn, "m-stale-new", "stale", "新陈旧", None, &days_ago(100), &days_ago(10));
+        insert_memory(
+            &conn,
+            "m-stale-new",
+            "stale",
+            "新陈旧",
+            None,
+            &days_ago(100),
+            &days_ago(10),
+        );
         // active 不受影响
-        insert_memory(&conn, "m-active", "active", "活跃记忆", Some(&days_ago(5)), &days_ago(200), &days_ago(100));
+        insert_memory(
+            &conn,
+            "m-active",
+            "active",
+            "活跃记忆",
+            Some(&days_ago(5)),
+            &days_ago(200),
+            &days_ago(100),
+        );
 
         let n = archive_stale_memories(&conn).unwrap();
         assert_eq!(n, 1);
@@ -525,10 +577,34 @@ mod tests {
         let conn = setup_db();
         // 前 20 个字母数字字符相同 → 视为高相似
         let prefix = "A".repeat(20);
-        insert_memory(&conn, "m1", "active", &format!("{}额外信息一", prefix), None, &days_ago(2), &days_ago(2));
-        insert_memory(&conn, "m2", "active", &format!("{}完全不同的尾巴", prefix), None, &days_ago(1), &days_ago(1));
+        insert_memory(
+            &conn,
+            "m1",
+            "active",
+            &format!("{}额外信息一", prefix),
+            None,
+            &days_ago(2),
+            &days_ago(2),
+        );
+        insert_memory(
+            &conn,
+            "m2",
+            "active",
+            &format!("{}完全不同的尾巴", prefix),
+            None,
+            &days_ago(1),
+            &days_ago(1),
+        );
         // 不相似的对照组
-        insert_memory(&conn, "m3", "active", "独一无二的记忆内容", None, &days_ago(1), &days_ago(1));
+        insert_memory(
+            &conn,
+            "m3",
+            "active",
+            "独一无二的记忆内容",
+            None,
+            &days_ago(1),
+            &days_ago(1),
+        );
 
         let merged = merge_similar_memories(&conn).unwrap();
         assert_eq!(merged, 1);
@@ -555,7 +631,11 @@ mod tests {
             .unwrap();
         assert_eq!(total, 3);
         let c1: String = conn
-            .query_row("SELECT content FROM memory_entries WHERE id = 'm1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT content FROM memory_entries WHERE id = 'm1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(c1.contains("额外信息一"));
     }
@@ -563,12 +643,24 @@ mod tests {
     #[test]
     fn test_confirm_memory_refreshes_last_used() {
         let conn = setup_db();
-        insert_memory(&conn, "p1", "pending", "待确认记忆", None, &days_ago(1), &days_ago(1));
+        insert_memory(
+            &conn,
+            "p1",
+            "pending",
+            "待确认记忆",
+            None,
+            &days_ago(1),
+            &days_ago(1),
+        );
 
         confirm_memory(&conn, "p1", false).unwrap();
         assert_eq!(status_of(&conn, "p1"), "active");
         let last_used: Option<String> = conn
-            .query_row("SELECT last_used_at FROM memory_entries WHERE id = 'p1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT last_used_at FROM memory_entries WHERE id = 'p1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(last_used.is_some(), "confirm 应刷新 last_used_at");
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Download, Search, Filter, FolderChecked } from '@element-plus/icons-vue'
+import { ArrowDown, Download, Search, Filter, FolderChecked, Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
 import { useFiltersStore, type SavedFilter } from '../../../stores/filters'
@@ -300,13 +300,12 @@ filtersStore.loadFilters('cases')
 
 <template>
   <div class="filter-bar">
-    <!-- 第一行：搜索 + 主要筛选 -->
-    <div class="filter-row">
+    <div class="filter-primary-row">
       <el-input
         :model-value="filter.search"
         placeholder="搜索案件名称、案号、当事人..."
         clearable
-        style="width: 280px"
+        class="case-search"
         :prefix-icon="Search"
         @input="(v: string) => { updateSearch(v); onSearchInput() }"
         @clear="() => { updateSearch(''); onSearchInput() }"
@@ -315,7 +314,7 @@ filtersStore.loadFilters('cases')
         :model-value="filter.track"
         clearable
         placeholder="全部轨道"
-        style="width: 130px"
+        style="width: 140px"
         @change="updateTrack"
       >
         <el-option v-for="opt in trackOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
@@ -324,101 +323,62 @@ filtersStore.loadFilters('cases')
         :model-value="filter.status || ''"
         clearable
         placeholder="全部状态"
-        style="width: 130px"
+        style="width: 120px"
         @change="updateStatus"
       >
         <el-option v-for="opt in statusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
       </el-select>
-      <el-select
-        :model-value="filter.client"
-        clearable
-        filterable
-        remote
-        reserve-keyword
-        placeholder="搜索客户..."
-        style="width: 180px"
-        :remote-method="remoteClientSearch"
-        :loading="clientLoading"
-        @change="updateClient"
-      >
-        <el-option v-for="opt in clientOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-      </el-select>
-      <el-date-picker
-        v-model="dateRange"
-        type="daterange"
-        range-separator="至"
-        start-placeholder="开始日期"
-        end-placeholder="结束日期"
-        style="width: 260px"
-        format="YYYY-MM-DD"
-        value-format="YYYY-MM-DD"
-        @change="onDateRangeChange"
-      />
+      <span class="total-count">{{ total }} 件</span>
+      <el-button :icon="Filter" @click="showAdvancedFilter = !showAdvancedFilter">
+        {{ showAdvancedFilter ? '收起筛选' : '更多筛选' }}
+      </el-button>
+      <el-button type="primary" :icon="Plus" @click="emit('create')">新建案件</el-button>
     </div>
 
-    <!-- 第二行：新状态机筛选 -->
-    <div class="filter-row">
-      <div class="filter-left">
-        <el-select
-          :model-value="filter.caseRoute || ''"
-          clearable
-          placeholder="全部路由"
-          style="width: 160px"
-          @change="updateRoute"
-        >
+    <div v-if="showAdvancedFilter" class="advanced-filter-panel">
+      <div class="advanced-filter-grid">
+        <el-select :model-value="filter.client" clearable filterable remote reserve-keyword placeholder="客户" :remote-method="remoteClientSearch" :loading="clientLoading" @change="updateClient">
+          <el-option v-for="opt in clientOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+        <el-select :model-value="filter.caseRoute || ''" clearable placeholder="案件路由" @change="updateRoute">
           <el-option v-for="opt in routeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
-        <el-select
-          :model-value="filter.civilStatus || ''"
-          clearable
-          placeholder="诉讼状态"
-          style="width: 130px"
-          @change="updateCivilStatus"
-        >
+        <el-select :model-value="filter.civilStatus || ''" clearable placeholder="民事诉讼状态" @change="updateCivilStatus">
           <el-option v-for="opt in civilStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
-        <el-select
-          :model-value="filter.invalidationStatus || ''"
-          clearable
-          placeholder="无效状态"
-          style="width: 130px"
-          @change="updateInvalidationStatus"
-        >
+        <el-select :model-value="filter.invalidationStatus || ''" clearable placeholder="无效程序状态" @change="updateInvalidationStatus">
           <el-option v-for="opt in invalidationStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
-        <el-select
-          :model-value="filter.adminStatus || ''"
-          clearable
-          placeholder="行政诉讼状态"
-          style="width: 150px"
-          @change="updateAdminStatus"
-        >
+        <el-select :model-value="filter.adminStatus || ''" clearable placeholder="行政诉讼状态" @change="updateAdminStatus">
           <el-option v-for="opt in adminStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
-      </div>
-    </div>
-
-    <!-- 第三行：分组、排序、操作 -->
-    <div class="filter-row">
-      <div class="filter-left">
-        <el-select :model-value="groupBy" style="width: 120px" @change="(v: string) => emit('update:groupBy', v)">
+        <el-date-picker v-model="dateRange" type="daterange" range-separator="至" start-placeholder="立案起" end-placeholder="立案止" format="YYYY-MM-DD" value-format="YYYY-MM-DD" @change="onDateRangeChange" />
+        <el-select
+          v-model="deadlineQuick"
+          placeholder="期限快捷"
+          clearable
+          @change="onDeadlineQuickChange"
+        >
+          <el-option v-for="opt in deadlineQuickOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+        <el-date-picker v-model="deadlineRange" type="daterange" range-separator="至" start-placeholder="期限起" end-placeholder="期限止" format="YYYY-MM-DD" value-format="YYYY-MM-DD" @change="onDeadlineRangeChange" />
+        <el-date-picker v-model="hearingRange" type="daterange" range-separator="至" start-placeholder="开庭起" end-placeholder="开庭止" format="YYYY-MM-DD" value-format="YYYY-MM-DD" @change="onHearingRangeChange" />
+        <el-input v-model="operatorFilter" placeholder="办案人" clearable @input="onOperatorChange" />
+        <el-select :model-value="groupBy" placeholder="分组方式" @change="(v: string) => emit('update:groupBy', v)">
           <el-option label="不分组" value="none" />
           <el-option label="按客户" value="client" />
           <el-option label="按轨道" value="track" />
           <el-option label="按路由" value="route" />
           <el-option label="按法院" value="court" />
         </el-select>
-        <el-select :model-value="filter.sortBy" style="width: 120px" @change="updateSortBy">
+        <el-select :model-value="filter.sortBy" placeholder="排序方式" @change="updateSortBy">
           <el-option v-for="opt in sortOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
-        <el-button @click="showAdvancedFilter = !showAdvancedFilter" :type="showAdvancedFilter ? 'primary' : ''" text>
-          {{ showAdvancedFilter ? '收起筛选 ▴' : '跨类型筛选 ▾' }}
-        </el-button>
-        <el-button @click="clearFilters" :icon="Filter">清除筛选</el-button>
+      </div>
+      <div class="advanced-actions">
+        <el-button text @click="clearFilters">清除全部</el-button>
         <el-dropdown v-if="savedFilters.length > 0" trigger="click">
-          <el-button :icon="FolderChecked">
-            已保存方案 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
+          <el-button text :icon="FolderChecked">已保存方案 <el-icon><ArrowDown /></el-icon></el-button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item v-for="sf in savedFilters" :key="sf.id">
@@ -430,60 +390,8 @@ filtersStore.loadFilters('cases')
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button @click="showSaveFilterDialog = true" text type="primary">
-          保存当前筛选
-        </el-button>
-      </div>
-      <div class="filter-right">
-        <span class="total-count">共 {{ total }} 件</span>
-        <el-button @click="emit('export')" :loading="exporting">
-          <el-icon><Download /></el-icon> 导出 CSV
-        </el-button>
-        <el-button type="primary" @click="emit('create')">➕ 新建案件</el-button>
-      </div>
-    </div>
-
-    <!-- 第三行：跨类型筛选（展开/收起） -->
-    <div v-if="showAdvancedFilter" class="filter-row advanced-filter-row">
-      <div class="filter-left">
-        <el-select
-          v-model="deadlineQuick"
-          placeholder="期限快捷"
-          style="width: 130px"
-          clearable
-          @change="onDeadlineQuickChange"
-        >
-          <el-option v-for="opt in deadlineQuickOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-        </el-select>
-        <el-date-picker
-          v-model="deadlineRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="期限起"
-          end-placeholder="期限止"
-          style="width: 240px"
-          format="YYYY-MM-DD"
-          value-format="YYYY-MM-DD"
-          @change="onDeadlineRangeChange"
-        />
-        <el-date-picker
-          v-model="hearingRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开庭起"
-          end-placeholder="开庭止"
-          style="width: 240px"
-          format="YYYY-MM-DD"
-          value-format="YYYY-MM-DD"
-          @change="onHearingRangeChange"
-        />
-        <el-input
-          v-model="operatorFilter"
-          placeholder="办案人"
-          clearable
-          style="width: 120px"
-          @input="onOperatorChange"
-        />
+        <el-button text type="primary" @click="showSaveFilterDialog = true">保存当前筛选</el-button>
+        <el-button text :loading="exporting" @click="emit('export')"><el-icon><Download /></el-icon>导出 CSV</el-button>
       </div>
     </div>
 
@@ -504,11 +412,21 @@ filtersStore.loadFilters('cases')
 
 <style scoped>
 .filter-bar {
-  background: #fff;
-  border-radius: 8px;
-  padding: 12px;
+  background: transparent;
+  border-bottom: 1px solid var(--c-border);
+  padding: 10px 0 14px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.filter-primary-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 140px 120px auto auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.case-search {
+  min-width: 0;
 }
 
 .filter-row {
@@ -537,8 +455,9 @@ filtersStore.loadFilters('cases')
 }
 
 .total-count {
-  color: #666;
-  font-size: 14px;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .saved-filter-item {
@@ -549,9 +468,49 @@ filtersStore.loadFilters('cases')
   min-width: 160px;
 }
 
-.advanced-filter-row {
-  padding-top: 8px;
-  border-top: 1px dashed #e0e0e0;
-  margin-top: 4px;
+.advanced-filter-panel {
+  margin-top: 10px;
+  border-radius: 8px;
+  background: var(--c-bg-subtle);
+  padding: 12px;
+}
+
+.advanced-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.advanced-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+@media (max-width: 1100px) {
+  .filter-primary-row {
+    grid-template-columns: minmax(220px, 1fr) 130px 120px auto auto;
+  }
+
+  .total-count {
+    display: none;
+  }
+
+  .advanced-filter-grid {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .filter-primary-row,
+  .advanced-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .case-search {
+    grid-column: 1 / -1;
+  }
 }
 </style>

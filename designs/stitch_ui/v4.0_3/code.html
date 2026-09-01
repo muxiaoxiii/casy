@@ -1,0 +1,178 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}@font-face{font-family:'Material Symbols Outlined';font-style:normal;src:url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v160/kJF1Eq7DzSXYnS8fcZ0asSjY8Cs3lSdBASsGowRTqLM.woff2) format('woff2');}.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;font-size:24px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{"colors":{"error-container":"#ffdad6","status-risk":"#B4554F","error":"#ba1a1a","on-error-container":"#93000a","surface-container-low":"#f2f4f6","surface-container-high":"#e6e8ea","primary-fixed-dim":"#afc6ff","tertiary-fixed-dim":"#f3bd6f","border-default":"#E4E7EB","bg-risk-weak":"#F7EFEE","on-primary":"#ffffff","bg-warning-weak":"#F6F3EA","on-secondary-fixed":"#161b27","on-secondary":"#ffffff","background":"#f7f9fb","secondary-container":"#dee2f3","surface-container-lowest":"#ffffff","inverse-primary":"#afc6ff","slate-blue-deep":"#1F2430","on-primary-fixed":"#001a43","bg-success-weak":"#EDF4F0","tertiary-fixed":"#ffddb1","secondary":"#595e6c","outline-variant":"#c4c6d1","on-tertiary-container":"#ffcf8c","on-secondary-container":"#5f6472","slate-gray-light":"#9BA2AF","primary":"#244481","primary-fixed":"#d9e2ff","surface-dim":"#d8dadc","on-error":"#ffffff","on-tertiary-fixed":"#291800","tertiary":"#613f00","secondary-fixed-dim":"#c2c6d6","status-discovery":"#6C6A9C","surface-variant":"#e0e3e5","surface-white":"#FFFFFF","inverse-on-surface":"#eff1f3","surface-tint":"#3f5d9b","on-primary-container":"#c8d7ff","status-success":"#4C8067","secondary-fixed":"#dee2f3","on-tertiary-fixed-variant":"#624000","inverse-surface":"#2d3133","primary-container":"#3e5c9a","slate-blue-muted":"#4B5160","tertiary-container":"#7d5610","on-surface":"#191c1e","on-tertiary":"#ffffff","outline":"#747781","on-primary-fixed-variant":"#254582","on-surface-variant":"#444750","on-background":"#191c1e","surface":"#f7f9fb","surface-container-highest":"#e0e3e5","status-warning":"#B0823A","on-secondary-fixed-variant":"#424754","surface-bright":"#f7f9fb","surface-container":"#eceef0"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"container-gap":"14px","half":"4px","base":"8px","quarter":"2px","margin-page":"20px","sidebar-width":"240px","preview-width":"440px"},"fontFamily":{"mono-micro":["SF Mono"],"label-caps":["Inter"],"headline-section":["Inter"],"display-date":["Inter"],"mono-data":["SF Mono"],"ui-subtext":["Inter"],"body-medium":["Inter"],"body-base":["Inter"],"header-app":["Inter"]},"fontSize":{"mono-micro":["10.5px",{"lineHeight":"12px","fontWeight":"600"}],"label-caps":["11px",{"lineHeight":"14px","fontWeight":"600"}],"headline-section":["15px",{"lineHeight":"20px","fontWeight":"700"}],"display-date":["20px",{"lineHeight":"28px","letterSpacing":"-0.3px","fontWeight":"700"}],"mono-data":["11px",{"lineHeight":"14px","fontWeight":"500"}],"ui-subtext":["12.5px",{"lineHeight":"16px","fontWeight":"500"}],"body-medium":["13px",{"lineHeight":"18px","fontWeight":"500"}],"body-base":["13px",{"lineHeight":"18px","fontWeight":"400"}],"header-app":["14px",{"lineHeight":"20px","fontWeight":"700"}]}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"></head><body class="bg-background font-body-base text-on-surface"><aside class="fixed left-0 top-0 h-full w-[240px] bg-surface-container-low z-50 flex flex-col border-r border-border-default"><div class="p-6 flex items-center gap-3"><div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[20px]">grid_view</span></div><span class="font-header-app text-header-app tracking-tight text-primary">Casy v4.0</span></div><nav class="flex-1 px-3 overflow-y-auto space-y-6" data-active-classes="bg-secondary-container text-on-secondary-container font-bold"><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Focus</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="today" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">wb_sunny</span>Today</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="inbox" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">inbox</span>Inbox</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Matters</h3><div class="space-y-1"><a aria-current="page" class="flex items-center px-4 py-2 rounded-lg transition-colors bg-secondary-container text-on-secondary-container font-bold" data-path="cases" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">gavel</span>Cases</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="calendar" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">calendar_today</span>Calendar</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Knowledge</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="vault" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">token</span>Vault</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="drafting" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">edit_note</span>Drafting</a></div></section></nav><div class="p-4 border-t border-border-default space-y-3"><div class="flex items-center gap-2 px-2 py-1.5 bg-bg-success-weak rounded-full border border-status-success/20"><span class="flex h-2 w-2 rounded-full bg-status-success"></span><span class="font-mono-micro text-mono-micro text-status-success uppercase">Local Llama 3 Active</span></div><a class="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-container-high transition-colors" data-path="settings" href="#"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex flex-col"><span class="font-body-medium text-body-medium text-on-surface">Lawyer Wang</span><span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Senior Partner</span></div></a></div></aside><div class="pl-[240px]"><header class="fixed top-0 left-[240px] right-0 h-16 bg-surface/80 backdrop-blur-xl border-b border-border-default z-40 px-8 flex items-center justify-between"><div class="flex items-center gap-6"><div class="relative flex items-center bg-surface-container px-3 py-2 rounded-lg w-80 group border border-transparent focus-within:border-outline"><span class="material-symbols-outlined text-slate-gray-light text-[20px] mr-2">search</span><input class="bg-transparent border-none outline-none text-body-medium w-full placeholder:text-slate-gray-light text-on-surface" placeholder="Search matters (CMD+K)" type="text"><span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded border border-outline-variant text-slate-gray-light">⌘K</span></div></div><div class="flex items-center gap-4"><button class="p-2 rounded-full text-on-surface-variant hover:bg-surface-container relative"><span class="material-symbols-outlined">event_note</span><span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface"></span></button><div class="flex items-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[20px]">add_task</span>+ Task</button><button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-header-app text-header-app shadow-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined text-[20px]">center_focus_strong</span>+ Capture</button></div></div></header><main class="relative pt-16 min-h-screen bg-[#F8FAFC]"><div class="flex flex-col w-full h-full bg-background" x-data="{ 
+    selectedTab: 'tracks',
+    cases: [
+        { id: 'Z3', title: 'Z3 Patent Invalidity', client: 'TechCorp Inc.', status: 'In Trial', statusColor: 'bg-status-risk text-on-error', active: true },
+        { id: 'L9', title: 'L9 Trademark Dispute', client: 'Lumina Brands', status: 'Pre-trial', statusColor: 'bg-status-discovery text-surface-white', active: false },
+        { id: 'M4', title: 'M4 Trade Secret Breach', client: 'Alpha Systems', status: 'Appealing', statusColor: 'bg-status-warning text-surface-white', active: false }
+    ],
+    folders: [
+        { name: '01_Pleadings', count: 4, open: true, files: [{ name: 'Complaint_v1.pdf', mapped: 'src/docs/Z3_complaint.pdf' }, { name: 'Answer_Draft.docx', mapped: 'src/docs/Z3_answer.docx' }] },
+        { name: '02_Evidence', count: 12, open: false, files: [] },
+        { name: '03_Discovery', count: 8, open: false, files: [] },
+        { name: '04_Motions', count: 2, open: false, files: [] }
+    ]
+}">
+<!-- Top Action Bar -->
+<div class="px-8 py-6 flex items-center justify-between bg-surface shadow-sm relative z-10">
+<div class="flex flex-col">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light uppercase tracking-widest mb-1">Matter Workspace</span>
+<h1 class="font-display-date text-display-date text-on-surface">Cases &amp; Matters</h1>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container rounded-lg font-body-medium text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px]">filter_list</span> Filter
+            </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary rounded-lg font-body-medium text-body-medium text-on-primary hover:bg-primary/90 transition-colors shadow-md">
+<span class="material-symbols-outlined text-[18px]">add</span> New Matter
+            </button>
+</div>
+</div>
+<!-- Master-Detail Layout -->
+<div class="flex flex-1 overflow-hidden">
+<!-- Sidebar: Case List -->
+<div class="w-[320px] bg-surface flex flex-col shadow-[4px_0_24px_rgba(31,36,48,0.03)] z-10 overflow-y-auto">
+<div class="p-4">
+<div class="relative flex items-center bg-surface-container px-3 py-2 rounded-lg group focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+<span class="material-symbols-outlined text-slate-gray-light text-[18px] mr-2">search</span>
+<input class="bg-transparent border-none outline-none text-body-medium w-full placeholder:text-slate-gray-light text-on-surface" placeholder="Search active cases..." type="text">
+</div>
+</div>
+<div class="flex flex-col px-2 gap-1 pb-4">
+<template :key="c.id" x-for="c in cases">
+<button :class="{'bg-secondary-container text-on-secondary-container shadow-sm': c.active, 'hover:bg-surface-container text-on-surface': !c.active}" @click="cases.forEach(ca =&gt; ca.active = false); c.active = true" class="flex flex-col items-start p-3 rounded-xl transition-all text-left">
+<div class="flex items-center justify-between w-full mb-1">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light" x-text="c.id"></span>
+<span :class="c.statusColor" class="px-1.5 py-0.5 rounded font-mono-micro text-mono-micro tracking-wide uppercase shadow-sm" x-text="c.status"></span>
+</div>
+<span class="font-headline-section text-headline-section truncate w-full" x-text="c.title"></span>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light mt-1" x-text="c.client"></span>
+</button>
+</template>
+</div>
+</div>
+<!-- Detail Area -->
+<div class="flex-1 bg-background overflow-y-auto p-8 flex flex-col gap-8 relative">
+<!-- Decorative blur background -->
+<div class="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
+<!-- Case Summary Header -->
+<div class="flex items-start justify-between bg-surface p-6 rounded-2xl shadow-md relative z-10">
+<div class="flex gap-6 items-start">
+<!-- Progress Chart placeholder -->
+<div class="w-24 h-24 relative flex items-center justify-center bg-surface-container rounded-full shadow-inner">
+<svg class="w-24 h-24 transform -rotate-90 text-primary" viewBox="0 0 36 36">
+<path class="text-surface-container-high" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3"></path>
+<path class="text-primary" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-dasharray="60, 100" stroke-width="3"></path>
+</svg>
+<div class="absolute flex flex-col items-center">
+<span class="font-headline-section text-headline-section text-on-surface leading-none">5/8</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light mt-0.5">Stages</span>
+</div>
+</div>
+<div class="flex flex-col pt-1">
+<div class="flex items-center gap-3 mb-2">
+<span class="font-mono-micro text-mono-micro text-primary bg-primary/10 px-2 py-1 rounded shadow-sm">MATTER Z3</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light border border-outline-variant px-2 py-1 rounded">PAT-2023-9948X</span>
+</div>
+<h2 class="font-display-date text-[28px] leading-tight text-on-surface mb-1">Z3 Patent Invalidity</h2>
+<span class="font-body-medium text-body-medium text-slate-gray-light">Client: TechCorp Inc. • Lead: Lawyer Wang</span>
+</div>
+</div>
+<!-- Next Action Card -->
+<div class="bg-surface-white border-l-4 border-l-status-risk shadow-md rounded-xl p-4 w-72 flex flex-col hover:shadow-lg transition-shadow cursor-pointer">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-caps text-label-caps text-status-risk uppercase">Next Action</span>
+<span class="font-mono-data text-mono-data text-status-risk">Due: 24h</span>
+</div>
+<span class="font-body-medium text-body-medium text-on-surface mb-3 line-clamp-2">File response to invalidity claim (Sec 4) before hearing.</span>
+<button class="flex items-center justify-center gap-2 bg-surface-container hover:bg-surface-container-high text-on-surface font-body-medium text-body-medium py-1.5 rounded shadow-sm transition-colors w-full">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span> Start Draft
+                    </button>
+</div>
+</div>
+<!-- Detail Tabs -->
+<div class="flex flex-col gap-6 relative z-10">
+<div class="flex items-center gap-6 border-b border-outline-variant pb-2">
+<template x-for="tab in ['overview', 'tracks', 'files (12)', 'timeline']">
+<button :class="selectedTab === tab.split(' ')[0] ? 'text-primary border-b-2 border-primary' : 'text-slate-gray-light hover:text-on-surface'" @click="selectedTab = tab.split(' ')[0]" class="font-headline-section text-headline-section capitalize pb-2 transition-colors relative top-[2px]" x-text="tab"></button>
+</template>
+</div>
+<!-- Tracks View (Triple-track State Machine) -->
+<div class="flex flex-col gap-4 bg-surface p-6 rounded-2xl shadow-md" x-show="selectedTab === 'tracks'">
+<h3 class="font-headline-section text-headline-section text-on-surface mb-2">Parallel Progress Tracks</h3>
+<!-- Civil Track -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<span class="font-label-caps text-label-caps text-primary uppercase tracking-wide">Civil Track</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">Hearing Prep</span>
+</div>
+<div class="w-full bg-surface-container rounded-full h-1">
+<div class="bg-primary h-1 rounded-full shadow-sm" style="width: 65%"></div>
+</div>
+</div>
+<!-- Invalidity Track -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<span class="font-label-caps text-label-caps text-status-discovery uppercase tracking-wide">Invalidity Track</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">Evidence Review</span>
+</div>
+<div class="w-full bg-surface-container rounded-full h-1">
+<div class="bg-status-discovery h-1 rounded-full shadow-sm" style="width: 40%"></div>
+</div>
+</div>
+<!-- Administrative Track -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<span class="font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wide">Administrative Track</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">Dormant</span>
+</div>
+<div class="w-full bg-surface-container rounded-full h-1">
+<div class="bg-slate-gray-light h-1 rounded-full shadow-sm" style="width: 10%"></div>
+</div>
+</div>
+</div>
+<!-- Files View -->
+<div class="flex flex-col gap-4 bg-surface p-6 rounded-2xl shadow-md" style="display: none;" x-show="selectedTab === 'files'">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-headline-section text-headline-section text-on-surface">Litigation 12 Folder Template</h3>
+<button class="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg font-body-medium text-body-medium hover:bg-primary/20 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[16px]">auto_awesome</span> Smart Rename
+                        </button>
+</div>
+<div class="flex flex-col gap-1">
+<template :key="folder.name" x-for="folder in folders">
+<div class="flex flex-col">
+<button @click="folder.open = !folder.open" class="flex items-center justify-between p-2 hover:bg-surface-container rounded-lg transition-colors group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-tertiary-fixed-dim text-[20px]" x-text="folder.open ? 'folder_open' : 'folder'"></span>
+<span class="font-body-medium text-body-medium text-on-surface" x-text="folder.name"></span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light bg-surface-container-high px-2 py-0.5 rounded shadow-inner" x-text="folder.count"></span>
+</button>
+<div class="ml-8 pl-4 border-l border-outline-variant py-2 flex flex-col gap-2" x-show="folder.open">
+<template :key="file.name" x-for="file in folder.files">
+<div class="flex items-center justify-between p-2 bg-surface-container-lowest rounded shadow-sm hover:shadow-md transition-shadow group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-gray-light text-[18px]">description</span>
+<span class="font-body-base text-body-base text-on-surface" x-text="file.name"></span>
+</div>
+<div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">Mapped: <span x-text="file.mapped"></span></span>
+</div>
+</div>
+</template>
+<template x-if="folder.files.length === 0">
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light pl-2">Empty directory</span>
+</template>
+</div>
+</div>
+</template>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Import Alpine.js for interactions -->
+<script defer="" src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script></main></div></body></html>

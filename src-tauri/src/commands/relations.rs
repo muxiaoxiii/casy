@@ -38,6 +38,7 @@ pub async fn add_relation(
     related_id: String,
     relation_type: String,
     label: Option<String>,
+    merge_data: Option<bool>,
 ) -> Result<CaseRelation, String> {
     let valid_types = ["same_patent", "same_party", "appeal_of", "cross_reference"];
     if !valid_types.contains(&relation_type.as_str()) {
@@ -68,6 +69,31 @@ pub async fn add_relation(
                 anyhow::anyhow!(e.to_string())
             }
         })?;
+
+        if merge_data.unwrap_or(false) {
+            // 合并关联案件的文件、任务、排期等到当前案件
+            let _ = conn.execute(
+                "UPDATE case_files SET case_id = ?1 WHERE case_id = ?2",
+                params![case_id, related_id],
+            );
+            let _ = conn.execute(
+                "UPDATE tasks SET case_id = ?1 WHERE case_id = ?2",
+                params![case_id, related_id],
+            );
+            let _ = conn.execute(
+                "UPDATE hearings SET case_id = ?1 WHERE case_id = ?2",
+                params![case_id, related_id],
+            );
+            let _ = conn.execute(
+                "UPDATE case_deadlines SET case_id = ?1 WHERE case_id = ?2",
+                params![case_id, related_id],
+            );
+            let _ = conn.execute(
+                "UPDATE case_logs SET case_id = ?1 WHERE case_id = ?2",
+                params![case_id, related_id],
+            );
+        }
+
         Ok(CaseRelation {
             id,
             source_case_id: case_id,
@@ -87,11 +113,11 @@ pub async fn get_relations(case_id: String) -> Result<Vec<RelatedCase>, String> 
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT r.id, r.relation_type, r.label,
-                    c.id, c.case_name, c.case_no, c.case_status, c.client_name, c.track
+                    c.id, c.case_name, c.case_no, c.case_status, c.client_name, COALESCE(c.raw_track, c.track) as track
              FROM case_relations r
              JOIN cases c ON c.id = r.target_case_id
              WHERE r.source_case_id = ?1
-             ORDER BY r.created_at DESC"
+             ORDER BY r.created_at DESC",
         )?;
         let rows = stmt.query_map(params![case_id], |row| {
             Ok(RelatedCase {
@@ -113,11 +139,11 @@ pub async fn get_relations(case_id: String) -> Result<Vec<RelatedCase>, String> 
         // 反向关系
         let mut stmt2 = conn.prepare(
             "SELECT r.id, r.relation_type, r.label,
-                    c.id, c.case_name, c.case_no, c.case_status, c.client_name, c.track
+                    c.id, c.case_name, c.case_no, c.case_status, c.client_name, COALESCE(c.raw_track, c.track) as track
              FROM case_relations r
              JOIN cases c ON c.id = r.source_case_id
              WHERE r.target_case_id = ?1
-             ORDER BY r.created_at DESC"
+             ORDER BY r.created_at DESC",
         )?;
         let rows2 = stmt2.query_map(params![case_id], |row| {
             Ok(RelatedCase {

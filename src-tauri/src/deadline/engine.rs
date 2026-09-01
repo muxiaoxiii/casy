@@ -68,7 +68,11 @@ impl DeadlineEngine {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let calendar = HolidayCalendar::builtin();
+        let calendar = db::get_setting(conn, "holidays_json")
+            .ok()
+            .flatten()
+            .and_then(|value| HolidayCalendar::from_json_str(&value).ok())
+            .unwrap_or_else(HolidayCalendar::builtin);
         Ok(Self { rules, calendar })
     }
 
@@ -108,13 +112,17 @@ impl DeadlineEngine {
             // 根据 calc_method 选择算法
             let due = match rule.calc_method.as_str() {
                 "patent" => match rule.offset_unit.as_str() {
-                    "calendar_month" => self.calendar.add_months_patent(trigger, rule.offset_value as u32),
+                    "calendar_month" => self
+                        .calendar
+                        .add_months_patent(trigger, rule.offset_value as u32),
                     "day" => self.calendar.add_days_patent(trigger, rule.offset_value),
                     _ => continue,
                 },
                 // "civil" 与其余轨道共用默认偏移规则（行为保留）
                 _ => match rule.offset_unit.as_str() {
-                    "calendar_month" => self.calendar.add_months_civil(trigger, rule.offset_value as u32),
+                    "calendar_month" => self
+                        .calendar
+                        .add_months_civil(trigger, rule.offset_value as u32),
                     "day" => self.calendar.add_days_civil(trigger, rule.offset_value),
                     _ => continue,
                 },

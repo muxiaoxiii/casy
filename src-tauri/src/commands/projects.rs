@@ -122,7 +122,11 @@ pub async fn update_personal_project(id: String, data: serde_json::Value) -> Res
     run_blocking(move || {
         db::with_conn(|conn| {
             let kind: String = conn
-                .query_row("SELECT kind FROM projects WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+                .query_row(
+                    "SELECT kind FROM projects WHERE id = ?1",
+                    rusqlite::params![id],
+                    |r| r.get(0),
+                )
                 .map_err(|_| {
                     anyhow::anyhow!(crate::error_code::err(
                         crate::error_code::codes::PROJECT_NOT_FOUND,

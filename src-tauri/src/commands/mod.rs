@@ -1,27 +1,29 @@
+pub mod ai_routes;
 pub mod areas;
+pub mod backup;
 pub mod caldav;
 pub mod calendar;
-pub mod backup;
-pub mod dashboard;
-pub mod demo;
 pub mod calendar_events;
-pub mod projects;
 pub mod cases;
+pub mod dashboard;
 pub mod decisions;
+pub mod demo;
 pub mod docs;
 pub mod drafts;
 pub mod files;
 pub mod filters;
+pub mod import_excel;
 pub mod import_feishu;
 pub mod inbox;
 pub mod knowledge;
+pub mod projects;
 pub mod relations;
 pub mod reminder;
 pub mod settings;
 pub mod sync;
 pub mod tasks;
 pub mod timeline;
-pub mod ai_routes;
+pub mod search;
 
 // AI 和邮件命令直接在对应模块中定义
 
@@ -48,7 +50,8 @@ pub async fn import_feishu_data(json_path: String) -> Result<import_feishu::Impo
 }
 
 #[tauri::command]
-pub async fn get_deadline_warnings() -> Result<Vec<crate::deadline::engine::DeadlineResult>, String> {
+pub async fn get_deadline_warnings() -> Result<Vec<crate::deadline::engine::DeadlineResult>, String>
+{
     run_blocking(move || {
         let conn = crate::db::open_db()?;
         let engine = crate::deadline::engine::DeadlineEngine::new(&conn)?;
@@ -112,6 +115,8 @@ pub async fn record_ai_tool_audit(
 
 pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
     tauri::generate_handler![
+        search::global_search,
+        search::reasoning_search,
         cases::list_cases,
         cases::get_case,
         cases::create_case,
@@ -126,10 +131,22 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         cases::recalculate_all_formulas,
         cases::export_cases,
         cases::update_case_status,
+        cases::list_case_hearings,
+        cases::create_case_hearing,
+        cases::update_case_hearing,
+        cases::delete_case_hearing,
         cases::get_today_stats,
         cases::get_case_type_metrics,
         cases::get_all_case_type_metrics,
         import_feishu_data,
+        import_feishu::feishu_check_config,
+        import_feishu::feishu_inspect_bitable,
+        import_feishu::feishu_import_bitable_cases,
+        import_feishu::feishu_import_bitable_subtable,
+        import_excel::excel_get_sheets,
+        import_excel::excel_inspect_sheet,
+        import_excel::excel_import_cases,
+        import_excel::excel_import_subtable,
         get_deadline_warnings,
         record_ai_tool_audit,
         append_fe_crash,
@@ -154,6 +171,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         backup::create_backup,
         backup::list_backups,
         backup::restore_backup,
+        backup::verify_backup_integrity_cmd,
         dashboard::get_project_status_distribution,
         dashboard::get_track_distribution,
         dashboard::get_monthly_task_trend,
@@ -256,6 +274,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         settings::save_settings,
         settings::import_holidays_json,
         settings::get_holidays_summary,
+        settings::get_holiday_calendar,
         settings::list_folder_templates,
         settings::get_folder_template,
         settings::save_folder_template,
@@ -331,6 +350,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         ai_routes::get_ai_run_history,
         ai_routes::check_confirmation_required,
         ai_routes::calculate_effective_policy_cmd,
+        ai_routes::create_ai_proposal,
+        ai_routes::get_ai_proposal,
+        ai_routes::approve_ai_proposal,
+        ai_routes::reject_ai_proposal,
         // MCP Server 命令（设计哲学 §11.11）
         mcp_list_tools,
         mcp_execute_tool,
@@ -392,7 +415,10 @@ pub fn mcp_list_tools() -> Vec<serde_json::Value> {
 
 /// 执行 MCP 工具调用（只读操作）
 #[tauri::command]
-pub async fn mcp_execute_tool(tool: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+pub async fn mcp_execute_tool(
+    tool: String,
+    arguments: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let call = crate::mcp::McpToolCall { tool, arguments };
     let result = crate::mcp::execute_tool(call).await;
     serde_json::to_value(result).map_err(|e| e.to_string())
@@ -507,34 +533,37 @@ pub async fn check_keychain_status() -> Result<serde_json::Value, String> {
             .map_err(|e| anyhow::anyhow!("Keychain 不可用: {}", e))?;
 
         // 尝试写入测试值
-        test_entry.set_password("test").map_err(|e| anyhow::anyhow!("Keychain 写入失败: {}", e))?;
+        test_entry
+            .set_password("test")
+            .map_err(|e| anyhow::anyhow!("Keychain 写入失败: {}", e))?;
 
         // 读取测试值
-        let _ = test_entry.get_password().map_err(|e| anyhow::anyhow!("Keychain 读取失败: {}", e))?;
+        let _ = test_entry
+            .get_password()
+            .map_err(|e| anyhow::anyhow!("Keychain 读取失败: {}", e))?;
 
         // 清理
         let _ = test_entry.delete_credential();
 
         // 检查已迁移的账号
         let conn = crate::db::open_db()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, email_address, password_enc FROM imap_accounts"
-        )?;
+        let mut stmt = conn.prepare("SELECT id, email_address, password_enc FROM imap_accounts")?;
 
-        let accounts: Vec<serde_json::Value> = stmt.query_map([], |row| {
-            let email: String = row.get(1)?;
-            let has_keychain = crate::credentials::has_credential(
-                crate::credentials::CredentialType::ImapPassword,
-                &email,
-            );
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "email": email,
-                "hasLegacyPassword": !row.get::<_, String>(2)?.is_empty(),
-                "hasKeychainPassword": has_keychain,
-            }))
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        let accounts: Vec<serde_json::Value> = stmt
+            .query_map([], |row| {
+                let email: String = row.get(1)?;
+                let has_keychain = crate::credentials::has_credential(
+                    crate::credentials::CredentialType::ImapPassword,
+                    &email,
+                );
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "email": email,
+                    "hasLegacyPassword": !row.get::<_, String>(2)?.is_empty(),
+                    "hasKeychainPassword": has_keychain,
+                }))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(serde_json::json!({
             "keychainAvailable": true,
@@ -599,7 +628,9 @@ pub async fn generate_weekly_summary_cmd() -> Result<serde_json::Value, String> 
 
     // 叙事层（§11.3）：规则版已落库，AI 可用时覆盖 content；失败静默回退（§12.5）
     if let Some(week_start) = result["weekStart"].as_str() {
-        let _ = crate::ai::reports::try_narrative_layer("weekly", week_start, "weekly_brief_narrative").await;
+        let _ =
+            crate::ai::reports::try_narrative_layer("weekly", week_start, "weekly_brief_narrative")
+                .await;
     }
 
     Ok(result)
@@ -661,10 +692,17 @@ pub async fn list_pending_memories() -> Result<serde_json::Value, String> {
 
 /// 采纳候选记忆（可选同时沉淀进 knowledge_items 经验类）
 #[tauri::command]
-pub async fn confirm_memory(id: String, sink_to_knowledge: Option<bool>) -> Result<serde_json::Value, String> {
+pub async fn confirm_memory(
+    id: String,
+    sink_to_knowledge: Option<bool>,
+) -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
-        let result = crate::ai::distillation::confirm_memory(&conn, &id, sink_to_knowledge.unwrap_or(false))?;
+        let result = crate::ai::distillation::confirm_memory(
+            &conn,
+            &id,
+            sink_to_knowledge.unwrap_or(false),
+        )?;
         serde_json::to_value(result).map_err(anyhow::Error::msg)
     })
     .await
@@ -720,7 +758,10 @@ pub async fn list_pending_insights() -> Result<Vec<serde_json::Value>, String> {
 
 /// 确认关联洞察（status → confirmed，可选沉淀 knowledge_items 经验类）
 #[tauri::command]
-pub async fn confirm_insight(id: String, sink_to_knowledge: Option<bool>) -> Result<serde_json::Value, String> {
+pub async fn confirm_insight(
+    id: String,
+    sink_to_knowledge: Option<bool>,
+) -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
         crate::ai::insights::confirm_insight(&conn, &id, sink_to_knowledge.unwrap_or(false))
@@ -759,24 +800,26 @@ pub async fn get_recent_logs(lines: Option<usize>) -> Result<Vec<String>, String
         .map_err(|e| format!("读取日志目录失败: {}", e))?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("casy.")
+            e.file_name().to_string_lossy().starts_with("casy.")
                 && e.file_name().to_string_lossy().ends_with(".log")
         })
         .collect();
 
     entries.sort_by(|a, b| {
-        b.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-            .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+        b.metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            .cmp(
+                &a.metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+            )
     });
 
-    let latest = entries.first()
-        .ok_or("没有找到日志文件")?
-        .path();
+    let latest = entries.first().ok_or("没有找到日志文件")?.path();
 
-    let content = std::fs::read_to_string(&latest)
-        .map_err(|e| format!("读取日志文件失败: {}", e))?;
+    let content =
+        std::fs::read_to_string(&latest).map_err(|e| format!("读取日志文件失败: {}", e))?;
 
     let max_lines = lines.unwrap_or(200);
     let all_lines: Vec<&str> = content.lines().collect();
@@ -797,25 +840,33 @@ pub async fn search_logs(keyword: String, limit: Option<usize>) -> Result<Vec<St
         .map_err(|e| format!("读取日志目录失败: {}", e))?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("casy.")
+            e.file_name().to_string_lossy().starts_with("casy.")
                 && e.file_name().to_string_lossy().ends_with(".log")
         })
         .collect();
 
     entries.sort_by(|a, b| {
-        b.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-            .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+        b.metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            .cmp(
+                &a.metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+            )
     });
 
     for entry in &entries {
-        if results.len() >= max_results { break; }
+        if results.len() >= max_results {
+            break;
+        }
         if let Ok(content) = std::fs::read_to_string(entry.path()) {
             for line in content.lines() {
                 if line.to_lowercase().contains(&keyword.to_lowercase()) {
                     results.push(line.to_string());
-                    if results.len() >= max_results { break; }
+                    if results.len() >= max_results {
+                        break;
+                    }
                 }
             }
         }

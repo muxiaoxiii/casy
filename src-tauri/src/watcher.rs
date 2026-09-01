@@ -23,7 +23,8 @@ pub fn start_inbox_watcher() -> notify::Result<()> {
     let inbox_dir_clone = inbox_dir.clone();
     thread::spawn(move || {
         // 记录启动时已存在的文件，避免重复导入
-        let existing_files: std::collections::HashSet<PathBuf> = scan_existing_files(&inbox_dir_clone);
+        let existing_files: std::collections::HashSet<PathBuf> =
+            scan_existing_files(&inbox_dir_clone);
 
         for res in rx {
             match res {
@@ -80,10 +81,7 @@ fn scan_existing_files(dir: &PathBuf) -> std::collections::HashSet<PathBuf> {
 
 /// 判断是否为临时文件
 fn is_temp_file(path: &std::path::Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     name.starts_with('.') || name.ends_with(".tmp") || name.ends_with(".crdownload")
 }
 

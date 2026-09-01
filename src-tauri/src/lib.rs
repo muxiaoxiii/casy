@@ -1,18 +1,20 @@
+pub mod ai;
+pub mod background_jobs;
 mod app_log;
-mod ai;
-mod commands;
+pub mod commands;
 mod credentials;
-mod db;
+pub mod db;
+mod deadline;
 mod docsy_engine;
 mod email;
 mod error_code;
 mod files;
 mod formula;
-mod deadline;
 mod mcp;
 mod parse;
 mod sync;
 mod tray;
+pub mod types;
 mod watcher;
 
 #[cfg(test)]
@@ -79,6 +81,10 @@ pub fn run() {
             // 初始化数据库
             let conn = db::open_db()?;
             db::init_db(&conn)?;
+            
+            // 启动闲时后台任务处理器 (Phase 3 Rust)
+            background_jobs::start_background_worker(app.handle().clone());
+
             // 系统托盘
             tray::setup_tray(app.handle())?;
 
@@ -94,11 +100,14 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyI);
                 let handle = app.handle().clone();
-                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "note");
-                    }
-                });
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                                let _ =
+                                    tauri::Emitter::emit(&handle, "global:quick_capture", "note");
+                            }
+                        });
             }
 
             // 全局热键: Cmd+E → 新日程入袋
@@ -106,11 +115,14 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyE);
                 let handle = app.handle().clone();
-                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "event");
-                    }
-                });
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                                let _ =
+                                    tauri::Emitter::emit(&handle, "global:quick_capture", "event");
+                            }
+                        });
             }
 
             // 全局热键: Cmd+N → 新笔记入袋
@@ -118,11 +130,14 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyN);
                 let handle = app.handle().clone();
-                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "note");
-                    }
-                });
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                                let _ =
+                                    tauri::Emitter::emit(&handle, "global:quick_capture", "note");
+                            }
+                        });
             }
 
             // 全局热键: Cmd+T → 新任务入袋（设计哲学 §10）
@@ -130,11 +145,14 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let shortcut = Shortcut::new(Some(Modifiers::SUPER), Code::KeyT);
                 let handle = app.handle().clone();
-                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        let _ = tauri::Emitter::emit(&handle, "global:quick_capture", "task");
-                    }
-                });
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                                let _ =
+                                    tauri::Emitter::emit(&handle, "global:quick_capture", "task");
+                            }
+                        });
             }
 
             // 文件夹监听: ~/Documents/Casy/inbox/
@@ -250,11 +268,16 @@ async fn deadline_recalc_scheduler() {
     loop {
         // 计算距离下一个 00:01 的等待时间
         let now = chrono::Local::now();
-        let today_target = now.date_naive().and_hms_opt(0, 1, 0)
-            .unwrap_or_else(|| now.date_naive().and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
+        let today_target = now.date_naive().and_hms_opt(0, 1, 0).unwrap_or_else(|| {
+            now.date_naive()
+                .and_hms_opt(0, 0, 0)
+                .unwrap_or(now.naive_local())
+        });
 
-        let wait_duration = if now.naive_local().time() < chrono::NaiveTime::from_hms_opt(0, 1, 0)
-            .unwrap_or(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap_or(now.naive_local().time())) {
+        let wait_duration = if now.naive_local().time()
+            < chrono::NaiveTime::from_hms_opt(0, 1, 0).unwrap_or(
+                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap_or(now.naive_local().time()),
+            ) {
             // 还没到今天的 00:01，等到今天
             (today_target - now.naive_local())
                 .to_std()
@@ -262,7 +285,8 @@ async fn deadline_recalc_scheduler() {
         } else {
             // 已经过了今天的 00:01，等到明天
             let tomorrow = now.date_naive().succ_opt().unwrap_or(now.date_naive());
-            let tomorrow_run = tomorrow.and_hms_opt(0, 1, 0)
+            let tomorrow_run = tomorrow
+                .and_hms_opt(0, 1, 0)
                 .unwrap_or_else(|| tomorrow.and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
             (tomorrow_run - now.naive_local())
                 .to_std()
@@ -337,7 +361,11 @@ fn record_overdue_events(conn: &rusqlite::Connection, today: &str) -> anyhow::Re
 
 /// 计算到下一个触发点的等待时长
 /// weekday 为 None 表示每天触发，Some 表示每周固定星期几触发
-fn next_trigger_delay(weekday: Option<chrono::Weekday>, hour: u32, minute: u32) -> std::time::Duration {
+fn next_trigger_delay(
+    weekday: Option<chrono::Weekday>,
+    hour: u32,
+    minute: u32,
+) -> std::time::Duration {
     use chrono::Datelike;
     use tokio::time::Duration;
 
@@ -350,9 +378,11 @@ fn next_trigger_delay(weekday: Option<chrono::Weekday>, hour: u32, minute: u32) 
     };
 
     let target_date = now.date_naive() + chrono::Duration::days(days_ahead);
-    let mut target = target_date
-        .and_hms_opt(hour, minute, 0)
-        .unwrap_or_else(|| target_date.and_hms_opt(0, 0, 0).unwrap_or(now.naive_local()));
+    let mut target = target_date.and_hms_opt(hour, minute, 0).unwrap_or_else(|| {
+        target_date
+            .and_hms_opt(0, 0, 0)
+            .unwrap_or(now.naive_local())
+    });
 
     // 今天的触发点已过 → 推到下一周期
     if target <= now.naive_local() {
@@ -387,7 +417,8 @@ async fn daily_brief_scheduler() {
             Ok(_) => {
                 log::info!("每日早报自动生成完成");
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                let _ = ai::reports::try_narrative_layer("daily", &today, "daily_brief_narrative").await;
+                let _ = ai::reports::try_narrative_layer("daily", &today, "daily_brief_narrative")
+                    .await;
             }
             Err(e) => log::error!("每日早报自动生成失败: {}", e),
         }
@@ -409,7 +440,12 @@ async fn weekly_report_scheduler() {
             Ok(summary) => {
                 log::info!("每周总结自动生成完成");
                 // 先规则版落库，再尝试叙事层覆盖（§11.3 / §12.5）
-                let _ = ai::reports::try_narrative_layer("weekly", &summary.week_start, "weekly_brief_narrative").await;
+                let _ = ai::reports::try_narrative_layer(
+                    "weekly",
+                    &summary.week_start,
+                    "weekly_brief_narrative",
+                )
+                .await;
             }
             Err(e) => log::error!("每周总结自动生成失败: {}", e),
         }
@@ -426,7 +462,8 @@ async fn decision_review_scheduler() {
         log::info!("决策复核定时器已启动，下次运行: {:?}", wait);
         sleep(wait).await;
 
-        let result = db::open_db().and_then(|conn| commands::decisions::pending_decision_reviews(&conn));
+        let result =
+            db::open_db().and_then(|conn| commands::decisions::pending_decision_reviews(&conn));
 
         match result {
             Ok(pending) if !pending.is_empty() => {
@@ -463,7 +500,11 @@ async fn distillation_scheduler() {
         match result {
             Ok(r) => log::info!(
                 "数据蒸馏完成：清理 {} 条，新增候选 {} 条，合并 {} 条，陈旧 {} 条，归档 {} 条",
-                r.cleaned_count, r.inserted_count, r.merged_count, r.stale_count, r.archived_count
+                r.cleaned_count,
+                r.inserted_count,
+                r.merged_count,
+                r.stale_count,
+                r.archived_count
             ),
             Err(e) => log::error!("数据蒸馏失败: {}", e),
         }

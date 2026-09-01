@@ -5,19 +5,19 @@ function getSuggestionItems({ query, editor }) {
   const caseData = editor.storage.caseData || {}
 
   const fields = [
-    { label: '案号', value: caseData.caseNo || '', icon: '📋' },
-    { label: '案件名称', value: caseData.caseName || '', icon: '📋' },
-    { label: '客户名称', value: caseData.clientName || '', icon: '👤' },
-    { label: '我方地位', value: caseData.ourRole || '', icon: '👤' },
-    { label: '对方名称', value: caseData.opponentName || '', icon: '👥' },
-    { label: '对方地位', value: caseData.opponentRole || '', icon: '👥' },
-    { label: '审理机关', value: caseData.court || '', icon: '🏛️' },
-    { label: '案由', value: caseData.causeAction || '', icon: '📝' },
-    { label: '专利名称', value: caseData.patentName || '', icon: '📄' },
-    { label: '专利申请号', value: caseData.patentAppNo || '', icon: '📄' },
-    { label: '内部卷号', value: caseData.internalNo || '', icon: '📁' },
-    { label: '今日日期', value: new Date().toLocaleDateString('zh-CN'), icon: '📅' },
-    { label: '办案人', value: (caseData.attorneys || []).join('、'), icon: '👤' },
+    { label: '案号', value: caseData.caseNo || '' },
+    { label: '案件名称', value: caseData.caseName || '' },
+    { label: '客户名称', value: caseData.clientName || '' },
+    { label: '我方地位', value: caseData.ourRole || '' },
+    { label: '对方名称', value: caseData.opponentName || '' },
+    { label: '对方地位', value: caseData.opponentRole || '' },
+    { label: '审理机关', value: caseData.court || '' },
+    { label: '案由', value: caseData.causeAction || '' },
+    { label: '专利名称', value: caseData.patentName || '' },
+    { label: '专利申请号', value: caseData.patentAppNo || '' },
+    { label: '内部卷号', value: caseData.internalNo || '' },
+    { label: '今日日期', value: new Date().toLocaleDateString('zh-CN') },
+    { label: '办案人', value: (caseData.attorneys || []).join('、') },
   ]
 
   return fields
@@ -73,7 +73,7 @@ export const CaseFieldSuggestion = Extension.create({
                 font-size: 13px;
                 ${index === props.selected ? 'background: #ecf5ff; color: #409eff;' : ''}
               `
-              div.textContent = `${item.icon} ${item.label}`
+              div.textContent = item.label
               if (item.value) {
                 const span = document.createElement('span')
                 span.style.cssText = 'color: #999; font-size: 12px; margin-left: auto;'

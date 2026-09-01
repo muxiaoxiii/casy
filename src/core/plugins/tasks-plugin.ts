@@ -1,7 +1,7 @@
 /**
  * 任务管理插件
  * 
- * 将任务管理功能封装为插件
+ * 将任务管理功能封装为插件，声明严格的 V5 权限策略 (A0-A3)
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
@@ -13,14 +13,11 @@ export class TasksPlugin implements CasyPlugin {
   description = '任务管理模块'
   
   async install(ctx: CasyContext): Promise<void> {
-    // 注册工具
     ctx.registerTool(this.createListTasksTool(ctx))
     ctx.registerTool(this.createCreateTaskTool(ctx))
     ctx.registerTool(this.createToggleTaskTool(ctx))
     ctx.registerTool(this.createUpdateTaskTool(ctx))
     ctx.registerTool(this.createDeleteTaskTool(ctx))
-    
-    console.log('TasksPlugin installed')
   }
   
   async uninstall(ctx: CasyContext): Promise<void> {
@@ -29,8 +26,6 @@ export class TasksPlugin implements CasyPlugin {
     ctx.unregisterTool('toggle_task')
     ctx.unregisterTool('update_task')
     ctx.unregisterTool('delete_task')
-    
-    console.log('TasksPlugin uninstalled')
   }
   
   // ============================================================
@@ -42,6 +37,10 @@ export class TasksPlugin implements CasyPlugin {
       name: 'list_tasks',
       description: '获取任务列表，支持按案件、类型、状态筛选',
       category: 'tasks',
+      policy: {
+        write: false,
+        level: 'L1',
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -58,8 +57,7 @@ export class TasksPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        const result = await ctx.tasks.list(params.filter || {})
-        return result
+        return ctx.tasks.list(params.filter || {})
       },
     })
   }
@@ -69,6 +67,12 @@ export class TasksPlugin implements CasyPlugin {
       name: 'create_task',
       description: '创建新任务',
       category: 'tasks',
+      policy: {
+        write: true,
+        level: 'L2',
+        title: 'AI 创建任务确认',
+        message: (p) => `确定由 AI 创建任务「${p.taskName || '未命名任务'}」吗？`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -83,7 +87,6 @@ export class TasksPlugin implements CasyPlugin {
         required: ['taskName'],
       },
       execute: async (params) => {
-        // 领域事件由 tasks service 层统一发出（K-3①：人与 AI 同一事件流）
         return ctx.tasks.create(params)
       },
     })
@@ -94,6 +97,12 @@ export class TasksPlugin implements CasyPlugin {
       name: 'toggle_task',
       description: '切换任务完成状态',
       category: 'tasks',
+      policy: {
+        write: true,
+        level: 'L2',
+        title: 'AI 变更任务状态确认',
+        message: (p) => `确定由 AI 切换任务 #${p.id} 的完成状态吗？`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -102,7 +111,6 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        // 领域事件由 tasks service 层统一发出（K-3①）
         return ctx.tasks.toggle(params.id)
       },
     })
@@ -113,6 +121,12 @@ export class TasksPlugin implements CasyPlugin {
       name: 'update_task',
       description: '更新任务信息',
       category: 'tasks',
+      policy: {
+        write: true,
+        level: 'L2',
+        title: 'AI 更新任务确认',
+        message: (p) => `确定由 AI 修改任务 #${p.id} 的字段吗？`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -122,11 +136,10 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.update({
+        return ctx.tasks.update({
           ...params.data,
           id: params.id,
         })
-        return result
       },
     })
   }
@@ -136,6 +149,12 @@ export class TasksPlugin implements CasyPlugin {
       name: 'delete_task',
       description: '删除任务',
       category: 'tasks',
+      policy: {
+        write: true,
+        level: 'L3',
+        title: 'AI 删除任务二次确认',
+        message: (p) => `⚠️ 危险操作：确定由 AI 删除任务 #${p.id} 吗？此操作不可逆。`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -144,8 +163,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.tasks.remove(params.id)
-        return result
+        return ctx.tasks.remove(params.id)
       },
     })
   }

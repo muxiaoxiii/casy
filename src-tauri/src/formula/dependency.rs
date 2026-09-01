@@ -207,10 +207,7 @@ pub fn build_casy_dependency_graph() -> DependencyGraph {
     // ── hearings table formulas ───────────────────────────────
 
     // formula_status depends on hearing_date (cross-table: hearings.hearing_date)
-    graph.register(
-        "formula_status",
-        vec!["hearing_date".to_string()],
-    );
+    graph.register("formula_status", vec!["hearing_date".to_string()]);
 
     // ── tasks table formulas ──────────────────────────────────
 

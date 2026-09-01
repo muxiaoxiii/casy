@@ -7,64 +7,64 @@
           :class="['tab-item', { active: activeTab === 'drafts' }]"
           @click="activeTab = 'drafts'"
         >
-          📝 草稿箱
+          {{ $t('docs.drafts') }}
         </div>
         <div
           :class="['tab-item', { active: activeTab === 'templates' }]"
           @click="activeTab = 'templates'"
         >
-          📄 模板库
+          {{ $t('docs.templates') }}
         </div>
       </div>
 
       <!-- 草稿列表 -->
       <template v-if="activeTab === 'drafts'">
         <div class="draft-header">
-          <h3>草稿箱</h3>
-          <el-button size="small" type="primary" @click="createNewDraft">
-            + 新建
-          </el-button>
+          <h3>{{ $t('docs.drafts') }}</h3>
+          <button class="btn-new-draft" @click="createNewDraft">
+            + {{ $t('common.create') }}
+          </button>
         </div>
 
-      <el-input
-        v-model="searchText"
-        placeholder="搜索草稿..."
-        clearable
-        size="small"
-        class="draft-search"
-      />
-
-      <div class="draft-list" v-loading="loading">
-        <div
-          v-for="draft in filteredDrafts"
-          :key="draft.id"
-          :class="['draft-item', { active: currentDraftId === draft.id }]"
-          @click="selectDraft(draft.id)"
-        >
-          <div class="draft-title">{{ draft.title || '无标题' }}</div>
-          <div class="draft-meta">
-            <span class="draft-status" :class="draft.status">
-              {{ statusLabel(draft.status) }}
-            </span>
-            <span class="draft-time">{{ formatTime(draft.updatedAt) }}</span>
-          </div>
-          <el-button
-            class="draft-delete"
-            size="small"
-            type="danger"
-            text
-            @click.stop="deleteDraft(draft.id)"
-          >
-            删除
-          </el-button>
-        </div>
-
-        <el-empty
-          v-if="!loading && filteredDrafts.length === 0"
-          description="暂无草稿"
-          :image-size="60"
+        <el-input
+          v-model="searchText"
+          :placeholder="$t('common.search')"
+          clearable
+          size="small"
+          class="draft-search"
         />
-      </div>
+
+        <div class="draft-list" v-loading="loading">
+          <div
+            v-for="draft in filteredDrafts"
+            :key="draft.id"
+            :class="['draft-item', { active: currentDraftId === draft.id }]"
+            @click="selectDraft(draft.id)"
+          >
+            <div class="draft-title">{{ draft.title || '未命名文书' }}</div>
+            <div class="draft-meta">
+              <span class="draft-status" :class="draft.status">
+                {{ statusLabel(draft.status) }}
+              </span>
+              <span class="draft-time">{{ formatTime(draft.updatedAt) }}</span>
+            </div>
+            <el-button
+              class="draft-delete"
+              size="small"
+              type="danger"
+              text
+              @click.stop="deleteDraft(draft.id)"
+            >
+              删除
+            </el-button>
+          </div>
+
+          <el-empty
+            v-if="!loading && filteredDrafts.length === 0"
+            description="暂无草稿"
+            :image-size="60"
+          />
+        </div>
       </template>
 
       <!-- 模板浏览器 -->
@@ -73,14 +73,14 @@
       </template>
     </div>
 
-    <!-- 右侧编辑器 -->
+    <!-- 右侧编辑器面板 -->
     <div class="editor-panel">
       <template v-if="currentDraft">
         <div class="editor-header">
-          <el-input
+          <input
             v-model="currentDraft.title"
-            placeholder="草稿标题"
-            class="title-input"
+            :placeholder="$t('docs.draft_title')"
+            class="notion-title-input"
             @input="scheduleSave"
           />
           <div class="editor-actions">
@@ -90,18 +90,18 @@
               @change="scheduleSave"
               style="width: 100px"
             >
-              <el-option label="草稿" value="draft" />
-              <el-option label="定稿" value="final" />
-              <el-option label="归档" value="archived" />
+              <el-option :label="$t('docs.status_draft')" value="draft" />
+              <el-option :label="$t('docs.status_final')" value="final" />
+              <el-option :label="$t('docs.status_archived')" value="archived" />
             </el-select>
             <el-select
               v-model="currentDraft.caseId"
               filterable
               clearable
               size="small"
-              placeholder="关联案件"
+              placeholder="关联案件..."
               @change="scheduleSave"
-              style="width: 200px"
+              style="width: 220px"
             >
               <el-option
                 v-for="c in cases"
@@ -110,30 +110,45 @@
                 :value="c.id"
               />
             </el-select>
+            <el-button type="primary" size="small" :loading="exporting" @click="exportToDocx">
+              {{ $t('docs.export_word') }}
+            </el-button>
+            <el-button plain size="small" @click="showKnowledgeSidebar = !showKnowledgeSidebar">
+              <el-icon><Collection /></el-icon> 知识抽屉
+            </el-button>
           </div>
         </div>
 
+        <!-- 块编辑器主体 -->
         <LegalEditor
           v-model="currentDraft.content"
           :case-data="linkedCaseData"
           :all-cases="cases"
+          :case-id="currentDraft.caseId"
+          :source-id="currentDraft.id"
           @update:model-value="scheduleSave"
+          @open-knowledge-drawer="showKnowledgeSidebar = true"
         />
 
         <div class="editor-statusbar">
-          <span>字数: {{ wordCount }}</span>
+          <span>{{ $t('docs.word_count', { count: wordCount }) }}</span>
           <span :class="['save-status', saveStatus]">{{ saveStatusText }}</span>
           <span v-if="currentDraft.updatedAt">
-            最后保存: {{ formatTime(currentDraft.updatedAt) }}
+            {{ $t('docs.last_saved') }} {{ formatTime(currentDraft.updatedAt) }}
           </span>
         </div>
       </template>
 
       <div v-else class="no-draft">
-        <el-empty description="选择或新建一份草稿" :image-size="80">
-          <el-button type="primary" @click="createNewDraft">新建草稿</el-button>
+        <el-empty :description="$t('docs.new_draft')" :image-size="80">
+          <el-button type="primary" @click="createNewDraft">{{ $t('docs.new_draft') }}</el-button>
         </el-empty>
       </div>
+    </div>
+
+    <!-- 右侧悬浮知识侧边栏 -->
+    <div class="knowledge-drawer-container" v-show="showKnowledgeSidebar">
+      <KnowledgeSidebar @close="showKnowledgeSidebar = false" />
     </div>
   </div>
 </template>
@@ -141,9 +156,17 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
+import { Collection } from '@element-plus/icons-vue'
 import LegalEditor from '../components/LegalEditor.vue'
+import KnowledgeSidebar from '../../knowledge/components/KnowledgeSidebar.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
+import { saveAs } from 'file-saver'
+import { ElMessage } from 'element-plus'
+import debounce from 'lodash-es/debounce'
 
+const showKnowledgeSidebar = ref(false)
+
+const props = defineProps([])
 const drafts = ref([])
 const cases = ref([])
 const currentDraftId = ref(null)
@@ -153,6 +176,7 @@ const searchText = ref('')
 const saveStatus = ref('idle') // idle | saving | saved | error
 const saveTimer = ref(null)
 const activeTab = ref('drafts') // drafts | templates
+const exporting = ref(false)
 
 // 过滤草稿列表
 const filteredDrafts = computed(() => {
@@ -172,16 +196,15 @@ const linkedCaseData = computed(() => {
 // 字数统计
 const wordCount = computed(() => {
   if (!currentDraft.value?.content) return 0
-  // 去除 HTML 标签后计算字符数
   const text = currentDraft.value.content.replace(/<[^>]*>/g, '').trim()
   return text.length
 })
 
 const saveStatusText = computed(() => {
   switch (saveStatus.value) {
-    case 'saving': return '保存中...'
-    case 'saved': return '已保存'
-    case 'error': return '保存失败'
+    case 'saving': return '● 正在保存...'
+    case 'saved': return '✓ 已保存至本地数据库'
+    case 'error': return '✕ 保存失败'
     default: return ''
   }
 })
@@ -196,17 +219,16 @@ async function loadDrafts() {
   loading.value = false
 }
 
-// 加载案件列表（用于关联选择）
+// 加载案件列表
 async function loadCases() {
   const result = await casyContext.cases.list({ page: 1, perPage: 500 })
   if (result.ok) {
-    cases.value = result.data?.items || []
+    cases.value = Array.isArray(result.data) ? result.data : (result.data?.items || [])
   }
 }
 
 // 选择草稿
 async function selectDraft(id) {
-  // 先保存当前草稿
   if (currentDraft.value && saveStatus.value === 'saving') {
     await saveDraft()
   }
@@ -219,19 +241,19 @@ async function selectDraft(id) {
   }
 }
 
-// 新建草稿
+// 新建草稿（开箱即写）
 async function createNewDraft() {
   const result = await casyContext.docs.createDraft({
-    title: '未命名草稿',
-    content: '',
+    title: '未命名法律文书',
+    content: '<p>在此输入 <code>/</code> 唤出 Notion 块菜单，或直接输入 Markdown 快速起草...</p>',
   })
-  if (result.ok) {
+  if (result.ok && result.data) {
     await loadDrafts()
     selectDraft(result.data.id)
   }
 }
 
-// 保存草稿（防抖调用）
+// 保存草稿
 async function saveDraft() {
   if (!currentDraft.value) return
 
@@ -245,26 +267,23 @@ async function saveDraft() {
 
   if (result.ok) {
     saveStatus.value = 'saved'
-    // 更新列表中的草稿信息
     const idx = drafts.value.findIndex(d => d.id === currentDraft.value.id)
     if (idx >= 0) {
       drafts.value[idx] = { ...drafts.value[idx], ...currentDraft.value }
     }
-    // 2 秒后重置状态
     setTimeout(() => {
       if (saveStatus.value === 'saved') saveStatus.value = 'idle'
-    }, 2000)
+    }, 2500)
   } else {
     saveStatus.value = 'error'
   }
 }
 
-// 2 秒防抖自动保存
 function scheduleSave() {
   if (saveTimer.value) clearTimeout(saveTimer.value)
   saveTimer.value = setTimeout(() => {
     saveDraft()
-  }, 2000)
+  }, 1500)
 }
 
 // 删除草稿
@@ -276,10 +295,37 @@ async function deleteDraft(id) {
       currentDraft.value = null
     }
     await loadDrafts()
+    if (drafts.value.length > 0) {
+      selectDraft(drafts.value[0].id)
+    } else {
+      await createNewDraft()
+    }
   }
 }
 
-// 格式化时间
+// 导出为 Docx
+async function exportToDocx() {
+  if (!currentDraft.value) return
+  exporting.value = true
+  try {
+    const htmlToDocx = (await import('html-to-docx')).default
+    const htmlString = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${currentDraft.value.content}</body></html>`
+    const fileBuffer = await htmlToDocx(htmlString, null, {
+      table: { row: { cantSplit: true } },
+      footer: true,
+      pageNumber: true,
+    })
+    const blob = new Blob([fileBuffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    saveAs(blob, `${currentDraft.value.title || '未命名文书'}.docx`)
+    ElMessage.success('Word 文档导出成功')
+  } catch (err) {
+    console.error('导出 Word 失败', err)
+    ElMessage.error('导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 function formatTime(timeStr) {
   if (!timeStr) return ''
   const d = new Date(timeStr)
@@ -296,21 +342,25 @@ function statusLabel(status) {
   switch (status) {
     case 'draft': return '草稿'
     case 'final': return '定稿'
-    case 'archived': return '归档'
+    case 'archived': return '已归档'
     default: return status
   }
 }
 
 onMounted(async () => {
   await Promise.all([loadDrafts(), loadCases()])
+  if (drafts.value.length > 0) {
+    selectDraft(drafts.value[0].id)
+  } else {
+    await createNewDraft()
+  }
 })
 
-// 模板选择回调：创建新草稿并切换到编辑模式
+// 模板选择回调
 async function onTemplateSelect(template) {
-  // 创建新草稿，关联模板
   const result = await casyContext.docs.createDraft({
     title: template.name,
-    content: '',
+    content: `<p>基于模板 <strong>${template.name}</strong> 创建</p>`,
     templatePath: template.path,
   })
   if (result.ok) {
@@ -322,7 +372,6 @@ async function onTemplateSelect(template) {
 
 onUnmounted(() => {
   if (saveTimer.value) clearTimeout(saveTimer.value)
-  // 离开前保存
   if (currentDraft.value) saveDraft()
 })
 </script>
@@ -330,116 +379,150 @@ onUnmounted(() => {
 <style scoped>
 .doc-workshop {
   display: flex;
-  height: calc(100vh - 100px);
-  gap: 0;
+  height: calc(100vh - 64px);
+  background: var(--c-bg-page);
+  overflow: hidden;
 }
 
 .draft-sidebar {
-  width: 300px;
-  min-width: 300px;
-  border-right: 1px solid #e0e0e0;
+  width: 260px;
+  background: var(--c-bg-sidebar);
+  border-right: 1px solid var(--c-border);
   display: flex;
   flex-direction: column;
-  background: #fafafa;
+  flex-shrink: 0;
 }
 
 .sidebar-tabs {
   display: flex;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-subtle);
 }
 
 .tab-item {
   flex: 1;
-  padding: 10px 16px;
   text-align: center;
+  padding: 10px 0;
   font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
   cursor: pointer;
-  transition: all var(--motion-fast) var(--ease-out);
   border-bottom: 2px solid transparent;
-}
-
-.tab-item:hover {
-  background: #ecf5ff;
+  transition: all var(--motion-fast);
 }
 
 .tab-item.active {
-  color: #409eff;
-  border-bottom-color: #409eff;
-  background: #fff;
+  color: var(--c-primary);
+  font-weight: 600;
+  border-bottom-color: var(--c-primary);
+  background: var(--c-bg-sidebar);
 }
 
 .draft-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
+  padding: 14px 16px 8px;
 }
 
 .draft-header h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+}
+
+.btn-new-draft {
+  padding: 4px 10px;
+  border-radius: var(--c-radius-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+  color: var(--c-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+
+.btn-new-draft:hover {
+  background: var(--c-primary-light);
+  border-color: var(--c-primary);
 }
 
 .draft-search {
-  padding: 8px 12px;
+  padding: 0 14px 8px;
 }
 
 .draft-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .draft-item {
   position: relative;
-  padding: 10px 16px;
+  padding: 10px 12px;
+  border-radius: var(--c-radius-lg);
   cursor: pointer;
-  transition: background var(--motion-fast);
-  border-left: 3px solid transparent;
+  transition: all var(--motion-fast);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .draft-item:hover {
-  background: #ecf5ff;
+  background: var(--c-bg-hover);
 }
 
 .draft-item.active {
-  background: #ecf5ff;
-  border-left-color: #409eff;
+  background: var(--c-bg-selected);
 }
 
 .draft-title {
-  font-size: 14px;
-  color: #333;
-  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-heading);
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: 24px;
+  white-space: nowrap;
+  padding-right: 28px;
+}
+
+.draft-item.active .draft-title {
+  color: var(--c-primary);
 }
 
 .draft-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: #999;
-}
-
-.draft-status {
-  padding: 1px 6px;
-  border-radius: 3px;
   font-size: 11px;
 }
 
-.draft-status.draft { background: #fdf6ec; color: #e6a23c; }
-.draft-status.final { background: #f0f9eb; color: #67c23a; }
-.draft-status.archived { background: var(--gray-50); color: var(--gray-400); }
+.draft-status {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+  background: var(--c-bg-subtle);
+  color: var(--slate-gray-light);
+}
+
+.draft-status.final {
+  background: var(--bg-success-weak);
+  color: var(--status-success);
+}
+
+.draft-time {
+  color: var(--slate-gray-light);
+}
 
 .draft-delete {
   position: absolute;
-  top: 8px;
   right: 8px;
+  top: 8px;
   opacity: 0;
   transition: opacity var(--motion-fast);
 }
@@ -452,59 +535,80 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  background: var(--c-bg-card);
+  min-width: 0;
 }
 
 .editor-header {
+  padding: 16px 36px 12px;
+  border-bottom: 1px solid var(--c-border);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #e0e0e0;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--c-bg-card);
 }
 
-.title-input {
+.notion-title-input {
   flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  letter-spacing: -0.3px;
 }
 
-.title-input :deep(.el-input__inner) {
-  font-size: 16px;
-  font-weight: 500;
-  border: none;
-  padding: 0;
+.notion-title-input::placeholder {
+  color: var(--slate-gray-light);
+  opacity: 0.6;
 }
 
 .editor-actions {
   display: flex;
-  gap: 8px;
   align-items: center;
-}
-
-.editor-panel :deep(.legal-editor) {
-  flex: 1;
-  border: none;
-  border-radius: 0;
+  gap: 10px;
 }
 
 .editor-statusbar {
+  padding: 8px 36px;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-bg-subtle);
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 6px 16px;
-  border-top: 1px solid #e0e0e0;
-  font-size: 12px;
-  color: #999;
-  background: #fafafa;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
 }
 
-.save-status.saving { color: #e6a23c; }
-.save-status.saved { color: #67c23a; }
-.save-status.error { color: #f56c6c; }
+.editor-statusbar span {
+  margin-left: 16px;
+}
+
+.save-status.saved {
+  color: var(--el-color-success);
+}
+
+.save-status.saving {
+  color: var(--el-color-primary);
+}
+
+.save-status.error {
+  color: var(--status-risk);
+}
+
+.knowledge-drawer-container {
+  height: 100vh;
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+  z-index: 10;
+}
 
 .no-draft {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
 }
 </style>

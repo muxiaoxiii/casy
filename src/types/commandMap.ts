@@ -160,10 +160,11 @@ export type CommandMap = {
   get_all_case_type_metrics: Cmd<Record<string, unknown>, CaseTypeMetrics[]>
 
   // ── 关系 / 时间线 ──
-  add_relation: Cmd<Record<string, unknown>, CaseRelation>
+  add_relation: Cmd<{ caseId: string; targetId: string; relationType: string; merge_data?: Record<string, unknown> }, CaseRelation>
   detect_relations: Cmd<{ caseId: string }, CaseRelation[]>
   get_relations: Cmd<{ caseId: string }, RelatedCase[]>
   get_case_timeline: Cmd<{ caseId: string }, TimelineEvent[]>
+  remove_relation: Cmd<{ id: string }, void>
 
   // ── 文件 ──
   list_case_files: Cmd<{ caseId: string }, CaseFile[]>
@@ -226,6 +227,7 @@ export type CommandMap = {
   search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
 
   search_knowledge: Cmd<{ query: string }, SearchKnowledgeDto[]>
+  global_search: Cmd<{ query: string }, any[]>
   list_knowledge_blocks: Cmd<{ parentId: string }, KnowledgeBlockDto[]>
   get_knowledge_with_blocks: Cmd<{ id: string }, KnowledgeWithBlocksDto>
   knowledge_stats: Cmd<Record<string, unknown>, KnowledgeStatsDto>

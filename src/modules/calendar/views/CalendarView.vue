@@ -1,239 +1,756 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
-import { bucketForDate } from '../../../shared/nlp/parseWhen'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowLeft, ArrowRight, Calendar, Clock, Warning,
-  Bell, Finished, Plus,
+  ArrowLeft,
+  ArrowRight,
+  Plus,
+  Clock,
+  Location,
+  Search,
+  Close,
+  Rank,
+  Check,
+  Calendar as CalendarIcon,
+  Timer,
+  Bell,
+  Edit,
+  Delete,
+  TrendCharts,
+  Warning,
+  Opportunity,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
 // ============================================================
-// 语义色（与 theme.css 第十二章语义色对齐）
-// 红 #B4554F 硬性 · 蓝 #3E5C9A 计划 · 绿 #4C8067 完成
-// 琥珀 #B0823A 到期 · 灰 #9BA2AF · 紫 #6C6A9C
-// ============================================================
-const COLORS = {
-  hard: '#B4554F', // 红：硬性（开庭/口审）
-  plan: '#3E5C9A', // 蓝：计划（弹性任务）
-  done: '#4C8067', // 绿：完成
-  due: '#B0823A',  // 琥珀：到期/期限
-  gray: '#9BA2AF', // 灰：中性
-  info: '#6C6A9C', // 紫：信息（二审等）
-}
-
-// ============================================================
-// 状态
+// 状态管理 (100% 连通真实 SQLite 数据库)
 // ============================================================
 const currentDate = ref(new Date())
 const events = ref([])
 const tasks = ref([])
 const todayTasks = ref([])
+const cases = ref([])
 const deadlineWarnings = ref([])
+const holidayEntries = ref([])
 const loading = ref(false)
-const selectedDay = ref(null)
-const activeView = ref('month') // month/week/day/forecast
 
-// 自然语言建日程（顶部输入条，对标 Fantastical 快速输入）
+// 视图切换: 'timeline' | 'month' | 'week' | 'day' | 'forecast'
+const activeView = ref('month')
+
+// Forecast 预测视图筛选: 'all' | 'risk_only' | 'free_only'
+const forecastFilter = ref('all')
+
+// 案件筛选（时间线视图）
+const caseSearchQuery = ref('')
+const selectedCaseIds = ref(new Set(['all']))
+
+// 月视图点击当日日程弹窗
+const showDayModal = ref(false)
+const activeDaySummary = ref(null)
+
+// 事项编辑详情弹窗
+const showEditDialog = ref(false)
+const editingItem = ref({
+  id: '',
+  type: 'task', // 'task' | 'event'
+  title: '',
+  startDate: '',
+  dueDate: '',
+  startTime: '',
+  caseId: '',
+  estimatedMinutes: 60,
+  description: '',
+  completed: 0,
+})
+
+// 右侧统一 Holding / Schedule Tank 状态
+const tankFilter = ref('unscheduled') // 'unscheduled' | 'week' | 'multiday' | 'today'
+const tankSearch = ref('')
+
+// 自然语言快速输入
 const captureInput = ref('')
-const captureInputRef = ref(null)
 const capturing = ref(false)
 
 // ============================================================
-// 常量
+// 拖拽调度引擎 (Drag & Drop Engine - 真实持久化)
 // ============================================================
-const weekDays = ['一', '二', '三', '四', '五', '六', '日']
-const WEEKDAY_MAP = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }
-const CN_NUM = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
-const PERIOD_DEFAULT_TIME = { 凌晨: '06:00', 上午: '09:00', 中午: '12:00', 下午: '14:00', 晚上: '19:00' }
+const currentDraggedTask = ref(null)
+const dragAction = ref('schedule') // 'schedule' | 'extend'
+const dragOriginCellDate = ref(null)
+const dragOverKey = ref(null)
+const isOverTank = ref(false)
 
+function onDragStart(e, task, action = 'schedule', cellDate = null) {
+  currentDraggedTask.value = { ...task }
+  dragAction.value = action
+  dragOriginCellDate.value = cellDate ? formatDate(cellDate) : null
+
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/json', JSON.stringify(task))
+    e.dataTransfer.setData('text/plain', String(task.id))
+  }
+}
+
+function onDragStartFromModal(e, item, cellDate) {
+  onDragStart(e, item, 'schedule', cellDate)
+  setTimeout(() => {
+    showDayModal.value = false
+  }, 50)
+}
+
+function onDragOver(e) {
+  e.preventDefault()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'move'
+  }
+}
+
+function onDragEnd() {
+  currentDraggedTask.value = null
+  dragAction.value = 'schedule'
+  dragOriginCellDate.value = null
+  dragOverKey.value = null
+  isOverTank.value = false
+}
+
+// 日期格式化
+function formatDate(date) {
+  if (!date) return ''
+  let d = date
+  if (d && typeof d === 'object' && 'value' in d && d.value instanceof Date) {
+    d = d.value
+  } else if (!(d instanceof Date)) {
+    d = new Date(d)
+  }
+  if (isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function isToday(date) {
+  if (!date) return false
+  const d = date instanceof Date ? date : new Date(date)
+  return d.toDateString() === new Date().toDateString()
+}
+
+function getDaySpan(startStr, dueStr) {
+  if (!startStr || !dueStr) return 1
+  const d1 = new Date(startStr)
+  const d2 = new Date(dueStr)
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 1
+  const diffTime = d2.getTime() - d1.getTime()
+  return Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1)
+}
+
+// 放置到日历某一天的单元格 (月视图 / 周视图 / 预测视图)
+async function onDropOnDay(e, targetDate) {
+  e.preventDefault()
+  let task = currentDraggedTask.value
+  if (!task && e.dataTransfer) {
+    try {
+      task = JSON.parse(e.dataTransfer.getData('application/json'))
+    } catch {}
+  }
+  if (!task) return
+
+  const targetDateStr = formatDate(targetDate)
+  let newStartDate = targetDateStr
+  let newDueDate = targetDateStr
+
+  if (dragAction.value === 'extend') {
+    const origStart = task.startDate || dragOriginCellDate.value || targetDateStr
+    if (targetDateStr >= origStart) {
+      newStartDate = origStart
+      newDueDate = targetDateStr
+    } else {
+      newStartDate = targetDateStr
+      newDueDate = origStart
+    }
+  } else {
+    if (task.startDate && task.dueDate && task.startDate !== task.dueDate) {
+      const span = getDaySpan(task.startDate, task.dueDate)
+      const endD = new Date(targetDate)
+      endD.setDate(endD.getDate() + span - 1)
+      newDueDate = formatDate(endD)
+    }
+  }
+
+  // 1. 乐观更新
+  const existing = tasks.value.find(t => t.id === task.id)
+  if (existing) {
+    existing.startDate = newStartDate
+    existing.dueDate = newDueDate
+    existing.startBucket = isToday(newStartDate) ? 'today' : 'anytime'
+  }
+
+  // 2. 真实持久化到数据库
+  await casyContext.tasks.update({
+    id: task.id,
+    startDate: newStartDate,
+    dueDate: newDueDate,
+    startBucket: isToday(newStartDate) ? 'today' : 'anytime',
+  })
+
+  if (newStartDate !== newDueDate) {
+    ElMessage.success(`已将「${task.taskName}」设定为跨天任务 (${newStartDate} ~ ${newDueDate})`)
+  } else {
+    ElMessage.success(`已将「${task.taskName}」排期至 ${targetDateStr}`)
+  }
+
+  await loadTasks()
+  onDragEnd()
+}
+
+// 放置到 Day 视图具体小时槽位
+async function onDropOnHourSlot(e, hour) {
+  e.preventDefault()
+  let task = currentDraggedTask.value
+  if (!task && e.dataTransfer) {
+    try {
+      task = JSON.parse(e.dataTransfer.getData('application/json'))
+    } catch {}
+  }
+  if (!task) return
+
+  const hourStr = `${String(hour).padStart(2, '0')}:00`
+  const targetDateStr = formatDate(currentDate.value)
+
+  const existing = tasks.value.find(t => t.id === task.id)
+  if (existing) {
+    existing.startDate = targetDateStr
+    existing.dueDate = targetDateStr
+    existing.startTime = hourStr
+    existing.startBucket = isToday(currentDate.value) ? 'today' : 'anytime'
+  }
+
+  await casyContext.tasks.update({
+    id: task.id,
+    startDate: targetDateStr,
+    dueDate: targetDateStr,
+    startTime: hourStr,
+    startBucket: isToday(currentDate.value) ? 'today' : 'anytime',
+  })
+
+  ElMessage.success(`已将「${task.taskName}」安排至 ${targetDateStr} ${hourStr}`)
+  await loadTasks()
+  await loadTodayTasks()
+  onDragEnd()
+}
+
+// 放置到 Holding Tank (取消排期)
+async function onDropToHoldingTank(e) {
+  e.preventDefault()
+  let task = currentDraggedTask.value
+  if (!task && e.dataTransfer) {
+    try {
+      task = JSON.parse(e.dataTransfer.getData('application/json'))
+    } catch {}
+  }
+  if (!task) return
+
+  const existing = tasks.value.find(t => t.id === task.id)
+  if (existing) {
+    existing.startDate = null
+    existing.dueDate = null
+    existing.startTime = null
+    existing.startBucket = 'inbox'
+  }
+
+  await casyContext.tasks.update({
+    id: task.id,
+    startDate: null,
+    dueDate: null,
+    startTime: null,
+    startBucket: 'inbox',
+  })
+
+  ElMessage.success(`已将「${task.taskName}」移入未排期池`)
+  await loadTasks()
+  onDragEnd()
+}
+
+function openDayModal(cell) {
+  activeDaySummary.value = cell
+  showDayModal.value = true
+}
+
+// 双击打开事项详情编辑
+function openEditDetail(item, type = 'task') {
+  if (type === 'task') {
+    editingItem.value = {
+      id: item.id,
+      type: 'task',
+      title: item.taskName || item.title || '',
+      startDate: item.startDate || item.dueDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
+      dueDate: item.dueDate || item.startDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
+      startTime: item.startTime || '',
+      caseId: item.caseId || '',
+      estimatedMinutes: item.estimatedMinutes || 60,
+      description: item.description || '',
+      completed: item.completed || 0,
+    }
+  } else {
+    editingItem.value = {
+      id: item.id,
+      type: 'event',
+      title: item.title || '',
+      startDate: item.date || item.eventDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
+      dueDate: item.date || item.eventDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
+      startTime: item.time || item.startTime || '',
+      caseId: item.caseId || '',
+      estimatedMinutes: 60,
+      description: item.notes || item.location || '',
+      completed: 0,
+    }
+  }
+  showEditDialog.value = true
+}
+
+// 保存编辑 (真实写入数据库)
+async function saveEditingItem() {
+  const item = editingItem.value
+  if (!item.title.trim()) {
+    ElMessage.warning('请输入标题')
+    return
+  }
+
+  if (item.type === 'task') {
+    if (!item.id) {
+      await casyContext.tasks.create({
+        taskName: item.title,
+        startDate: item.startDate || null,
+        dueDate: item.dueDate || null,
+        startTime: item.startTime || null,
+        caseId: item.caseId || null,
+        estimatedMinutes: item.estimatedMinutes || 60,
+        description: item.description || null,
+      })
+    } else {
+      await casyContext.tasks.update({
+        id: item.id,
+        taskName: item.title,
+        startDate: item.startDate || null,
+        dueDate: item.dueDate || null,
+        startTime: item.startTime || null,
+        caseId: item.caseId || null,
+        estimatedMinutes: item.estimatedMinutes || 60,
+        description: item.description || null,
+      })
+    }
+    ElMessage.success('已保存任务修改')
+    await loadTasks()
+    await loadTodayTasks()
+  } else {
+    if (item.id) {
+      await casyContext.calendar.updateEvent(item.id, {
+        title: item.title,
+        eventDate: item.dueDate || item.startDate,
+        startTime: item.startTime || null,
+        caseId: item.caseId || null,
+        notes: item.description || null,
+      })
+    } else {
+      await casyContext.calendar.createEvent({
+        title: item.title,
+        eventDate: item.dueDate || item.startDate,
+        startTime: item.startTime || null,
+        caseId: item.caseId || null,
+        notes: item.description || null,
+      })
+    }
+    ElMessage.success('已保存日程修改')
+    await loadEvents()
+  }
+
+  showEditDialog.value = false
+}
+
+// 删除事项 (真实删除数据库记录)
+async function deleteEditingItem() {
+  const item = editingItem.value
+  try {
+    await ElMessageBox.confirm(`确定删除「${item.title}」吗？`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+
+    if (item.type === 'task') {
+      if (item.id) {
+        await casyContext.tasks.remove(item.id)
+      }
+      tasks.value = tasks.value.filter(t => t.id !== item.id)
+      ElMessage.success('已删除任务')
+      await loadTasks()
+    } else if (item.type === 'event' && item.id) {
+      await casyContext.calendar.removeEvent(item.id)
+      events.value = events.value.filter(e => e.id !== item.id)
+      ElMessage.success('已删除日程')
+      await loadEvents()
+    }
+    showEditDialog.value = false
+  } catch {}
+}
+
+// ============================================================
+// 真实数据视图计算 (Zero Mock Data)
+// ============================================================
 const viewOptions = [
-  { key: 'day', label: '日视图' },
-  { key: 'week', label: '周视图' },
-  { key: 'month', label: '月视图' },
-  { key: 'year', label: '年视图' },
-  { key: 'forecast', label: '预测' },
+  { key: 'timeline', label: 'Timeline' },
+  { key: 'month', label: 'Month' },
+  { key: 'week', label: 'Week' },
+  { key: 'day', label: 'Day' },
+  { key: 'forecast', label: 'Forecast' },
 ]
 
-// ============================================================
-// 计算属性
-// ============================================================
-const currentMonth = computed(() => {
+const weekDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const weekDaysCn = ['一', '二', '三', '四', '五', '六', '日']
+const weekHours = Array.from({ length: 14 }, (_, i) => i + 8) // 8:00 - 21:00
+
+const currentMonthInfo = computed(() => {
   const y = currentDate.value.getFullYear()
   const m = currentDate.value.getMonth()
-  return { year: y, month: m }
+  const monthsEn = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ]
+  return {
+    year: y,
+    month: m,
+    monthNameEn: monthsEn[m],
+    label: `${monthsEn[m]} ${y}`,
+    cnLabel: `${y}年${m + 1}月`,
+  }
 })
 
-const monthLabel = computed(() => {
-  const { year, month } = currentMonth.value
-  return `${year}年${month + 1}月`
+// 月度洞察统计 (真实聚合)
+const monthInsights = computed(() => {
+  const currentMonthStr = `${currentDate.value.getFullYear()}-${String(currentDate.value.getMonth() + 1).padStart(2, '0')}`
+  const monthEvs = events.value.filter(e => e.date?.startsWith(currentMonthStr))
+  const monthTs = tasks.value.filter(t => t.dueDate?.startsWith(currentMonthStr))
+
+  const deadlinesCount = monthEvs.filter(e => e.type === 'court' || e.type === 'hearing' || e.type?.startsWith('deadline')).length
+  const totalMinutes = monthTs.reduce((acc, t) => acc + (t.estimatedMinutes || 60), 0)
+  const workloadHours = Math.round(totalMinutes / 60)
+  const holidaysCount = holidayEntries.value.length
+
+  return {
+    deadlines: deadlinesCount,
+    workload: `${workloadHours}h`,
+    workdays: 22,
+    holidays: holidaysCount,
+  }
 })
 
-/** 构建任一月份的 6×7 矩阵（month0 = 0-based；年视图与月视图共用） */
-function buildMonthMatrix(year, month0) {
-  const firstDay = new Date(year, month0, 1)
-  const lastDay = new Date(year, month0 + 1, 0)
+// 事件与任务匹配
+function eventsForDay(date) {
+  const ds = formatDate(date)
+  return events.value.filter(e => e.date === ds)
+}
 
-  // 周一起始
+function tasksForDay(date) {
+  const ds = formatDate(date)
+  return tasks.value.filter(t => {
+    if (t.dueDate === ds || t.startDate === ds) return true
+    if (t.startDate && t.dueDate && ds >= t.startDate && ds <= t.dueDate) return true
+    return false
+  })
+}
+
+function multiDayTasksForDay(date) {
+  const ds = formatDate(date)
+  return tasks.value.filter(t => {
+    return t.startDate && t.dueDate && t.startDate !== t.dueDate && ds >= t.startDate && ds <= t.dueDate
+  })
+}
+
+function distinctEventsForModal(date) {
+  const dayEvs = eventsForDay(date)
+  const dayTasks = tasksForDay(date)
+  const taskNames = new Set(dayTasks.map(t => t.taskName?.trim()))
+  return dayEvs.filter(e => {
+    if (taskNames.has(e.title?.trim()) && e.type !== 'court' && e.type !== 'hearing') {
+      return false
+    }
+    return true
+  })
+}
+
+function hasHardEventOnDay(date) {
+  const dayEvs = eventsForDay(date)
+  return dayEvs.some(e => e.type === 'court' || e.type === 'hearing' || e.type?.startsWith('deadline'))
+}
+
+function hasWaitingOnDay(date) {
+  const dayEvs = eventsForDay(date)
+  return dayEvs.some(e => e.type === 'waiting' || e.type === 'appeal' || e.type === 'discovery')
+}
+
+function hasPlanEventOnDay(date) {
+  const dayTasks = tasksForDay(date)
+  const dayEvs = eventsForDay(date)
+  return dayTasks.length > 0 || dayEvs.some(e => e.type === 'task' || e.type === 'event')
+}
+
+// 案件过滤列表 (真实案件数据库)
+const filteredCases = computed(() => {
+  const q = caseSearchQuery.value.trim().toLowerCase()
+  return cases.value.filter(c => !q || c.caseName?.toLowerCase().includes(q) || c.caseNo?.toLowerCase().includes(q))
+})
+
+// 时间线视图真实数据流 (按真实日期聚合真实事项)
+const timelineStream = computed(() => {
+  const map = new Map()
+
+  // 1. 过滤案件
+  const allowedCases = selectedCaseIds.value.has('all')
+    ? null
+    : selectedCaseIds.value
+
+  // 2. 收集事件
+  for (const ev of events.value) {
+    if (allowedCases && ev.caseId && !allowedCases.has(ev.caseId)) continue
+    const dateStr = ev.date
+    if (!dateStr) continue
+    if (!map.has(dateStr)) map.set(dateStr, [])
+    map.get(dateStr).push({
+      id: ev.id,
+      time: ev.time || '09:00',
+      title: ev.title,
+      caseName: ev.caseName || '律所事项',
+      type: ev.type === 'court' || ev.type === 'hearing' ? 'court' : 'primary',
+      tag1: ev.type === 'court' ? 'Trial' : 'Event',
+      tag2: ev.type === 'court' ? 'Hard Boundary' : 'Scheduled',
+      tag2Type: ev.type === 'court' ? 'risk' : 'neutral',
+      duration: '1.5h',
+    })
+  }
+
+  // 3. 收集任务
+  for (const t of tasks.value) {
+    if (allowedCases && t.caseId && !allowedCases.has(t.caseId)) continue
+    const dateStr = t.dueDate || t.startDate
+    if (!dateStr) continue
+    if (!map.has(dateStr)) map.set(dateStr, [])
+    map.get(dateStr).push({
+      id: t.id,
+      time: t.startTime || '14:00',
+      title: t.taskName,
+      caseName: t.caseName || '常规待办',
+      type: 'primary',
+      tag1: 'Task',
+      tag2: 'Flexible',
+      tag2Type: 'warning',
+      duration: t.estimatedMinutes ? `${Math.round(t.estimatedMinutes / 60)}h` : '1h',
+    })
+  }
+
+  // 排序
+  const sortedDates = Array.from(map.keys()).sort()
+  return sortedDates.map(dateStr => {
+    const d = new Date(dateStr)
+    const items = map.get(dateStr)
+    items.sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+    return {
+      dateStr,
+      dateLabel: isToday(d) ? `Today — ${d.getMonth() + 1}/${d.getDate()}` : `${d.getMonth() + 1}月${d.getDate()}日 (周${weekDaysCn[d.getDay() === 0 ? 6 : d.getDay() - 1]})`,
+      items,
+    }
+  })
+})
+
+// 月视图 7x6 矩阵生成
+const monthGridDays = computed(() => {
+  const { year, month } = currentMonthInfo.value
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+
   let startWeekday = firstDay.getDay() - 1
   if (startWeekday < 0) startWeekday = 6
 
   const days = []
-
-  // 上月末尾
-  const prevLastDay = new Date(year, month0, 0)
+  const prevLastDay = new Date(year, month, 0)
   for (let i = startWeekday - 1; i >= 0; i--) {
     days.push({
-      date: new Date(year, month0 - 1, prevLastDay.getDate() - i),
+      date: new Date(year, month - 1, prevLastDay.getDate() - i),
       isCurrentMonth: false,
     })
   }
 
-  // 本月
   for (let d = 1; d <= lastDay.getDate(); d++) {
     days.push({
-      date: new Date(year, month0, d),
+      date: new Date(year, month, d),
       isCurrentMonth: true,
     })
   }
 
-  // 下月开头
-  const remaining = 42 - days.length
+  const remaining = 35 - days.length > 0 ? 35 - days.length : (42 - days.length)
   for (let d = 1; d <= remaining; d++) {
     days.push({
-      date: new Date(year, month0 + 1, d),
+      date: new Date(year, month + 1, d),
       isCurrentMonth: false,
     })
   }
 
   return days
-}
-
-const calendarDays = computed(() => {
-  const { year, month } = currentMonth.value
-  return buildMonthMatrix(year, month)
 })
 
-// ── 年视图（对标 Fantastical 年视图 + 负载热度）──
-const yearLabel = computed(() => `${currentDate.value.getFullYear()} 年`)
+// 周视图 7 天列数据
+const weekColumns = computed(() => {
+  const now = new Date(currentDate.value)
+  const dayOfWeek = now.getDay() || 7
+  const monday = new Date(now)
+  monday.setDate(monday.getDate() - dayOfWeek + 1)
 
-const yearMatrices = computed(() => {
-  const y = currentDate.value.getFullYear()
-  return Array.from({ length: 12 }, (_, m) => buildMonthMatrix(y, m))
+  const list = []
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday)
+    d.setDate(d.getDate() + i)
+    list.push({
+      date: d,
+      dateStr: formatDate(d),
+      dayNum: d.getDate(),
+      weekDayEn: weekDaysEn[i],
+      weekDayCn: weekDaysCn[i],
+      isToday: isToday(d),
+      hasHard: hasHardEventOnDay(d),
+      events: eventsForDay(d),
+      tasks: tasksForDay(d),
+      multiDayTasks: multiDayTasksForDay(d),
+    })
+  }
+  return list
 })
 
-/** 当日负载 → 热度等级（日程+到期任务计数，贡献图式分档） */
-function dayLoadLevel(date) {
-  if (!date) return 0
-  const n = eventsForDay(date).length + tasksForDay(date).length
-  if (n === 0) return 0
-  if (n === 1) return 1
-  if (n <= 3) return 2
-  if (n <= 6) return 3
-  return 4
-}
+// 预测视图 14 天数据
+const forecast14Days = computed(() => {
+  const base = new Date(currentDate.value)
+  const list = []
 
-function jumpToMonth(month0) {
-  currentDate.value = new Date(currentDate.value.getFullYear(), month0, 1)
-  activeView.value = 'month'
-  loadData()
-}
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(base)
+    d.setDate(d.getDate() + i)
+    const dateStr = formatDate(d)
+    const dayEvs = eventsForDay(d)
+    const dayTasks = tasksForDay(d)
+    const dayMultis = multiDayTasksForDay(d)
 
-function jumpToDay(cell) {
-  if (!cell || !cell.date) return
-  currentDate.value = new Date(cell.date)
-  selectedDay.value = cell.date
-  activeView.value = 'day'
-  loadData()
-}
+    const totalMinutes = dayTasks.reduce((acc, t) => acc + (t.estimatedMinutes || 60), 0)
+    const totalHours = Math.round((totalMinutes / 60) * 10) / 10
+
+    const hasCourt = dayEvs.some(e => e.type === 'court' || e.type === 'hearing')
+    const hasDeadline = dayEvs.some(e => e.type?.startsWith('deadline') || e.type === 'appeal') || deadlineWarnings.value.some(w => w.deadlineDate === dateStr)
+
+    let riskLevel = 'free'
+    let riskTag = '排期充裕 · 专注窗口'
+
+    if (hasCourt || hasDeadline) {
+      riskLevel = 'risk'
+      riskTag = hasCourt ? '🔴 法庭庭审日 (强时间锁定)' : '🔴 法定诉讼期限截止日'
+    } else if (totalHours >= 4 || dayTasks.length >= 3) {
+      riskLevel = 'busy'
+      riskTag = `🟡 高密度工作日 (${totalHours}h)`
+    }
+
+    list.push({
+      index: i + 1,
+      date: d,
+      dateStr,
+      monthDayStr: `${d.getMonth() + 1}月${d.getDate()}日`,
+      weekdayCn: weekDaysCn[d.getDay() === 0 ? 6 : d.getDay() - 1],
+      isToday: isToday(d),
+      dayLabel: i === 0 ? '今日' : i === 1 ? '明日' : i === 2 ? '后天' : `${i}天后`,
+      events: dayEvs,
+      tasks: dayTasks,
+      multiDayTasks: dayMultis,
+      totalHours,
+      riskLevel,
+      riskTag,
+    })
+  }
+
+  if (forecastFilter.value === 'risk_only') {
+    return list.filter(d => d.riskLevel === 'risk')
+  } else if (forecastFilter.value === 'free_only') {
+    return list.filter(d => d.riskLevel === 'free')
+  }
+
+  return list
+})
+
+const forecastOverviewStats = computed(() => {
+  const base = new Date(currentDate.value)
+  let riskDays = 0
+  let totalHours = 0
+  let freeDays = 0
+
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(base)
+    d.setDate(d.getDate() + i)
+    const dayEvs = eventsForDay(d)
+    const dayTasks = tasksForDay(d)
+
+    const hasCourt = dayEvs.some(e => e.type === 'court' || e.type === 'hearing' || e.type?.startsWith('deadline'))
+    const mins = dayTasks.reduce((acc, t) => acc + (t.estimatedMinutes || 60), 0)
+    totalHours += mins
+
+    if (hasCourt) {
+      riskDays++
+    } else if (mins <= 120) {
+      freeDays++
+    }
+  }
+
+  return {
+    riskDays,
+    workloadHours: Math.round(totalHours / 60),
+    freeDays,
+  }
+})
+
+// 右侧统一 Holding Tank 真实任务池
+const tankTasks = computed(() => {
+  const q = tankSearch.value.trim().toLowerCase()
+  let list = []
+
+  if (tankFilter.value === 'unscheduled') {
+    list = tasks.value.filter(t => !t.dueDate && !t.completed)
+  } else if (tankFilter.value === 'week') {
+    const now = new Date(currentDate.value)
+    const dayOfWeek = now.getDay() || 7
+    const monday = new Date(now)
+    monday.setDate(monday.getDate() - dayOfWeek + 1)
+    const sunday = new Date(monday)
+    sunday.setDate(sunday.getDate() + 6)
+    const monStr = formatDate(monday)
+    const sunStr = formatDate(sunday)
+
+    list = tasks.value.filter(t => t.dueDate && t.dueDate >= monStr && t.dueDate <= sunStr && !t.completed)
+  } else if (tankFilter.value === 'multiday') {
+    list = tasks.value.filter(t => t.startDate && t.dueDate && t.startDate !== t.dueDate && !t.completed)
+  } else if (tankFilter.value === 'today') {
+    const ds = formatDate(currentDate.value)
+    list = tasks.value.filter(t => (t.dueDate === ds || t.startDate === ds) && !t.completed)
+  }
+
+  if (q) {
+    list = list.filter(t => t.taskName?.toLowerCase().includes(q) || t.caseName?.toLowerCase().includes(q))
+  }
+
+  return list
+})
 
 // ============================================================
-// 事件颜色编码（语义色）
+// 数据加载 (真实 IPC 接口)
 // ============================================================
-
-/**
- * 颜色规则：
- * - 开庭/口审: 红 #B4554F（硬性）
- * - 期限: 琥珀 #B0823A（到期）
- * - 二审: 紫 #6C6A9C
- * - 任务: 蓝 #3E5C9A（弹性/计划）
- * - 默认: 灰 #9BA2AF
- */
-function getEventColor(event) {
-  if (event.type === 'court' || event.type === 'hearing') {
-    return COLORS.hard
-  }
-  if (event.type === 'appeal') {
-    return COLORS.info
-  }
-  if (event.type?.startsWith('deadline')) {
-    return COLORS.due
-  }
-  if (event.type === 'task') {
-    return COLORS.plan
-  }
-  return COLORS.gray
-}
-
-function getEventBgColor(event) {
-  const color = getEventColor(event)
-  return color + '20' // 20% 透明度
-}
-
-/**
- * 获取事件类型图标
- */
-function getEventIcon(type) {
-  const icons = {
-    hearing: Calendar,
-    court: Bell,
-    deadline: Warning,
-    deadline_red: Warning,
-    deadline_yellow: Warning,
-    deadline_green: Warning,
-    task: Finished,
-  }
-  return icons[type] || Calendar
-}
-
-function getDayStatus(date) {
-  const dateStr = formatDate(date)
-  const dayEvents = eventsForDay(date)
-  const dayTasks = tasksForDay(date)
-
-  // 检查是否有硬性日程
-  const hasHardSchedule = dayEvents.some(e =>
-    e.type === 'court' || e.type === 'hearing'
-  )
-
-  // 检查是否有逾期任务
-  const hasOverdue = dayTasks.some(t => {
-    const due = t.dueDate || t.deadline
-    return due && due < new Date().toISOString().split('T')[0] && !t.completed
-  })
-
-  // 检查是否有即将到期任务
-  const hasDueSoon = dayTasks.some(t => {
-    const due = t.dueDate || t.deadline
-    if (!due || t.completed) return false
-    const diffDays = Math.ceil((new Date(due) - new Date()) / (1000 * 60 * 60 * 24))
-    return diffDays >= 0 && diffDays <= 3
-  })
-
-  if (hasHardSchedule) return 'hard'
-  if (hasOverdue) return 'overdue'
-  if (hasDueSoon) return 'due-soon'
-  return 'normal'
-}
-
-// ============================================================
-// 数据加载（全部经 casyContext 服务，不再直调 tauriCallSafe）
-// ============================================================
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
 })
 
 async function loadData() {
@@ -242,41 +759,25 @@ async function loadData() {
     loadEvents(),
     loadTasks(),
     loadTodayTasks(),
+    loadCases(),
     loadDeadlineWarnings(),
+    loadHolidays(),
   ])
   loading.value = false
 }
 
 async function loadEvents() {
-  const { year, month } = currentMonth.value
-  // 年视图：加载全年 12 个月（本地 SQLite 可承受）；
-  // 其余视图：当前月 + 下月，保证 Forecast 未来窗口跨月不缺数据
-  const months = []
-  if (activeView.value === 'year') {
-    for (let m = 0; m < 12; m++) months.push({ year, month: m + 1 })
-  } else {
-    const current = new Date(year, month, 1)
-    for (let i = 0; i < 2; i++) {
-      const d = new Date(current.getFullYear(), current.getMonth() + i, 1)
-      months.push({ year: d.getFullYear(), month: d.getMonth() + 1 })
-    }
+  const y = currentDate.value.getFullYear()
+  const m = currentDate.value.getMonth() + 1
+  const result = await casyContext.calendar.events(y, m)
+  if (result.ok && Array.isArray(result.data)) {
+    events.value = result.data.map(e => ({
+      ...e,
+      time: e.startTime || null,
+      endTime: e.endTime || null,
+      allDay: !!e.allDay,
+    }))
   }
-  const results = await Promise.all(months.map(m => casyContext.calendar.events(m.year, m.month)))
-  const merged = []
-  for (const r of results) {
-    if (r.ok && Array.isArray(r.data)) {
-      for (const e of r.data) {
-        merged.push({
-          ...e,
-          // 归一化：后端投影 start_time → 周视图既有的 time 字段约定
-          time: e.startTime || null,
-          endTime: e.endTime || null,
-          allDay: !!e.allDay,
-        })
-      }
-    }
-  }
-  events.value = merged
 }
 
 async function loadTasks() {
@@ -293,6 +794,13 @@ async function loadTodayTasks() {
   }
 }
 
+async function loadCases() {
+  const result = await casyContext.cases.list()
+  if (result.ok && Array.isArray(result.data)) {
+    cases.value = result.data
+  }
+}
+
 async function loadDeadlineWarnings() {
   const result = await casyContext.calendar.deadlineWarnings()
   if (result.ok && Array.isArray(result.data)) {
@@ -300,21 +808,40 @@ async function loadDeadlineWarnings() {
   }
 }
 
-// ============================================================
-// 导航（年视图步进 ±1 年，其余 ±1 月）
-// ============================================================
+async function loadHolidays() {
+  const year = currentDate.value.getFullYear()
+  const result = await casyContext.calendar.holidays(year)
+  if (result.ok && Array.isArray(result.data?.entries)) {
+    holidayEntries.value = result.data.entries
+  }
+}
+
 function prevPeriod() {
   const d = new Date(currentDate.value)
-  if (activeView.value === 'year') d.setFullYear(d.getFullYear() - 1)
-  else d.setMonth(d.getMonth() - 1)
+  if (activeView.value === 'day') {
+    d.setDate(d.getDate() - 1)
+  } else if (activeView.value === 'week') {
+    d.setDate(d.getDate() - 7)
+  } else if (activeView.value === 'forecast') {
+    d.setDate(d.getDate() - 14)
+  } else {
+    d.setMonth(d.getMonth() - 1)
+  }
   currentDate.value = d
   loadData()
 }
 
 function nextPeriod() {
   const d = new Date(currentDate.value)
-  if (activeView.value === 'year') d.setFullYear(d.getFullYear() + 1)
-  else d.setMonth(d.getMonth() + 1)
+  if (activeView.value === 'day') {
+    d.setDate(d.getDate() + 1)
+  } else if (activeView.value === 'week') {
+    d.setDate(d.getDate() + 7)
+  } else if (activeView.value === 'forecast') {
+    d.setDate(d.getDate() + 14)
+  } else {
+    d.setMonth(d.getMonth() + 1)
+  }
   currentDate.value = d
   loadData()
 }
@@ -324,2559 +851,2432 @@ function goToday() {
   loadData()
 }
 
-// ============================================================
-// 工具函数
-// ============================================================
-function isToday(date) {
-  const today = new Date()
-  return date.toDateString() === today.toDateString()
+async function toggleTask(task) {
+  const newDone = !task.completed
+  await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  await loadTasks()
+  await loadTodayTasks()
 }
 
-function formatDate(date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-function toDateStr(d) {
-  return formatDate(d)
-}
-
-function todayStr() {
-  return toDateStr(new Date())
-}
-
-function eventsForDay(date) {
-  const dateStr = formatDate(date)
-  return events.value.filter(e => e.date === dateStr)
-}
-
-function tasksForDay(date) {
-  const dateStr = formatDate(date)
-  return tasks.value.filter(t => {
-    const due = t.dueDate || t.deadline
-    const start = t.startDate
-    return due === dateStr || start === dateStr
-  })
-}
-
-function selectDay(day) {
-  selectedDay.value = day
-}
-
-function getEventTypeLabel(type) {
-  const labels = {
-    hearing: '口审',
-    court: '开庭',
-    appeal: '二审',
-    deadline: '期限',
-    deadline_red: '紧急期限',
-    deadline_yellow: '即将到期',
-    deadline_green: '正常期限',
-    task: '任务',
-  }
-  return labels[type] || type
-}
-
-// ============================================================
-// 选中日期的详情
-// ============================================================
-const selectedDayEvents = computed(() => {
-  if (!selectedDay.value) return []
-  return eventsForDay(selectedDay.value.date)
-})
-
-const selectedDayTasks = computed(() => {
-  if (!selectedDay.value) return []
-  return tasksForDay(selectedDay.value.date)
-})
-
-const selectedDayStats = computed(() => {
-  const events = selectedDayEvents.value
-  const tasks = selectedDayTasks.value
-
-  return {
-    hardSchedule: events.filter(e => e.type === 'court' || e.type === 'hearing').length,
-    deadlines: events.filter(e => e.type?.startsWith('deadline')).length,
-    tasks: tasks.length,
-    overdue: tasks.filter(t => {
-      const due = t.dueDate || t.deadline
-      return due && due < new Date().toISOString().split('T')[0] && !t.completed
-    }).length,
-  }
-})
-
-// ============================================================
-// 自然语言建日程（对标 Fantastical 快速输入）
-// 日期：今天/明天/后天 · 周X/下周X · X月X日 · MM-DD/MM/DD
-// 时间：上午/下午/晚上 + X点/X点半/X点整 · HH:MM
-// ============================================================
-
-/** 中文数字 → 阿拉伯数字（支持 一~九、两、十、十一~十九、二十…） */
-function parseCnNumber(s) {
-  if (!s) return null
-  if (/^\d+$/.test(s)) return parseInt(s, 10)
-  if (s === '十') return 10
-  if (s.includes('十')) {
-    const [a, b] = s.split('十')
-    return ((a ? CN_NUM[a] : 1) || 0) * 10 + (CN_NUM[b] || 0)
-  }
-  return CN_NUM[s] ?? null
-}
-
-/** 下午/晚上 12 小时制 → 24 小时制 */
-function resolveHour(hour, period) {
-  if ((period === '下午' || period === '晚上') && hour < 12) return hour + 12
-  return hour
-}
-
-/** X月X日 / MM-DD：今年内已过则顺延到明年 */
-function resolveMonthDay(m, day, today) {
-  let d = new Date(today.getFullYear(), m - 1, day)
-  if (d < today) d = new Date(today.getFullYear() + 1, m - 1, day)
-  return toDateStr(d)
-}
-
-/**
- * 解析自然语言日程文本
- * @returns {{ title: string, dateStr: string|null, timeStr: string|null, timeLabel: string|null }}
- */
-function parseCalendarText(raw) {
-  let text = (raw || '').trim()
-  if (!text) return null
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-
-  let dateStr = null
-
-  // ── 1) 日期：今天/明天/后天 ──
-  const rel = text.match(/(今天|明天|后天)/)
-  if (rel) {
-    const offset = rel[1] === '今天' ? 0 : rel[1] === '明天' ? 1 : 2
-    const d = new Date(today)
-    d.setDate(d.getDate() + offset)
-    dateStr = toDateStr(d)
-    text = text.replace(rel[0], ' ')
-  } else {
-    // ── 2) 周X / 本周X / 下周X（本周或下周最近一次） ──
-    const week = text.match(/(本|下)?周([一二三四五六日天])/)
-    if (week) {
-      const wd = WEEKDAY_MAP[week[2]]
-      const delta = (wd - today.getDay() + 7) % 7
-      const d = new Date(today)
-      d.setDate(d.getDate() + delta + (week[1] === '下' ? 7 : 0))
-      dateStr = toDateStr(d)
-      text = text.replace(week[0], ' ')
-    } else {
-      // ── 3) X月X日 ──
-      const mdCn = text.match(/(\d{1,2})月(\d{1,2})日/)
-      if (mdCn) {
-        dateStr = resolveMonthDay(parseInt(mdCn[1], 10), parseInt(mdCn[2], 10), today)
-        text = text.replace(mdCn[0], ' ')
-      } else {
-        // ── 4) MM-DD / MM/DD ──
-        const md = text.match(/(\d{1,2})[-/](\d{1,2})/)
-        if (md) {
-          dateStr = resolveMonthDay(parseInt(md[1], 10), parseInt(md[2], 10), today)
-          text = text.replace(md[0], ' ')
-        }
-      }
-    }
-  }
-
-  // ── 5) 时间 ──
-  const periodMatch = text.match(/(上午|下午|中午|晚上|凌晨)/)
-  const period = periodMatch ? periodMatch[1] : null
-  let timeStr = null
-  let timeLabel = null
-
-  // HH:MM（可带 上午/下午/晚上 前缀）
-  const hm = text.match(/(\d{1,2})[:：](\d{2})/)
-  if (hm) {
-    const hour = resolveHour(parseInt(hm[1], 10), period)
-    timeStr = `${String(hour).padStart(2, '0')}:${hm[2]}`
-    text = text.replace(hm[0], ' ')
-    timeLabel = period ? `${period} ${timeStr}` : timeStr
-  } else {
-    // X点 / X点半 / X点整（支持中文数字）
-    const cnHour = text.match(/([0-9一二两三四五六七八九十]{1,3})点(半|整)?/)
-    if (cnHour) {
-      const h = parseCnNumber(cnHour[1])
-      if (h !== null && h >= 0 && h <= 24) {
-        const minute = cnHour[2] === '半' ? 30 : 0
-        const hour = resolveHour(h, period)
-        timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-        text = text.replace(cnHour[0], ' ')
-        timeLabel = period ? `${period} ${timeStr}` : timeStr
-      }
-    } else if (period) {
-      // 仅时段：上午/下午/晚上 → 默认时刻
-      timeStr = PERIOD_DEFAULT_TIME[period] || null
-      timeLabel = timeStr ? `${period} ${timeStr}` : null
-    }
-  }
-
-  if (period) text = text.replace(period, ' ')
-
-  // 清理残留分隔符，得到标题
-  const title = text.replace(/[，。,.、\s]+/g, ' ').trim() || (raw || '').trim()
-
-  return { title, dateStr, timeStr, timeLabel }
-}
-
-/**
- * 回车创建日程。
- * 后端没有日历事件创建命令（get_calendar_events 只读）→ 降级为任务：
- * casyContext.tasks.create({ taskName, startDate, dueDate, startBucket: 'upcoming' })
- */
 async function createFromNaturalLanguage() {
   const text = captureInput.value.trim()
   if (!text || capturing.value) return
-  const parsed = parseCalendarText(text)
-  const title = parsed ? parsed.title : text
-  if (!title) {
-    ElMessage.warning('请输入日程内容')
-    return
-  }
-
-  const dateStr = (parsed && parsed.dateStr) || todayStr() // 未指定日期默认今天
-  const startTime = (parsed && parsed.timeStr) || null
-  const display = `${dateStr}${parsed && parsed.timeLabel ? ' ' + parsed.timeLabel : ''} · ${title}`
-
   capturing.value = true
-  // D-7：日程是独立事实源——直接落 calendar_events，不再降级为任务
   const result = await casyContext.calendar.createEvent({
-    title,
-    eventDate: dateStr,
-    startTime,
-    allDay: startTime ? 0 : 1,
+    title: text,
+    eventDate: formatDate(currentDate.value),
+    allDay: 1,
   })
   capturing.value = false
-
   if (result.ok) {
-    ElMessage.success(`已创建日程：${display}`)
+    ElMessage.success(`已创建日程：${text}`)
     captureInput.value = ''
     await loadData()
   } else {
     ElMessage.error(result.error || '创建失败')
   }
 }
-
-function onCaptureKeydown(e) {
-  e.preventDefault()
-  createFromNaturalLanguage()
-}
-
-/** 日视图议程勾选：乐观翻转 → IPC，失败回滚（M-GTD-1 手感一致） */
-async function toggleAgendaTask(task) {
-  const prev = task.completed
-  task.completed = prev ? 0 : 1
-  const result = await casyContext.tasks.toggle(task.id)
-  if (!result.ok) {
-    task.completed = prev
-    ElMessage.error(result.error || '更新失败')
-    return
-  }
-  // 完成后从未完成任务源消失，重拉保持口径一致
-  await loadTasks()
-}
-
-// ============================================================
-// Forecast 双栏（对标 Fantastical）
-// 左栏：按日分组的日程/期限列表（events + deadlineWarnings）
-// 右栏：当日"硬性日程 + 弹性任务"时间轴（tasks startBucket=today）
-// ============================================================
-const FORECAST_DAYS = 14
-
-const forecastWindow = computed(() => {
-  const today = new Date()
-  const days = []
-  for (let i = 0; i < FORECAST_DAYS; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i)
-    days.push({
-      date: d,
-      dateStr: toDateStr(d),
-      isToday: i === 0,
-      label: i === 0 ? '今天' : i === 1 ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日`,
-      weekDay: weekDays[d.getDay() === 0 ? 6 : d.getDay() - 1],
-    })
-  }
-  return days
-})
-
-/** 期限预警归一化（兼容后端 DeadlineResult 与 dashboard mock 两种形状） */
-function normalizeWarning(w) {
-  return {
-    date: w.dueDate || w.date || w.deadline || '',
-    title: w.ruleName || w.deadlineName || w.title || w.message || '期限预警',
-    caseName: w.caseName || '',
-    caseId: w.caseId || w.deadlineId || null,
-    daysLeft: typeof w.daysLeft === 'number' ? w.daysLeft : null,
-  }
-}
-
-const forecastGroups = computed(() => {
-  const warnByDate = {}
-  const overdue = []
-  const todayDs = todayStr()
-  for (const w of deadlineWarnings.value) {
-    const n = normalizeWarning(w)
-    if (!n.date) continue
-    if (n.date < todayDs) {
-      overdue.push({ kind: 'warning', ...n, color: COLORS.due, icon: Warning })
-      continue
-    }
-    if (!warnByDate[n.date]) warnByDate[n.date] = []
-    warnByDate[n.date].push({ kind: 'warning', ...n, color: COLORS.due, icon: Warning })
-  }
-
-  const rank = { hard: 0, deadline: 1, warning: 2, other: 3 }
-
-  const groups = []
-  if (overdue.length > 0) {
-    groups.push({
-      date: new Date(),
-      dateStr: 'overdue',
-      isToday: false,
-      isOverdue: true,
-      label: '已逾期',
-      weekDay: '',
-      items: overdue,
-    })
-  }
-
-  for (const day of forecastWindow.value) {
-    const items = []
-    for (const e of events.value.filter(ev => ev.date === day.dateStr)) {
-      const kind = e.type === 'court' || e.type === 'hearing'
-        ? 'hard'
-        : e.type?.startsWith('deadline')
-          ? 'deadline'
-          : 'other'
-      items.push({
-        kind,
-        title: e.title,
-        caseName: e.caseName || '',
-        time: e.time || null,
-        color: getEventColor(e),
-        icon: kind === 'hard' ? Bell : kind === 'deadline' ? Warning : Calendar,
-        daysLeft: null,
-      })
-    }
-    for (const w of (warnByDate[day.dateStr] || [])) {
-      items.push(w)
-    }
-    items.sort((a, b) => {
-      const r = (rank[a.kind] ?? 4) - (rank[b.kind] ?? 4)
-      if (r !== 0) return r
-      const ta = a.time || '99:99'
-      const tb = b.time || '99:99'
-      return ta < tb ? -1 : ta > tb ? 1 : 0
-    })
-    groups.push({ ...day, items })
-  }
-  return groups
-})
-
-// ============================================================
-// 今日时间分配网格（右栏 · 设计哲学 §7.2 时间块分区）
-// 时间块：上午 06-12 / 下午 12-18 / 晚上 18-22 / 其他 22-06
-// 无时间的弹性任务进"弹性"分区（单独一块，视觉与硬性区分）
-// ============================================================
-const todayLabel = computed(() => {
-  const d = new Date()
-  return `${d.getMonth() + 1}月${d.getDate()}日 周${weekDays[d.getDay() === 0 ? 6 : d.getDay() - 1]}`
-})
-
-const TIME_BLOCKS = [
-  { key: 'morning', label: '上午', range: '06:00-12:00' },
-  { key: 'afternoon', label: '下午', range: '12:00-18:00' },
-  { key: 'evening', label: '晚上', range: '18:00-22:00' },
-  { key: 'other', label: '其他', range: '22:00-06:00' },
-]
-
-/** 时间字符串 → 时间块；无时间或解析失败 → 弹性分区 */
-function timeBlockFor(timeStr) {
-  if (!timeStr) return 'flex'
-  const m = String(timeStr).match(/(\d{1,2})[:：](\d{2})/)
-  if (!m) return 'flex'
-  const h = parseInt(m[1], 10)
-  if (h >= 6 && h < 12) return 'morning'
-  if (h >= 12 && h < 18) return 'afternoon'
-  if (h >= 18 && h < 22) return 'evening'
-  return 'other' // 22:00-06:00
-}
-
-/**
- * 解析自然语言建日程写入任务名的前缀时间（"14:00 会议" → 14:00），
- * 让带时间的弹性任务也能落进对应时间块；解析失败视为未定时。
- */
-function extractTaskTime(name) {
-  const m = String(name || '').match(/^(\d{1,2})[:：](\d{2})\s+(\S.*)$/)
-  if (!m) return null
-  const h = parseInt(m[1], 10)
-  const min = parseInt(m[2], 10)
-  if (h > 23 || min > 59) return null
-  return {
-    time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
-    rest: m[3],
-  }
-}
-
-/** 当日硬性日程（开庭/口审/期限 events + 今日到期的期限预警） */
-const todayHardItems = computed(() => {
-  const ds = todayStr()
-  const items = []
-  let idx = 0
-  for (const e of events.value) {
-    if (e.date !== ds) continue
-    const isHard = e.type === 'court' || e.type === 'hearing'
-    const isDeadline = e.type?.startsWith('deadline')
-    if (!isHard && !isDeadline) continue
-    items.push({
-      uid: 'evt-' + (e.id || idx++),
-      title: e.title,
-      time: e.time || null,
-      caseName: e.caseName || '',
-      kind: 'hard',
-      color: getEventColor(e),
-      done: false,
-      daysLeft: null,
-      minutes: null,
-      todayIndex: 0,
-      task: null,
-    })
-  }
-  for (const w of deadlineWarnings.value) {
-    const n = normalizeWarning(w)
-    if (n.date === ds) {
-      items.push({
-        uid: 'warn-' + (n.caseId || n.title),
-        title: n.title,
-        time: null,
-        caseName: n.caseName,
-        kind: 'hard',
-        color: COLORS.due,
-        done: false,
-        daysLeft: n.daysLeft,
-        minutes: null,
-        todayIndex: 0,
-        task: null,
-      })
-    }
-  }
-  return items
-})
-
-/** 当日弹性任务（startBucket=today；task 保留原引用供拖拽/点击） */
-const todayFlexItems = computed(() => {
-  return todayTasks.value.map(t => {
-    const parsed = extractTaskTime(t.taskName)
-    return {
-      uid: 'task-' + t.id,
-      title: parsed ? parsed.rest : t.taskName,
-      time: parsed ? parsed.time : null,
-      caseName: t.caseName || '',
-      kind: 'flex',
-      color: COLORS.plan,
-      done: !!t.completed,
-      daysLeft: null,
-      minutes: t.estimatedMinutes || null,
-      todayIndex: t.todayIndex || 0,
-      task: t,
-    }
-  })
-})
-
-/** 时间块分区网格：4 个时段块 + 1 个弹性块，块内按时间排序 */
-const todayBlocks = computed(() => {
-  const blocks = [
-    ...TIME_BLOCKS.map(b => ({ ...b, items: [] })),
-    { key: 'flex', label: '弹性', range: '未定时', items: [] },
-  ]
-
-  for (const item of [...todayHardItems.value, ...todayFlexItems.value]) {
-    const key = timeBlockFor(item.time)
-    blocks.find(b => b.key === key)?.items.push(item)
-  }
-
-  for (const block of blocks) {
-    block.items.sort((a, b) => {
-      if (a.done !== b.done) return a.done ? 1 : -1 // 已完成排后
-      if (block.key === 'flex') {
-        // 弹性分区：硬性（期限）优先，其余按今日序号
-        if (a.kind !== b.kind) return a.kind === 'hard' ? -1 : 1
-        return (a.todayIndex || 0) - (b.todayIndex || 0)
-      }
-      // 时段块内按时间排序
-      const ta = a.time || '99:99'
-      const tb = b.time || '99:99'
-      return ta < tb ? -1 : ta > tb ? 1 : 0
-    })
-  }
-  return blocks
-})
-
-/** 硬性日程占据的时间块（仅时段块） */
-const hardOccupiedBlocks = computed(() => {
-  return TIME_BLOCKS
-    .filter(b => todayBlocks.value.find(x => x.key === b.key)?.items.some(i => i.kind === 'hard'))
-    .map(b => b.key)
-})
-
-/** 时间分配提示（§7.3）：硬性占 ≥2 个时段块 → 推荐空块 */
-const allocationTip = computed(() => {
-  const occupied = hardOccupiedBlocks.value
-  if (occupied.length < 2) return null
-  const free = TIME_BLOCKS.find(b => !occupied.includes(b.key))
-  if (free) return `今日硬性日程密集，弹性任务建议安排在${free.label}`
-  return '今日硬性日程密集，各时间块均有硬性安排，弹性任务建议择日再排'
-})
-
-/** 时间槽标签：优先时间，其次预计分钟/剩余天数 */
-function itemTimeLabel(item) {
-  if (item.time) return item.time
-  if (item.minutes) return `${item.minutes}m`
-  if (item.daysLeft !== null && item.daysLeft !== undefined) return `${item.daysLeft}天`
-  return '--:--'
-}
-
-/**
- * 周视图：获取某天某小时的事件
- */
-const weekHours = Array.from({ length: 15 }, (_, i) => i + 7) // 7:00 - 21:00
-
-/** 当前时刻线：可见时段内的纵向偏移百分比（7:00-21:00 = 840 分钟） */
-const nowLineTop = computed(() => {
-  const now = new Date()
-  const minutes = now.getHours() * 60 + now.getMinutes()
-  const from = 7 * 60
-  const span = 14 * 60
-  if (minutes < from || minutes > from + span) return null
-  return ((minutes - from) / span) * 100
-})
-
-/** 时刻线仅横贯今日列（Google Calendar 惯例）；top 相对 .week-body（恰为可见 840 分钟） */
-const nowLineStyle = computed(() => {
-  if (nowLineTop.value === null) return { display: 'none' }
-  const d = new Date()
-  const col = (d.getDay() || 7) - 1 // 周一 = 0
-  return {
-    top: `${nowLineTop.value}%`,
-    left: `calc(56px + (100% - 56px) * ${col / 7})`,
-    width: `calc((100% - 56px) / 7)`,
-  }
-})
-
-function getWeekDay(dayIndex) {
-  const d = new Date(currentDate.value)
-  const currentDay = d.getDay() || 7
-  const diff = dayIndex - currentDay
-  d.setDate(d.getDate() + diff)
-  return d
-}
-
-// ── 周视图时长定位（Google Calendar 式）──────────────────
-const WEEK_START_MIN = 7 * 60   // 07:00
-const WEEK_SPAN_MIN = 14 * 60   // 至 21:00
-
-function toMin(t) {
-  if (!t) return null
-  const parts = String(t).split(':')
-  const h = Number(parts[0])
-  if (Number.isNaN(h)) return null
-  return h * 60 + (Number(parts[1]) || 0)
-}
-
-/** 七日列数据：allday chips + timed 绝对定位块（重叠聚类 → 贪心分列） */
-const weekColumns = computed(() => {
-  return Array.from({ length: 7 }, (_, di) => {
-    const date = getWeekDay(di + 1)
-    const dateStr = formatDate(date)
-
-    const allday = []
-    const timed = []
-    for (const e of events.value.filter(x => x.date === dateStr)) {
-      if (!e.time) {
-        allday.push({ ev: { ...e, isTask: false } })
-      } else {
-        timed.push({ ...e, isTask: false })
-      }
-    }
-    // 有具体时刻的任务并入时间块（§7：日历+待办合一）
-    for (const t of tasksForDay(date)) {
-      if (t.completed || !t.dueTime) continue
-      timed.push({
-        ...t,
-        id: 'task-' + t.id,
-        title: t.taskName,
-        time: t.dueTime,
-        endTime: null,
-        isTask: true,
-      })
-    }
-
-    const positioned = timed.map(e => {
-      let s = toMin(e.time) ?? WEEK_START_MIN
-      let en = toMin(e.endTime) ?? s + 60
-      s = Math.max(WEEK_START_MIN, Math.min(s, WEEK_START_MIN + WEEK_SPAN_MIN))
-      en = Math.max(s + 45, Math.min(en, WEEK_START_MIN + WEEK_SPAN_MIN))
-      return { ev: e, start: s, end: en }
-    })
-
-    positioned.sort((a, b) => a.start - b.start || a.end - b.end)
-    const clusters = []
-    let cur = null
-    for (const p of positioned) {
-      if (cur && p.start < cur.end) {
-        cur.items.push(p)
-        cur.end = Math.max(cur.end, p.end)
-      } else {
-        cur = { items: [p], end: p.end }
-        clusters.push(cur)
-      }
-    }
-    for (const cl of clusters) {
-      const colEnds = []
-      for (const p of cl.items) {
-        let ci = colEnds.findIndex(end => end <= p.start)
-        if (ci === -1) {
-          colEnds.push(p.end)
-          ci = colEnds.length - 1
-        } else {
-          colEnds[ci] = p.end
-        }
-        p.col = ci
-      }
-      const cols = colEnds.length
-      for (const p of cl.items) {
-        p.style = {
-          top: `${((p.start - WEEK_START_MIN) / WEEK_SPAN_MIN) * 100}%`,
-          height: `max(${((p.end - p.start) / WEEK_SPAN_MIN) * 100}%, 26px)`,
-          left: `calc(${(p.col / cols) * 100}% + 2px)`,
-          width: `calc(${100 / cols}% - 4px)`,
-        }
-        p.label = `${Math.floor(p.start / 60)}:${String(p.start % 60).padStart(2, '0')}${p.ev.endTime ? ' - ' + p.ev.endTime : ''}`
-      }
-    }
-
-    return { allday, timed: positioned }
-  })
-})
-
-/** 投放换算：timed 层按 offsetY 反解小时；allday 层 hour=null */
-function onDropToSlot(e, dayIndex, kind) {
-  let hour = null
-  if (kind === 'timed') {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = (e.clientY - rect.top) / rect.height
-    hour = Math.min(21, Math.max(7, Math.floor(WEEK_START_MIN / 60 + ratio * 14)))
-  }
-  onDropToTime(formatDate(getWeekDay(dayIndex)), hour)
-}
-
-// ── 日视图时间轴（Sunsama 式单日排期）──────────────────
-const selectedDateStr = computed(() => formatDate(selectedDay.value?.date || new Date()))
-const isTodaySelected = computed(() => isToday(selectedDay.value?.date || new Date()))
-
-/** 当日时间块：有时刻的日程 + 未完成任务(dueTime)，统一绝对定位 */
-const dayTimedItems = computed(() => {
-  const d = selectedDay.value?.date || new Date()
-  const evs = eventsForDay(d)
-    .filter(e => e.time)
-    .map(e => ({ ...e, isTask: false }))
-  const tks = tasksForDay(d)
-    .filter(t => !t.completed && t.dueTime)
-    .map(t => ({
-      id: 'task-' + t.id,
-      title: t.taskName,
-      time: t.dueTime,
-      endTime: null,
-      isTask: true,
-    }))
-
-  return [...evs, ...tks].map(e => {
-    let s = toMin(e.time) ?? WEEK_START_MIN
-    let en = toMin(e.endTime) ?? s + 60
-    s = Math.max(WEEK_START_MIN, Math.min(s, WEEK_START_MIN + WEEK_SPAN_MIN))
-    en = Math.max(s + 40, Math.min(en, WEEK_START_MIN + WEEK_SPAN_MIN))
-    return {
-      ev: e,
-      style: {
-        top: `${((s - WEEK_START_MIN) / WEEK_SPAN_MIN) * 100}%`,
-        height: `max(${((en - s) / WEEK_SPAN_MIN) * 100}%, 24px)`,
-        left: '4px',
-        right: '6px',
-      },
-      time: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`,
-    }
-  })
-})
-
-/** 拖入日时间轴：按 offsetY 反解整点，落库 dueDate+dueTime */
-async function onDropToDayHour(e) {
-  if (!draggedTask.value) return
-  const rect = e.currentTarget.getBoundingClientRect()
-  const ratio = (e.clientY - rect.top) / rect.height
-  const minutes = WEEK_START_MIN + Math.floor((ratio * WEEK_SPAN_MIN) / 60) * 60
-  const hhmm = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:00`
-  const dateStr = selectedDateStr.value
-
-  const task = draggedTask.value
-  const result = await casyContext.tasks.update({
-    id: task.id,
-    dueDate: dateStr,
-    deadline: dateStr,
-    dueTime: hhmm,
-  })
-  if (result.ok) {
-    applyTaskMoveLocal(task.id, dateStr, hhmm)
-    ElMessage.success(`已排期到 ${dateStr} ${hhmm}`)
-    await Promise.all([loadTasks(), loadEvents()])
-  }
-  draggedTask.value = null
-}
-
-function getWeekDayHourEvents(date, hour) {
-  const dateStr = formatDate(date)
-  const evs = events.value.filter(e => {
-    if (e.date !== dateStr) return false
-    if (!e.time) return false
-    const eHour = parseInt(e.time.split(':')[0])
-    return eHour === hour
-  })
-  // 综合显示：同时列出该时刻的有具体时间点的任务（设计哲学 §7：日历+待办合一）
-  const dayTasks = tasksForDay(date).filter(t => {
-    if (!t.dueTime) return false
-    const tHour = parseInt(t.dueTime.split(':')[0])
-    return tHour === hour
-  })
-  return [...evs, ...dayTasks.map(t => ({
-    id: 'task-' + t.id,
-    isTask: true,
-    task: t,
-    title: t.taskName,
-    time: t.dueTime || '',
-    date: dateStr,
-  }))]
-}
-
-/**
- * 拖拽相关（改期 = casyContext.tasks.update）
- */
-const draggedTask = ref(null)
-const draggedEvent = ref(null)
-
-/** 独立日程拖拽（仅 type='event'；庭审/期限是案件域投影不可移动） */
-function onEventDragStart(ev, e) {
-  if (ev.type !== 'event') return
-  draggedEvent.value = ev
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', String(ev.id))
-}
-
-/** 月视图投放路由：任务走 tasks.update，独立日程走 calendar.moveEvent */
-async function onMonthDrop(e, day) {
-  const dateStr = day && day.date ? formatDate(day.date) : ''
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return
-
-  if (draggedTask.value) {
-    await onDrop(dateStr, e)
-    return
-  }
-  if (draggedEvent.value) {
-    const ev = draggedEvent.value
-    draggedEvent.value = null
-    if (ev.date === dateStr) return
-    const result = await casyContext.calendar.moveEvent(ev.id, dateStr, ev.time ?? null)
-    if (result.ok) {
-      ElMessage.success(`日程已移动到 ${dateStr}`)
-      await loadEvents()
-    } else {
-      ElMessage.error(result.error || '移动失败')
-    }
-  }
-}
-
-function onDragStart(task, event) {
-  draggedTask.value = task
-  event.dataTransfer.effectAllowed = 'move'
-  event.dataTransfer.setData('text/plain', task.id)
-}
-
-function onDragOver(dateStr, event) {
-  event.preventDefault()
-  event.dataTransfer.dropEffect = 'move'
-}
-
-
-/** 拖拽改期后：同步本地 tasks 条目与 events 任务投影（拖拽实时反应，不等重拉） */
-function applyTaskMoveLocal(taskId, dateStr, timeStr) {
-  const t = tasks.value.find(x => x.id === taskId)
-  if (t) {
-    t.dueDate = dateStr
-    t.deadline = dateStr
-    if (timeStr) t.dueTime = timeStr
-  }
-  const ev = events.value.find(x => x.id === taskId && x.type === 'task')
-  if (ev) {
-    ev.date = dateStr
-    if (timeStr) ev.time = timeStr
-  }
-}
-
-// 拖拽到时间点（设计哲学 §7.3：拖到时间轴某时刻 = 改日期 + 时间）
-async function onDropToTime(dateStr, hour) {
-  if (!draggedTask.value) return
-  const task = draggedTask.value
-  // 全天投放（hour=null）：保留原时刻或默认 09:00
-  const timeStr = hour == null
-    ? (task.dueTime || '09:00')
-    : String(hour).padStart(2, '0') + ':00'
-  if (task.dueDate === dateStr && (task.dueTime || '00:00').slice(0, 2) === timeStr.slice(0, 2)) return
-  const result = await casyContext.tasks.update({
-    id: task.id,
-    dueDate: dateStr,
-    deadline: dateStr,
-    dueTime: timeStr,
-  })
-  if (result.ok) {
-    applyTaskMoveLocal(task.id, dateStr, timeStr)
-    ElMessage.success('已改期到 ' + dateStr + ' ' + timeStr)
-    await Promise.all([loadTasks(), loadTodayTasks()])
-  }
-  draggedTask.value = null
-}
-
-async function onDrop(dateStr, event) {
-  event.preventDefault()
-  if (!draggedTask.value) return
-  // 仅接受 YYYY-MM-DD 目标（'overdue' 分组不是日期，忽略）
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return
-
-  const task = draggedTask.value
-  const oldDate = task.dueDate || task.deadline
-
-  if (oldDate === dateStr) return
-
-  // 更新任务日期（data 内带 id，对齐后端 update_task 只收 data）
-  const result = await casyContext.tasks.update({
-    id: task.id,
-    dueDate: dateStr,
-    deadline: dateStr,
-  })
-
-  if (result.ok) {
-    ElMessage.success(`已改期到 ${dateStr}`)
-    await Promise.all([loadTasks(), loadTodayTasks()])
-  }
-
-  draggedTask.value = null
-}
 </script>
 
-
 <template>
-  <div class="calendar-page">
-    <!-- 自然语言建日程（对标 Fantastical 快速输入） -->
-    <div class="capture-bar">
-      <el-input
-        ref="captureInputRef"
-        v-model="captureInput"
-        placeholder="自然语言建日程：如「周五下午3点和张三开会」「明天 14:00 提交材料」"
-        clearable
-        :disabled="capturing"
-        @keydown.enter="onCaptureKeydown"
-      >
-        <template #prefix>
-          <el-icon><Plus /></el-icon>
-        </template>
-      </el-input>
-      <div class="capture-hint">
-        <span>回车创建</span>
-        <span class="capture-hint-divider">·</span>
-        <span>支持 今天/明天/周X/X月X日/MM-DD + 上午/下午/X点/HH:MM</span>
-      </div>
-    </div>
-
-    <!-- 工具栏 -->
-    <div class="calendar-toolbar">
-      <div class="toolbar-left">
-        <el-button @click="prevPeriod" :icon="ArrowLeft" circle />
-        <el-button @click="goToday" size="small">今天</el-button>
-        <span class="month-label">{{ activeView === 'year' ? yearLabel : monthLabel }}</span>
-        <el-button @click="nextPeriod" :icon="ArrowRight" circle />
+  <div class="stitch-calendar-workspace">
+    <!-- ═══ 1. 顶部 Header 栏 ═══ -->
+    <div class="calendar-top-header">
+      <div class="header-titles">
+        <div class="month-title-row">
+          <h1 class="month-display-title">
+            {{ activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? `未来 14 天诉讼与排期预测` : currentMonthInfo.label }}
+          </h1>
+          <div class="month-nav-btns">
+            <button class="nav-arrow-btn" @click="prevPeriod" title="Previous">
+              <el-icon :size="16"><ArrowLeft /></el-icon>
+            </button>
+            <button class="nav-today-pill" @click="goToday">Today</button>
+            <button class="nav-arrow-btn" @click="nextPeriod" title="Next">
+              <el-icon :size="16"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="toolbar-right">
-        <el-radio-group v-model="activeView" size="small">
-          <el-radio-button
-            v-for="view in viewOptions"
-            :key="view.key"
-            :value="view.key"
+      <div class="header-right-actions">
+        <!-- 快速输入条 -->
+        <div class="natural-input-box">
+          <el-icon class="input-icon" :size="14"><Plus /></el-icon>
+          <input
+            v-model="captureInput"
+            placeholder="Search or schedule (CMD+K)..."
+            class="natural-real-input"
+            @keyup.enter="createFromNaturalLanguage"
+          />
+        </div>
+
+        <!-- 视图切换胶囊 -->
+        <div class="view-switch-pill">
+          <button
+            v-for="vo in viewOptions"
+            :key="vo.key"
+            class="switch-btn"
+            :class="{ active: activeView === vo.key }"
+            @click="activeView = vo.key"
           >
-            {{ view.label }}
-          </el-radio-button>
-        </el-radio-group>
-      </div>
-    </div>
-
-    <!-- 月视图 -->
-    <div v-if="activeView === 'month'" class="calendar-container">
-      <div class="calendar-grid">
-        <!-- 星期头 -->
-        <div v-for="day in weekDays" :key="day" class="weekday-header">{{ day }}</div>
-
-        <!-- 日期格子 -->
-        <div
-          v-for="(day, idx) in calendarDays"
-          :key="idx"
-          :class="['day-cell', {
-            'other-month': !day.isCurrentMonth,
-            'today': isToday(day.date),
-            'selected': selectedDay && day.date.toDateString() === selectedDay.date.toDateString(),
-            'has-hard': getDayStatus(day.date) === 'hard',
-            'has-overdue': getDayStatus(day.date) === 'overdue',
-            'has-due-soon': getDayStatus(day.date) === 'due-soon',
-          }]"
-          @click="selectDay(day)"
-          @dragover.prevent="onDragOver(formatDate(day.date), $event)"
-          @drop.prevent="onMonthDrop($event, day)"
-        >
-          <div class="day-header">
-            <span class="day-number">{{ day.date.getDate() }}</span>
-            <span v-if="getDayStatus(day.date) === 'hard'" class="day-indicator hard">
-              <el-icon :size="12"><Bell /></el-icon>
-            </span>
-            <span v-else-if="getDayStatus(day.date) === 'overdue'" class="day-indicator overdue">
-              <el-icon :size="12"><Warning /></el-icon>
-            </span>
-          </div>
-
-          <div class="day-events">
-            <!-- 硬性日程 -->
-            <div
-              v-for="event in eventsForDay(day.date).filter(e => e.type === 'court' || e.type === 'hearing').slice(0, 2)"
-              :key="event.id"
-              class="event-badge hard"
-              :title="event.title"
-            >
-              <span class="event-text">{{ event.title }}</span>
-            </div>
-
-            <!-- 期限 -->
-            <div
-              v-for="event in eventsForDay(day.date).filter(e => e.type?.startsWith('deadline')).slice(0, 1)"
-              :key="event.id"
-              class="event-badge deadline"
-              :style="{ backgroundColor: getEventBgColor(event), color: getEventColor(event) }"
-              :title="event.title"
-            >
-              <span class="event-text">{{ event.title }}</span>
-            </div>
-
-            <!-- 独立日程（D-7）：可拖拽改期 -->
-            <div
-              v-for="event in eventsForDay(day.date).filter(e => e.type === 'event').slice(0, 2)"
-              :key="'ev-' + event.id"
-              class="event-badge event"
-              :style="{ backgroundColor: getEventBgColor(event), color: getEventColor(event) }"
-              :title="event.title + '（拖拽可改期）'"
-              draggable="true"
-              @dragstart="onEventDragStart(event, $event)"
-            >
-              <span class="event-text">{{ event.time ? event.time + ' ' : '' }}{{ event.title }}</span>
-            </div>
-
-            <!-- 任务（可拖拽改期） -->
-            <div
-              v-for="task in tasksForDay(day.date).slice(0, 2)"
-              :key="task.id"
-              class="event-badge task"
-              :title="task.taskName + '（拖拽可改期）'"
-              draggable="true"
-              @dragstart="onDragStart(task, $event)"
-            >
-              <span class="event-text">{{ task.dueTime ? task.dueTime + ' ' : '' }}{{ task.taskName }}</span>
-            </div>
-
-            <!-- 更多提示 -->
-            <div
-              v-if="eventsForDay(day.date).length + tasksForDay(day.date).length > 4"
-              class="event-more"
-            >
-              +{{ eventsForDay(day.date).length + tasksForDay(day.date).length - 4 }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 选中日期详情 -->
-      <div v-if="selectedDay" class="selected-day-panel">
-        <div class="panel-header">
-          <h3>{{ formatDate(selectedDay.date) }}</h3>
-          <div class="panel-stats">
-            <span v-if="selectedDayStats.hardSchedule > 0" class="stat hard">
-              <el-icon><Bell /></el-icon>
-              {{ selectedDayStats.hardSchedule }} 硬性日程
-            </span>
-            <span v-if="selectedDayStats.deadlines > 0" class="stat deadline">
-              <el-icon><Clock /></el-icon>
-              {{ selectedDayStats.deadlines }} 期限
-            </span>
-            <span v-if="selectedDayStats.tasks > 0" class="stat task">
-              <el-icon><Calendar /></el-icon>
-              {{ selectedDayStats.tasks }} 任务
-            </span>
-            <span v-if="selectedDayStats.overdue > 0" class="stat overdue">
-              <el-icon><Warning /></el-icon>
-              {{ selectedDayStats.overdue }} 逾期
-            </span>
-          </div>
-        </div>
-
-        <div class="panel-content">
-          <!-- 硬性日程 -->
-          <div v-if="selectedDayEvents.filter(e => e.type === 'court' || e.type === 'hearing').length > 0">
-            <h4>硬性日程</h4>
-            <div
-              v-for="event in selectedDayEvents.filter(e => e.type === 'court' || e.type === 'hearing')"
-              :key="event.id"
-              class="detail-event hard"
-            >
-              <el-icon :color="getEventColor(event)"><Bell /></el-icon>
-              <div class="event-info">
-                <span class="event-title">{{ event.title }}</span>
-                <span class="event-case" v-if="event.caseName">{{ event.caseName }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 期限 -->
-          <div v-if="selectedDayEvents.filter(e => e.type?.startsWith('deadline')).length > 0">
-            <h4>期限</h4>
-            <div
-              v-for="event in selectedDayEvents.filter(e => e.type?.startsWith('deadline'))"
-              :key="event.id"
-              class="detail-event deadline"
-            >
-              <el-icon :color="getEventColor(event)"><Warning /></el-icon>
-              <div class="event-info">
-                <span class="event-title">{{ event.title }}</span>
-                <span class="event-case" v-if="event.caseName">{{ event.caseName }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 任务 -->
-          <div v-if="selectedDayTasks.length > 0">
-            <h4>任务</h4>
-            <div
-              v-for="task in selectedDayTasks"
-              :key="task.id"
-              class="detail-task"
-              draggable="true"
-              @dragstart="onDragStart(task, $event)"
-              @click="router.push({ name: 'tasks', query: { edit: task.id } })"
-            >
-              <el-icon :color="COLORS.plan"><Finished /></el-icon>
-              <div class="task-info">
-                <span class="task-name">{{ task.taskName }}</span>
-                <span class="task-meta">
-                  <span v-if="task.caseName">{{ task.caseName }}</span>
-                  <span v-if="task.estimatedMinutes">{{ task.estimatedMinutes }}分钟</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 空状态 -->
-          <div v-if="selectedDayEvents.length === 0 && selectedDayTasks.length === 0" class="empty-day">
-            当日无事件
-          </div>
+            {{ vo.label }}
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- 年视图（对标 Fantastical 年视图：12 迷你月 + 负载热度，点击下钻） -->
-    <div v-if="activeView === 'year'" class="year-container">
-      <div class="year-grid">
-        <div v-for="(matrix, mi) in yearMatrices" :key="mi" class="year-month">
-          <div class="year-month-title" @click="jumpToMonth(mi)">{{ mi + 1 }}月</div>
-          <div class="year-weekdays">
-            <span v-for="d in weekDays" :key="d">{{ d }}</span>
-          </div>
-          <div class="year-days">
-            <span
-              v-for="(cell, ci) in matrix"
-              :key="ci"
-              class="year-day"
-              :class="[`yl-${dayLoadLevel(cell.date)}`, {
-                outside: !cell.isCurrentMonth,
-                today: isToday(cell.date),
-              }]"
-              :title="`${cell.date.getMonth() + 1}月${cell.date.getDate()}日 · ${eventsForDay(cell.date).length + tasksForDay(cell.date).length} 项`"
-              @click="jumpToDay(cell)"
-            >{{ cell.date.getDate() }}</span>
-          </div>
+    <!-- ═══ 2. 时间线视图 (Global Timeline · 真实数据库流) ═══ -->
+    <div v-if="activeView === 'timeline'" class="timeline-global-layout">
+      <aside class="timeline-case-filter-aside">
+        <h2 class="filter-headline-title">Filter by Case</h2>
+        <div class="case-search-wrapper">
+          <el-icon class="case-search-icon" :size="16"><Search /></el-icon>
+          <input v-model="caseSearchQuery" placeholder="Search cases..." class="case-search-input" />
         </div>
-      </div>
-      <div class="year-legend">
-        <span>负载：</span>
-        <span class="year-day yl-0">·</span><span class="year-day yl-1">1</span><span class="year-day yl-2">2-3</span><span class="year-day yl-3">4-6</span><span class="year-day yl-4">7+</span>
-        <em>点击日期进入日视图 · 点击月份标题进入月视图</em>
-      </div>
-    </div>
-
-    <!-- 周视图（时间块 · Google Calendar 式时长定位） -->
-    <div v-if="activeView === 'week'" class="week-container">
-      <div class="week-grid">
-        <!-- 时间轴 + 星期头 -->
-        <div class="week-header-row">
-          <div class="week-time-gutter" />
-          <div v-for="day in 7" :key="day" class="week-day-header" :class="{ today: isToday(getWeekDay(day)) }">
-            <div class="week-day-name">周{{ weekDays[day - 1] }}</div>
-            <div class="week-day-number" :class="{ 'today-num': isToday(getWeekDay(day)) }">
-              {{ getWeekDay(day).getDate() }}
-            </div>
-          </div>
-        </div>
-
-        <!-- 全天 / 无固定时刻行 -->
-        <div class="week-allday-row">
-          <div class="week-time-label">全天</div>
-          <div
-            v-for="day in 7"
-            :key="'a' + day"
-            class="week-allday-cell"
-            :class="{ today: isToday(getWeekDay(day)) }"
+        <div class="case-checkbox-list">
+          <label class="case-checkbox-item all-cases" @click="selectedCaseIds.clear(); selectedCaseIds.add('all')">
+            <input type="checkbox" :checked="selectedCaseIds.has('all')" class="case-native-checkbox" />
+            <span class="case-checkbox-name font-bold">All Cases</span>
+          </label>
+          <label
+            v-for="c in filteredCases"
+            :key="c.id"
+            class="case-checkbox-item"
+            @click="selectedCaseIds.delete('all'); selectedCaseIds.has(c.id) ? selectedCaseIds.delete(c.id) : selectedCaseIds.add(c.id)"
           >
-            <div
-              v-for="p in weekColumns[day - 1].allday"
-              :key="p.ev.id"
-              class="week-event allday-chip"
-              :style="{ borderLeftColor: getEventColor(p.ev), background: getEventBgColor(p.ev) }"
-            >
-              <span class="week-event-title">{{ p.ev.title }}</span>
-            </div>
-            <div
-              class="week-dropzone"
-              @dragover.prevent
-              @drop.prevent="onDropToSlot($event, day, null)"
-            />
+            <input type="checkbox" :checked="selectedCaseIds.has(c.id)" class="case-native-checkbox" />
+            <span class="case-checkbox-name">{{ c.caseName || c.caseNo }}</span>
+          </label>
+        </div>
+      </aside>
+
+      <main class="timeline-main-stream">
+        <div class="timeline-stream-top">
+          <div>
+            <h1 class="stream-main-heading">Global Timeline</h1>
+            <p class="stream-sub-caption">Cross-matter scheduling and capacity overview.</p>
           </div>
         </div>
-
-        <!-- 时段主体：背景小时线 + 绝对定位事件层（时长渲染 + 重叠分列） -->
-        <div class="week-body">
-          <div v-for="hour in weekHours" :key="hour" class="week-hour-row">
-            <div class="week-time-label">{{ String(hour).padStart(2, '0') }}:00</div>
-            <div
-              v-for="day in 7"
-              :key="day"
-              class="week-cell-bg"
-              :class="{ today: isToday(getWeekDay(day)) }"
-            />
-          </div>
+        <div class="timeline-events-container">
+          <div class="timeline-vertical-guide-line" />
 
           <div
-            v-for="day in 7"
-            :key="'c' + day"
-            class="week-day-layer"
-            :style="{
-              left: `calc(56px + (100% - 56px) * ${(day - 1) / 7})`,
-              width: `calc((100% - 56px) / 7)`,
-            }"
-            @dragover.prevent
-            @drop.prevent="onDropToSlot($event, day, 'timed')"
-          >
-            <div
-              v-for="p in weekColumns[day - 1].timed"
-              :key="p.ev.id"
-              class="week-event-abs"
-              :class="{ 'week-event-task': p.ev.isTask }"
-              :style="{
-                ...p.style,
-                borderLeftColor: p.ev.isTask ? '#3E5C9A' : getEventColor(p.ev),
-                background: p.ev.isTask ? '#EFF4FC' : getEventBgColor(p.ev),
-              }"
-            >
-              <span class="we-title">{{ p.ev.title }}</span>
-              <span class="we-time">{{ p.label }}</span>
-            </div>
-          </div>
-
-          <!-- 当前时刻线（相对时段主体，仅今日列） -->
-          <div v-if="nowLineStyle" class="now-line" :style="nowLineStyle" />
-        </div>
-      </div>
-    </div>
-
-    <!-- 日视图（硬性/弹性/成长时间块 · 设计哲学 §7） -->
-    <div v-if="activeView === 'day'" class="day-container">
-      <div class="day-grid">
-        <!-- 左：小时时间轴（Sunsama 式 · §7 硬性红/弹性蓝语义着色） -->
-        <div class="day-timeline">
-          <div class="day-header">
-            <span class="day-header-date">{{ formatDate(selectedDay?.date || new Date()) }}</span>
-            <span class="day-header-weekday">周{{ weekDays[(selectedDay?.date || new Date()).getDay() === 0 ? 6 : (selectedDay?.date || new Date()).getDay() - 1] }}</span>
-          </div>
-
-          <div
-            class="day-hour-body"
-            @dragover.prevent
-            @drop.prevent="onDropToDayHour($event)"
-          >
-            <div v-for="hour in weekHours" :key="hour" class="week-hour-row">
-              <span class="week-time-label">{{ String(hour).padStart(2, '0') }}:00</span>
-              <div class="day-cell-bg" />
-            </div>
-            <div class="day-event-layer">
-              <div
-                v-for="p in dayTimedItems"
-                :key="p.ev.id"
-                class="week-event-abs"
-                :class="{ 'week-event-task': p.ev.isTask }"
-                :style="{
-                  ...p.style,
-                  borderLeftColor: p.ev.isTask ? '#3E5C9A' : getEventColor(p.ev),
-                  background: p.ev.isTask ? '#EFF4FC' : getEventBgColor(p.ev),
-                }"
-              >
-                <span class="we-title">{{ p.ev.title }}</span>
-                <span class="we-time">{{ p.time }}</span>
-              </div>
-            </div>
-            <div
-              v-if="isTodaySelected && nowLineStyle"
-              class="now-line"
-              :style="{ top: `${nowLineTop}%`, left: '44px', right: '6px', width: 'auto' }"
-            />
-          </div>
-
-          <!-- 提示 -->
-          <div class="day-tip">
-            右侧「弹性任务」可拖到左侧时间轴排期；硬性日程（庭审/期限）以红色块呈现，不可移动。
-          </div>
-        </div>
-
-        <!-- 右：当日议程 -->
-        <div class="day-agenda">
-          <div class="card">
-            <div class="card-header">当日议程</div>
-            <div
-              v-for="event in (selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date()))"
-              :key="event.id"
-              class="agenda-item"
-            >
-              <span class="agenda-dot" :style="{ background: getEventColor(event) }"></span>
-              <div class="agenda-info">
-                <span class="agenda-title">{{ event.title }}</span>
-                <span class="agenda-time">{{ event.time }} · {{ getEventTypeLabel(event.type) }}</span>
-              </div>
-            </div>
-            <div v-if="(selectedDayEvents.length > 0 ? selectedDayEvents : eventsForDay(new Date())).length === 0" class="day-empty">
-              当日无事件
-            </div>
-          </div>
-
-          <div class="card" style="margin-top: 14px;">
-            <div class="card-header">当日到期任务</div>
-            <div
-              v-for="task in (selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date()))"
-              :key="task.id"
-              class="agenda-task"
-            >
-              <el-checkbox
-                :model-value="!!task.completed"
-                @change="toggleAgendaTask(task)"
-              />
-              <span class="agenda-task-name" :class="{ done: !!task.completed }">{{ task.taskName }}</span>
-            </div>
-            <div v-if="(selectedDayTasks.length > 0 ? selectedDayTasks : tasksForDay(new Date())).length === 0" class="day-empty">
-              无到期任务
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Forecast 双栏（对标 Fantastical） -->
-    <div v-if="activeView === 'forecast'" class="forecast-container">
-      <!-- 左栏：按日分组的日程/期限列表 -->
-      <div class="forecast-left">
-        <div class="forecast-section-header">
-          <h3>未来日程与期限</h3>
-          <span class="forecast-hint">拖拽任务到日期可改期</span>
-        </div>
-        <div class="forecast-day-groups">
-          <div
-            v-for="group in forecastGroups"
+            v-for="group in timelineStream"
             :key="group.dateStr"
-            :class="['forecast-day-group', { 'is-today': group.isToday, 'is-overdue': group.isOverdue }]"
-            @dragover="onDragOver(group.dateStr, $event)"
-            @drop="onDrop(group.dateStr, $event)"
+            class="timeline-date-group"
           >
-            <div class="forecast-group-header">
-              <span class="forecast-group-label" :class="{ 'today': group.isToday, 'overdue': group.isOverdue }">{{ group.label }}</span>
-              <span class="forecast-group-weekday" v-if="group.weekDay">周{{ group.weekDay }}</span>
-              <span class="forecast-group-count" :class="{ 'has-items': group.items.length > 0 }">
-                {{ group.items.length > 0 ? `${group.items.length} 项` : '无安排' }}
-              </span>
-            </div>
-            <div class="forecast-group-items">
+            <div class="group-date-label"><span>{{ group.dateLabel }}</span></div>
+            <div class="group-axis-big-node" />
+            <div class="group-cards-stack">
               <div
-                v-for="(item, idx) in group.items"
-                :key="idx"
-                class="forecast-list-item"
-                :class="item.kind"
+                v-for="item in group.items"
+                :key="item.id"
+                class="timeline-event-card-row"
+                @dblclick="openEditDetail(item, item.type === 'court' ? 'event' : 'task')"
               >
-                <el-icon :size="14" :color="item.color"><component :is="item.icon" /></el-icon>
-                <div class="forecast-list-info">
-                  <span class="forecast-list-title">{{ item.title }}</span>
-                  <span class="forecast-list-meta">
-                    <template v-if="item.time">{{ item.time }}</template>
-                    <template v-if="item.caseName"><template v-if="item.time"> · </template>{{ item.caseName }}</template>
-                    <template v-if="item.daysLeft !== null && item.daysLeft !== undefined"><template v-if="item.time || item.caseName"> · </template>{{ item.daysLeft }} 天</template>
-                  </span>
+                <div class="time-stamp-col">{{ item.time }}</div>
+                <div class="event-axis-ring-dot" :class="item.type" />
+                <div class="event-detail-box">
+                  <div class="event-left-accent-line" :class="item.type" />
+                  <div class="box-content-top">
+                    <div>
+                      <div class="box-badges-row">
+                        <span class="badge-tag-pill neutral">{{ item.tag1 }}</span>
+                        <span class="badge-tag-pill" :class="item.tag2Type">{{ item.tag2 }}</span>
+                      </div>
+                      <h3 class="box-title-text">{{ item.title }}</h3>
+                      <p class="box-case-text">{{ item.caseName }}</p>
+                    </div>
+                    <span v-if="item.duration" class="mono-duration">{{ item.duration }}</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div v-if="group.items.length === 0" class="forecast-group-empty">无安排</div>
+          </div>
+
+          <div v-if="!timelineStream.length" class="timeline-empty-hint">
+            暂无已排期的事件或任务
           </div>
         </div>
-      </div>
+      </main>
+    </div>
 
-      <!-- 右栏：当日时间分配网格（§7.2 时间块分区，硬性/弹性视觉分区） -->
-      <div class="forecast-right">
-        <div class="forecast-timeline">
-          <div class="forecast-section-header">
-            <h3>今日时间分配</h3>
-            <span class="forecast-today-date">{{ todayLabel }}</span>
+    <!-- ═══ 3. 主工作区：月视图 / 周视图 / 日视图 / 预测视图 统一联动 Holding Tank ═══ -->
+    <div v-else class="calendar-unified-workspace-grid">
+      <!-- ── A. 左侧主视图区域 ── -->
+      <div class="calendar-main-stage">
+        <!-- 1. 月视图 (Month View) -->
+        <div v-if="activeView === 'month'" class="month-full-card">
+          <!-- 上方一排月度洞察小卡片 -->
+          <div class="month-top-stats-strip">
+            <div class="m-stat-pill">
+              <span class="m-stat-lbl">Deadlines</span>
+              <strong class="m-stat-val text-risk">{{ monthInsights.deadlines }}</strong>
+            </div>
+            <div class="m-stat-pill">
+              <span class="m-stat-lbl">Workload</span>
+              <strong class="m-stat-val text-primary">{{ monthInsights.workload }}</strong>
+            </div>
+            <div class="m-stat-pill">
+              <span class="m-stat-lbl">Workdays</span>
+              <strong class="m-stat-val">{{ monthInsights.workdays }}</strong>
+            </div>
+            <div class="m-stat-pill">
+              <span class="m-stat-lbl">Holidays</span>
+              <strong class="m-stat-val text-warning">{{ monthInsights.holidays }}</strong>
+            </div>
           </div>
 
-          <!-- 时间分配提示（§7.3）：硬性占满多个时间块 → 推荐空块 -->
-          <div v-if="allocationTip" class="timeline-tip">
-            {{ allocationTip }}
+          <!-- 星期头 -->
+          <div class="month-days-of-week-row">
+            <div v-for="d in weekDaysEn" :key="d" class="dow-cell">{{ d }}</div>
           </div>
 
-          <!-- 时间块分区网格（§7.2）：上午/下午/晚上/其他 + 弹性 -->
-          <div
-            v-for="block in todayBlocks"
-            :key="block.key"
-            :class="['timeline-section', { 'flex-section': block.key === 'flex' }]"
-          >
-            <div class="timeline-section-label" :class="block.key">
-              <span class="block-name">{{ block.label }}</span>
-              <span class="block-range">{{ block.range }}</span>
-              <span class="timeline-count" :class="{ 'has-items': block.items.length > 0 }">
-                {{ block.items.length }}
+          <!-- 紧凑日历矩阵 -->
+          <div class="month-dates-matrix-grid">
+            <div
+              v-for="(cell, cIdx) in monthGridDays"
+              :key="cIdx"
+              class="month-matrix-day-cell"
+              :class="{
+                'is-outside': !cell.isCurrentMonth,
+                'is-risk-day': hasHardEventOnDay(cell.date) && cell.isCurrentMonth,
+                'is-drag-target': dragOverKey === formatDate(cell.date),
+              }"
+              @dragover="onDragOver"
+              @dragenter="dragOverKey = formatDate(cell.date)"
+              @dragleave="dragOverKey = null"
+              @drop="onDropOnDay($event, cell.date)"
+              @click="openDayModal(cell)"
+            >
+              <div class="cell-header-flex">
+                <div class="cell-dots-indicator-group">
+                  <span v-if="hasHardEventOnDay(cell.date)" class="dot-indicator dot-risk" title="Hard Deadline" />
+                  <span v-if="hasWaitingOnDay(cell.date)" class="dot-indicator dot-warning" title="Waiting on Client" />
+                  <span v-if="hasPlanEventOnDay(cell.date)" class="dot-indicator dot-primary" title="Flexible Task" />
+                </div>
+                <span class="cell-number-badge" :class="{ 'today-pill': isToday(cell.date) }">
+                  {{ cell.date.getDate() }}
+                </span>
+              </div>
+
+              <!-- 当日事项流 -->
+              <div class="cell-items-preview">
+                <!-- 跨天条带 -->
+                <div
+                  v-for="mt in multiDayTasksForDay(cell.date)"
+                  :key="'mt-' + mt.id"
+                  class="cell-multiday-ribbon"
+                  :class="{
+                    'is-start': formatDate(cell.date) === mt.startDate,
+                    'is-end': formatDate(cell.date) === mt.dueDate,
+                    'is-middle': formatDate(cell.date) > mt.startDate && formatDate(cell.date) < mt.dueDate,
+                  }"
+                  draggable="true"
+                  @dragstart.stop="onDragStart($event, mt, 'schedule', cell.date)"
+                  @dragend="onDragEnd"
+                  @click.stop="openDayModal(cell)"
+                  @dblclick.stop="openEditDetail(mt, 'task')"
+                  :title="`${mt.taskName} (${mt.startDate} ~ ${mt.dueDate}) · 双击编辑`"
+                >
+                  <span v-if="formatDate(cell.date) === mt.startDate" class="ribbon-text">
+                    ▶ {{ mt.taskName }}
+                  </span>
+                  <span v-else-if="formatDate(cell.date) === mt.dueDate" class="ribbon-text">
+                    🏁 结束
+                  </span>
+                  <span v-else class="ribbon-cont-line" />
+
+                  <!-- 右边缘拉伸把手 -->
+                  <div
+                    class="ribbon-extend-handle"
+                    title="按住向后拖动到其他日期可延长跨天"
+                    draggable="true"
+                    @dragstart.stop="onDragStart($event, mt, 'extend', cell.date)"
+                    @dragend="onDragEnd"
+                  />
+                </div>
+
+                <!-- 单日任务胶囊 -->
+                <div
+                  v-for="t in tasksForDay(cell.date).filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate).slice(0, 2)"
+                  :key="t.id"
+                  class="cell-task-capsule"
+                  draggable="true"
+                  @dragstart.stop="onDragStart($event, t, 'schedule', cell.date)"
+                  @dragend="onDragEnd"
+                  @click.stop="openDayModal(cell)"
+                  @dblclick.stop="openEditDetail(t, 'task')"
+                  title="单击查看当日，双击编辑任务"
+                >
+                  <span class="capsule-dot" />
+                  <span class="capsule-title">{{ t.taskName }}</span>
+
+                  <!-- 右边缘拉伸把手 -->
+                  <div
+                    class="capsule-extend-handle"
+                    title="按住向后拖到其他日期可延长跨天"
+                    draggable="true"
+                    @dragstart.stop="onDragStart($event, t, 'extend', cell.date)"
+                    @dragend="onDragEnd"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 周视图 (Week View) -->
+        <div v-else-if="activeView === 'week'" class="week-full-card">
+          <div class="week-cols-header-row">
+            <div class="week-gutter-head" />
+            <div
+              v-for="col in weekColumns"
+              :key="col.dateStr"
+              class="week-col-header-cell"
+              :class="{ 'is-today-col': col.isToday }"
+            >
+              <span class="week-col-name">周{{ col.weekDayCn }}</span>
+              <span class="week-col-date-pill" :class="{ active: col.isToday }">{{ col.dayNum }}</span>
+            </div>
+          </div>
+
+          <div class="week-allday-ribbon-bar">
+            <div class="allday-label-col">全天/跨天</div>
+            <div class="allday-grid-cols">
+              <div
+                v-for="col in weekColumns"
+                :key="'ad-' + col.dateStr"
+                class="allday-col-drop-slot"
+                @dragover="onDragOver"
+                @drop="onDropOnDay($event, col.date)"
+              >
+                <div v-if="col.hasHard" class="allday-court-pill">法庭开庭日</div>
+                <div
+                  v-for="mt in col.multiDayTasks"
+                  :key="'w-mt-' + mt.id"
+                  class="allday-multiday-pill"
+                  @dblclick="openEditDetail(mt, 'task')"
+                >
+                  {{ mt.taskName }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="week-timegrid-main-body">
+            <div
+              v-for="h in weekHours"
+              :key="h"
+              class="week-hour-grid-row"
+            >
+              <div class="week-time-gutter">{{ String(h).padStart(2, '0') }}:00</div>
+              <div class="week-hour-7cols">
+                <div
+                  v-for="col in weekColumns"
+                  :key="'slot-' + col.dateStr + '-' + h"
+                  class="week-slot-day-cell"
+                  :class="{ 'is-today-slot': col.isToday }"
+                  @dragover="onDragOver"
+                  @drop="onDropOnDay($event, col.date)"
+                >
+                  <div
+                    v-for="t in col.tasks.filter(t => t.startTime?.startsWith(String(h).padStart(2, '0')))"
+                    :key="'wt-' + t.id"
+                    class="week-cell-task-block"
+                    @dblclick="openEditDetail(t, 'task')"
+                  >
+                    <span class="w-task-title">{{ t.taskName }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 日视图 (Day View) -->
+        <div v-else-if="activeView === 'day'" class="day-full-card">
+          <div class="day-schedule-header">
+            <div>
+              <h2 class="day-schedule-heading">{{ formatDate(currentDate) }}</h2>
+              <span class="day-schedule-sub">
+                {{ isToday(currentDate) ? '今日时间表' : '单日日程' }} · {{ tasksForDay(currentDate).length + eventsForDay(currentDate).length }} 项安排
               </span>
             </div>
-            <div
-              v-for="item in block.items"
-              :key="item.uid"
-              :class="['timeline-slot', item.kind, { done: item.done }]"
-              :draggable="!!item.task"
-              @dragstart="item.task && onDragStart(item.task, $event)"
-              @click="item.task && router.push({ name: 'tasks', query: { edit: item.task.id } })"
-            >
-              <span class="timeline-time">{{ itemTimeLabel(item) }}</span>
-              <span class="timeline-title">{{ item.title }}</span>
-              <span v-if="item.caseName" class="timeline-case">{{ item.caseName }}</span>
+            <span class="day-view-mode-tag">Hourly Schedule</span>
+          </div>
+
+          <div v-if="multiDayTasksForDay(currentDate).length" class="day-multiday-active-banner">
+            <div class="dma-title-row">
+              <el-icon :size="15"><Timer /></el-icon>
+              <strong>跨天进行中任务</strong>
             </div>
-            <div v-if="block.items.length === 0" class="timeline-empty">
-              {{ block.key === 'flex' ? '今日暂无弹性任务' : '本块无安排' }}
+            <div class="dma-cards-list">
+              <div
+                v-for="mt in multiDayTasksForDay(currentDate)"
+                :key="'dma-' + mt.id"
+                class="dma-item-card"
+                @dblclick="openEditDetail(mt, 'task')"
+              >
+                <span class="dma-badge">共 {{ getDaySpan(mt.startDate, mt.dueDate) }} 天</span>
+                <strong class="dma-name">{{ mt.taskName }}</strong>
+                <span class="dma-span">({{ mt.startDate }} ~ {{ mt.dueDate }})</span>
+                <button class="dma-check-btn" :class="{ checked: mt.completed }" @click.stop="toggleTask(mt)">
+                  <el-icon v-if="mt.completed" :size="12"><Check /></el-icon>
+                </button>
+              </div>
             </div>
           </div>
 
-          <div class="forecast-tip">
-            先硬性 → 再弹性。拖拽任务到左栏日期 = 改期。
+          <div class="day-hours-drop-stream">
+            <div
+              v-for="h in weekHours"
+              :key="h"
+              class="day-hour-drop-row"
+              :class="{ 'is-drag-over': dragOverKey === `hour-${h}` }"
+              @dragover="onDragOver"
+              @dragenter="dragOverKey = `hour-${h}`"
+              @dragleave="dragOverKey = null"
+              @drop="onDropOnHourSlot($event, h)"
+            >
+              <div class="hour-time-label">{{ String(h).padStart(2, '0') }}:00</div>
+              <div class="hour-slot-drop-area">
+                <template v-if="tasksForDay(currentDate).filter(t => t.startTime?.startsWith(String(h).padStart(2, '0'))).length || eventsForDay(currentDate).filter(e => e.time?.startsWith(String(h).padStart(2, '0'))).length">
+                  <div
+                    v-for="t in tasksForDay(currentDate).filter(t => t.startTime?.startsWith(String(h).padStart(2, '0')))"
+                    :key="'d-t-' + t.id"
+                    class="day-slot-item-card"
+                    @dblclick="openEditDetail(t, 'task')"
+                  >
+                    <span class="slot-badge-caps">Task</span>
+                    <strong class="slot-item-title" :class="{ struck: t.completed }">{{ t.taskName }}</strong>
+                    <button class="slot-check-btn" :class="{ checked: t.completed }" @click.stop="toggleTask(t)">
+                      <el-icon v-if="t.completed" :size="12"><Check /></el-icon>
+                    </button>
+                  </div>
+                </template>
+                <div v-else class="hour-empty-slot-placeholder">
+                  <span>{{ dragOverKey === `hour-${h}` ? `松开鼠标安排至 ${String(h).padStart(2, '0')}:00` : 'Available Slot · 拖入右侧待办直接排期' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 预测视图 (Forecast: 完整 14 天诉讼与负荷预测工作台) -->
+        <div v-else-if="activeView === 'forecast'" class="forecast-full-card">
+          <!-- 顶部 14 天宏观指标面板 -->
+          <div class="forecast-overview-header">
+            <div>
+              <h2 class="forecast-heading">未来 14 天诉讼与负荷全景预测</h2>
+              <p class="forecast-sub">
+                覆盖 {{ formatDate(currentDate) }} 起 14 天全量庭审日程、上诉/举证期限、预估工时与深度起草窗口。
+              </p>
+            </div>
+
+            <!-- 3 宫格统计 -->
+            <div class="forecast-stats-strip">
+              <div class="f-stat-card">
+                <span class="f-stat-label">诉讼/开庭日</span>
+                <strong class="f-stat-number text-risk">{{ forecastOverviewStats.riskDays }} 天</strong>
+              </div>
+              <div class="f-stat-card">
+                <span class="f-stat-label">预估总工时</span>
+                <strong class="f-stat-number text-primary">{{ forecastOverviewStats.workloadHours }}h</strong>
+              </div>
+              <div class="f-stat-card">
+                <span class="f-stat-label">黄金专注窗口</span>
+                <strong class="f-stat-number text-success">{{ forecastOverviewStats.freeDays }} 天</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- 快速筛选 Tab -->
+          <div class="forecast-filter-bar">
+            <div class="f-filter-tabs">
+              <button class="f-filter-tab" :class="{ active: forecastFilter === 'all' }" @click="forecastFilter = 'all'">全部 14 天</button>
+              <button class="f-filter-tab" :class="{ active: forecastFilter === 'risk_only' }" @click="forecastFilter = 'risk_only'">仅看开庭与期限日</button>
+              <button class="f-filter-tab" :class="{ active: forecastFilter === 'free_only' }" @click="forecastFilter = 'free_only'">仅看专注空闲窗口</button>
+            </div>
+            <span class="f-total-hint">已展示 {{ forecast14Days.length }} 天预测</span>
+          </div>
+
+          <!-- 完整 14 天预测数据流 (支持拖拽落位改期) -->
+          <div class="forecast-days-stream">
+            <div
+              v-for="day in forecast14Days"
+              :key="day.dateStr"
+              class="forecast-day-row"
+              :class="{
+                'is-risk-day': day.riskLevel === 'risk',
+                'is-busy-day': day.riskLevel === 'busy',
+                'is-today': day.isToday,
+                'is-drag-target': dragOverKey === day.dateStr,
+              }"
+              @dragover="onDragOver"
+              @dragenter="dragOverKey = day.dateStr"
+              @dragleave="dragOverKey = null"
+              @drop="onDropOnDay($event, day.date)"
+            >
+              <!-- 日期与定位 -->
+              <div class="f-date-col">
+                <span class="f-day-badge" :class="day.riskLevel">{{ day.dayLabel }}</span>
+                <strong class="f-day-date">{{ day.monthDayStr }}</strong>
+                <small class="f-day-weekday">周{{ day.weekdayCn }}</small>
+              </div>
+
+              <!-- 中间：当日事项概览与预警标签 -->
+              <div class="f-events-col">
+                <div class="f-risk-tag-row">
+                  <span class="f-risk-pill" :class="day.riskLevel">{{ day.riskTag }}</span>
+                  <span v-if="day.totalHours > 0" class="f-hours-pill">工时: {{ day.totalHours }}h</span>
+                </div>
+
+                <!-- 事项列表 -->
+                <div class="f-items-stack">
+                  <!-- 开庭事件 -->
+                  <div
+                    v-for="ev in day.events"
+                    :key="ev.id"
+                    class="f-event-chip court"
+                    @dblclick="openEditDetail(ev, 'event')"
+                  >
+                    <el-icon :size="12"><Location /></el-icon>
+                    <strong>{{ ev.time || '全天' }}</strong>
+                    <span>{{ ev.title }}</span>
+                  </div>
+
+                  <!-- 跨天任务 -->
+                  <div
+                    v-for="mt in day.multiDayTasks"
+                    :key="'fmt-' + mt.id"
+                    class="f-event-chip multiday"
+                    @dblclick="openEditDetail(mt, 'task')"
+                  >
+                    <el-icon :size="12"><Timer /></el-icon>
+                    <span>{{ mt.taskName }}</span>
+                    <small>({{ mt.startDate.slice(5) }}~{{ mt.dueDate.slice(5) }})</small>
+                  </div>
+
+                  <!-- 单日待办 -->
+                  <div
+                    v-for="t in day.tasks.filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate)"
+                    :key="'ft-' + t.id"
+                    class="f-event-chip task"
+                    @dblclick="openEditDetail(t, 'task')"
+                  >
+                    <span class="f-task-dot" />
+                    <span :class="{ struck: t.completed }">{{ t.taskName }}</span>
+                  </div>
+
+                  <!-- 无排期 -->
+                  <div v-if="!day.events.length && !day.tasks.length && !day.multiDayTasks.length" class="f-empty-slot">
+                    <span>适宜深度起草与案件推演 · 支持将右侧任务拖入落位</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- ── B. 右侧统一 Holding Tank 真实任务池 ── -->
+      <aside
+        class="calendar-unified-holding-tank"
+        :class="{ 'is-drag-target': isOverTank }"
+        @dragover="onDragOver"
+        @dragenter="isOverTank = true"
+        @dragleave="isOverTank = false"
+        @drop="onDropToHoldingTank($event)"
+      >
+        <div class="tank-header-card">
+          <div class="tank-title-row">
+            <div>
+              <h3 class="tank-title">Holding Tank</h3>
+              <p class="tank-sub-desc">
+                {{ isOverTank ? '松开鼠标移回未排期池' : '任务池 (未完成任务永久保留，拖入左侧直接排期)' }}
+              </p>
+            </div>
+            <span class="tank-badge">{{ tankTasks.length }} 项</span>
+          </div>
+
+          <div class="tank-filter-pills">
+            <button class="tank-tab-btn" :class="{ active: tankFilter === 'unscheduled' }" @click="tankFilter = 'unscheduled'">未安排</button>
+            <button class="tank-tab-btn" :class="{ active: tankFilter === 'week' }" @click="tankFilter = 'week'">本周</button>
+            <button class="tank-tab-btn" :class="{ active: tankFilter === 'multiday' }" @click="tankFilter = 'multiday'">跨天</button>
+            <button class="tank-tab-btn" :class="{ active: tankFilter === 'today' }" @click="tankFilter = 'today'">今日</button>
+          </div>
+
+          <div class="tank-search-box">
+            <el-icon class="tank-search-icon" :size="14"><Search /></el-icon>
+            <input v-model="tankSearch" placeholder="搜索待办任务..." class="tank-search-real" />
+          </div>
+        </div>
+
+        <div class="holding-tasks-scroll-list">
+          <div
+            v-for="task in tankTasks"
+            :key="task.id"
+            class="tank-task-card"
+            draggable="true"
+            @dragstart="onDragStart($event, task, 'schedule')"
+            @dragend="onDragEnd"
+            @dblclick="openEditDetail(task, 'task')"
+          >
+            <div class="tank-task-main">
+              <div class="tank-task-header">
+                <el-icon class="tank-drag-handle" :size="16"><Rank /></el-icon>
+                <strong class="tank-task-name" :class="{ struck: task.completed }">{{ task.taskName }}</strong>
+              </div>
+              <div class="tank-task-meta">
+                <span v-if="task.caseName" class="meta-case-tag">{{ task.caseName }}</span>
+                <span v-if="task.startDate && task.dueDate && task.startDate !== task.dueDate" class="meta-multiday-badge">
+                  跨 {{ getDaySpan(task.startDate, task.dueDate) }} 天 ({{ task.startDate.slice(5) }} ~ {{ task.dueDate.slice(5) }})
+                </span>
+                <span v-else-if="task.dueDate" class="meta-due-date">截止: {{ task.dueDate }}</span>
+              </div>
+            </div>
+
+            <div class="tank-task-right">
+              <span class="tank-est-pill">{{ task.estimatedMinutes || 60 }}m</span>
+              <button
+                class="tank-check-box"
+                :class="{ checked: task.completed }"
+                @click.stop="toggleTask(task)"
+                title="标记完成"
+              >
+                <el-icon v-if="task.completed" :size="12"><Check /></el-icon>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="!tankTasks.length" class="tank-empty-box">
+            <span>暂无此类待办事项</span>
+          </div>
+        </div>
+      </aside>
     </div>
 
-    <!-- 图例 -->
-    <div class="calendar-legend">
-      <span class="legend-item">
-        <span class="legend-dot" style="background: #B4554F" />
-        硬性（开庭/口审）
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background: #B0823A" />
-        期限
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background: #3E5C9A" />
-        弹性任务
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background: #4C8067" />
-        已完成
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background: #6C6A9C" />
-        二审
-      </span>
-    </div>
+    <!-- ═══ 4. 单日日程明细弹窗 ═══ -->
+    <el-dialog
+      v-model="showDayModal"
+      :title="activeDaySummary ? `${formatDate(activeDaySummary.date)} 日程明细` : '日程明细'"
+      width="540px"
+      destroy-on-close
+    >
+      <div v-if="activeDaySummary" class="day-modal-content">
+        <!-- 1. 跨天进行中任务 -->
+        <div v-if="multiDayTasksForDay(activeDaySummary.date).length" class="modal-sec-box">
+          <div class="sec-title-flex">
+            <span class="sec-label-caps">跨天进行中专项 (Multi-day Sprints)</span>
+            <small class="sec-hint-txt">支持拖拽 / 双击编辑</small>
+          </div>
+          <div class="modal-tasks-list">
+            <div
+              v-for="mt in multiDayTasksForDay(activeDaySummary.date)"
+              :key="'m-mt-' + mt.id"
+              class="modal-multiday-item"
+              draggable="true"
+              @dragstart="onDragStartFromModal($event, mt, activeDaySummary.date)"
+              @dragend="onDragEnd"
+              @dblclick="openEditDetail(mt, 'task')"
+              title="按住拖拽可直接改期，双击编辑详情"
+            >
+              <div class="m-left">
+                <el-icon class="m-drag-icon"><Rank /></el-icon>
+                <span class="m-badge">共 {{ getDaySpan(mt.startDate, mt.dueDate) }} 天</span>
+                <strong>{{ mt.taskName }}</strong>
+                <small>({{ mt.startDate }} ~ {{ mt.dueDate }})</small>
+              </div>
+              <button class="m-check-btn" :class="{ checked: mt.completed }" @click.stop="toggleTask(mt)">
+                <el-icon v-if="mt.completed" :size="12"><Check /></el-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 客观排期与开庭事项 -->
+        <div v-if="distinctEventsForModal(activeDaySummary.date).length" class="modal-sec-box">
+          <div class="sec-title-flex">
+            <span class="sec-label-caps">法庭开庭与客观排期 (Court & Fixed Events)</span>
+            <small class="sec-hint-txt">双击编辑</small>
+          </div>
+          <div class="modal-tasks-list">
+            <div
+              v-for="ev in distinctEventsForModal(activeDaySummary.date)"
+              :key="ev.id"
+              class="modal-event-item"
+              :class="ev.type === 'court' || ev.type === 'hearing' ? 'is-court' : 'is-normal'"
+              @dblclick="openEditDetail(ev, 'event')"
+              title="双击编辑排期详情"
+            >
+              <div class="m-ev-left">
+                <span class="m-ev-time">{{ ev.time || '全天' }}</span>
+                <strong>{{ ev.title }}</strong>
+                <span v-if="ev.location" class="m-ev-loc">· {{ ev.location }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 当日待办清单 -->
+        <div class="modal-sec-box">
+          <div class="sec-title-flex">
+            <span class="sec-label-caps">当日待办清单 (Action Items · 可打勾完成)</span>
+            <small class="sec-hint-txt">支持拖出改期 / 双击编辑</small>
+          </div>
+          <div class="modal-tasks-list">
+            <div
+              v-for="t in tasksForDay(activeDaySummary.date).filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate)"
+              :key="'m-t-' + t.id"
+              class="modal-task-item"
+              draggable="true"
+              @dragstart="onDragStartFromModal($event, t, activeDaySummary.date)"
+              @dragend="onDragEnd"
+              @dblclick="openEditDetail(t, 'task')"
+              title="按住拖拽可直接改期到其他天，双击编辑详情"
+            >
+              <div class="m-t-left">
+                <el-icon class="m-drag-icon"><Rank /></el-icon>
+                <span v-if="t.startTime" class="m-t-time">{{ t.startTime }}</span>
+                <strong :class="{ struck: t.completed }">{{ t.taskName }}</strong>
+                <span v-if="t.caseName" class="m-t-case">{{ t.caseName }}</span>
+              </div>
+              <button class="m-check-btn" :class="{ checked: t.completed }" @click.stop="toggleTask(t)" title="完成任务">
+                <el-icon v-if="t.completed" :size="12"><Check /></el-icon>
+              </button>
+            </div>
+            <div v-if="!tasksForDay(activeDaySummary.date).filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate).length" class="modal-empty-hint">暂无当日待办事项</div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="btn-primary-action" @click="showDayModal = false">确定</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ 5. 事项/任务详情编辑弹窗 (真实增删改) ═══ -->
+    <el-dialog
+      v-model="showEditDialog"
+      :title="editingItem.type === 'task' ? '编辑任务详情' : '编辑日程排期'"
+      width="500px"
+      destroy-on-close
+    >
+      <div class="edit-modal-body">
+        <div class="edit-form-item">
+          <label>标题 / 名称</label>
+          <input v-model="editingItem.title" class="edit-input" placeholder="输入名称..." />
+        </div>
+
+        <div class="edit-form-row">
+          <div class="edit-form-item">
+            <label>开始日期</label>
+            <input v-model="editingItem.startDate" type="date" class="edit-input" />
+          </div>
+          <div class="edit-form-item">
+            <label>截止日期</label>
+            <input v-model="editingItem.dueDate" type="date" class="edit-input" />
+          </div>
+        </div>
+
+        <div class="edit-form-row">
+          <div class="edit-form-item">
+            <label>具体时段 (例如 09:30)</label>
+            <input v-model="editingItem.startTime" placeholder="如 09:30" class="edit-input" />
+          </div>
+          <div class="edit-form-item">
+            <label>预计工时 (分钟)</label>
+            <input v-model.number="editingItem.estimatedMinutes" type="number" min="0" step="15" class="edit-input" />
+          </div>
+        </div>
+
+        <div class="edit-form-item">
+          <label>关联案件</label>
+          <select v-model="editingItem.caseId" class="edit-select">
+            <option value="">（无关联案件）</option>
+            <option v-for="c in cases" :key="c.id" :value="c.id">
+              {{ c.caseName || c.caseNo }}
+            </option>
+          </select>
+        </div>
+
+        <div class="edit-form-item">
+          <label>备注 / 说明</label>
+          <textarea v-model="editingItem.description" rows="3" class="edit-textarea" placeholder="填写事项补充说明或庭室地点..." />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="edit-dialog-footer">
+          <button v-if="editingItem.id" class="btn-delete" @click="deleteEditingItem">
+            <el-icon :size="14"><Delete /></el-icon>
+            <span>删除</span>
+          </button>
+          <div class="right-btns">
+            <button class="btn-cancel" @click="showEditDialog = false">取消</button>
+            <button class="btn-primary-action" @click="saveEditingItem">保存修改</button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
-
 <style scoped>
-/* 周视图任务（综合显示：日历+待办合一） */
-.week-event-task {
-  cursor: pointer;
-}
-.week-event-task .week-event-title {
-  font-weight: 500;
-}
-/* 时间轴放置区（拖任务到时间点） */
-.week-dropzone {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-}
-.week-cell {
-  position: relative;
-}
-.calendar-page {
-  max-width: 1200px;
+/* ═══════════════════════════════════════════════════════════
+   Stitch Unified Calendar Layout (v4.0_9 & v4.1_3)
+   ═══════════════════════════════════════════════════════════ */
+.stitch-calendar-workspace {
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 16px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--c-text);
+  font-family: var(--font-family);
+  min-height: calc(100vh - 80px);
 }
 
-/* ============================================================
-   自然语言建日程条（对标 Fantastical 快速输入）
-   ============================================================ */
-.capture-bar {
-  margin-bottom: 14px;
-}
-
-.capture-bar .el-input__wrapper {
-  border-radius: var(--c-radius-lg, 8px);
-  box-shadow: 0 0 0 1px var(--c-border, #E0E3E9) inset;
-  background: #FFFFFF;
-}
-
-.capture-bar .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px var(--c-primary, var(--c-primary)) inset;
-}
-
-.capture-hint {
+/* ── 顶部 Header ─────────────────────────────────────────── */
+.calendar-top-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--c-text-secondary, var(--c-text-secondary));
-}
-
-.capture-hint-divider {
-  color: var(--c-border, #E0E3E9);
-}
-
-/* 工具栏 */
-.calendar-toolbar {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
-.toolbar-left {
+.month-title-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.month-display-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+.month-nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--c-bg-subtle);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 2px 4px;
+}
+
+.nav-arrow-btn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--c-text-regular);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.nav-arrow-btn:hover { background: var(--c-bg-hover); color: var(--c-text); }
+
+.nav-today-pill {
+  border: none;
+  background: transparent;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--c-text-heading);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.nav-today-pill:hover { background: var(--c-bg-hover); }
+
+.header-right-actions {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.month-label {
-  font-size: 18px;
-  font-weight: 600;
-  min-width: 120px;
-  text-align: center;
+.natural-input-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 0 12px;
+  height: 34px;
+  width: 280px;
+  box-shadow: var(--shadow-sm);
+}
+
+.natural-input-box:focus-within {
+  border-color: var(--c-primary);
+}
+
+.input-icon { color: var(--slate-gray-light); }
+
+.natural-real-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
   color: var(--c-text);
 }
 
-/* 日历网格 */
-.calendar-container {
+.view-switch-pill {
   display: flex;
-  gap: 20px;
+  background: var(--c-bg-subtle);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 2px;
+  gap: 2px;
 }
 
-.calendar-grid {
+.switch-btn {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.switch-btn.active {
+  background: var(--c-bg-card);
+  color: var(--c-text);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   主工作区双栏统一布局 (Left: 主日历/周/日视图, Right: Holding Tank)
+   ═══════════════════════════════════════════════════════════ */
+.calendar-unified-workspace-grid {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 20px;
+  align-items: stretch;
   flex: 1;
+}
+
+.calendar-main-stage {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 1. Month View (上方一排统计药丸 + 紧凑月历网格) ── */
+.month-full-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.month-top-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--c-bg-subtle);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.m-stat-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--c-bg-card);
+  padding: 6px 12px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+}
+
+.m-stat-lbl {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+  text-transform: uppercase;
+}
+
+.m-stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+}
+
+.m-stat-val.text-risk { color: var(--status-risk); }
+.m-stat-val.text-primary { color: var(--c-primary); }
+.m-stat-val.text-warning { color: var(--status-warning); }
+
+.month-days-of-week-row {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
+  background: var(--c-bg-page);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.dow-cell {
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  text-align: right;
+}
+
+.month-dates-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: minmax(78px, 1fr);
   background: var(--c-border);
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  overflow: hidden;
+  gap: 1px;
+  flex: 1;
 }
 
-.weekday-header {
-  background: #F5F5F5;
-  padding: 8px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--c-text-regular);
-}
-
-.day-cell {
-  background: #FFFFFF;
-  padding: 6px;
-  min-height: 100px;
+.month-matrix-day-cell {
+  background: var(--c-bg-card);
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
   cursor: pointer;
-  transition: background var(--motion-fast);
+  transition: all var(--motion-fast);
+  position: relative;
 }
 
-.day-cell:hover {
-  background: #FAFAFA;
+.month-matrix-day-cell:hover { background: var(--c-bg-hover); }
+
+.month-matrix-day-cell.is-outside {
+  background: var(--c-bg-page);
+  opacity: 0.4;
 }
 
-.day-cell.other-month {
-  background: #F9F9F9;
-  opacity: 0.6;
-}
-
-.day-cell.today {
-  background: #EDF1F8;
-}
-
-.day-cell.selected {
-  background: #C3CFE3;
+.month-matrix-day-cell.is-drag-target {
+  background: var(--c-primary-light) !important;
   box-shadow: inset 0 0 0 2px var(--c-primary);
 }
 
-.day-cell.has-hard {
-  border-top: 2px solid var(--c-danger);
-}
-
-.day-cell.has-overdue {
-  border-top: 2px solid var(--c-warning);
-}
-
-.day-header {
+.cell-header-flex {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
+  width: 100%;
+  pointer-events: none;
 }
 
-.day-number {
-  font-size: 13px;
-  font-weight: 500;
+.cell-dots-indicator-group {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.dot-indicator {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.dot-risk { background: var(--status-risk); }
+.dot-warning { background: var(--status-warning); }
+.dot-primary { background: var(--c-primary); }
+
+.cell-number-badge {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   color: var(--c-text);
 }
 
-.day-cell.other-month .day-number {
-  color: var(--c-text-secondary);
+.cell-number-badge.today-pill {
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+  margin: -1px -1px 0 0;
+  font-size: 10.5px;
 }
 
-.day-cell.today .day-number {
-  color: var(--c-primary);
-  font-weight: 600;
+.cell-items-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+  margin-top: 3px;
 }
 
-.day-indicator {
+/* 跨天连续条带 + 右端把手 */
+.cell-multiday-ribbon {
   display: flex;
   align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--c-primary-light);
+  border-top: 1.5px solid var(--c-primary);
+  border-bottom: 1.5px solid var(--c-primary);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--c-primary);
+  cursor: grab;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
-.day-indicator.hard {
-  color: var(--c-danger);
+.cell-multiday-ribbon.is-start {
+  border-left: 3px solid var(--c-primary);
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
 }
 
-.day-indicator.overdue {
-  color: var(--c-warning);
+.cell-multiday-ribbon.is-end {
+  border-right: 3px solid var(--c-primary);
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
 }
 
-.day-events {
+.ribbon-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ribbon-cont-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: color-mix(in srgb, var(--c-primary) 40%, transparent);
+}
+
+.ribbon-extend-handle,
+.capsule-extend-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: e-resize;
+  background: transparent;
+}
+
+.ribbon-extend-handle:hover,
+.capsule-extend-handle:hover {
+  background: var(--c-primary);
+}
+
+.cell-task-capsule {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1.5px 4px;
+  border-radius: 3px;
+  background: var(--c-bg-subtle);
+  font-size: 9.5px;
+  cursor: grab;
+  position: relative;
+  overflow: hidden;
+}
+
+.cell-task-capsule:hover { background: var(--c-primary-light); }
+
+.capsule-dot {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  flex-shrink: 0;
+}
+
+.capsule-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-text);
+}
+
+/* ── 2. Week View ─────────────────────────────────────────── */
+.week-full-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.week-cols-header-row {
+  display: grid;
+  grid-template-columns: 54px repeat(7, 1fr);
+  background: var(--c-bg-subtle);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.week-gutter-head {
+  border-right: 1px solid var(--c-border);
+}
+
+.week-col-header-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 2px;
+  border-right: 1px solid var(--c-border-light);
+}
+
+.week-col-header-cell.is-today-col {
+  background: var(--c-primary-light);
+}
+
+.week-col-name {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+}
+
+.week-col-date-pill {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--c-text);
+}
+
+.week-col-date-pill.active {
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+}
+
+.week-allday-ribbon-bar {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-page);
+  min-height: 32px;
+}
+
+.allday-label-col {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--c-border);
+}
+
+.allday-grid-cols {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.allday-col-drop-slot {
+  padding: 3px 4px;
+  border-right: 1px solid var(--c-border-light);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.event-badge {
-  padding: 2px 4px;
+.allday-court-pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 4px;
   border-radius: 3px;
-  font-size: 11px;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--status-risk);
+  color: var(--c-primary-contrast);
 }
 
-.event-badge.hard {
-  background: #F6EDEC;
-  color: var(--c-danger);
-}
-
-.event-badge.deadline {
-  background: #F7F1E3;
-  color: var(--c-warning);
-}
-
-.event-badge.task {
-  background: #EDF1F8;
-  color: var(--c-primary);
-}
-
-.event-text {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.event-more {
-  font-size: 10px;
-  color: var(--c-text-secondary);
-  text-align: center;
-}
-
-/* 选中日期面板 */
-.selected-day-panel {
-  width: 300px;
-  background: #FFFFFF;
-  border-radius: 8px;
-  border: 1px solid var(--c-border);
-  overflow: hidden;
-}
-
-.panel-header {
-  padding: 16px;
-  background: #FAFAFA;
-  border-bottom: 1px solid var(--c-border);
-}
-
-.panel-header h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
+.allday-multiday-pill {
+  font-size: 9.5px;
   font-weight: 600;
-  color: var(--c-text);
-}
-
-.panel-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.stat {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.stat.hard {
-  background: #F6EDEC;
-  color: var(--c-danger);
-}
-
-.stat.deadline {
-  background: #F7F1E3;
-  color: var(--c-warning);
-}
-
-.stat.task {
-  background: #EDF1F8;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--c-primary-light);
   color: var(--c-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
-.stat.overdue {
-  background: #F6EDEC;
-  color: var(--c-danger);
-}
-
-.panel-content {
-  padding: 16px;
-  max-height: 400px;
+.week-timegrid-main-body {
+  display: flex;
+  flex-direction: column;
+  max-height: 580px;
   overflow-y: auto;
 }
 
-.panel-content h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text-regular);
-}
-
-.detail-event,
-.detail-task {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: background var(--motion-fast);
-}
-
-.detail-event:hover,
-.detail-task:hover {
-  background: var(--gray-50);
-}
-
-.event-info,
-.task-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.event-title,
-.task-name {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--c-text);
-  margin-bottom: 2px;
-}
-
-.event-case,
-.task-meta {
-  display: block;
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-.empty-day {
-  text-align: center;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-  padding: 20px;
-}
-
-/* 图例 */
-.calendar-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 20px;
-  padding: 12px;
-  background: #FAFAFA;
-  border-radius: 8px;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--c-text-regular);
-}
-
-.legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-/* ============================================================
-   年视图样式（12 迷你月 + 负载热度 · 对标 Fantastical Year）
-   ============================================================ */
-.year-container {
-  background: #FFFFFF;
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  padding: 20px;
-}
-.year-grid {
+.week-hour-grid-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px 16px;
-}
-@media (max-width: 1100px) {
-  .year-grid { grid-template-columns: repeat(2, 1fr); }
-}
-.year-month {
-  min-width: 0;
-}
-.year-month-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text);
-  margin-bottom: 6px;
-  cursor: pointer;
-  width: fit-content;
-  padding: 1px 6px;
-  border-radius: 4px;
-  transition: background var(--motion-fast) var(--ease-out);
-}
-.year-month-title:hover {
-  background: var(--c-bg-hover, var(--c-bg-hover));
-  color: var(--c-primary, var(--c-primary));
-}
-.year-weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px 0;
-  margin-bottom: 3px;
-}
-.year-weekdays span {
-  text-align: center;
-  font-size: 10px;
-  color: var(--c-text-secondary);
-}
-.year-days {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px 0;
-}
-.year-day {
-  aspect-ratio: 1 / 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  line-height: 1;
-  border-radius: 4px;
-  color: var(--c-text-regular);
-  cursor: pointer;
-  transition:
-    transform var(--motion-fast) var(--ease-out),
-    box-shadow var(--motion-fast) var(--ease-out);
-}
-.year-day:hover {
-  transform: scale(1.18);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-  z-index: 1;
-  position: relative;
-}
-/* 负载热度：绿→琥珀渐进（与任务语义色一致），硬性日程日由 title 提示 */
-.year-day.yl-0 { color: var(--gray-300); background: transparent; }
-.year-day.outside { opacity: 0.35; }
-.year-day.yl-1 { background: #DCE8DF; }
-.year-day.yl-2 { background: #B9D4C0; }
-.year-day.yl-3 { background: #8FBDA0; color: #FFFFFF; }
-.year-day.yl-4 { background: var(--c-success); color: #FFFFFF; font-weight: 600; }
-.year-day.today {
-  box-shadow: inset 0 0 0 2px var(--c-primary, var(--c-primary));
-  font-weight: 700;
-}
-.year-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 16px;
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-.year-legend .year-day {
-  aspect-ratio: auto;
-  width: 22px;
-  height: 18px;
-  cursor: default;
-}
-.year-legend .year-day:hover { transform: none; box-shadow: none; }
-.year-legend em {
-  margin-left: 10px;
-  font-style: normal;
-  color: var(--gray-300);
-}
-
-/* ============================================================
-   周视图样式（时间块）
-   ============================================================ */
-.week-container {
-  background: #FFFFFF;
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  overflow: auto;
-  max-height: calc(100vh - 200px);
-}
-
-.week-grid {
-  min-width: 700px;
-  position: relative;
-}
-
-/* 当前时刻线（Google Calendar/Sunsama 惯例）：位置由 nowLineStyle 内联计算 */
-.now-line {
-  position: absolute;
-  height: 2px;
-  background: #E5484D;
-  z-index: 3;
-  pointer-events: none;
-}
-.now-line::before {
-  content: '';
-  position: absolute;
-  left: -5px;
-  top: -3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #E5484D;
-}
-
-.week-header-row {
-  display: grid;
-  grid-template-columns: 56px repeat(7, 1fr);
-  border-bottom: 1px solid var(--c-border);
-  position: sticky;
-  top: 0;
-  background: #FFFFFF;
-  z-index: 2;
+  grid-template-columns: 54px 1fr;
+  min-height: 44px;
+  border-bottom: 1px solid var(--c-border-light);
 }
 
 .week-time-gutter {
-  background: #FAFAFA;
-}
-
-.week-day-header {
-  padding: 8px 0;
-  text-align: center;
-  border-left: 1px solid var(--c-border-light);
-}
-
-.week-day-header.today {
-  background: #EDF1F8;
-}
-
-.week-day-name {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  letter-spacing: .5px;
-}
-
-.week-day-number {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-text);
-  margin-top: 2px;
-}
-
-.week-day-number.today-num {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--c-primary);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.week-hour-row {
-  display: grid;
-  grid-template-columns: 56px repeat(7, 1fr);
-  border-bottom: 1px solid var(--c-border-light);
-  min-height: 48px;
-}
-
-.week-time-label {
-  font-size: 11px;
-  color: var(--c-text-secondary);
   font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-gray-light);
   text-align: right;
-  padding: 4px 8px 0 0;
+  padding-right: 8px;
+  border-right: 1px solid var(--c-border);
+  transform: translateY(-6px);
 }
 
-.week-cell {
-  border-left: 1px solid var(--c-border-light);
-  padding: 2px 3px;
-  position: relative;
-}
-
-.week-cell.today {
-  background: rgba(62, 92, 154, 0.03);
-}
-
-.week-event {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  border-left: 2px solid;
-  margin-bottom: 2px;
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.week-event-title {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 500;
-}
-
-.week-event-time {
-  font-size: 10px;
-  color: var(--c-text-secondary);
-}
-
-/* ── 周视图 v2：时长定位层（Google Calendar 式）── */
-.week-allday-row {
+.week-hour-7cols {
   display: grid;
-  grid-template-columns: 56px repeat(7, 1fr);
-  border-bottom: 1px solid var(--c-border);
-  min-height: 30px;
-}
-.week-allday-cell {
-  border-left: 1px solid var(--c-border-light);
-  padding: 2px 3px;
-  position: relative;
-  min-height: 30px;
-}
-.week-allday-cell.today { background: rgba(62, 92, 154, 0.03); }
-.allday-chip {
-  display: block;
+  grid-template-columns: repeat(7, 1fr);
 }
 
-.week-body {
-  position: relative;
-}
-/* 背景小时行：纯线条，不承载内容 */
-.week-body .week-hour-row {
-  min-height: 48px;
-}
-.week-cell-bg {
-  border-left: 1px solid var(--c-border-light);
-}
-.week-cell-bg.today { background: rgba(62, 92, 154, 0.03); }
-
-/* 每日定位层：覆盖时段主体的一列，自身接收拖放 */
-.week-day-layer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  pointer-events: auto;
-}
-.week-event-abs {
-  position: absolute;
-  overflow: hidden;
-  font-size: 11px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  border-left: 3px solid;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-  transition: box-shadow var(--motion-fast) var(--ease-out);
-  z-index: 1;
-}
-.week-event-abs:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
-  z-index: 2;
-}
-.we-title {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 500;
-  color: var(--c-text);
-}
-.we-time {
-  display: block;
-  font-size: 10px;
-  color: var(--gray-500);
-}
-
-/* ============================================================
-   日视图样式（硬性/弹性/成长时间块）
-   ============================================================ */
-.day-container {
-  background: #FFFFFF;
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.day-grid {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 16px;
-}
-
-/* ── 日视图时间轴（复用 week-hour-row / week-time-label / now-line）── */
-.day-hour-body {
-  position: relative;
-  background: #fff;
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-/* 单日列：覆盖 week-hour-row 的 7 列模板 */
-.day-hour-body .week-hour-row {
-  grid-template-columns: 44px 1fr;
-}
-.day-cell-bg {
-  border-left: 1px solid var(--c-border-lighter);
-}
-.day-event-layer {
-  position: absolute;
-  inset: 0;
-}
-
-.day-header {
-  margin-bottom: 16px;
-}
-
-.day-header-date {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--c-text);
-}
-
-.day-header-weekday {
-  font-size: 14px;
-  color: var(--c-text-secondary);
-  margin-left: 8px;
-}
-
-.day-section {
-  margin-bottom: 16px;
-}
-
-.day-section-label {
+.week-slot-day-cell {
+  border-right: 1px solid var(--c-border-light);
+  padding: 2px 4px;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 0;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--c-border-light);
-}
-
-.day-section-label.hard { color: var(--c-danger); }
-.day-section-label.flex { color: var(--c-primary); }
-.day-section-label.grow { color: var(--c-success); }
-
-.day-slot {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  margin-bottom: 6px;
-  border: 1px solid #E0E3E9;
-  background: #FFFFFF;
-  cursor: pointer;
-  transition: all var(--motion-fast) var(--ease-out);
-}
-
-.day-slot:hover {
-  border-color: #CDD2DB;
-}
-
-.day-slot.hard {
-  border-left: 3px solid var(--c-danger);
-}
-
-.day-slot.flex {
-  border-left: 3px solid var(--c-primary);
-}
-
-.slot-time {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--c-text-regular);
-  width: 44px;
-  flex-shrink: 0;
-}
-
-.slot-title {
-  flex: 1;
-  font-size: 13px;
-  color: var(--c-text);
-}
-
-.day-empty {
-  text-align: center;
-  padding: 16px;
-  color: var(--c-text-secondary);
-  font-size: 12px;
-}
-
-.day-tip {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-  padding: 8px 0;
-  border-top: 1px dashed #E0E3E9;
-  margin-top: 8px;
-}
-
-.day-agenda .card-header {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--c-text);
-  padding-bottom: 10px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--c-border-light);
-}
-
-.agenda-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--c-border-light);
-}
-
-.agenda-item:last-child { border-bottom: none; }
-
-.agenda-dot {
-  width: 4px;
-  height: 28px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.agenda-info {
-  flex: 1;
-}
-
-.agenda-title {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--c-text);
-}
-
-.agenda-time {
-  display: block;
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  margin-top: 1px;
-}
-
-.agenda-task {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-}
-
-.agenda-task-name {
-  font-size: 13px;
-  color: var(--c-text);
-}
-
-/* ============================================================
-   Forecast 双栏（对标 Fantastical）
-   ============================================================ */
-.forecast-container {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-/* 左栏：按日分组列表 */
-.forecast-left {
-  flex: 1;
-  min-width: 0;
-  background: #FFFFFF;
-  border-radius: 8px;
-  border: 1px solid var(--c-border);
-  overflow: hidden;
-}
-
-.forecast-section-header {
-  padding: 12px 16px;
-  background: #FAFAFA;
-  border-bottom: 1px solid var(--c-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.forecast-section-header h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-
-.forecast-hint {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-}
-
-.forecast-day-groups {
-  max-height: calc(100vh - 300px);
-  overflow-y: auto;
-  padding: 4px 0;
-}
-
-.forecast-day-group {
-  border-bottom: 1px solid var(--c-border-light);
-  padding: 8px 16px;
+  flex-direction: column;
+  gap: 2px;
   transition: background var(--motion-fast);
 }
 
-.forecast-day-group:hover {
-  background: #FAFAFA;
+.week-slot-day-cell:hover {
+  background: var(--c-bg-hover);
 }
 
-.forecast-day-group.is-today {
-  background: #EDF1F8;
+.week-slot-day-cell.is-today-slot {
+  background: color-mix(in srgb, var(--c-primary) 3%, transparent);
 }
 
-.forecast-day-group.is-overdue {
-  background: #F6EDEC;
+.week-cell-task-block {
+  padding: 2px 5px;
+  background: var(--c-bg-subtle);
+  border-left: 2.5px solid var(--c-primary);
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
 }
 
-.forecast-group-label.overdue {
-  color: var(--c-danger);
+.w-task-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-text);
 }
 
-.forecast-group-header {
+/* ── 3. Day View ─────────────────────────────────────────── */
+.day-full-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+}
+
+.day-schedule-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 12px;
+}
+
+.day-schedule-heading {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  margin: 0;
+}
+
+.day-schedule-sub {
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+  margin-top: 2px;
+  display: block;
+}
+
+.day-view-mode-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-primary);
+  background: var(--c-primary-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.day-multiday-active-banner {
+  background: var(--c-primary-light);
+  border: 1px solid color-mix(in srgb, var(--c-primary) 30%, transparent);
+  border-radius: var(--c-radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dma-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.forecast-group-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text);
-  min-width: 44px;
-}
-
-.forecast-group-label.today {
+  gap: 6px;
+  font-size: 11.5px;
   color: var(--c-primary);
 }
 
-.forecast-group-weekday {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-}
-
-.forecast-group-count {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--c-text-secondary);
-}
-
-.forecast-group-count.has-items {
-  color: var(--c-primary);
-  font-weight: 500;
-}
-
-.forecast-group-items {
+.dma-cards-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.forecast-list-item {
+.dma-item-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--c-bg-card);
+  padding: 6px 10px;
+  border-radius: var(--c-radius);
+  border: 1px solid var(--c-border);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dma-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  border-radius: 3px;
+  margin-right: 6px;
+}
+
+.dma-span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--slate-gray-light);
+  margin-left: 6px;
+}
+
+.dma-check-btn,
+.slot-check-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--c-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--c-primary-contrast);
+}
+
+.dma-check-btn.checked,
+.slot-check-btn.checked {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+
+.day-hours-drop-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-hour-drop-row {
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  border-radius: var(--c-radius);
+  padding: 2px;
+}
+
+.day-hour-drop-row.is-drag-over {
+  background: var(--c-primary-light);
+}
+
+.hour-time-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-gray-light);
+  padding-top: 8px;
+  text-align: right;
+}
+
+.hour-slot-drop-area {
+  min-height: 44px;
+  border-radius: var(--c-radius);
+  border: 1px dashed var(--c-border);
+  background: var(--c-bg-page);
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+.day-slot-item-card {
+  padding: 6px 10px;
+  border-radius: var(--c-radius);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-primary);
+  cursor: pointer;
+}
+
+.slot-badge-caps {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--c-primary);
+  margin-right: 6px;
+}
+
+.slot-item-title {
+  font-size: 12.5px;
+  color: var(--c-text-heading);
+  flex: 1;
+}
+
+.slot-item-title.struck {
+  text-decoration: line-through;
+  color: var(--slate-gray-light);
+}
+
+.hour-empty-slot-placeholder {
+  font-size: 11px;
+  color: var(--slate-gray-light);
+  opacity: 0.7;
+}
+
+/* ── 4. Forecast View ─────────────────────────────────────── */
+.forecast-full-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.forecast-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.forecast-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  margin: 0;
+}
+
+.forecast-sub {
+  font-size: 12px;
+  color: var(--slate-gray-light);
+  margin: 4px 0 0;
+}
+
+.forecast-stats-strip {
+  display: flex;
+  gap: 12px;
+}
+
+.f-stat-card {
+  padding: 8px 14px;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.f-stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+  text-transform: uppercase;
+}
+
+.f-stat-number {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.f-stat-number.text-risk { color: var(--status-risk); }
+.f-stat-number.text-primary { color: var(--c-primary); }
+.f-stat-number.text-success { color: var(--status-success); }
+
+.forecast-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.f-filter-tabs {
+  display: flex;
+  background: var(--c-bg-subtle);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 2px;
+  gap: 2px;
+}
+
+.f-filter-tab {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.f-filter-tab.active {
+  background: var(--c-bg-card);
+  color: var(--c-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.f-total-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-gray-light);
+}
+
+.forecast-days-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 270px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.forecast-day-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-page);
+  transition: all var(--motion-fast);
+}
+
+.forecast-day-row:hover {
+  background: var(--c-bg-hover);
+  border-color: var(--c-border-strong);
+}
+
+.forecast-day-row.is-risk-day {
+  background: var(--bg-risk-weak);
+  border-left: 4px solid var(--status-risk);
+}
+
+.forecast-day-row.is-busy-day {
+  border-left: 4px solid var(--status-warning);
+}
+
+.forecast-day-row.is-today {
+  box-shadow: inset 0 0 0 1px var(--c-primary);
+}
+
+.forecast-day-row.is-drag-target {
+  background: var(--c-primary-light) !important;
+  border: 2px dashed var(--c-primary);
+}
+
+.f-date-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid var(--c-border);
+  padding-right: 12px;
+}
+
+.f-day-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  width: fit-content;
+}
+
+.f-day-badge.risk {
+  background: var(--status-risk);
+  color: var(--c-primary-contrast);
+}
+
+.f-day-badge.busy {
+  background: var(--status-warning);
+  color: var(--c-primary-contrast);
+}
+
+.f-day-badge.free {
+  background: var(--c-bg-subtle);
+  color: var(--c-text-regular);
+}
+
+.f-day-date {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  margin-top: 2px;
+}
+
+.f-day-weekday {
+  font-size: 11px;
+  color: var(--slate-gray-light);
+}
+
+.f-events-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.f-risk-tag-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border-left: 3px solid transparent;
-  background: #FAFAFA;
 }
 
-.forecast-list-item.hard {
-  border-left-color: var(--c-danger);
-  background: #F6EDEC;
-}
-
-.forecast-list-item.deadline {
-  border-left-color: var(--c-warning);
-  background: #F7F1E3;
-}
-
-.forecast-list-item.warning {
-  border-left-color: var(--c-warning);
-  background: #F7F1E3;
-}
-
-.forecast-list-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.forecast-list-title {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--c-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.forecast-list-meta {
-  display: block;
+.f-risk-pill {
   font-size: 11px;
-  color: var(--c-text-secondary);
-  margin-top: 1px;
+  font-weight: 600;
+  color: var(--c-text-heading);
 }
 
-.forecast-group-empty {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  padding: 2px 8px;
-}
+.f-risk-pill.risk { color: var(--status-risk); }
+.f-risk-pill.busy { color: var(--status-warning); }
 
-/* 右栏：今日时间轴 */
-.forecast-right {
-  width: 380px;
-  flex-shrink: 0;
-}
-
-.forecast-timeline {
-  background: #FFFFFF;
-  border-radius: 8px;
+.f-hours-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-gray-light);
+  background: var(--c-bg-card);
+  padding: 1px 6px;
+  border-radius: 3px;
   border: 1px solid var(--c-border);
-  overflow: hidden;
 }
 
-.forecast-today-date {
-  font-size: 12px;
-  color: var(--c-text-secondary);
+.f-items-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.timeline-section {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--c-border-light);
-}
-
-.timeline-section-label {
+.f-event-chip {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+
+.f-event-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.f-event-chip.court {
+  background: var(--bg-risk-weak);
+  border-color: var(--status-risk);
+  color: var(--status-risk);
   font-weight: 600;
-  padding: 4px 0 8px;
-  border-bottom: 1px solid var(--c-border-light);
+}
+
+.f-event-chip.multiday {
+  background: var(--c-primary-light);
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+  font-weight: 600;
+}
+
+.f-event-chip.task {
+  color: var(--c-text);
+}
+
+.f-task-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--c-primary);
+}
+
+.f-empty-slot {
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+  opacity: 0.7;
+  padding: 4px 0;
+}
+
+/* ── B. 右侧统一 Holding Tank 任务池 ─────────────────────── */
+.calendar-unified-holding-tank {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.calendar-unified-holding-tank.is-drag-target {
+  border: 2px dashed var(--c-primary);
+  background: var(--c-primary-light);
+}
+
+.tank-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.tank-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  margin: 0;
+}
+
+.tank-sub-desc {
+  font-size: 11px;
+  color: var(--slate-gray-light);
+  margin: 2px 0 0;
+}
+
+.tank-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-primary);
+  background: var(--c-primary-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tank-filter-pills {
+  display: flex;
+  background: var(--c-bg-subtle);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius);
+  padding: 2px;
+  gap: 2px;
   margin-bottom: 8px;
 }
 
-.timeline-section-label.hard { color: var(--c-danger); }
-.timeline-section-label.flex { color: var(--c-primary); }
-
-/* 时间块分区（§7.2）：块范围 / 计数 / 弹性分区底色 */
-.timeline-section-label .block-range {
-  font-size: 10px;
-  font-weight: 400;
+.tank-tab-btn {
+  flex: 1;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--c-text-secondary);
-  font-family: var(--font-mono, monospace);
+  border-radius: 4px;
+  cursor: pointer;
 }
 
-.timeline-section.flex-section {
-  background: #FBFBFD;
+.tank-tab-btn.active {
+  background: var(--c-bg-card);
+  color: var(--c-text);
+  box-shadow: var(--shadow-sm);
 }
 
-.timeline-count.has-items {
-  color: var(--c-primary);
-  background: #EDF1F8;
+.tank-search-box { position: relative; }
+
+.tank-search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--slate-gray-light);
 }
 
-/* 时间分配提示（§7.3） */
-.timeline-tip {
-  margin: 10px 16px 0;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--c-warning);
-  background: #F7F1E3;
-  border-left: 3px solid var(--c-warning);
+.tank-search-real {
+  width: 100%;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius);
+  padding: 5px 8px 5px 26px;
+  font-size: 11.5px;
+  outline: none;
+  color: var(--c-text);
 }
 
-.timeline-count {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--c-text-secondary);
-  background: var(--gray-50);
-  border-radius: 999px;
-  padding: 0 8px;
-  line-height: 16px;
+.holding-tasks-scroll-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+  max-height: calc(100vh - 240px);
 }
 
-.timeline-slot {
+.tank-task-card {
+  padding: 10px 12px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-page);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  margin-bottom: 6px;
-  border: 1px solid #E0E3E9;
-  background: #FFFFFF;
-  cursor: pointer;
-  transition: border-color var(--motion-fast);
+  justify-content: space-between;
+  gap: 8px;
+  cursor: grab;
+  transition: all var(--motion-fast);
 }
 
-.timeline-slot:hover {
-  border-color: #CDD2DB;
+.tank-task-card:hover {
+  background: var(--c-bg-hover);
+  border-color: var(--c-primary);
+  box-shadow: var(--shadow-sm);
 }
 
-.timeline-slot.hard {
-  border-left: 3px solid var(--c-danger);
-  background: #F6EDEC;
-}
-
-.timeline-slot.flex {
-  border-left: 3px solid var(--c-primary);
-  background: #EDF1F8;
-}
-
-.timeline-slot.flex.done {
-  border-left-color: var(--c-success);
-  background: #EDF3EF;
-  opacity: 0.75;
-}
-
-.timeline-slot.flex.done .timeline-title {
-  color: var(--c-success);
-  text-decoration: line-through;
-}
-
-.timeline-time {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--c-text-regular);
-  width: 44px;
-  flex-shrink: 0;
-}
-
-.timeline-title {
+.tank-task-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   flex: 1;
   min-width: 0;
-  font-size: 13px;
-  color: var(--c-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.timeline-case {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  flex-shrink: 0;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tank-task-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
-.timeline-empty {
-  text-align: center;
-  padding: 12px;
-  color: var(--c-text-secondary);
+.tank-drag-handle { color: var(--slate-gray-light); flex-shrink: 0; }
+
+.tank-task-name {
   font-size: 12px;
+  color: var(--c-text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.forecast-tip {
+.tank-task-name.struck {
+  text-decoration: line-through;
+  color: var(--slate-gray-light);
+}
+
+.tank-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 20px;
+}
+
+.meta-case-tag { font-size: 10.5px; color: var(--c-primary); }
+
+.meta-multiday-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--status-discovery);
+  background: var(--c-bg-subtle);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.meta-due-date {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--slate-gray-light);
+}
+
+.tank-task-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tank-est-pill {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  color: var(--slate-gray-light);
+}
+
+.tank-check-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--c-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--c-primary-contrast);
+}
+
+.tank-check-box.checked {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+
+.tank-empty-box {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--slate-gray-light);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Timeline Read-only View Styles
+   ═══════════════════════════════════════════════════════════ */
+.timeline-global-layout {
+  display: flex;
+  width: 100%;
+  min-height: calc(100vh - 160px);
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  overflow: hidden;
+}
+
+.timeline-case-filter-aside {
+  width: 260px;
+  border-right: 1px solid var(--c-border);
+  padding: 20px;
+}
+
+.filter-headline-title { font-size: 14px; font-weight: 700; margin: 0 0 16px; }
+
+.case-search-wrapper { position: relative; margin-bottom: 16px; }
+
+.case-search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--slate-gray-light); }
+
+.case-search-input {
+  width: 100%;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius);
+  padding: 6px 10px 6px 28px;
+  font-size: 12px;
+  outline: none;
+}
+
+.case-checkbox-list { display: flex; flex-direction: column; gap: 8px; }
+
+.case-checkbox-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+
+.case-native-checkbox { accent-color: var(--c-primary); }
+
+.case-checkbox-name { font-size: 12.5px; }
+
+.timeline-main-stream { flex: 1; background: var(--c-bg-page); }
+
+.timeline-stream-top {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+}
+
+.stream-main-heading { font-size: 20px; font-weight: 700; margin: 0; }
+
+.stream-sub-caption { font-size: 12px; color: var(--slate-gray-light); margin: 2px 0 0; }
+
+.timeline-events-container { padding: 28px 28px 48px 120px; position: relative; }
+
+.timeline-vertical-guide-line { position: absolute; left: 119px; top: 0; bottom: 0; width: 1px; background: var(--c-border); }
+
+.timeline-date-group { position: relative; margin-bottom: 30px; }
+
+.group-date-label { position: absolute; left: -120px; top: 0; width: 100px; text-align: right; font-weight: 700; font-size: 13px; }
+
+.group-axis-big-node { position: absolute; left: -5px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--c-bg-page); border: 2px solid var(--c-primary); z-index: 10; }
+
+.group-cards-stack { display: flex; flex-direction: column; gap: 12px; }
+
+.timeline-event-card-row { position: relative; cursor: pointer; }
+
+.time-stamp-col { position: absolute; left: -120px; top: 12px; width: 100px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--slate-gray-light); }
+
+.event-axis-ring-dot { position: absolute; left: -4px; top: 16px; width: 9px; height: 9px; border-radius: 50%; background: var(--c-primary); z-index: 10; }
+.event-axis-ring-dot.court { background: var(--status-risk); }
+
+.event-detail-box {
+  margin-left: 24px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 14px 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.event-left-accent-line { position: absolute; top: 0; left: 0; bottom: 0; width: 3.5px; background: var(--c-primary); }
+.event-left-accent-line.court { background: var(--status-risk); }
+
+.box-content-top { display: flex; align-items: flex-start; justify-content: space-between; }
+
+.box-badges-row { display: flex; gap: 6px; margin-bottom: 4px; }
+
+.badge-tag-pill {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.badge-tag-pill.neutral { background: var(--c-bg-subtle); color: var(--c-text-regular); }
+.badge-tag-pill.risk { background: var(--bg-risk-weak); color: var(--status-risk); font-weight: 700; }
+.badge-tag-pill.warning { background: var(--bg-warning-weak); color: var(--status-warning); font-weight: 700; }
+
+.box-title-text { font-size: 14px; font-weight: 600; margin: 0; }
+
+.box-case-text { font-size: 12px; color: var(--slate-gray-light); margin: 2px 0 0; }
+
+.mono-duration { font-family: var(--font-mono); font-size: 11px; color: var(--slate-gray-light); }
+
+.timeline-empty-hint {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--slate-gray-light);
+  font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   4. 单日日程明细弹窗样式 (Day Modal)
+   ═══════════════════════════════════════════════════════════ */
+.day-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-sec-box {
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sec-title-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sec-label-caps {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+  text-transform: uppercase;
+}
+
+.sec-hint-txt {
+  font-size: 10px;
+  color: var(--slate-gray-light);
+}
+
+.modal-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modal-multiday-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--c-primary-light);
+  border-left: 3.5px solid var(--c-primary);
+  border-radius: var(--c-radius);
+  font-size: 12.5px;
+  cursor: grab;
+  transition: all var(--motion-fast);
+}
+
+.modal-multiday-item:hover {
+  box-shadow: var(--shadow-sm);
+  filter: brightness(0.98);
+}
+
+.m-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.m-drag-icon {
+  color: var(--slate-gray-light);
+  flex-shrink: 0;
+}
+
+.m-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--c-primary);
+  background: var(--c-bg-card);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.modal-event-item {
+  padding: 8px 12px;
+  border-radius: var(--c-radius);
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.modal-event-item.is-court {
+  background: var(--bg-risk-weak);
+  border-left: 3.5px solid var(--status-risk);
+}
+
+.modal-event-item.is-normal {
+  border-left: 3.5px solid var(--c-primary);
+}
+
+.m-ev-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-ev-time {
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--c-text-secondary);
-  padding: 10px 16px;
-  border-top: 1px dashed #E0E3E9;
+  color: var(--slate-gray-light);
+}
+
+.m-ev-loc {
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+}
+
+.modal-task-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-left: 3.5px solid var(--c-primary);
+  border-radius: var(--c-radius);
+  font-size: 12.5px;
+  cursor: grab;
+  transition: all var(--motion-fast);
+}
+
+.modal-task-item:hover {
+  box-shadow: var(--shadow-sm);
+  background: var(--c-bg-hover);
+}
+
+.m-t-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-t-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-gray-light);
+}
+
+.m-t-case {
+  font-size: 11px;
+  color: var(--c-primary);
+}
+
+.m-check-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--c-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--c-primary-contrast);
+}
+
+.m-check-btn.checked {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+
+.modal-empty-hint {
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+  padding: 4px 0;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-primary-action {
+  padding: 6px 16px;
+  border-radius: var(--c-radius-lg);
+  border: none;
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   5. 编辑详情弹窗样式
+   ═══════════════════════════════════════════════════════════ */
+.edit-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.edit-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.edit-form-item label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-heading);
+}
+
+.edit-form-row {
+  display: flex;
+  gap: 14px;
+}
+
+.edit-input,
+.edit-select,
+.edit-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--c-radius);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-page);
+  color: var(--c-text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.edit-input:focus,
+.edit-select:focus,
+.edit-textarea:focus {
+  border-color: var(--c-primary);
+}
+
+.edit-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.btn-delete {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--status-risk);
+  background: var(--bg-risk-weak);
+  color: var(--status-risk);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-delete:hover {
+  background: var(--status-risk);
+  color: var(--c-primary-contrast);
+}
+
+.right-btns {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-cancel {
+  padding: 6px 14px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-subtle);
+  color: var(--c-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+  .calendar-unified-workspace-grid { grid-template-columns: 1fr; }
+  .calendar-unified-holding-tank { width: 100%; }
 }
 </style>

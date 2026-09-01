@@ -36,8 +36,11 @@ export class SyncService extends Service {
     return tauriCallSafe<void>('configure_feishu', { appId, appSecret })
   }
 
-  async testFeishuConnection(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('test_feishu_connection', {})
+  async testFeishuConnection(appId?: string, appSecret?: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('test_feishu_connection', {
+      appId: appId || null,
+      appSecret: appSecret || null,
+    })
   }
 
   /** v3.0: 表结构发现 */

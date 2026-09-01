@@ -129,15 +129,9 @@ fn hardcoded_fallback(case_type: Option<&str>) -> Vec<(String, String)> {
             vec![
                 ("01_委托材料".into(), "代理委托书、合同、工作记录".into()),
                 ("02_申请清单".into(), "拟申请专利清单".into()),
-                (
-                    "03_客户提供".into(),
-                    "技术交底书、现有技术资料".into(),
-                ),
+                ("03_客户提供".into(), "技术交底书、现有技术资料".into()),
                 ("04_律师工作".into(), "检索报告、分析、申请规划".into()),
-                (
-                    "05_申请文件".into(),
-                    "请求书、说明书、权利要求书".into(),
-                ),
+                ("05_申请文件".into(), "请求书、说明书、权利要求书".into()),
                 (
                     "06_国知局文件".into(),
                     "受理通知书、审查意见、授权通知".into(),
@@ -252,9 +246,13 @@ pub fn smart_rename(
     category: &str,
     doc_date: Option<&str>,
 ) -> String {
-    let date_str = doc_date
-        .map(|d| d.to_string())
-        .unwrap_or_else(|| chrono::Local::now().naive_local().date().format("%Y-%m-%d").to_string());
+    let date_str = doc_date.map(|d| d.to_string()).unwrap_or_else(|| {
+        chrono::Local::now()
+            .naive_local()
+            .date()
+            .format("%Y-%m-%d")
+            .to_string()
+    });
 
     let category_cn = match category {
         "summons" => "传票",
@@ -293,12 +291,18 @@ pub fn auto_classify(file_name: &str) -> &'static str {
     let name_lower = file_name.to_lowercase();
 
     // 法院文书
-    if name_lower.contains("传票") || name_lower.contains("应诉通知书")
-        || name_lower.contains("受理通知书") || name_lower.contains("举证通知书") {
+    if name_lower.contains("传票")
+        || name_lower.contains("应诉通知书")
+        || name_lower.contains("受理通知书")
+        || name_lower.contains("举证通知书")
+    {
         return "summons";
     }
-    if name_lower.contains("判决") || name_lower.contains("裁定")
-        || name_lower.contains("决定") || name_lower.contains("调解书") {
+    if name_lower.contains("判决")
+        || name_lower.contains("裁定")
+        || name_lower.contains("决定")
+        || name_lower.contains("调解书")
+    {
         return "judgment";
     }
     if name_lower.contains("送达") || name_lower.contains("回证") {
@@ -309,8 +313,11 @@ pub fn auto_classify(file_name: &str) -> &'static str {
     if name_lower.contains("起诉状") || name_lower.contains("起诉书") {
         return "complaint";
     }
-    if name_lower.contains("答辩状") || name_lower.contains("代理词")
-        || name_lower.contains("辩护词") || name_lower.contains("上诉状") {
+    if name_lower.contains("答辩状")
+        || name_lower.contains("代理词")
+        || name_lower.contains("辩护词")
+        || name_lower.contains("上诉状")
+    {
         return "defence";
     }
 
@@ -320,14 +327,20 @@ pub fn auto_classify(file_name: &str) -> &'static str {
     }
 
     // 国知局/商标局
-    if name_lower.contains("审查意见") || name_lower.contains("驳回决定")
-        || name_lower.contains("授权通知") || name_lower.contains("缴费通知") {
+    if name_lower.contains("审查意见")
+        || name_lower.contains("驳回决定")
+        || name_lower.contains("授权通知")
+        || name_lower.contains("缴费通知")
+    {
         return "official_notice";
     }
 
     // 专利文件
-    if name_lower.contains("权利要求") || name_lower.contains("说明书")
-        || name_lower.contains("技术交底") || name_lower.contains("检索报告") {
+    if name_lower.contains("权利要求")
+        || name_lower.contains("说明书")
+        || name_lower.contains("技术交底")
+        || name_lower.contains("检索报告")
+    {
         return "patent_doc";
     }
 
@@ -337,14 +350,17 @@ pub fn auto_classify(file_name: &str) -> &'static str {
     }
 
     // 合同/委托
-    if name_lower.contains("委托") || name_lower.contains("合同")
-        || name_lower.contains("授权书") || name_lower.contains("协议") {
+    if name_lower.contains("委托")
+        || name_lower.contains("合同")
+        || name_lower.contains("授权书")
+        || name_lower.contains("协议")
+    {
         return "contract";
     }
 
     // 发票
-    if name_lower.contains("发票") || name_lower.contains("收据")
-        || name_lower.contains("缴费") {
+    if name_lower.contains("发票") || name_lower.contains("收据") || name_lower.contains("缴费")
+    {
         return "invoice";
     }
 

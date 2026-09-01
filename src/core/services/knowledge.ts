@@ -14,6 +14,10 @@ export class KnowledgeService extends Service {
     return tauriCallSafe<unknown>('search_knowledge', { query })
   }
 
+  async globalSearch(query: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('global_search', { query })
+  }
+
   async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: string; error?: string }> {
     return tauriCallSafe<string>('create_knowledge', { data })
   }

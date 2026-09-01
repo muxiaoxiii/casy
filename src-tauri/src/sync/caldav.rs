@@ -14,8 +14,8 @@
 
 use anyhow::Result;
 use chrono::NaiveDateTime;
-use rusqlite::Connection;
 use reqwest::Client;
+use rusqlite::Connection;
 use std::time::Duration;
 
 /// CalDAV 请求超时
@@ -127,7 +127,11 @@ pub fn load_caldav_config(conn: &Connection) -> Result<Option<CalDavConfig>> {
         return Ok(None);
     };
 
-    Ok(Some(CalDavConfig { url, user, password }))
+    Ok(Some(CalDavConfig {
+        url,
+        user,
+        password,
+    }))
 }
 
 /// CalDAV 客户端
@@ -217,7 +221,11 @@ impl CalDavClient {
 
         Ok(format!(
             "连接成功（DAV: {}）",
-            if dav.is_empty() { "未声明".to_string() } else { dav }
+            if dav.is_empty() {
+                "未声明".to_string()
+            } else {
+                dav
+            }
         ))
     }
 
@@ -232,7 +240,14 @@ impl CalDavClient {
         duration_minutes: i64,
         alarm_minutes: i64,
     ) -> std::result::Result<Option<String>, CalDavError> {
-        let ics = build_reminder_ics(uid, summary, description, dtstart, duration_minutes, alarm_minutes);
+        let ics = build_reminder_ics(
+            uid,
+            summary,
+            description,
+            dtstart,
+            duration_minutes,
+            alarm_minutes,
+        );
 
         let resp = self
             .client

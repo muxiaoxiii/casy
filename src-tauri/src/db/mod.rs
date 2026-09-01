@@ -5,6 +5,7 @@ pub mod search;
 use anyhow::Result;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 const KEYRING_SERVICE: &str = "com.casy.db";
@@ -15,13 +16,56 @@ const KEY_FILE_NAME: &str = "casy.db.key";
 /// 全局加密密钥（进程内只读取/生成一次）
 static ENCRYPTION_KEY: OnceLock<String> = OnceLock::new();
 
+/// 数据库维护模式标识（排他维护锁，用于备份恢复/重建期间阻止并发读写）
+static MAINTENANCE_MODE: AtomicBool = AtomicBool::new(false);
+
 /// 共享连接（B1 连接池底座）：SQLCipher 每次开连接都要重做 PBKDF2 密钥推导，
 /// 逐命令开关的开销随命令数线性放大；共享单连接 + 互斥串行化是当前规模下
 /// 最小侵入的池化形态。存量 open_db() 调用点不受影响，按域逐步迁移。
-static SHARED_CONN: OnceLock<std::sync::Mutex<Connection>> = OnceLock::new();
+static SHARED_CONN: std::sync::Mutex<Option<Connection>> = std::sync::Mutex::new(None);
 
-/// 打开数据库连接（自动加密，兼容旧版明文 DB 迁移）
+/// 检查系统当前是否处于独占维护模式
+pub fn is_maintenance_mode() -> bool {
+    MAINTENANCE_MODE.load(Ordering::SeqCst)
+}
+
+/// 重置/清空共享连接（关闭底层句柄以释放磁盘文件锁定）
+pub fn reset_shared_conn() {
+    if let Ok(mut guard) = SHARED_CONN.lock() {
+        *guard = None;
+    }
+}
+
+/// 维护模式 RAII 守卫：退出作用域时自动解除维护模式
+pub struct MaintenanceGuard;
+
+impl Drop for MaintenanceGuard {
+    fn drop(&mut self) {
+        MAINTENANCE_MODE.store(false, Ordering::SeqCst);
+        log::info!("Exited database maintenance mode");
+    }
+}
+
+/// 申请独占维护模式（用于备份恢复或库文件重置，阻止常规 IPC 操作）
+pub fn enter_maintenance() -> Result<MaintenanceGuard> {
+    if MAINTENANCE_MODE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        anyhow::bail!("系统已处于维护模式中，请勿重复执行维护操作");
+    }
+
+    // 释放共享连接池持有的文件句柄
+    reset_shared_conn();
+    log::info!("Entered exclusive database maintenance mode");
+    Ok(MaintenanceGuard)
+}
+
+/// 打开数据库连接（自动加密，兼容旧版明文 DB 迁移，受维护模式守卫拦截）
 pub fn open_db() -> Result<Connection> {
+    if is_maintenance_mode() {
+        anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
+    }
     open_db_encrypted()
 }
 
@@ -31,24 +75,25 @@ pub fn open_db() -> Result<Connection> {
 /// - `Mutex` 串行化：同一时刻仅一个命令持有连接，天然规避写冲突
 /// - 错误类型与既有 anyhow 链路一致
 pub fn with_conn<T>(f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
-    if SHARED_CONN.get().is_none() {
-        let conn = open_db_encrypted()?;
-        let _ = SHARED_CONN.set(std::sync::Mutex::new(conn));
+    if is_maintenance_mode() {
+        anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
     }
-    let mutex = SHARED_CONN
-        .get()
-        .ok_or_else(|| anyhow::anyhow!("共享数据库连接初始化失败"))?;
-    let guard = mutex
+    let mut guard = SHARED_CONN
         .lock()
         .map_err(|e| anyhow::anyhow!("数据库连接锁中毒: {e}"))?;
-    f(&guard)
+    if guard.is_none() {
+        let conn = open_db_encrypted()?;
+        *guard = Some(conn);
+    }
+    let conn_ref = guard.as_ref().unwrap();
+    f(conn_ref)
 }
 
 /// 获取或生成数据库加密密钥
 ///
 /// 优先尝试 OS Keychain（正式发布环境），失败则回退到本地密钥文件。
 /// 本地密钥文件与数据库同目录（`~/Library/Application Support/Casy/casy.db.key`），权限 0600。
-fn get_or_create_encryption_key() -> Result<String> {
+pub fn get_or_create_encryption_key() -> Result<String> {
     if let Some(key) = ENCRYPTION_KEY.get() {
         return Ok(key.clone());
     }
@@ -84,14 +129,18 @@ fn get_or_create_encryption_key() -> Result<String> {
 fn keychain_get() -> Result<String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|e| anyhow::anyhow!("keyring entry: {:?}", e))?;
-    entry.get_password().map_err(|e| anyhow::anyhow!("keychain get: {:?}", e))
+    entry
+        .get_password()
+        .map_err(|e| anyhow::anyhow!("keychain get: {:?}", e))
 }
 
 /// 写入 keychain
 fn keychain_set(key: &str) -> Result<()> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|e| anyhow::anyhow!("keyring entry: {:?}", e))?;
-    entry.set_password(key).map_err(|e| anyhow::anyhow!("keychain set: {:?}", e))
+    entry
+        .set_password(key)
+        .map_err(|e| anyhow::anyhow!("keychain set: {:?}", e))
 }
 
 /// 密钥文件路径
@@ -108,9 +157,7 @@ fn read_key_file() -> Result<Option<String>> {
     if !path.exists() {
         return Ok(None);
     }
-    let key = std::fs::read_to_string(&path)?
-        .trim()
-        .to_string();
+    let key = std::fs::read_to_string(&path)?.trim().to_string();
     if key.is_empty() {
         return Ok(None);
     }
@@ -168,7 +215,8 @@ pub fn open_db_encrypted() -> Result<Connection> {
     conn.execute_batch("PRAGMA busy_timeout=5000;")?;
 
     // 验证密钥是否正确：尝试读取 sqlite_master
-    let test: Result<i64, _> = conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
+    let test: Result<i64, _> =
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
     match test {
         Ok(_) => {
             // 密钥正确（或数据库是明文但可读），直接使用
@@ -181,7 +229,9 @@ pub fn open_db_encrypted() -> Result<Connection> {
             drop(conn);
             let test_conn = Connection::open(&path)?;
             let is_plaintext = test_conn
-                .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
+                .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                    r.get::<_, i64>(0)
+                })
                 .is_ok();
             drop(test_conn);
 
@@ -196,7 +246,10 @@ pub fn open_db_encrypted() -> Result<Connection> {
                 Ok(conn)
             } else {
                 // 数据库已加密但密钥不对——可能是 keychain 里的密钥过期
-                anyhow::bail!("数据库已加密但密钥不匹配，请检查 keychain 或删除数据库文件: {:?}", path);
+                anyhow::bail!(
+                    "数据库已加密但密钥不匹配，请检查 keychain 或删除数据库文件: {:?}",
+                    path
+                );
             }
         }
     }
@@ -276,7 +329,11 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current < schema::CURRENT_SCHEMA_VERSION {
         schema::run_migrations(conn, current)?;
-        log::info!("Database migrated from v{} to v{}", current, schema::CURRENT_SCHEMA_VERSION);
+        log::info!(
+            "Database migrated from v{} to v{}",
+            current,
+            schema::CURRENT_SCHEMA_VERSION
+        );
     }
     Ok(())
 }
@@ -321,7 +378,8 @@ pub fn row_get_string(row: &rusqlite::Row, col: &str) -> rusqlite::Result<Option
 }
 
 pub fn row_get_string_or(row: &rusqlite::Row, col: &str) -> rusqlite::Result<String> {
-    row.get::<_, Option<String>>(col).map(|v| v.unwrap_or_default())
+    row.get::<_, Option<String>>(col)
+        .map(|v| v.unwrap_or_default())
 }
 
 #[allow(dead_code)]

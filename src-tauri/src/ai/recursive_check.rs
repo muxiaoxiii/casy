@@ -54,7 +54,8 @@ pub async fn recursive_check_decision(
         let input_hash = hex::encode(sha2::Sha256::digest(user_prompt.as_bytes()));
         let backend = crate::ai::create_backend(&config);
 
-        let system_prompt = "你是独立复核员。核对以下决策与其关联数据是否一致，找出遗漏、矛盾、依据不可查之处。\
+        let system_prompt =
+            "你是独立复核员。核对以下决策与其关联数据是否一致，找出遗漏、矛盾、依据不可查之处。\
             只返回 JSON：{\"consistent\": true 或 false, \"gaps\": [\"问题1\", \"问题2\"]}。\
             若一切一致，gaps 为空数组。不要输出其他文字。";
 
@@ -191,7 +192,14 @@ fn collect_bounded_context(
                 "SELECT task_name, case_id, COALESCE(COALESCE(due_date, deadline), ''), completed
                  FROM tasks WHERE id = ?1",
                 params![snapshot.entity_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                    ))
+                },
             ) {
                 case_id = cid;
                 items.push(format!(
@@ -219,9 +227,8 @@ fn collect_bounded_context(
                 items.push(format!("客户[{}] {}", snapshot.entity_id, name));
             }
             // 深度 2：客户名下案件
-            let mut stmt = conn.prepare(
-                "SELECT id, case_name FROM cases WHERE client_id = ?1 LIMIT 10",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT id, case_name FROM cases WHERE client_id = ?1 LIMIT 10")?;
             let rows = stmt
                 .query_map(params![snapshot.entity_id], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -243,11 +250,19 @@ fn collect_bounded_context(
             )?;
             let rows = stmt
                 .query_map(params![cid], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                    ))
                 })?
                 .filter_map(|r| r.ok());
             for (id, name, due, completed) in rows {
-                items.push(format!("案件任务[{}] {} 截止={} 已完成={}", id, name, due, completed));
+                items.push(format!(
+                    "案件任务[{}] {} 截止={} 已完成={}",
+                    id, name, due, completed
+                ));
             }
         }
 
@@ -258,11 +273,19 @@ fn collect_bounded_context(
             )?;
             let rows = stmt
                 .query_map(params![cid], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                    ))
                 })?
                 .filter_map(|r| r.ok());
             for (id, name, due, completed) in rows {
-                items.push(format!("案件期限[{}] {} 到期={} 已完成={}", id, name, due, completed));
+                items.push(format!(
+                    "案件期限[{}] {} 到期={} 已完成={}",
+                    id, name, due, completed
+                ));
             }
         }
 
@@ -273,7 +296,11 @@ fn collect_bounded_context(
             )?;
             let rows = stmt
                 .query_map(params![cid], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
                 })?
                 .filter_map(|r| r.ok());
             for (id, name, date) in rows {
@@ -289,11 +316,19 @@ fn collect_bounded_context(
             )?;
             let rows = stmt
                 .query_map(params![cid, decision_id], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                    ))
                 })?
                 .filter_map(|r| r.ok());
             for (id, dtype, decision, status) in rows {
-                items.push(format!("关联决策[{}] type={} status={} {}", id, dtype, status, decision));
+                items.push(format!(
+                    "关联决策[{}] type={} status={} {}",
+                    id, dtype, status, decision
+                ));
             }
         }
     }
@@ -320,15 +355,16 @@ fn rule_validate(conn: &Connection, snapshot: &DecisionSnapshot) -> Vec<String> 
 
     // review_due 日期格式
     if let Some(rd) = &snapshot.review_due {
-        if !rd.is_empty()
-            && chrono::NaiveDate::parse_from_str(rd, "%Y-%m-%d").is_err()
-        {
+        if !rd.is_empty() && chrono::NaiveDate::parse_from_str(rd, "%Y-%m-%d").is_err() {
             gaps.push(format!("复核日期格式非法: {}", rd));
         }
     }
 
     // basis / source_ref 应为合法 JSON（schema 注释约定）
-    for (label, val) in [("basis", &snapshot.basis), ("source_ref", &snapshot.source_ref)] {
+    for (label, val) in [
+        ("basis", &snapshot.basis),
+        ("source_ref", &snapshot.source_ref),
+    ] {
         if let Some(v) = val {
             if !v.trim().is_empty() && serde_json::from_str::<serde_json::Value>(v).is_err() {
                 gaps.push(format!("{} 不是合法 JSON，依据不可查", label));

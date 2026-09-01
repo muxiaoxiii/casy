@@ -49,13 +49,11 @@ pub async fn list_calendar_events(
 ) -> Result<Vec<CalendarEventRow>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut stmt = conn.prepare(
-            &format!(
-                "SELECT {EVENT_COLS} FROM calendar_events
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {EVENT_COLS} FROM calendar_events
                  WHERE event_date BETWEEN ?1 AND ?2
                  ORDER BY CASE WHEN all_day = 1 THEN 1 ELSE 0 END, start_time, event_date"
-            ),
-        )?;
+        ))?;
         let rows = stmt
             .query_map(rusqlite::params![start_date, end_date], row_to_event)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -135,7 +133,9 @@ pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Resul
                 event_date,
                 data["startTime"].as_str(),
                 data["endTime"].as_str(),
-                data["allDay"].as_i64().unwrap_or(if data["startTime"].is_null() { 1 } else { 0 }),
+                data["allDay"]
+                    .as_i64()
+                    .unwrap_or(if data["startTime"].is_null() { 1 } else { 0 }),
                 data["color"].as_str(),
                 data["location"].as_str(),
                 data["notes"].as_str(),
@@ -190,7 +190,10 @@ pub async fn move_calendar_event(
 pub async fn delete_calendar_event(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        conn.execute("DELETE FROM calendar_events WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM calendar_events WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
     })
     .await

@@ -20,7 +20,11 @@ pub fn log_dir_path() -> String {
 pub fn append_crash_line(file_stem: &str, line: &str) {
     use std::io::Write;
     let path = log_dir().join(format!("{file_stem}.jsonl"));
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let _ = writeln!(f, "{line}");
     }
 }

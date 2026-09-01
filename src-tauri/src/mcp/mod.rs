@@ -49,7 +49,8 @@ pub struct JsonRpcError {
 }
 
 /// 写提交回调类型（MCP 工具写入本地库的受控入口）
-pub type WriteSubmitterFn = std::sync::Arc<dyn Fn(&str, serde_json::Value) -> Result<String, String> + Send + Sync>;
+pub type WriteSubmitterFn =
+    std::sync::Arc<dyn Fn(&str, serde_json::Value) -> Result<String, String> + Send + Sync>;
 
 /// MCP Initialize 请求参数
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,7 +229,9 @@ impl McpServer {
             },
             McpToolDefinition {
                 name: "task_query".to_string(),
-                description: "查询任务列表，支持按 GTD 透视（收件箱/今天/计划中/随时/等待/回顾/某天）过滤。".to_string(),
+                description:
+                    "查询任务列表，支持按 GTD 透视（收件箱/今天/计划中/随时/等待/回顾/某天）过滤。"
+                        .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -244,7 +247,9 @@ impl McpServer {
             },
             McpToolDefinition {
                 name: "knowledge_search".to_string(),
-                description: "搜索知识库，支持 FTS 全文检索 + 语义向量混合检索，可按 6 职能分类过滤。".to_string(),
+                description:
+                    "搜索知识库，支持 FTS 全文检索 + 语义向量混合检索，可按 6 职能分类过滤。"
+                        .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -278,7 +283,8 @@ impl McpServer {
             },
             McpToolDefinition {
                 name: "deadline_warnings".to_string(),
-                description: "获取期限预警列表，含 R1-R4 分级（温和/明确/强提醒/逾期）。".to_string(),
+                description: "获取期限预警列表，含 R1-R4 分级（温和/明确/强提醒/逾期）。"
+                    .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {}
@@ -391,7 +397,11 @@ impl McpServer {
     }
 
     /// initialize
-    async fn handle_initialize(&mut self, id: Option<serde_json::Value>, _params: serde_json::Value) -> JsonRpcResponse {
+    async fn handle_initialize(
+        &mut self,
+        id: Option<serde_json::Value>,
+        _params: serde_json::Value,
+    ) -> JsonRpcResponse {
         let result = McpInitializeResult {
             protocol_version: "2025-03-26".to_string(),
             capabilities: McpServerCapabilities {
@@ -421,7 +431,11 @@ impl McpServer {
     }
 
     /// tools/call
-    async fn handle_tools_call(&self, id: Option<serde_json::Value>, params: serde_json::Value) -> JsonRpcResponse {
+    async fn handle_tools_call(
+        &self,
+        id: Option<serde_json::Value>,
+        params: serde_json::Value,
+    ) -> JsonRpcResponse {
         let call: McpToolCallParams = match serde_json::from_value(params) {
             Ok(c) => c,
             Err(e) => {
@@ -465,13 +479,16 @@ impl McpServer {
                     JsonRpcResponse {
                         jsonrpc: "2.0".to_string(),
                         id,
-                        result: Some(serde_json::to_value(McpToolCallResult {
-                            content: vec![McpContent {
-                                content_type: "text".to_string(),
-                                text,
-                            }],
-                            is_error: None,
-                        }).unwrap_or_default()),
+                        result: Some(
+                            serde_json::to_value(McpToolCallResult {
+                                content: vec![McpContent {
+                                    content_type: "text".to_string(),
+                                    text,
+                                }],
+                                is_error: None,
+                            })
+                            .unwrap_or_default(),
+                        ),
                         error: None,
                     }
                 }
@@ -496,26 +513,32 @@ impl McpServer {
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id,
-                    result: Some(serde_json::to_value(McpToolCallResult {
-                        content: vec![McpContent {
-                            content_type: "text".to_string(),
-                            text,
-                        }],
-                        is_error: None,
-                    }).unwrap_or_default()),
+                    result: Some(
+                        serde_json::to_value(McpToolCallResult {
+                            content: vec![McpContent {
+                                content_type: "text".to_string(),
+                                text,
+                            }],
+                            is_error: None,
+                        })
+                        .unwrap_or_default(),
+                    ),
                     error: None,
                 }
             }
             Err(e) => JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
-                result: Some(serde_json::to_value(McpToolCallResult {
-                    content: vec![McpContent {
-                        content_type: "text".to_string(),
-                        text: format!("错误: {}", e),
-                    }],
-                    is_error: Some(true),
-                }).unwrap_or_default()),
+                result: Some(
+                    serde_json::to_value(McpToolCallResult {
+                        content: vec![McpContent {
+                            content_type: "text".to_string(),
+                            text: format!("错误: {}", e),
+                        }],
+                        is_error: Some(true),
+                    })
+                    .unwrap_or_default(),
+                ),
                 error: None,
             },
         }
@@ -532,46 +555,50 @@ impl McpServer {
     }
 
     /// resources/read
-    async fn handle_resources_read(&self, id: Option<serde_json::Value>, params: serde_json::Value) -> JsonRpcResponse {
+    async fn handle_resources_read(
+        &self,
+        id: Option<serde_json::Value>,
+        params: serde_json::Value,
+    ) -> JsonRpcResponse {
         let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
 
         let content = match uri {
             "casy://cases/all" => {
-                match crate::commands::cases::list_cases(
-                    crate::db::cases::CaseFilter {
-                        page: Some(1),
-                        per_page: Some(100),
-                        ..Default::default()
-                    },
-                ).await {
+                match crate::commands::cases::list_cases(crate::db::cases::CaseFilter {
+                    page: Some(1),
+                    per_page: Some(100),
+                    ..Default::default()
+                })
+                .await
+                {
                     Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_default(),
                     Err(e) => format!("错误: {}", e),
                 }
             }
             "casy://tasks/inbox" => {
-                match crate::commands::tasks::list_tasks(
-                    Some(crate::commands::tasks::TaskFilter {
-                        completed: Some(false),
-                        case_id: None,
-                        area_id: None,
-                        task_type: None,
-                        start_bucket: None,
-                    })
-                ).await {
+                match crate::commands::tasks::list_tasks(Some(crate::commands::tasks::TaskFilter {
+                    completed: Some(false),
+                    case_id: None,
+                    area_id: None,
+                    task_type: None,
+                    start_bucket: None,
+                }))
+                .await
+                {
                     Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_default(),
                     Err(e) => format!("错误: {}", e),
                 }
             }
             "casy://tasks/today" => {
-                match crate::commands::tasks::list_tasks(
-                    Some(crate::commands::tasks::TaskFilter {
-                        completed: Some(false),
-                        case_id: None,
-                        area_id: None,
-                        task_type: None,
-                        start_bucket: Some("today".to_string()),
-                    })
-                ).await {
+                match crate::commands::tasks::list_tasks(Some(crate::commands::tasks::TaskFilter {
+                    completed: Some(false),
+                    case_id: None,
+                    area_id: None,
+                    task_type: None,
+                    start_bucket: Some("today".to_string()),
+                }))
+                .await
+                {
                     Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_default(),
                     Err(e) => format!("错误: {}", e),
                 }
@@ -615,7 +642,10 @@ impl McpServer {
 // 工具执行（复用现有命令）
 // ═══════════════════════════════════════════════════════════
 
-async fn execute_tool_by_name(name: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
+async fn execute_tool_by_name(
+    name: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     match name {
         "case_query" => execute_case_query(args).await,
         "task_query" => execute_task_query(args).await,
@@ -644,10 +674,20 @@ async fn execute_case_query(args: serde_json::Value) -> Result<serde_json::Value
 }
 
 async fn execute_task_query(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let perspective = args.get("perspective").and_then(|v| v.as_str()).unwrap_or("next");
+    let perspective = args
+        .get("perspective")
+        .and_then(|v| v.as_str())
+        .unwrap_or("next");
     let filter = crate::commands::tasks::TaskFilter {
-        completed: Some(args.get("completed").and_then(|v| v.as_bool()).unwrap_or(false)),
-        case_id: args.get("case_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        completed: Some(
+            args.get("completed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        ),
+        case_id: args
+            .get("case_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         area_id: None,
         task_type: None,
         start_bucket: match perspective {
@@ -661,10 +701,20 @@ async fn execute_task_query(args: serde_json::Value) -> Result<serde_json::Value
 }
 
 async fn execute_knowledge_search(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let keyword = args.get("keyword").and_then(|v| v.as_str()).ok_or("缺少 keyword")?;
-    let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).max(0) as usize;
+    let keyword = args
+        .get("keyword")
+        .and_then(|v| v.as_str())
+        .ok_or("缺少 keyword")?;
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(10)
+        .max(0) as usize;
     let filter = crate::commands::knowledge::KnowledgeFilter {
-        category: args.get("category").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        category: args
+            .get("category")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         case_id: None,
         search: Some(keyword.to_string()),
         law_name: None,
@@ -675,8 +725,14 @@ async fn execute_knowledge_search(args: serde_json::Value) -> Result<serde_json:
 }
 
 async fn execute_calendar_events(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let year = args.get("year").and_then(|v| v.as_i64()).ok_or("缺少 year")? as i32;
-    let month = args.get("month").and_then(|v| v.as_i64()).ok_or("缺少 month")? as u32;
+    let year = args
+        .get("year")
+        .and_then(|v| v.as_i64())
+        .ok_or("缺少 year")? as i32;
+    let month = args
+        .get("month")
+        .and_then(|v| v.as_i64())
+        .ok_or("缺少 month")? as u32;
     let events = crate::commands::calendar::get_calendar_events(year, month).await?;
     serde_json::to_value(events).map_err(|e| e.to_string())
 }
@@ -692,9 +748,18 @@ async fn execute_dashboard_stats() -> Result<serde_json::Value, String> {
 }
 
 async fn execute_case_create_task(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let case_id = args.get("case_id").and_then(|v| v.as_str()).ok_or("缺少 case_id")?;
-    let task_name = args.get("task_name").and_then(|v| v.as_str()).ok_or("缺少 task_name")?;
-    let priority = args.get("priority").and_then(|v| v.as_str()).unwrap_or("normal");
+    let case_id = args
+        .get("case_id")
+        .and_then(|v| v.as_str())
+        .ok_or("缺少 case_id")?;
+    let task_name = args
+        .get("task_name")
+        .and_then(|v| v.as_str())
+        .ok_or("缺少 task_name")?;
+    let priority = args
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .unwrap_or("normal");
     let due_date = args.get("due_date").and_then(|v| v.as_str());
 
     let data = serde_json::json!({
@@ -709,8 +774,14 @@ async fn execute_case_create_task(args: serde_json::Value) -> Result<serde_json:
 }
 
 async fn execute_task_update_status(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let task_id = args.get("task_id").and_then(|v| v.as_str()).ok_or("缺少 task_id")?;
-    let action = args.get("action").and_then(|v| v.as_str()).ok_or("缺少 action")?;
+    let task_id = args
+        .get("task_id")
+        .and_then(|v| v.as_str())
+        .ok_or("缺少 task_id")?;
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .ok_or("缺少 action")?;
 
     match action {
         "complete" => {
@@ -808,7 +879,11 @@ pub fn submit_pending_write(
     conn.execute(
         "INSERT INTO mcp_pending_writes (id, tool, arguments, status)
          VALUES (?1, ?2, ?3, 'pending')",
-        rusqlite::params![write_id, tool, serde_json::to_string(arguments).unwrap_or_default()],
+        rusqlite::params![
+            write_id,
+            tool,
+            serde_json::to_string(arguments).unwrap_or_default()
+        ],
     )?;
     write_mcp_audit(
         conn,
@@ -851,7 +926,10 @@ pub fn get_pending_write(
     id: &str,
 ) -> anyhow::Result<Option<McpPendingWrite>> {
     conn.query_row(
-        &format!("SELECT {} FROM mcp_pending_writes WHERE id=?1", PENDING_WRITE_COLS),
+        &format!(
+            "SELECT {} FROM mcp_pending_writes WHERE id=?1",
+            PENDING_WRITE_COLS
+        ),
         rusqlite::params![id],
         map_pending_write,
     )
@@ -885,7 +963,8 @@ mod tests {
     /// 最小内存库：mcp_pending_writes + audit_events
     fn setup_test_db() -> rusqlite::Connection {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(crate::db::schema::MIGRATION_V12_SQL).unwrap();
+        conn.execute_batch(crate::db::schema::MIGRATION_V12_SQL)
+            .unwrap();
         conn.execute_batch(
             "CREATE TABLE audit_events (
                id TEXT PRIMARY KEY, aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL,
@@ -901,8 +980,18 @@ mod tests {
     #[test]
     fn test_submit_and_list_pending_writes() {
         let conn = setup_test_db();
-        let id1 = submit_pending_write(&conn, "case_create_task", &serde_json::json!({"case_id":"c1","task_name":"t"})).unwrap();
-        let id2 = submit_pending_write(&conn, "task_update_status", &serde_json::json!({"task_id":"t1","action":"complete"})).unwrap();
+        let id1 = submit_pending_write(
+            &conn,
+            "case_create_task",
+            &serde_json::json!({"case_id":"c1","task_name":"t"}),
+        )
+        .unwrap();
+        let id2 = submit_pending_write(
+            &conn,
+            "task_update_status",
+            &serde_json::json!({"task_id":"t1","action":"complete"}),
+        )
+        .unwrap();
 
         let pending = list_pending_writes(&conn).unwrap();
         assert_eq!(pending.len(), 2);
@@ -939,6 +1028,9 @@ mod tests {
 
         // 不存在的 id
         assert!(get_pending_write(&conn, "no-such").unwrap().is_none());
-        assert_eq!(resolve_pending_write(&conn, "no-such", "rejected", None).unwrap(), 0);
+        assert_eq!(
+            resolve_pending_write(&conn, "no-such", "rejected", None).unwrap(),
+            0
+        );
     }
 }

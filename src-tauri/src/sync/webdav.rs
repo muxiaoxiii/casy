@@ -102,7 +102,10 @@ impl WebDavClient {
     pub async fn mkcol(&self, path: &str) -> Result<()> {
         let resp = self
             .client
-            .request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), self.url(path))
+            .request(
+                reqwest::Method::from_bytes(b"MKCOL").unwrap(),
+                self.url(path),
+            )
             .basic_auth(&self.username, Some(&self.password))
             .send()
             .await?;
@@ -129,7 +132,12 @@ impl WebDavClient {
             .await?;
 
         if !resp.status().is_success() && resp.status() != 201 && resp.status() != 204 {
-            anyhow::bail!("MOVE {} -> {} failed: {}", from_path, to_path, resp.status());
+            anyhow::bail!(
+                "MOVE {} -> {} failed: {}",
+                from_path,
+                to_path,
+                resp.status()
+            );
         }
         Ok(())
     }

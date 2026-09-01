@@ -42,6 +42,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test:unit
       - run: npm run build
       # rust 作业编译期 generate_context! 需要该目录存在（tauri.conf frontendDist=../dist）
       - uses: actions/upload-artifact@v4
@@ -135,10 +136,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y strawberryperl nasm
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static-md
+          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
       - run: npm ci
       - run: npm run build
       # Windows 打包前置同文件头注释；未签名产物仅供内测草稿
-      - run: npm run tauri build
+      - run: npm run tauri build -- --config src-tauri/tauri.release.conf.json
       - uses: softprops/action-gh-release@v2
         with:
           draft: true

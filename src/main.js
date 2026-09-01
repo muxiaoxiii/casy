@@ -6,6 +6,7 @@ import router from './router/index.js'
 import App from './App.vue'
 import './style.css'
 import './assets/theme.css'
+import i18n from './locales/index.ts'
 
 // ============================================================
 // R-6 前端崩溃基线：window.onerror / unhandledrejection → 本地 JSONL
@@ -43,6 +44,7 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)
+app.use(i18n)
 
 // 初始化插件系统（异步）
 initializePluginSystem()

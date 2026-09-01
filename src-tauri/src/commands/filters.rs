@@ -58,9 +58,19 @@ fn query_filter_rows(
 
     Ok(rows
         .into_iter()
-        .map(|(id, entity_type, name, filter_json, sort_order, created_at, updated_at)| {
-            filter_row_to_json(id, &entity_type, &name, &filter_json, sort_order, created_at, updated_at)
-        })
+        .map(
+            |(id, entity_type, name, filter_json, sort_order, created_at, updated_at)| {
+                filter_row_to_json(
+                    id,
+                    &entity_type,
+                    &name,
+                    &filter_json,
+                    sort_order,
+                    created_at,
+                    updated_at,
+                )
+            },
+        )
         .collect())
 }
 

@@ -38,7 +38,10 @@ pub fn auth_token() -> String {
 
     let token = (|| -> Option<String> {
         let conn = crate::db::open_db().ok()?;
-        if let Some(existing) = crate::db::get_setting(&conn, "mcp_auth_token").ok().flatten() {
+        if let Some(existing) = crate::db::get_setting(&conn, "mcp_auth_token")
+            .ok()
+            .flatten()
+        {
             if !existing.trim().is_empty() {
                 return Some(existing);
             }
@@ -110,7 +113,11 @@ fn check_auth(header_text: &str, expected_token: &str) -> bool {
 }
 
 /// 处理单个 HTTP 连接（注入 server 实例与期望 token，测试可替换写队列提交器）
-async fn handle_connection_with(mut stream: TcpStream, mut server: McpServer, expected_token: &str) -> Result<()> {
+async fn handle_connection_with(
+    mut stream: TcpStream,
+    mut server: McpServer,
+    expected_token: &str,
+) -> Result<()> {
     // ── 读取请求头（直到 \r\n\r\n） ──
     let mut buf: Vec<u8> = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
@@ -124,8 +131,7 @@ async fn handle_connection_with(mut stream: TcpStream, mut server: McpServer, ex
             break pos;
         }
         if buf.len() > MAX_HEADER_BYTES {
-            write_response(&mut stream, 431, "Request Header Fields Too Large", b"")
-                .await?;
+            write_response(&mut stream, 431, "Request Header Fields Too Large", b"").await?;
             return Ok(());
         }
     };
@@ -143,7 +149,13 @@ async fn handle_connection_with(mut stream: TcpStream, mut server: McpServer, ex
     let method = request_line.split_whitespace().next().unwrap_or("");
 
     if method != "POST" {
-        write_response(&mut stream, 405, "Method Not Allowed", b"Method Not Allowed").await?;
+        write_response(
+            &mut stream,
+            405,
+            "Method Not Allowed",
+            b"Method Not Allowed",
+        )
+        .await?;
         return Ok(());
     }
 
@@ -219,7 +231,12 @@ async fn write_json(stream: &mut TcpStream, code: u16, reason: &str, body: &[u8]
 }
 
 /// 写纯文本/空响应
-async fn write_response(stream: &mut TcpStream, code: u16, reason: &str, body: &[u8]) -> Result<()> {
+async fn write_response(
+    stream: &mut TcpStream,
+    code: u16,
+    reason: &str,
+    body: &[u8],
+) -> Result<()> {
     let head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         code,
@@ -274,7 +291,9 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server_task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            handle_connection_with(stream, server, TEST_TOKEN).await.unwrap();
+            handle_connection_with(stream, server, TEST_TOKEN)
+                .await
+                .unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
@@ -301,7 +320,11 @@ mod tests {
         );
         let resp = roundtrip(req.as_bytes()).await;
         assert!(resp.starts_with("HTTP/1.1 200 OK"), "响应行错误: {}", resp);
-        assert!(resp.contains(r#""jsonrpc":"2.0""#), "缺少 jsonrpc 字段: {}", resp);
+        assert!(
+            resp.contains(r#""jsonrpc":"2.0""#),
+            "缺少 jsonrpc 字段: {}",
+            resp
+        );
         assert!(resp.contains(r#""id":1"#), "缺少 id: {}", resp);
         assert!(resp.contains(r#""result""#), "ping 应返回 result: {}", resp);
     }
@@ -336,11 +359,14 @@ mod tests {
             body
         );
         // 注入写队列替身，避免测试触碰真实数据库
-        let server = McpServer::new_readonly_with_submitter(|_tool, _args| {
-            Ok("test-write-id".to_string())
-        });
+        let server =
+            McpServer::new_readonly_with_submitter(|_tool, _args| Ok("test-write-id".to_string()));
         let resp = roundtrip_with_server(server, req.as_bytes()).await;
-        assert!(resp.contains(r#""result""#), "写工具应返回正常响应: {}", resp);
+        assert!(
+            resp.contains(r#""result""#),
+            "写工具应返回正常响应: {}",
+            resp
+        );
         assert!(
             resp.contains("pending_confirmation"),
             "写工具应进入待确认队列: {}",
@@ -395,4 +421,3 @@ mod tests {
         );
     }
 }
-

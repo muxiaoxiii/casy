@@ -1,0 +1,203 @@
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{"colors":{"on-error":"#ffffff","on-secondary-fixed":"#001d33","tertiary-fixed":"#ffd9e4","background":"#fff9eb","on-tertiary-container":"#fff5f6","secondary-container":"#5db4fe","surface-container-highest":"#e9e2d0","primary-fixed":"#b9efc5","on-tertiary":"#ffffff","on-secondary-container":"#00456e","tertiary":"#ac0e64","inverse-surface":"#333024","secondary":"#00639b","on-secondary":"#ffffff","primary-container":"#4a7c59","inverse-on-surface":"#f7f0de","on-tertiary-fixed-variant":"#8d0050","error":"#ba1a1a","secondary-fixed-dim":"#97cbff","secondary-fixed":"#cee5ff","outline-variant":"#c1c9bf","on-primary-fixed":"#00210e","on-secondary-fixed-variant":"#004a76","on-surface":"#1e1c10","inverse-primary":"#9dd3aa","surface-container-lowest":"#ffffff","status-danger":"#dc322f","on-background":"#1e1c10","on-surface-variant":"#414942","on-primary":"#ffffff","surface-dim":"#e0dac7","surface-bright":"#fff9eb","outline":"#717971","surface-container-high":"#efe8d5","surface-tint":"#376847","surface-beige":"#eee8d5","status-success":"#859900","surface-variant":"#e9e2d0","text-emphasized":"#073642","status-warning":"#b58900","surface-container-low":"#faf3e0","text-base":"#586e75","surface-base":"#fdf6e3","on-primary-container":"#e1ffe5","tertiary-container":"#cd317d","error-container":"#ffdad6","tertiary-fixed-dim":"#ffb0cc","primary":"#316342","on-primary-fixed-variant":"#1e5031","on-error-container":"#93000a","surface":"#fff9eb","on-tertiary-fixed":"#3e0020","status-info":"#2aa198","primary-fixed-dim":"#9dd3aa","surface-container":"#f4eedb"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"margin-desktop":"40px","container-max":"1280px","margin-mobile":"16px","unit":"4px","gutter":"24px"},"fontFamily":{"label-md":["Nunito Sans"],"headline-md":["Nunito Sans"],"headline-lg-mobile":["Nunito Sans"],"label-sm":["Nunito Sans"],"body-md":["Nunito Sans"],"body-sm":["Nunito Sans"],"body-lg":["Nunito Sans"],"headline-sm":["Nunito Sans"],"headline-lg":["Nunito Sans"]},"fontSize":{"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.04em","fontWeight":"700"}],"headline-md":["24px",{"lineHeight":"32px","fontWeight":"700"}],"headline-lg-mobile":["26px",{"lineHeight":"32px","letterSpacing":"-0.01em","fontWeight":"800"}],"label-sm":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"600"}],"body-md":["16px",{"lineHeight":"24px","fontWeight":"400"}],"body-sm":["14px",{"lineHeight":"20px","fontWeight":"400"}],"body-lg":["18px",{"lineHeight":"28px","fontWeight":"400"}],"headline-sm":["20px",{"lineHeight":"28px","fontWeight":"700"}],"headline-lg":["32px",{"lineHeight":"40px","letterSpacing":"-0.02em","fontWeight":"800"}]}}}}</script><link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/></head><body class="bg-surface font-body-md text-on-surface"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-low flex flex-col z-50 shadow-[4px_0_12px_rgba(0,0,0,0.02)]"><div class="px-8 pt-8 mb-10 flex items-center gap-3 text-primary"><span class="material-symbols-outlined text-[32px]">gavel</span><span class="font-headline-md text-headline-md tracking-tight">CASy <span class="opacity-50 text-label-md">v4.0</span></span></div><nav class="flex-1 px-4 overflow-y-auto space-y-8" data-active-classes="bg-primary-container text-on-primary-container font-bold"><div class="space-y-1"><p class="px-4 mb-2 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Focus</p><a class="flex items-center px-4 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="today" href="#"><span class="material-symbols-outlined mr-4">today</span>Today</a><a aria-current="page" class="flex items-center px-4 py-2.5 rounded-lg transition-colors bg-primary-container text-on-primary-container font-bold" data-path="inbox" href="#"><span class="material-symbols-outlined mr-4">inbox</span>Inbox</a></div><div class="space-y-1"><p class="px-4 mb-2 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Matters</p><a class="flex items-center px-4 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="cases" href="#"><span class="material-symbols-outlined mr-4">folder_open</span>Cases</a><a class="flex items-center px-4 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="calendar" href="#"><span class="material-symbols-outlined mr-4">event</span>Calendar</a></div><div class="space-y-1"><p class="px-4 mb-2 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Knowledge</p><a class="flex items-center px-4 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="vault" href="#"><span class="material-symbols-outlined mr-4">account_balance_wallet</span>Vault</a><a class="flex items-center px-4 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="drafting" href="#"><span class="material-symbols-outlined mr-4">edit_document</span>Drafting</a></div></nav><div class="px-6 py-6 border-t border-outline-variant/30 flex flex-col gap-4"><div class="flex items-center gap-3 px-3 py-2 bg-surface-container rounded-full ring-1 ring-outline-variant/20"><div class="w-2 h-2 rounded-full bg-status-success animate-pulse"></div><span class="font-label-sm text-label-sm text-on-surface-variant tracking-wide">LOCAL LLAMA 3 ACTIVE</span></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-16 bg-surface/80 backdrop-blur-xl z-40 px-gutter flex items-center justify-between shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="flex items-center gap-4 w-1/2"><div class="flex items-center w-full max-w-md bg-surface-container-high rounded-xl px-4 py-2 text-on-surface-variant ring-1 ring-outline-variant/20 focus-within:ring-primary-container transition-all"><span class="material-symbols-outlined text-[20px] mr-3">search</span><input class="bg-transparent border-none outline-none w-full font-body-sm text-body-sm" placeholder="Search cases, files... (CMD+K)" type="text"/><span class="ml-2 text-[10px] font-bold opacity-40 px-1.5 py-0.5 border border-on-surface-variant/20 rounded">⌘K</span></div></div><div class="flex items-center gap-6"><button class="flex items-center gap-2 bg-primary px-5 py-2 rounded-lg text-on-primary font-label-md transition-all hover:bg-primary-container hover:shadow-lg"><span class="material-symbols-outlined text-[18px]">add_circle</span>Capture</button><div class="flex items-center gap-4"><span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-on-surface">notifications</span><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center cursor-pointer shadow-sm"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="relative pt-16 bg-surface min-h-screen"><div class="flex flex-col w-full h-full relative font-body-base bg-surface pb-12">
+<!-- Header -->
+<div class="px-8 py-10 bg-surface border-b border-border-default/50 flex items-end justify-between sticky top-0 z-20 backdrop-blur-md bg-surface/90">
+<div>
+<h1 class="font-display-date text-display-date text-on-surface mb-2 tracking-tight">Briefing Presentation Styles</h1>
+<p class="font-body-base text-body-base text-on-surface-variant max-w-2xl">
+                Configure the visual cadence and typographic expression of your Daily and Weekly automated briefings. These styles determine how AI-synthesized context is delivered.
+            </p>
+</div>
+<div class="flex gap-3">
+<button class="px-4 py-2 bg-surface-white border border-border-default rounded flex items-center gap-2 hover:border-outline transition-colors text-slate-blue-muted font-label-caps text-label-caps tracking-wide">
+<span class="material-symbols-outlined text-[16px]">tune</span>
+                Customize Properties
+            </button>
+<button class="px-4 py-2 bg-primary rounded flex items-center gap-2 hover:bg-primary-container transition-colors text-on-primary font-label-caps text-label-caps tracking-wide">
+<span class="material-symbols-outlined text-[16px]">save</span>
+                Save Preferences
+            </button>
+</div>
+</div>
+<!-- Tabs (Pseudo) -->
+<div class="px-8 mt-6">
+<div class="flex border-b border-border-default/50 gap-8">
+<button class="pb-3 border-b-2 border-primary text-primary font-headline-section text-headline-section px-1">Daily Briefings</button>
+<button class="pb-3 border-b-2 border-transparent text-slate-gray-light hover:text-on-surface-variant font-headline-section text-headline-section px-1 transition-colors">Weekly Reviews</button>
+</div>
+</div>
+<!-- Content Grid -->
+<div class="px-8 py-8 grid grid-cols-1 xl:grid-cols-2 gap-8 w-full max-w-[1400px]">
+<!-- Daily Styles Section -->
+<div class="flex flex-col gap-6">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">Daily Briefing Templates</h2>
+<div class="h-px bg-border-default/50 flex-1 ml-4"></div>
+</div>
+<!-- Image Ref for context, we'll crop it using CSS for the cards -->
+<div class="hidden">
+<img alt="Daily Styles" id="daily-source" src="https://lh3.googleusercontent.com/aida/AEtjO1WVosBAO3SomVTbPfgLwP5u8PU6hHW9-HdNihib5DurW4cKjPKkp1GmbF5mxexXoeh7vUgLbWNWdznxN5CRESPzA5BmfAGRO9pnlQJF07tdQB3quyje0Vwm1mem3B82vIExZwiV6C0EBet4yPvn57GQ3EiX6rG5iEgCupERji3xwtzxrFMTDL8TwMMQHVVG0NHDEYOTjGp50tbyPXTKfbw4siQU8FVeZDIamAHNESuagsx-HVY6uN3eTUM"/>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+<!-- Style 1 (Active) -->
+<div class="group relative bg-surface-white rounded-lg border-2 border-primary overflow-hidden cursor-pointer flex flex-col transition-all hover:shadow-lg hover:shadow-primary/5">
+<div class="absolute top-3 right-3 bg-primary text-on-primary rounded-full w-6 h-6 flex items-center justify-center z-10 shadow-sm">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50">
+<!-- Simulate crop from the main image -->
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1WVosBAO3SomVTbPfgLwP5u8PU6hHW9-HdNihib5DurW4cKjPKkp1GmbF5mxexXoeh7vUgLbWNWdznxN5CRESPzA5BmfAGRO9pnlQJF07tdQB3quyje0Vwm1mem3B82vIExZwiV6C0EBet4yPvn57GQ3EiX6rG5iEgCupERji3xwtzxrFMTDL8TwMMQHVVG0NHDEYOTjGp50tbyPXTKfbw4siQU8FVeZDIamAHNESuagsx-HVY6uN3eTUM'); background-position: 0% 0%; background-size: 300%; opacity: 0.95;"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-slate-blue-deep/20 to-transparent"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-primary transition-colors">Swiss Grid Minimal</h3>
+<span class="px-2 py-0.5 bg-bg-success-weak text-status-success rounded text-[10px] font-mono-micro tracking-tight uppercase">Active</span>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Ultra-minimalist layout using rigid architectural grids and bold Neo-Grotesque typography for maximum scanning speed.
+                        </p>
+<button class="w-full py-2 bg-primary/10 text-primary font-label-caps text-label-caps rounded flex items-center justify-center gap-2">
+                             Selected
+                        </button>
+</div>
+</div>
+<!-- Style 2 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1WVosBAO3SomVTbPfgLwP5u8PU6hHW9-HdNihib5DurW4cKjPKkp1GmbF5mxexXoeh7vUgLbWNWdznxN5CRESPzA5BmfAGRO9pnlQJF07tdQB3quyje0Vwm1mem3B82vIExZwiV6C0EBet4yPvn57GQ3EiX6rG5iEgCupERji3xwtzxrFMTDL8TwMMQHVVG0NHDEYOTjGp50tbyPXTKfbw4siQU8FVeZDIamAHNESuagsx-HVY6uN3eTUM'); background-position: 50% 0%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-primary transition-colors">Analog Dossier</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Inspired by physical manila folders with tabbed navigation and typewriter-styled monospaced data blocks.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-primary group-hover:text-primary transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+<!-- Style 3 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1WVosBAO3SomVTbPfgLwP5u8PU6hHW9-HdNihib5DurW4cKjPKkp1GmbF5mxexXoeh7vUgLbWNWdznxN5CRESPzA5BmfAGRO9pnlQJF07tdQB3quyje0Vwm1mem3B82vIExZwiV6C0EBet4yPvn57GQ3EiX6rG5iEgCupERji3xwtzxrFMTDL8TwMMQHVVG0NHDEYOTjGp50tbyPXTKfbw4siQU8FVeZDIamAHNESuagsx-HVY6uN3eTUM'); background-position: 100% 0%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-primary transition-colors">High-Tech Console</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Dark-mode dominant dashboard focusing heavily on data visualization rings and timeline graphs.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-primary group-hover:text-primary transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+<!-- Style 4 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1WVosBAO3SomVTbPfgLwP5u8PU6hHW9-HdNihib5DurW4cKjPKkp1GmbF5mxexXoeh7vUgLbWNWdznxN5CRESPzA5BmfAGRO9pnlQJF07tdQB3quyje0Vwm1mem3B82vIExZwiV6C0EBet4yPvn57GQ3EiX6rG5iEgCupERji3xwtzxrFMTDL8TwMMQHVVG0NHDEYOTjGp50tbyPXTKfbw4siQU8FVeZDIamAHNESuagsx-HVY6uN3eTUM'); background-position: 0% 100%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-primary transition-colors">Broadsheet Gazette</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Editorial layout mimicking front-page news, prioritizing long-form narrative synthesis over raw metrics.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-primary group-hover:text-primary transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Weekly Styles Section -->
+<div class="flex flex-col gap-6 opacity-60 hover:opacity-100 transition-opacity duration-300">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-1.5 h-1.5 rounded-full bg-status-discovery"></div>
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase tracking-widest">Weekly Review Templates</h2>
+<div class="h-px bg-border-default/50 flex-1 ml-4"></div>
+</div>
+<!-- Image Ref for context -->
+<div class="hidden">
+<img alt="Weekly Styles" id="weekly-source" src="https://lh3.googleusercontent.com/aida/AEtjO1V8NiSUBauDmRvzoDkmWm9A7YW967fbdajfbPDN0_Vn1rfsO-kz7oPbhvSHRwX1HJclCgdtVpV84Z44V6Lp5PzHcy8FM5R_TBey9qTWAP5TjD4w8lBSbFxgriy0ltgv25L7S69mi4JCeySB3h00Sjlc2etTLfl4ihy6_AouiPFsYGP-KoWcoWPFrNy9bsmfhlQ5obtBmbW670veHgunt4jOZIPbnFTpAR3HOpZPKcF8zhBsYroMCVnBS_Q"/>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+<!-- Style 1 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<!-- Simulate crop from the main image -->
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1V8NiSUBauDmRvzoDkmWm9A7YW967fbdajfbPDN0_Vn1rfsO-kz7oPbhvSHRwX1HJclCgdtVpV84Z44V6Lp5PzHcy8FM5R_TBey9qTWAP5TjD4w8lBSbFxgriy0ltgv25L7S69mi4JCeySB3h00Sjlc2etTLfl4ihy6_AouiPFsYGP-KoWcoWPFrNy9bsmfhlQ5obtBmbW670veHgunt4jOZIPbnFTpAR3HOpZPKcF8zhBsYroMCVnBS_Q'); background-position: 0% 0%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-status-discovery transition-colors">Executive Summary</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Polished corporate report style with ample whitespace, refined serif headings, and structured summary blocks.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-status-discovery group-hover:text-status-discovery transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+<!-- Style 2 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1V8NiSUBauDmRvzoDkmWm9A7YW967fbdajfbPDN0_Vn1rfsO-kz7oPbhvSHRwX1HJclCgdtVpV84Z44V6Lp5PzHcy8FM5R_TBey9qTWAP5TjD4w8lBSbFxgriy0ltgv25L7S69mi4JCeySB3h00Sjlc2etTLfl4ihy6_AouiPFsYGP-KoWcoWPFrNy9bsmfhlQ5obtBmbW670veHgunt4jOZIPbnFTpAR3HOpZPKcF8zhBsYroMCVnBS_Q'); background-position: 50% 0%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-status-discovery transition-colors">Architect Blueprint</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Technical structural view using deep cyan backgrounds and precise monoline framing for complex matter planning.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-status-discovery group-hover:text-status-discovery transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+<!-- Style 3 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1V8NiSUBauDmRvzoDkmWm9A7YW967fbdajfbPDN0_Vn1rfsO-kz7oPbhvSHRwX1HJclCgdtVpV84Z44V6Lp5PzHcy8FM5R_TBey9qTWAP5TjD4w8lBSbFxgriy0ltgv25L7S69mi4JCeySB3h00Sjlc2etTLfl4ihy6_AouiPFsYGP-KoWcoWPFrNy9bsmfhlQ5obtBmbW670veHgunt4jOZIPbnFTpAR3HOpZPKcF8zhBsYroMCVnBS_Q'); background-position: 100% 0%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-status-discovery transition-colors">Retro Telegram</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Utilitarian aesthetic with dot-matrix textures and stark contrast, emphasizing urgency and bare facts.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-status-discovery group-hover:text-status-discovery transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+<!-- Style 4 -->
+<div class="group relative bg-surface-white rounded-lg border border-border-default overflow-hidden cursor-pointer flex flex-col transition-all hover:border-outline-variant hover:shadow-md">
+<div class="h-40 w-full bg-surface-container relative overflow-hidden border-b border-border-default/50 grayscale group-hover:grayscale-0 transition-all duration-500">
+<div class="absolute inset-0 bg-cover bg-no-repeat" style="background-image: url('https://lh3.googleusercontent.com/aida/AEtjO1V8NiSUBauDmRvzoDkmWm9A7YW967fbdajfbPDN0_Vn1rfsO-kz7oPbhvSHRwX1HJclCgdtVpV84Z44V6Lp5PzHcy8FM5R_TBey9qTWAP5TjD4w8lBSbFxgriy0ltgv25L7S69mi4JCeySB3h00Sjlc2etTLfl4ihy6_AouiPFsYGP-KoWcoWPFrNy9bsmfhlQ5obtBmbW670veHgunt4jOZIPbnFTpAR3HOpZPKcF8zhBsYroMCVnBS_Q'); background-position: 0% 100%; background-size: 300%;"></div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<div class="flex justify-between items-start mb-2">
+<h3 class="font-headline-section text-headline-section text-on-surface group-hover:text-status-discovery transition-colors">Journal Folio</h3>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant line-clamp-2 mb-4 flex-1">
+                            Elegant, book-like typesetting ideal for reflective end-of-week narrative summaries and soft planning.
+                        </p>
+<button class="w-full py-2 border border-border-default text-slate-blue-muted font-label-caps text-label-caps rounded flex items-center justify-center gap-2 group-hover:border-status-discovery group-hover:text-status-discovery transition-colors">
+                             Apply Style
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

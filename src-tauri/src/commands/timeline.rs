@@ -57,7 +57,9 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
                 icon: "📅".into(),
                 color: "#3b82f6".into(),
                 event_type: "hearing".into(),
-                title: r.get::<_, Option<String>>(2)?.unwrap_or_else(|| "开庭".into()),
+                title: r
+                    .get::<_, Option<String>>(2)?
+                    .unwrap_or_else(|| "开庭".into()),
                 detail: r.get::<_, Option<String>>(3)?,
             })
         })? {

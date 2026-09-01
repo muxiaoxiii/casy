@@ -300,11 +300,17 @@ class CasyContextImpl implements CasyContext {
     if (!tool) {
       return { ok: false, error: '工具不存在: ' + name }
     }
-    // ── 声明式确认策略（K-1 策略上收）：内核统一强制，工具内部不再手写确认 ──
+    // ── 声明式确认策略（V5 授权宪法）：内核统一强制，未声明策略默认拒绝 ──
     let result: { ok: boolean; data?: unknown; error?: string }
     const policy = tool.policy
     let declined = false
-    if (policy && (policy.write || policy.level)) {
+
+    if (!policy) {
+      if (opts?.origin === 'ai') {
+        console.warn(`[Casy] 权限拦截：工具「${name}」未声明授权策略，根据设计哲学 V5 默认拒绝执行。`)
+        return { ok: false, error: `权限拦截：工具「${name}」未声明安全策略，系统默认拒绝自动调用` }
+      }
+    } else if (policy.write || policy.level) {
       const level = this.calculateEffectiveLevel({
         isExternalWrite: policy.write,
         userPolicy: policy.level,
@@ -441,7 +447,7 @@ class CasyContextImpl implements CasyContext {
 
     if (level === 'L3') {
       try {
-        await ElMessageBox.prompt(message, title + '（L3 双人复核）', {
+        await ElMessageBox.prompt(message, title + '（L3 关键操作二次确认）', {
           confirmButtonText: '确认执行',
           cancelButtonText: '拒绝',
           inputPlaceholder: '输入 确认',

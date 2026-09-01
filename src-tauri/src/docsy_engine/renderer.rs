@@ -35,10 +35,7 @@ pub fn render_template(
 }
 
 /// 渲染 docx 模板
-fn render_docx(
-    path: &Path,
-    values: &HashMap<String, serde_json::Value>,
-) -> Result<RenderResult> {
+fn render_docx(path: &Path, values: &HashMap<String, serde_json::Value>) -> Result<RenderResult> {
     use zip::ZipArchive;
 
     let file = fs::File::open(path)?;
@@ -80,10 +77,8 @@ fn render_docx(
                         .filter_map(|item| {
                             if let Some(obj) = item.as_object() {
                                 let name = obj.get("name")?.as_str()?;
-                                let suffix = obj
-                                    .get("suffix")
-                                    .and_then(|s| s.as_str())
-                                    .unwrap_or("");
+                                let suffix =
+                                    obj.get("suffix").and_then(|s| s.as_str()).unwrap_or("");
                                 if suffix.is_empty() {
                                     Some(name.to_string())
                                 } else {
@@ -151,7 +146,10 @@ fn convert_docx_xml_to_html(xml: &str) -> Result<String> {
 
         if !para_text.is_empty() {
             if is_bold {
-                html.push_str(&format!("<p><strong>{}</strong></p>", escape_html(&para_text)));
+                html.push_str(&format!(
+                    "<p><strong>{}</strong></p>",
+                    escape_html(&para_text)
+                ));
             } else {
                 html.push_str(&format!("<p>{}</p>", escape_html(&para_text)));
             }
@@ -208,8 +206,10 @@ mod tests {
 
     #[test]
     fn test_escape_html() {
-        assert_eq!(escape_html("<script>alert('xss')</script>"),
-                   "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;");
+        assert_eq!(
+            escape_html("<script>alert('xss')</script>"),
+            "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+        );
     }
 
     #[test]

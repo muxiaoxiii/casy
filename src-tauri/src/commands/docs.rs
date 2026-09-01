@@ -93,11 +93,7 @@ pub async fn export_docx(
         let values = map_case_to_template_values(&case_data, &settings);
 
         // 5. 导出 DOCX
-        let result = docsy_engine::export_docx(
-            &template.path,
-            &values,
-            output_path.as_deref(),
-        )?;
+        let result = docsy_engine::export_docx(&template.path, &values, output_path.as_deref())?;
 
         Ok(ExportResponse {
             output_path: result.output_path,
@@ -261,28 +257,64 @@ fn map_case_to_template_values(
     values.insert("案件进展".into(), json_str(&case.case_progress));
     values.insert("案件结果".into(), json_str(&case.case_result));
     values.insert("备注".into(), json_str(&case.notes));
-    values.insert("律所名称".into(), json_str(&Some(settings.firm_name.clone())));
+    values.insert(
+        "律所名称".into(),
+        json_str(&Some(settings.firm_name.clone())),
+    );
     values.insert("律师".into(), json_str(&case.attorneys));
 
     // ---- 日期字段 ----
     values.insert("立案日期".into(), json_str(&case.filing_date));
-    values.insert("收到起诉状日期".into(), json_str(&case.complaint_received_date));
+    values.insert(
+        "收到起诉状日期".into(),
+        json_str(&case.complaint_received_date),
+    );
     values.insert("开庭日期".into(), json_str(&case.trial_date));
     values.insert("二审日期".into(), json_str(&case.trial2_date));
     values.insert("三审日期".into(), json_str(&case.trial3_date));
     values.insert("判决日期".into(), json_str(&case.verdict_date));
     values.insert("中止日期".into(), json_str(&case.stay_date));
     values.insert("救济期限".into(), json_str(&case.relief_deadline));
-    values.insert("请求人首次无效日期".into(), json_str(&case.petitioner_first_invalid));
-    values.insert("请求人补充意见期限".into(), json_str(&case.petitioner_supp_deadline));
-    values.insert("请求人提交日期".into(), json_str(&case.petitioner_submit_date));
-    values.insert("请求人收到日期".into(), json_str(&case.petitioner_received_date));
-    values.insert("请求人答复期限".into(), json_str(&case.petitioner_reply_deadline));
-    values.insert("专利权人收到日期".into(), json_str(&case.patentee_received_date));
-    values.insert("专利权人陈述期限".into(), json_str(&case.patentee_statement_deadline));
-    values.insert("专利权人收到补充日期".into(), json_str(&case.patentee_received_supp_date));
-    values.insert("专利权人补充期限".into(), json_str(&case.patentee_supp_deadline));
-    values.insert("专利权人提交补充日期".into(), json_str(&case.patentee_submit_supp_date));
+    values.insert(
+        "请求人首次无效日期".into(),
+        json_str(&case.petitioner_first_invalid),
+    );
+    values.insert(
+        "请求人补充意见期限".into(),
+        json_str(&case.petitioner_supp_deadline),
+    );
+    values.insert(
+        "请求人提交日期".into(),
+        json_str(&case.petitioner_submit_date),
+    );
+    values.insert(
+        "请求人收到日期".into(),
+        json_str(&case.petitioner_received_date),
+    );
+    values.insert(
+        "请求人答复期限".into(),
+        json_str(&case.petitioner_reply_deadline),
+    );
+    values.insert(
+        "专利权人收到日期".into(),
+        json_str(&case.patentee_received_date),
+    );
+    values.insert(
+        "专利权人陈述期限".into(),
+        json_str(&case.patentee_statement_deadline),
+    );
+    values.insert(
+        "专利权人收到补充日期".into(),
+        json_str(&case.patentee_received_supp_date),
+    );
+    values.insert(
+        "专利权人补充期限".into(),
+        json_str(&case.patentee_supp_deadline),
+    );
+    values.insert(
+        "专利权人提交补充日期".into(),
+        json_str(&case.patentee_submit_supp_date),
+    );
 
     // 今日日期
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -297,7 +329,10 @@ fn map_case_to_template_values(
             "suffix": case.our_role.as_deref().unwrap_or("请求人")
         }));
     }
-    values.insert("我方当事人".into(), serde_json::Value::Array(our_parties.clone()));
+    values.insert(
+        "我方当事人".into(),
+        serde_json::Value::Array(our_parties.clone()),
+    );
 
     let mut opponent_parties = Vec::new();
     if let Some(ref name) = case.opponent_name {
@@ -316,7 +351,10 @@ fn map_case_to_template_values(
             }));
         }
     }
-    values.insert("对方当事人".into(), serde_json::Value::Array(opponent_parties.clone()));
+    values.insert(
+        "对方当事人".into(),
+        serde_json::Value::Array(opponent_parties.clone()),
+    );
 
     // 合并当事人
     our_parties.extend(opponent_parties);

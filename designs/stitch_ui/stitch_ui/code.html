@@ -1,0 +1,245 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}@font-face{font-family:'Material Symbols Outlined';font-style:normal;src:url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v160/kJF1Eq7DzSXYnS8fcZ0asSjY8Cs3lSdBASsGowRTqLM.woff2) format('woff2');}.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;font-size:24px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{"colors":{"error-container":"#ffdad6","status-risk":"#B4554F","error":"#ba1a1a","on-error-container":"#93000a","surface-container-low":"#f2f4f6","surface-container-high":"#e6e8ea","primary-fixed-dim":"#afc6ff","tertiary-fixed-dim":"#f3bd6f","border-default":"#E4E7EB","bg-risk-weak":"#F7EFEE","on-primary":"#ffffff","bg-warning-weak":"#F6F3EA","on-secondary-fixed":"#161b27","on-secondary":"#ffffff","background":"#f7f9fb","secondary-container":"#dee2f3","surface-container-lowest":"#ffffff","inverse-primary":"#afc6ff","slate-blue-deep":"#1F2430","on-primary-fixed":"#001a43","bg-success-weak":"#EDF4F0","tertiary-fixed":"#ffddb1","secondary":"#595e6c","outline-variant":"#c4c6d1","on-tertiary-container":"#ffcf8c","on-secondary-container":"#5f6472","slate-gray-light":"#9BA2AF","primary":"#244481","primary-fixed":"#d9e2ff","surface-dim":"#d8dadc","on-error":"#ffffff","on-tertiary-fixed":"#291800","tertiary":"#613f00","secondary-fixed-dim":"#c2c6d6","status-discovery":"#6C6A9C","surface-variant":"#e0e3e5","surface-white":"#FFFFFF","inverse-on-surface":"#eff1f3","surface-tint":"#3f5d9b","on-primary-container":"#c8d7ff","status-success":"#4C8067","secondary-fixed":"#dee2f3","on-tertiary-fixed-variant":"#624000","inverse-surface":"#2d3133","primary-container":"#3e5c9a","slate-blue-muted":"#4B5160","tertiary-container":"#7d5610","on-surface":"#191c1e","on-tertiary":"#ffffff","outline":"#747781","on-primary-fixed-variant":"#254582","on-surface-variant":"#444750","on-background":"#191c1e","surface":"#f7f9fb","surface-container-highest":"#e0e3e5","status-warning":"#B0823A","on-secondary-fixed-variant":"#424754","surface-bright":"#f7f9fb","surface-container":"#eceef0"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"container-gap":"14px","half":"4px","base":"8px","quarter":"2px","margin-page":"20px","sidebar-width":"240px","preview-width":"440px"},"fontFamily":{"mono-micro":["SF Mono"],"label-caps":["Inter"],"headline-section":["Inter"],"display-date":["Inter"],"mono-data":["SF Mono"],"ui-subtext":["Inter"],"body-medium":["Inter"],"body-base":["Inter"],"header-app":["Inter"]},"fontSize":{"mono-micro":["10.5px",{"lineHeight":"12px","fontWeight":"600"}],"label-caps":["11px",{"lineHeight":"14px","fontWeight":"600"}],"headline-section":["15px",{"lineHeight":"20px","fontWeight":"700"}],"display-date":["20px",{"lineHeight":"28px","letterSpacing":"-0.3px","fontWeight":"700"}],"mono-data":["11px",{"lineHeight":"14px","fontWeight":"500"}],"ui-subtext":["12.5px",{"lineHeight":"16px","fontWeight":"500"}],"body-medium":["13px",{"lineHeight":"18px","fontWeight":"500"}],"body-base":["13px",{"lineHeight":"18px","fontWeight":"400"}],"header-app":["14px",{"lineHeight":"20px","fontWeight":"700"}]}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"></head><body class="bg-background font-body-base text-on-surface"><aside class="fixed left-0 top-0 h-full w-[240px] bg-surface-container-low z-50 flex flex-col border-r border-border-default"><div class="p-6 flex items-center gap-3"><div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[20px]">grid_view</span></div><span class="font-header-app text-header-app tracking-tight text-primary">Casy v4.0</span></div><nav class="flex-1 px-3 overflow-y-auto space-y-6" data-active-classes="bg-secondary-container text-on-secondary-container font-bold"><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Focus</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="today" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">wb_sunny</span>Today</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="inbox" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">inbox</span>Inbox</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Matters</h3><div class="space-y-1"><a aria-current="page" class="flex items-center px-4 py-2 rounded-lg transition-colors bg-secondary-container text-on-secondary-container font-bold" data-path="cases" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">gavel</span>Cases</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="calendar" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">calendar_today</span>Calendar</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Knowledge</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="vault" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">token</span>Vault</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="drafting" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">edit_note</span>Drafting</a></div></section></nav><div class="p-4 border-t border-border-default space-y-3"><div class="flex items-center gap-2 px-2 py-1.5 bg-bg-success-weak rounded-full border border-status-success/20"><span class="flex h-2 w-2 rounded-full bg-status-success"></span><span class="font-mono-micro text-mono-micro text-status-success uppercase">Local Llama 3 Active</span></div><a class="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-container-high transition-colors" data-path="settings" href="#"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex flex-col"><span class="font-body-medium text-body-medium text-on-surface">Lawyer Wang</span><span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Senior Partner</span></div></a></div></aside><div class="pl-[240px]"><header class="fixed top-0 left-[240px] right-0 h-16 bg-surface/80 backdrop-blur-xl border-b border-border-default z-40 px-8 flex items-center justify-between"><div class="flex items-center gap-6"><div class="relative flex items-center bg-surface-container px-3 py-2 rounded-lg w-80 group border border-transparent focus-within:border-outline"><span class="material-symbols-outlined text-slate-gray-light text-[20px] mr-2">search</span><input class="bg-transparent border-none outline-none text-body-medium w-full placeholder:text-slate-gray-light text-on-surface" placeholder="Search matters (CMD+K)" type="text"><span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded border border-outline-variant text-slate-gray-light">⌘K</span></div></div><div class="flex items-center gap-4"><button class="p-2 rounded-full text-on-surface-variant hover:bg-surface-container relative"><span class="material-symbols-outlined">event_note</span><span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface"></span></button><div class="flex items-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[20px]">add_task</span>+ Task</button><button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-header-app text-header-app shadow-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined text-[20px]">center_focus_strong</span>+ Capture</button></div></div></header><main class="relative pt-16 min-h-screen bg-[#F8FAFC]"><div class="flex flex-col w-full px-8 pb-12 gap-8">
+<div class="flex items-center justify-between">
+<div class="flex flex-col gap-1">
+<h1 class="font-display-date text-display-date text-on-surface">Good Morning, Lawyer Wang</h1>
+<p class="font-body-medium text-body-medium text-slate-gray-light">Tuesday, October 24 — 3 priority items require attention.</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2 bg-surface-container-low px-1.5 py-1.5 rounded-lg border border-transparent shadow-sm">
+<button class="px-4 py-2 bg-surface-container rounded font-body-medium text-body-medium text-on-surface hover:bg-surface-container-high transition-colors">Today</button>
+<button class="px-4 py-2 rounded font-body-medium text-body-medium text-slate-gray-light hover:bg-surface-container transition-colors">Week</button>
+</div>
+<button aria-label="Customize Dashboard" class="flex items-center justify-center p-2.5 rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+</button>
+</div>
+</div>
+<div class="grid grid-cols-12 gap-6 auto-rows-[minmax(0,1fr)]">
+<div class="col-span-8 row-span-2 bg-surface-container-lowest rounded-xl shadow-md p-6 flex flex-col justify-between group cursor-pointer relative overflow-hidden transition-transform duration-300 hover:-translate-y-1">
+<div class="absolute top-0 left-0 w-1.5 h-full bg-primary"></div>
+<div class="flex items-start justify-between z-10">
+<div class="flex items-center gap-3">
+<span class="px-2.5 py-1 bg-primary-fixed text-on-primary-fixed font-label-caps text-label-caps uppercase rounded tracking-wide">Next Action</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">CIV-23-089</span>
+</div>
+<span class="font-mono-data text-mono-data text-status-warning bg-bg-warning-weak px-2 py-1 rounded">Due in 4h</span>
+</div>
+<div class="mt-8 mb-6 z-10">
+<h2 class="font-headline-section text-[24px] leading-tight text-on-surface font-bold mb-2">Finalize Expert Witness Deposition Outline</h2>
+<p class="font-body-base text-body-base text-on-surface-variant max-w-2xl">Review Dr. Aris Thorne's prior testimony (Doc-442) and cross-reference with the plaintiff's updated exhibit list. Ensure all technical terms regarding metallurgical failure are addressed in section 3.</p>
+</div>
+<div class="flex items-center justify-between z-10 mt-auto pt-6 border-t border-border-default/50">
+<div class="flex items-center gap-4">
+<div class="flex -space-x-2">
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-lowest bg-surface-variant overflow-hidden">
+<div class="bg-cover bg-center w-full h-full" data-alt="A professional headshot of a female lawyer in her 30s with dark hair, wearing a navy blazer, well-lit studio photography, slate gray background" style="background-image: url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuB0yykFjLoK-9GSz0w6d14oGne4McVIqDPtAqFCTX3GdyVjFxlxdepdwI4hs6YF_UNQ-L7A8jSj48wGi5-fuwWZ4UgdksZcuzmWMigHnJTNAhZ8GYY5fr9g3h_RviQJOWRJZSnoU_-bh8LOt9NN_3GJ_6G3UoavuJQmWq0hh6cL64qrx7P4YMPeiwTEDp_RG3c6jPRS6qHaQOn3sLdFO8MG7Rvz2icmKKjpV03XMlnW_5QBJ4nUg-WQyg&quot;);"></div>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-lowest bg-primary-container flex items-center justify-center">
+<span class="font-label-caps text-label-caps text-on-primary-container">LW</span>
+</div>
+</div>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Waiting on review from 2 colleagues</span>
+</div>
+<button class="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded-lg font-header-app text-header-app hover:bg-primary/90 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span>
+          Start Task
+        </button>
+</div>
+<div class="absolute right-0 bottom-0 opacity-5 pointer-events-none transform translate-x-1/4 translate-y-1/4 scale-150">
+<span class="material-symbols-outlined text-[200px]" style="font-variation-settings: &quot;FILL&quot; 1;">gavel</span>
+</div>
+</div>
+<div class="col-span-4 row-span-1 bg-surface-container-lowest rounded-xl shadow-sm p-5 flex flex-col justify-between">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Energy &amp; Capacity</h3>
+<span class="material-symbols-outlined text-slate-gray-light text-[18px]">battery_charging_60</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative w-16 h-16 flex-shrink-0">
+<svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+<path class="text-surface-container-high" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4"></path>
+<path class="text-primary transition-all duration-1000 ease-out" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-dasharray="65, 100" stroke-linecap="round" stroke-width="4"></path>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="font-mono-micro text-mono-micro text-on-surface font-bold">6.5h</span>
+</div>
+</div>
+<div class="flex flex-col gap-2 w-full">
+<div class="flex justify-between items-end">
+<span class="font-ui-subtext text-ui-subtext text-on-surface-variant">Committed</span>
+<span class="font-mono-data text-mono-data text-on-surface">6.5h</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full w-[65%]"></div>
+</div>
+<div class="flex justify-between items-end mt-1">
+<span class="font-ui-subtext text-ui-subtext text-on-surface-variant">Free Space</span>
+<span class="font-mono-data text-mono-data text-status-success">2.0h</span>
+</div>
+</div>
+</div>
+</div>
+<div class="col-span-4 row-span-1 bg-surface-container-lowest rounded-xl shadow-sm p-5 flex flex-col justify-between relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-status-risk/5 rounded-bl-full -mr-8 -mt-8"></div>
+<div class="flex items-center justify-between mb-3 z-10">
+<h3 class="font-label-caps text-label-caps text-status-risk uppercase tracking-wider flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-status-risk animate-pulse"></span>
+              Redline (24h)
+            </h3>
+<span class="font-mono-micro text-mono-micro px-2 py-0.5 bg-bg-risk-weak text-status-risk rounded">2 items</span>
+</div>
+<div class="flex flex-col gap-3 z-10 overflow-y-auto">
+<div class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="w-1 h-full bg-status-risk rounded-full self-stretch opacity-70 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex-1 min-w-0">
+<p class="font-body-medium text-body-medium text-on-surface truncate">File injunction response</p>
+<div class="flex items-center justify-between mt-1">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">CIV-23-089</span>
+<span class="font-mono-data text-mono-data text-status-risk">Today 17:00</span>
+</div>
+</div>
+</div>
+<div class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="w-1 h-full bg-status-risk rounded-full self-stretch opacity-70 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex-1 min-w-0">
+<p class="font-body-medium text-body-medium text-on-surface truncate">Sign settlement agreement</p>
+<div class="flex items-center justify-between mt-1">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">ADM-24-012</span>
+<span class="font-mono-data text-mono-data text-status-risk">Tomorrow 09:00</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="col-span-5 bg-surface-container-lowest rounded-xl shadow-sm p-5 flex flex-col">
+<h3 class="font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider mb-6">Matter Status Distribution</h3>
+<div class="flex-1 flex flex-col justify-end gap-5">
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-end">
+<span class="font-ui-subtext text-ui-subtext text-on-surface-variant flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+                       Discovery phase
+                    </span>
+<span class="font-mono-data text-mono-data text-on-surface">12</span>
+</div>
+<div class="w-full h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full w-[45%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-end">
+<span class="font-ui-subtext text-ui-subtext text-on-surface-variant flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-status-discovery"></span>
+                       Active Hearing
+                    </span>
+<span class="font-mono-data text-mono-data text-on-surface">5</span>
+</div>
+<div class="w-full h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-status-discovery rounded-full w-[20%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-end">
+<span class="font-ui-subtext text-ui-subtext text-on-surface-variant flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-status-warning"></span>
+                       Pending Decision
+                    </span>
+<span class="font-mono-data text-mono-data text-on-surface">8</span>
+</div>
+<div class="w-full h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-status-warning rounded-full w-[35%]"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="col-span-7 bg-surface-container-lowest rounded-xl shadow-sm p-5 flex flex-col">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Recent Captures</h3>
+<button class="font-ui-subtext text-ui-subtext text-primary hover:underline">View All</button>
+</div>
+<div class="grid grid-cols-3 gap-4 flex-1">
+<div class="bg-surface-container rounded-lg p-3 flex flex-col justify-between hover:bg-surface-container-high transition-colors cursor-pointer group border border-transparent hover:border-outline-variant">
+<div class="flex items-center gap-2 mb-3">
+<div class="w-6 h-6 rounded bg-[#07C160]/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-[#07C160]">chat</span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light truncate">Client WeChat</span>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface line-clamp-3 mb-2">"Can we delay the meeting next Tuesday? I need to gather more financial records before we discuss."</p>
+<div class="mt-auto flex items-center justify-between">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">2h ago</span>
+<span class="opacity-0 group-hover:opacity-100 material-symbols-outlined text-[16px] text-on-surface-variant transition-opacity">arrow_forward</span>
+</div>
+</div>
+<div class="bg-surface-container rounded-lg p-3 flex flex-col justify-between hover:bg-surface-container-high transition-colors cursor-pointer group border border-transparent hover:border-outline-variant relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none"></div>
+<div class="flex items-center gap-2 mb-3 z-10">
+<div class="w-6 h-6 rounded bg-[#EA4335]/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-[#EA4335]">mail</span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light truncate">Email Fwd</span>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface line-clamp-3 mb-2 z-10 font-bold">Fwd: Confirmed Court Date - Smith v. Jones</p>
+<div class="mt-auto flex items-center justify-between z-10">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light border border-outline-variant/50 border-dashed rounded px-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">smart_toy</span>Extracted</span>
+<span class="opacity-0 group-hover:opacity-100 material-symbols-outlined text-[16px] text-on-surface-variant transition-opacity">arrow_forward</span>
+</div>
+</div>
+<div class="bg-surface-container rounded-lg p-3 flex flex-col justify-between hover:bg-surface-container-high transition-colors cursor-pointer group border border-transparent hover:border-outline-variant">
+<div class="flex items-center gap-2 mb-3">
+<div class="w-6 h-6 rounded bg-tertiary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-tertiary">article</span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light truncate">Web Clipper</span>
+</div>
+<div class="w-full h-16 rounded overflow-hidden mb-2 relative">
+<div class="bg-cover bg-center w-full h-full opacity-80" data-alt="Screenshot of a legal precedent database showing highlighted text on a complex commercial contract ruling, blurred slightly" style="background-image: url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuCgD0imgKTEiMBhP8Nbqyx9oH-Clloy9v3oearm-k4zFPDtiK3gdn-O7vbFk8l26xNHWbNHtHSTVBTJU8hHg1XkoDBgut8FrCJkwZHxmniRdKcr9Nkhy4kpCOhr5mGtpJ8-oxj7pDyEUzLBa3qDYMf2px4gy97PqDeZKu7ZqQ9oLKapfu2MYYXt5t4fXxvP_TKdH4fcudfRA2IiILrkEQwzT1ezWLCF_jslL_U7kkCQQBHbgPEngqIVnA&quot;);"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container to-transparent"></div>
+</div>
+<p class="font-ui-subtext text-ui-subtext text-on-surface line-clamp-1 mb-2">Relevant precedence case 2021</p>
+<div class="mt-auto flex items-center justify-between">
+<span class="font-mono-micro text-mono-micro text-slate-gray-light">Yesterday</span>
+<span class="opacity-0 group-hover:opacity-100 material-symbols-outlined text-[16px] text-on-surface-variant transition-opacity">arrow_forward</span>
+</div>
+</div>
+</div>
+</div>
+<div class="col-span-6 bg-surface-container-lowest rounded-xl shadow-sm p-5 flex items-center justify-between group hover:shadow-md transition-shadow cursor-pointer">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-status-warning/10 flex items-center justify-center text-status-warning">
+<span class="material-symbols-outlined text-[24px]">hourglass_empty</span>
+</div>
+<div>
+<h3 class="font-headline-section text-headline-section text-on-surface">Waiting Monitor</h3>
+<p class="font-body-medium text-body-medium text-on-surface-variant mt-0.5">
+<span class="font-bold text-status-warning">4</span> items stalled &gt; 3 days
+             </p>
+</div>
+</div>
+<button class="px-4 py-2 border border-border-default rounded-lg font-body-medium text-body-medium text-on-surface-variant hover:bg-surface-container transition-colors group-hover:border-outline-variant">
+          Review List
+       </button>
+</div>
+<div class="col-span-6 bg-surface-container-lowest rounded-xl shadow-sm p-5 flex items-center justify-between group">
+<div>
+<h3 class="font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider mb-2">Productivity Pulse</h3>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-section text-[28px] font-bold text-on-surface">24</span>
+<span class="font-ui-subtext text-ui-subtext text-on-surface-variant">/ 30 tasks</span>
+</div>
+</div>
+<div class="w-32 h-12 relative flex items-end justify-between gap-1">
+<div class="w-full bg-primary/20 rounded-t h-[40%] group-hover:h-[45%] transition-all duration-300"></div>
+<div class="w-full bg-primary/40 rounded-t h-[70%] group-hover:h-[75%] transition-all duration-300"></div>
+<div class="w-full bg-primary/60 rounded-t h-[30%] group-hover:h-[35%] transition-all duration-300"></div>
+<div class="w-full bg-primary/80 rounded-t h-[90%] group-hover:h-[95%] transition-all duration-300"></div>
+<div class="w-full bg-primary rounded-t h-[60%] group-hover:h-[80%] transition-all duration-300"></div>
+</div>
+</div>
+</div>
+</div></main></div>
+
+</body></html>

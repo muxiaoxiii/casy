@@ -1,6 +1,5 @@
 use super::run_blocking;
 use crate::db;
-use chrono::Datelike;
 
 #[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -21,7 +20,14 @@ pub struct CalendarEvent {
 }
 
 impl CalendarEvent {
-    fn projection(id: String, date: String, title: String, event_type: &str, case_id: String, case_name: String) -> Self {
+    fn projection(
+        id: String,
+        date: String,
+        title: String,
+        event_type: &str,
+        case_id: String,
+        case_name: String,
+    ) -> Self {
         Self {
             id,
             date,
@@ -154,7 +160,8 @@ fn last_day_of_month(year: i32, month: u32) -> u32 {
     } else {
         (year, month + 1)
     };
-    let next_first = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1).unwrap();
-    let last = next_first - chrono::Duration::days(1);
-    last.day()
+    use chrono::Datelike;
+    chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .map(|d| (d - chrono::Duration::days(1)).day())
+        .unwrap_or(28)
 }

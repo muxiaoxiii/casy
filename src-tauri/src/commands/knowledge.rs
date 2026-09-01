@@ -11,7 +11,9 @@ pub struct KnowledgeFilter {
 }
 
 #[tauri::command]
-pub async fn list_knowledge(filter: Option<KnowledgeFilter>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_knowledge(
+    filter: Option<KnowledgeFilter>,
+) -> Result<Vec<serde_json::Value>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut sql = String::from("SELECT * FROM knowledge_items WHERE 1=1");
@@ -54,7 +56,8 @@ pub async fn list_knowledge(filter: Option<KnowledgeFilter>) -> Result<Vec<serde
         sql.push_str(" ORDER BY updated_at DESC LIMIT 200");
 
         let mut stmt = conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         let items: Vec<serde_json::Value> = stmt
             .query_map(param_refs.as_slice(), |row| {
                 Ok(serde_json::json!({
@@ -245,7 +248,10 @@ pub async fn update_knowledge(id: String, data: serde_json::Value) -> Result<(),
 pub async fn delete_knowledge(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        conn.execute("DELETE FROM knowledge_items WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM knowledge_items WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
     })
     .await
@@ -257,7 +263,7 @@ pub async fn search_knowledge(query: String) -> Result<Vec<SearchKnowledgeDto>, 
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT ki.* FROM knowledge_fts f JOIN knowledge_items ki ON ki.rowid = f.rowid
-             WHERE knowledge_fts MATCH ?1 ORDER BY rank LIMIT 50"
+             WHERE knowledge_fts MATCH ?1 ORDER BY rank LIMIT 50",
         )?;
         let items: Vec<SearchKnowledgeDto> = stmt
             .query_map(rusqlite::params![query], |row| {
@@ -282,9 +288,11 @@ pub async fn knowledge_stats() -> Result<KnowledgeStatsDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
-        let total: i64 = conn.query_row("SELECT COUNT(*) FROM knowledge_items", [], |r| r.get(0))?;
+        let total: i64 =
+            conn.query_row("SELECT COUNT(*) FROM knowledge_items", [], |r| r.get(0))?;
 
-        let mut stmt = conn.prepare("SELECT category, COUNT(*) FROM knowledge_items GROUP BY category")?;
+        let mut stmt =
+            conn.prepare("SELECT category, COUNT(*) FROM knowledge_items GROUP BY category")?;
         let by_category: Vec<(String, i64)> = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -301,7 +309,7 @@ pub async fn list_knowledge_versions(item_id: String) -> Result<Vec<KnowledgeVer
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, content, changed_at, change_reason FROM knowledge_versions
-             WHERE item_id = ?1 ORDER BY changed_at DESC LIMIT 50"
+             WHERE item_id = ?1 ORDER BY changed_at DESC LIMIT 50",
         )?;
         let versions: Vec<KnowledgeVersionDto> = stmt
             .query_map(rusqlite::params![item_id], |row| {
@@ -810,9 +818,8 @@ pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<KnowledgeGraphD
 
         // 知识 ↔ 知识 边（两端都需在节点集内）
         {
-            let mut stmt = conn.prepare(
-                "SELECT source_id, target_id, relation_type FROM knowledge_relations",
-            )?;
+            let mut stmt = conn
+                .prepare("SELECT source_id, target_id, relation_type FROM knowledge_relations")?;
             let rels: Vec<(String, String, String)> = stmt
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;

@@ -56,7 +56,6 @@ pub struct UpdateAreaInput {
     pub sort_order: Option<i32>,
 }
 
-
 /// 新建结果（保持原 {id} 形状，消费方零改动）
 #[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -70,9 +69,9 @@ pub async fn list_areas() -> Result<Vec<AreaDto>, String> {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, icon, sort_order, created_at, updated_at 
-             FROM areas ORDER BY sort_order ASC, name ASC"
+             FROM areas ORDER BY sort_order ASC, name ASC",
         )?;
-        
+
         let areas: Vec<AreaDto> = stmt
             .query_map([], |row| {
                 Ok(AreaDto {
@@ -96,23 +95,24 @@ pub async fn list_areas() -> Result<Vec<AreaDto>, String> {
 pub async fn get_area(id: String) -> Result<AreaDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let area = conn.query_row(
-            "SELECT id, name, description, icon, sort_order, created_at, updated_at 
+        let area = conn
+            .query_row(
+                "SELECT id, name, description, icon, sort_order, created_at, updated_at 
              FROM areas WHERE id = ?1",
-            rusqlite::params![id],
-            |row| {
-                Ok(AreaDto {
-                    id: row.get::<_, String>("id")?,
-                    name: row.get::<_, String>("name")?,
-                    description: row.get::<_, Option<String>>("description")?,
-                    icon: row.get::<_, Option<String>>("icon")?,
-                    sort_order: row.get::<_, i32>("sort_order")?,
-                    created_at: row.get::<_, String>("created_at")?,
-                    updated_at: row.get::<_, String>("updated_at")?,
-                })
-            },
-        )
-        .map_err(|e| anyhow::anyhow!(e))?;
+                rusqlite::params![id],
+                |row| {
+                    Ok(AreaDto {
+                        id: row.get::<_, String>("id")?,
+                        name: row.get::<_, String>("name")?,
+                        description: row.get::<_, Option<String>>("description")?,
+                        icon: row.get::<_, Option<String>>("icon")?,
+                        sort_order: row.get::<_, i32>("sort_order")?,
+                        created_at: row.get::<_, String>("created_at")?,
+                        updated_at: row.get::<_, String>("updated_at")?,
+                    })
+                },
+            )
+            .map_err(|e| anyhow::anyhow!(e))?;
 
         Ok(area)
     })
@@ -125,7 +125,7 @@ pub async fn create_area(data: CreateAreaInput) -> Result<CreateAreaOutput, Stri
         let conn = db::open_db()?;
         let id = db::new_id();
         let now = db::now_local();
-        
+
         if data.name.is_empty() {
             return Err(anyhow::anyhow!(crate::error_code::err(
                 crate::error_code::codes::AREA_NAME_REQUIRED,
@@ -157,7 +157,7 @@ pub async fn update_area(id: String, data: UpdateAreaInput) -> Result<(), String
     run_blocking(move || {
         let conn = db::open_db()?;
         let now = db::now_local();
-        
+
         conn.execute(
             "UPDATE areas SET 
                 name = COALESCE(?1, name),
@@ -175,7 +175,7 @@ pub async fn update_area(id: String, data: UpdateAreaInput) -> Result<(), String
                 id,
             ],
         )?;
-        
+
         Ok(())
     })
     .await
@@ -185,18 +185,18 @@ pub async fn update_area(id: String, data: UpdateAreaInput) -> Result<(), String
 pub async fn delete_area(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        
+
         // 检查是否有任务关联到此领域
         let count: i32 = conn.query_row(
             "SELECT COUNT(*) FROM tasks WHERE area_id = ?1",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
-        
+
         if count > 0 {
             return Err(anyhow::anyhow!("该领域下有 {} 个任务，无法删除", count));
         }
-        
+
         conn.execute("DELETE FROM areas WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
     })
@@ -207,38 +207,40 @@ pub async fn delete_area(id: String) -> Result<(), String> {
 pub async fn get_area_stats(id: String) -> Result<AreaStatsDto, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        
+
         // 获取领域信息
-        let area_name: String = conn.query_row(
-            "SELECT name FROM areas WHERE id = ?1",
-            rusqlite::params![id],
-            |row| row.get(0),
-        ).map_err(|e| anyhow::anyhow!(e))?;
+        let area_name: String = conn
+            .query_row(
+                "SELECT name FROM areas WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| anyhow::anyhow!(e))?;
         let total_tasks: i32 = conn.query_row(
             "SELECT COUNT(*) FROM tasks WHERE area_id = ?1",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
-        
+
         let completed_tasks: i32 = conn.query_row(
             "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND completed = 1",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
-        
+
         let pending_tasks: i32 = conn.query_row(
             "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND completed = 0",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
-        
+
         // 统计案件
         let total_cases: i32 = conn.query_row(
             "SELECT COUNT(*) FROM cases WHERE area_id = ?1",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
-        
+
         Ok(AreaStatsDto {
             area_id: id,
             area_name,

@@ -20,38 +20,67 @@ const KEYCHAIN_SERVICE: &str = "com.casy.feishu";
 const KEY_APP_ID: &str = "app_id";
 const KEY_APP_SECRET: &str = "app_secret";
 
-/// 保存飞书凭证到 OS keychain
+/// 保存飞书凭证（Keychain 与本地数据库双重保障）
 pub fn save_feishu_credentials(app_id: &str, app_secret: &str) -> Result<()> {
-    let entry_id =
-        keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_ID).context("创建 keychain entry 失败")?;
-    entry_id
-        .set_password(app_id)
-        .context("保存 app_id 到 keychain 失败")?;
+    let clean_id = app_id.trim();
+    let clean_secret = app_secret.trim();
 
-    let entry_secret = keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_SECRET)
-        .context("创建 keychain entry 失败")?;
-    entry_secret
-        .set_password(app_secret)
-        .context("保存 app_secret 到 keychain 失败")?;
+    // 1. 尝试写入 OS Keychain
+    if let Ok(entry_id) = keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_ID) {
+        let _ = entry_id.set_password(clean_id);
+    }
+    if let Ok(entry_secret) = keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_SECRET) {
+        let _ = entry_secret.set_password(clean_secret);
+    }
+
+    // 2. 双重持久化到本地加密 SQLite 设置
+    if let Ok(conn) = crate::db::open_db() {
+        let _ = crate::db::set_setting(&conn, "feishu_app_id", clean_id);
+        let _ = crate::db::set_setting(&conn, "feishu_app_secret", clean_secret);
+    }
 
     Ok(())
 }
 
-/// 从 OS keychain 读取飞书凭证
+/// 读取飞书凭证（优先 Keychain，优雅降级 SQLite 设置）
 pub fn load_feishu_credentials() -> Result<(String, String)> {
-    let entry_id =
-        keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_ID).context("创建 keychain entry 失败")?;
-    let app_id = entry_id
-        .get_password()
-        .context("读取 app_id 失败，请先配置飞书凭证")?;
+    // 1. 尝试从 Keychain 读取
+    let id_from_keychain = keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_ID)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
-    let entry_secret = keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_SECRET)
-        .context("创建 keychain entry 失败")?;
-    let app_secret = entry_secret
-        .get_password()
-        .context("读取 app_secret 失败，请先配置飞书凭证")?;
+    let secret_from_keychain = keyring::Entry::new(KEYCHAIN_SERVICE, KEY_APP_SECRET)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
-    Ok((app_id, app_secret))
+    if let (Some(id), Some(secret)) = (id_from_keychain, secret_from_keychain) {
+        return Ok((id, secret));
+    }
+
+    // 2. 降级从 SQLite settings 读取
+    if let Ok(conn) = crate::db::open_db() {
+        let id_from_db = crate::db::get_setting(&conn, "feishu_app_id")
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let secret_from_db = crate::db::get_setting(&conn, "feishu_app_secret")
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        if let (Some(id), Some(secret)) = (id_from_db, secret_from_db) {
+            return Ok((id, secret));
+        }
+    }
+
+    anyhow::bail!("读取 app_id 失败，请先输入并保存飞书 App ID 与 App Secret")
 }
 
 // ============================================================
@@ -360,10 +389,7 @@ pub async fn list_bitable_tables(app_token: &str) -> Result<Vec<BitableTableInfo
 }
 
 /// 获取指定表的所有字段定义
-pub async fn list_bitable_fields(
-    app_token: &str,
-    table_id: &str,
-) -> Result<Vec<BitableFieldInfo>> {
+pub async fn list_bitable_fields(app_token: &str, table_id: &str) -> Result<Vec<BitableFieldInfo>> {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0);
     let client = Client::builder()
@@ -458,9 +484,7 @@ pub async fn list_bitable_records(
     Ok(BitableRecordsPage {
         items: records,
         has_more: body["data"]["has_more"].as_bool().unwrap_or(false),
-        page_token: body["data"]["page_token"]
-            .as_str()
-            .map(|s| s.to_string()),
+        page_token: body["data"]["page_token"].as_str().map(|s| s.to_string()),
         total: body["data"]["total"].as_i64(),
     })
 }
@@ -551,10 +575,7 @@ pub fn feishu_type_pushable(type_code: i32) -> bool {
 }
 
 /// 从飞书记录中提取字段值为字符串
-pub fn extract_field_value_as_string(
-    value: &serde_json::Value,
-    field_type: i32,
-) -> Option<String> {
+pub fn extract_field_value_as_string(value: &serde_json::Value, field_type: i32) -> Option<String> {
     match field_type {
         // Text, Phone, Url → 直接取字符串
         1 | 13 | 15 => value.as_str().map(|s| s.to_string()),
@@ -567,7 +588,9 @@ pub fn extract_field_value_as_string(
         // DateTime → YYYY-MM-DD
         5 => extract_datetime(value),
         // Checkbox → 0/1
-        7 => value.as_bool().map(|b| if b { "1".to_string() } else { "0".to_string() }),
+        7 => value
+            .as_bool()
+            .map(|b| if b { "1".to_string() } else { "0".to_string() }),
         // User, Attachment, SingleLink, DuplexLink, Location, GroupChat → JSON
         11 | 17 | 18 | 21 | 22 | 23 => {
             if value.is_null() {
@@ -588,7 +611,11 @@ pub fn extract_field_value_as_string(
                     .filter_map(|v| v.as_str())
                     .collect::<Vec<_>>()
                     .join("");
-                if text.is_empty() { None } else { Some(text) }
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
             }
             _ => None,
         },
@@ -734,7 +761,9 @@ fn extract_single_select(value: &serde_json::Value) -> Option<String> {
                 Some(s.to_string())
             }
         }
-        serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_str()).map(|s| s.to_string()),
+        serde_json::Value::Array(arr) => {
+            arr.first().and_then(|v| v.as_str()).map(|s| s.to_string())
+        }
         serde_json::Value::Object(obj) => obj
             .get("text")
             .and_then(|v| v.as_str())
@@ -834,10 +863,7 @@ pub struct FeishuSyncReport {
 // PULL：从飞书拉取到本地
 // ============================================================
 
-pub async fn sync_feishu_pull_inner(
-    app_token: &str,
-    table_id: &str,
-) -> Result<FeishuSyncReport> {
+pub async fn sync_feishu_pull_inner(app_token: &str, table_id: &str) -> Result<FeishuSyncReport> {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0); // 保守限流
     let client = Client::builder()
@@ -870,7 +896,8 @@ pub async fn sync_feishu_pull_inner(
             url.push_str(&format!("&page_token={}", pt));
         }
 
-        let body = call_feishu_api(&client, &mut limiter, HttpMethod::Get, &url, &token, None).await?;
+        let body =
+            call_feishu_api(&client, &mut limiter, HttpMethod::Get, &url, &token, None).await?;
 
         if body["code"].as_i64().unwrap_or(-1) != 0 {
             let msg = body["msg"].as_str().unwrap_or("未知错误");
@@ -907,9 +934,7 @@ pub async fn sync_feishu_pull_inner(
         if !has_more {
             break;
         }
-        page_token = body["data"]["page_token"]
-            .as_str()
-            .map(|s| s.to_string());
+        page_token = body["data"]["page_token"].as_str().map(|s| s.to_string());
 
         // 限流间隔
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -917,20 +942,14 @@ pub async fn sync_feishu_pull_inner(
 
     // 更新同步状态到 settings
     update_sync_metadata(&conn, "feishu_last_pull_at", &report.synced_at)?;
-    update_sync_metadata(
-        &conn,
-        "feishu_last_pull_count",
-        &report.pulled.to_string(),
-    )?;
+    update_sync_metadata(&conn, "feishu_last_pull_count", &report.pulled.to_string())?;
 
     Ok(report)
 }
 
 /// 处理单条飞书记录的 pull
 fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String> {
-    let record_id = item["record_id"]
-        .as_str()
-        .context("记录缺少 record_id")?;
+    let record_id = item["record_id"].as_str().context("记录缺少 record_id")?;
     let fields = &item["fields"];
 
     // 查 sync_map
@@ -951,7 +970,9 @@ fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String
             .unwrap_or("")
             .to_string();
 
-        if old_remote_updated.as_deref() == Some(&new_remote_updated) && !new_remote_updated.is_empty() {
+        if old_remote_updated.as_deref() == Some(&new_remote_updated)
+            && !new_remote_updated.is_empty()
+        {
             return Ok("skipped".to_string());
         }
 
@@ -996,9 +1017,9 @@ fn insert_case_from_feishu(conn: &Connection, fields: &serde_json::Value) -> Res
     let local_id = new_id();
     let track = match extract_single_select(&fields["案由"]).as_deref() {
         Some("专利无效") => "patent_invalidation",
-        Some("专利侵权" | "技术秘密" | "著作权权属" | "专利权属" | "外观侵权" | "恶意诉讼不正当竞争") => {
-            "civil_tort"
-        }
+        Some(
+            "专利侵权" | "技术秘密" | "著作权权属" | "专利权属" | "外观侵权" | "恶意诉讼不正当竞争",
+        ) => "civil_tort",
         Some("专利行政" | "商标行政") => "admin_litigation",
         _ => "other",
     };
@@ -1130,7 +1151,8 @@ fn update_local_case(conn: &Connection, local_id: &str, fields: &serde_json::Val
     sql.push_str(&format!(" WHERE id = ?{}", param_idx));
     params_vec.push(Box::new(local_id.to_string()));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        params_vec.iter().map(|p| p.as_ref()).collect();
     conn.execute(&sql, param_refs.as_slice())?;
 
     Ok(())
@@ -1140,10 +1162,7 @@ fn update_local_case(conn: &Connection, local_id: &str, fields: &serde_json::Val
 // PUSH：本地推送到飞书
 // ============================================================
 
-pub async fn sync_feishu_push_inner(
-    app_token: &str,
-    table_id: &str,
-) -> Result<FeishuSyncReport> {
+pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<FeishuSyncReport> {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0);
     let client = Client::builder()
@@ -1178,7 +1197,16 @@ pub async fn sync_feishu_push_inner(
                 app_token, table_id, remote_id
             );
             let put_body = serde_json::json!({ "fields": fields_json });
-            match call_feishu_api(&client, &mut limiter, HttpMethod::Put, &url, &token, Some(&put_body)).await {
+            match call_feishu_api(
+                &client,
+                &mut limiter,
+                HttpMethod::Put,
+                &url,
+                &token,
+                Some(&put_body),
+            )
+            .await
+            {
                 Ok(_) => {
                     conn.execute(
                         "UPDATE sync_map SET sync_status = 'synced', last_synced_at = ?1,
@@ -1199,7 +1227,9 @@ pub async fn sync_feishu_push_inner(
                         "UPDATE sync_map SET sync_status = ?1, last_synced_at = ?2 WHERE id = ?3",
                         params![status, now_local(), item.map_id],
                     )?;
-                    report.errors.push(format!("推送失败 ({}): {}", item.local_id, e));
+                    report
+                        .errors
+                        .push(format!("推送失败 ({}): {}", item.local_id, e));
                 }
             }
         } else {
@@ -1209,7 +1239,16 @@ pub async fn sync_feishu_push_inner(
                 app_token, table_id
             );
             let post_body = serde_json::json!({ "fields": fields_json });
-            match call_feishu_api(&client, &mut limiter, HttpMethod::Post, &url, &token, Some(&post_body)).await {
+            match call_feishu_api(
+                &client,
+                &mut limiter,
+                HttpMethod::Post,
+                &url,
+                &token,
+                Some(&post_body),
+            )
+            .await
+            {
                 Ok(body) => {
                     let new_remote_id = body["data"]["record"]["record_id"]
                         .as_str()
@@ -1234,7 +1273,9 @@ pub async fn sync_feishu_push_inner(
                         "UPDATE sync_map SET sync_status = ?1, last_synced_at = ?2 WHERE id = ?3",
                         params![status, now_local(), item.map_id],
                     )?;
-                    report.errors.push(format!("创建失败 ({}): {}", item.local_id, e));
+                    report
+                        .errors
+                        .push(format!("创建失败 ({}): {}", item.local_id, e));
                 }
             }
         }
@@ -1245,11 +1286,7 @@ pub async fn sync_feishu_push_inner(
 
     // 更新同步状态
     update_sync_metadata(&conn, "feishu_last_push_at", &report.synced_at)?;
-    update_sync_metadata(
-        &conn,
-        "feishu_last_push_count",
-        &report.pushed.to_string(),
-    )?;
+    update_sync_metadata(&conn, "feishu_last_push_count", &report.pushed.to_string())?;
 
     Ok(report)
 }
@@ -1388,15 +1425,42 @@ pub fn update_sync_metadata(conn: &Connection, key: &str, value: &str) -> Result
     Ok(())
 }
 
-/// 测试飞书连通性
-pub async fn test_feishu_connection_inner() -> Result<String> {
-    let mut auth = FeishuAuth::new();
-    let token = auth.get_token().await?;
-    if token.starts_with("t-") || token.len() > 20 {
-        Ok("飞书连接成功".to_string())
-    } else {
-        anyhow::bail!("获取的 token 格式异常")
+/// 测试飞书连通性（支持直接传入临时 App ID / Secret 或读取已持久化凭据）
+pub async fn test_feishu_connection_inner(
+    app_id_opt: Option<String>,
+    app_secret_opt: Option<String>,
+) -> Result<String> {
+    let (app_id, app_secret) = match (app_id_opt, app_secret_opt) {
+        (Some(id), Some(secret)) if !id.trim().is_empty() && !secret.trim().is_empty() => {
+            (id.trim().to_string(), secret.trim().to_string())
+        }
+        _ => load_feishu_credentials()?,
+    };
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(20))
+        .build()?;
+
+    let resp = client
+        .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+        .json(&serde_json::json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        }))
+        .send()
+        .await
+        .context("无法连接飞书开放平台服务器，请检查网络")?;
+
+    let body: serde_json::Value = resp.json().await.context("解析飞书鉴权响应失败")?;
+
+    let code = body["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        let msg = body["msg"].as_str().unwrap_or("未知错误");
+        anyhow::bail!("飞书鉴权失败 [错误码 {}]: {}", code, msg);
     }
+
+    Ok("飞书自建应用鉴权成功！".to_string())
 }
 
 /// 检查是否已配置飞书凭证
@@ -1456,7 +1520,8 @@ pub async fn sync_table_pull(
             url.push_str(&format!("&page_token={}", pt));
         }
 
-        let body = call_feishu_api(&client, &mut limiter, HttpMethod::Get, &url, &token, None).await?;
+        let body =
+            call_feishu_api(&client, &mut limiter, HttpMethod::Get, &url, &token, None).await?;
 
         if body["code"].as_i64().unwrap_or(-1) != 0 {
             let msg = body["msg"].as_str().unwrap_or("未知错误");
@@ -1473,10 +1538,7 @@ pub async fn sync_table_pull(
         }
 
         for item in &items {
-            let record_id = item["record_id"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
+            let record_id = item["record_id"].as_str().unwrap_or("").to_string();
             if record_id.is_empty() {
                 continue;
             }
@@ -1499,7 +1561,9 @@ pub async fn sync_table_pull(
 
                 if let Some(val) = fields.get(&mapping.feishu_field_name) {
                     if !val.is_null() {
-                        if let Some(sv) = extract_field_value_as_string(val, mapping.feishu_field_type) {
+                        if let Some(sv) =
+                            extract_field_value_as_string(val, mapping.feishu_field_type)
+                        {
                             col_values.push((mapping.local_column.clone(), sv));
                         }
                     }
@@ -1551,7 +1615,9 @@ pub async fn sync_table_pull(
                     let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                         params_vec.iter().map(|p| p.as_ref()).collect();
                     if let Err(e) = conn.execute(&sql, param_refs.as_slice()) {
-                        report.errors.push(format!("更新失败 ({}): {}", record_id, e));
+                        report
+                            .errors
+                            .push(format!("更新失败 ({}): {}", record_id, e));
                         continue;
                     }
                 }
@@ -1571,7 +1637,8 @@ pub async fn sync_table_pull(
                 // 检查 feishu_record_id 列是否存在
                 let has_feishu_col = {
                     let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", local_table))?;
-                    let col_names: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1))?
+                    let col_names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))?
                         .filter_map(|r| r.ok())
                         .collect();
                     col_names.iter().any(|name| name == "feishu_record_id")
@@ -1603,17 +1670,26 @@ pub async fn sync_table_pull(
                     let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                         params_vec.iter().map(|p| p.as_ref()).collect();
                     if let Err(e) = conn.execute(&sql, param_refs.as_slice()) {
-                        report.errors.push(format!("插入失败 ({}): {}", record_id, e));
+                        report
+                            .errors
+                            .push(format!("插入失败 ({}): {}", record_id, e));
                         continue;
                     }
                 } else {
                     // 没有 feishu_record_id 列，只插入映射字段
                     if !col_values.is_empty() {
-                        let all_cols: Vec<String> =
-                            ["id"].iter().map(|s| s.to_string()).chain(col_values.iter().map(|(c, _)| c.clone())).chain(["created_at".to_string(), "updated_at".to_string()].iter().cloned()).collect();
-                        let placeholders: Vec<String> = (1..=all_cols.len())
-                            .map(|i| format!("?{}", i))
+                        let all_cols: Vec<String> = ["id"]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .chain(col_values.iter().map(|(c, _)| c.clone()))
+                            .chain(
+                                ["created_at".to_string(), "updated_at".to_string()]
+                                    .iter()
+                                    .cloned(),
+                            )
                             .collect();
+                        let placeholders: Vec<String> =
+                            (1..=all_cols.len()).map(|i| format!("?{}", i)).collect();
                         let sql = format!(
                             "INSERT INTO {} ({}) VALUES ({})",
                             local_table,
@@ -1630,7 +1706,9 @@ pub async fn sync_table_pull(
                         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                             params_vec.iter().map(|p| p.as_ref()).collect();
                         if let Err(e) = conn.execute(&sql, param_refs.as_slice()) {
-                            report.errors.push(format!("插入失败 ({}): {}", record_id, e));
+                            report
+                                .errors
+                                .push(format!("插入失败 ({}): {}", record_id, e));
                             continue;
                         }
                     } else {
@@ -1642,7 +1720,14 @@ pub async fn sync_table_pull(
                     "INSERT INTO sync_map (id, local_table, local_id, remote_id, remote_source,
                      remote_updated, sync_status, last_synced_at)
                      VALUES (?1, ?2, ?3, ?4, 'feishu', ?5, 'synced', ?6)",
-                    params![new_id(), local_table, local_id, record_id, last_modified, now_local()],
+                    params![
+                        new_id(),
+                        local_table,
+                        local_id,
+                        record_id,
+                        last_modified,
+                        now_local()
+                    ],
                 )?;
 
                 report.pulled += 1;
@@ -1655,9 +1740,7 @@ pub async fn sync_table_pull(
         if !has_more {
             break;
         }
-        page_token = body["data"]["page_token"]
-            .as_str()
-            .map(|s| s.to_string());
+        page_token = body["data"]["page_token"].as_str().map(|s| s.to_string());
 
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -1707,16 +1790,17 @@ pub async fn sync_table_push(
             local_table
         );
         let mut stmt = conn.prepare(&sql)?;
-        let items: Vec<PushItem> = stmt.query_map(params![local_table], |row| {
-            Ok(PushItem {
-                map_id: row.get(0)?,
-                local_id: row.get(1)?,
-                remote_id: row.get(2)?,
-                attempts: 0,
-            })
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+        let items: Vec<PushItem> = stmt
+            .query_map(params![local_table], |row| {
+                Ok(PushItem {
+                    map_id: row.get(0)?,
+                    local_id: row.get(1)?,
+                    remote_id: row.get(2)?,
+                    attempts: 0,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
         items
     };
 
@@ -1766,7 +1850,16 @@ pub async fn sync_table_push(
                 app_token, table_id, remote_id
             );
             let put_body = serde_json::json!({ "fields": fields_json });
-            match call_feishu_api(&client, &mut limiter, HttpMethod::Put, &url, &token, Some(&put_body)).await {
+            match call_feishu_api(
+                &client,
+                &mut limiter,
+                HttpMethod::Put,
+                &url,
+                &token,
+                Some(&put_body),
+            )
+            .await
+            {
                 Ok(_) => {
                     conn.execute(
                         "UPDATE sync_map SET sync_status = 'synced', last_synced_at = ?1,
@@ -1781,7 +1874,9 @@ pub async fn sync_table_push(
                         "UPDATE sync_map SET sync_status = 'push_failed', last_synced_at = ?1 WHERE id = ?2",
                         params![now_local(), item.map_id],
                     )?;
-                    report.errors.push(format!("推送失败 ({}): {}", item.local_id, e));
+                    report
+                        .errors
+                        .push(format!("推送失败 ({}): {}", item.local_id, e));
                 }
             }
         } else {
@@ -1791,7 +1886,16 @@ pub async fn sync_table_push(
                 app_token, table_id
             );
             let post_body = serde_json::json!({ "fields": fields_json });
-            match call_feishu_api(&client, &mut limiter, HttpMethod::Post, &url, &token, Some(&post_body)).await {
+            match call_feishu_api(
+                &client,
+                &mut limiter,
+                HttpMethod::Post,
+                &url,
+                &token,
+                Some(&post_body),
+            )
+            .await
+            {
                 Ok(body) => {
                     let new_remote_id = body["data"]["record"]["record_id"]
                         .as_str()
@@ -1810,7 +1914,9 @@ pub async fn sync_table_push(
                         "UPDATE sync_map SET sync_status = 'push_failed', last_synced_at = ?1 WHERE id = ?2",
                         params![now_local(), item.map_id],
                     )?;
-                    report.errors.push(format!("创建失败 ({}): {}", item.local_id, e));
+                    report
+                        .errors
+                        .push(format!("创建失败 ({}): {}", item.local_id, e));
                 }
             }
         }
@@ -1858,7 +1964,10 @@ impl AutoPushManager {
     /// 启用/禁用自动推送
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::SeqCst);
-        log::info!("飞书自动推送: {}", if enabled { "已启用" } else { "已禁用" });
+        log::info!(
+            "飞书自动推送: {}",
+            if enabled { "已启用" } else { "已禁用" }
+        );
     }
 
     /// 通知有数据变更（通过 watch 通道触发 5 秒防抖推送）
@@ -1969,10 +2078,8 @@ pub fn start_auto_push_watcher() {
 async fn execute_auto_push() -> Result<FeishuSyncReport> {
     // 从 settings 读取飞书表格配置
     let conn = crate::db::open_db()?;
-    let app_token = get_sync_metadata(&conn, "feishu_app_token")?
-        .unwrap_or_default();
-    let table_id = get_sync_metadata(&conn, "feishu_table_id")?
-        .unwrap_or_default();
+    let app_token = get_sync_metadata(&conn, "feishu_app_token")?.unwrap_or_default();
+    let table_id = get_sync_metadata(&conn, "feishu_table_id")?.unwrap_or_default();
 
     if app_token.is_empty() || table_id.is_empty() {
         anyhow::bail!("飞书表格未配置");
@@ -2012,7 +2119,15 @@ pub async fn send_feishu_message(
         "content": content["card"].to_string(),
     });
 
-    let resp = call_feishu_api(&client, &mut limiter, HttpMethod::Post, &url, &token, Some(&body)).await?;
+    let resp = call_feishu_api(
+        &client,
+        &mut limiter,
+        HttpMethod::Post,
+        &url,
+        &token,
+        Some(&body),
+    )
+    .await?;
 
     if resp["code"].as_i64().unwrap_or(-1) != 0 {
         let msg = resp["msg"].as_str().unwrap_or("未知错误");
@@ -2071,7 +2186,15 @@ pub async fn create_feishu_task(
         task_body["members"] = serde_json::json!(members_arr);
     }
 
-    let resp = call_feishu_api(&client, &mut limiter, HttpMethod::Post, url, &token, Some(&task_body)).await?;
+    let resp = call_feishu_api(
+        &client,
+        &mut limiter,
+        HttpMethod::Post,
+        url,
+        &token,
+        Some(&task_body),
+    )
+    .await?;
 
     if resp["code"].as_i64().unwrap_or(-1) != 0 {
         let msg = resp["msg"].as_str().unwrap_or("未知错误");

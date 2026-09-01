@@ -37,11 +37,13 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
                     "- [cases:{}] {} | 案号:{} | 客户:{} | 对方:{} | 轨道:{} | 状态:{}",
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "无".into()),
+                    row.get::<_, Option<String>>(2)?
+                        .unwrap_or_else(|| "无".into()),
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     track_label,
-                    row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "未知".into()),
+                    row.get::<_, Option<String>>(6)?
+                        .unwrap_or_else(|| "未知".into()),
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -136,7 +138,8 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
                     "- [tasks:{}] {} | 等待:{} | 应跟进:{}",
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "未知".into()),
+                    row.get::<_, Option<String>>(2)?
+                        .unwrap_or_else(|| "未知".into()),
                     row.get::<_, Option<String>>(3)?.unwrap_or_default(),
                 ))
             })?
@@ -220,16 +223,23 @@ pub fn generate_relation_insights(conn: &rusqlite::Connection) -> Result<usize> 
     let provider = config.mode.clone();
     let model = config.model.clone().unwrap_or_default();
 
-    // 照 inbox.rs 的模式：在阻塞线程上起独立 runtime 调 async AI
+    // 使用 tauri async runtime 避免嵌套运行时冲突
     let backend = super::create_backend(&config);
-    let rt = tokio::runtime::Runtime::new()?;
-    let response = match rt.block_on(backend.chat_completion(system_prompt, &user_prompt)) {
+    let response = match tauri::async_runtime::block_on(
+        backend.chat_completion(system_prompt, &user_prompt),
+    ) {
         Ok(r) => r,
         Err(e) => {
             log::warn!("关联洞察 AI 调用失败，本轮跳过: {}", e);
             let _ = crate::commands::ai_routes::log_ai_run(
-                &provider, &model, "relation_insights", Some("v1"), &input_hash,
-                None, "failed", Some(&e.to_string()),
+                &provider,
+                &model,
+                "relation_insights",
+                Some("v1"),
+                &input_hash,
+                None,
+                "failed",
+                Some(&e.to_string()),
             );
             return Ok(0);
         }
@@ -240,8 +250,14 @@ pub fn generate_relation_insights(conn: &rusqlite::Connection) -> Result<usize> 
     if insights.is_empty() {
         log::info!("关联洞察：AI 未产出有效结果");
         let _ = crate::commands::ai_routes::log_ai_run(
-            &provider, &model, "relation_insights", Some("v1"), &input_hash,
-            Some(&output_hash), "completed", None,
+            &provider,
+            &model,
+            "relation_insights",
+            Some("v1"),
+            &input_hash,
+            Some(&output_hash),
+            "completed",
+            None,
         );
         return Ok(0);
     }
@@ -275,12 +291,11 @@ pub fn generate_relation_insights(conn: &rusqlite::Connection) -> Result<usize> 
             continue;
         }
 
-        let source_ref = serde_json::to_string(&serde_json::json!(
-            ins.source_refs
-                .iter()
-                .map(|r| serde_json::json!({"table": r.table, "id": r.id}))
-                .collect::<Vec<_>>()
-        ))
+        let source_ref = serde_json::to_string(&serde_json::json!(ins
+            .source_refs
+            .iter()
+            .map(|r| serde_json::json!({"table": r.table, "id": r.id}))
+            .collect::<Vec<_>>()))
         .unwrap_or_default();
 
         conn.execute(
@@ -302,8 +317,14 @@ pub fn generate_relation_insights(conn: &rusqlite::Connection) -> Result<usize> 
     }
 
     let _ = crate::commands::ai_routes::log_ai_run(
-        &provider, &model, "relation_insights", Some("v1"), &input_hash,
-        Some(&output_hash), "completed", None,
+        &provider,
+        &model,
+        "relation_insights",
+        Some("v1"),
+        &input_hash,
+        Some(&output_hash),
+        "completed",
+        None,
     );
 
     log::info!("关联洞察：落库 {} 条（待确认）", inserted);

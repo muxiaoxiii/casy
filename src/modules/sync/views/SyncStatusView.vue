@@ -156,7 +156,11 @@ async function doWebdavPull() {
   webdavSyncing.value = false
 
   if (result.ok) {
-    ElMessage.success('拉取成功')
+    await ElMessageBox.alert(
+      '数据库已从云端拉取并覆盖本地。为确保数据一致性，应用即将重启（或请手动重启）。',
+      '拉取成功',
+      { confirmButtonText: '我知道了', type: 'success' }
+    )
     await loadSyncStatus()
   } else {
     ElMessage.error(result.error || '拉取失败')
@@ -194,7 +198,11 @@ async function resolveKeepRemote() {
   conflictState.value.show = false
 
   if (result.ok) {
-    ElMessage.success('已保留远程版本')
+    await ElMessageBox.alert(
+      '已保留远程版本。为确保数据一致性，应用即将重启（或请手动重启）。',
+      '操作成功',
+      { confirmButtonText: '我知道了', type: 'success' }
+    )
     await loadSyncStatus()
   } else {
     ElMessage.error(result.error || '操作失败')

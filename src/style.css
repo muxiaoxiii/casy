@@ -1,17 +1,17 @@
 /* ── Casy 全局样式（Slate 石墨主题）────────────────────── */
 
 :root {
-  --color-primary: #3E5C9A;
-  --color-success: #4C8067;
-  --color-warning: #B0823A;
-  --color-danger: #B4554F;
-  --color-info: #6C6A9C;
-  --color-text: #1F2430;
-  --color-text-regular: #4B5160;
-  --color-text-secondary: #9BA2AF;
-  --color-bg: #FFFFFF;
-  --color-bg-page: #F6F7F9;
-  --color-border: #E0E3E9;
+  --color-primary: var(--c-primary);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+  --color-info: var(--c-info);
+  --color-text: var(--c-text);
+  --color-text-regular: var(--c-text-regular);
+  --color-text-secondary: var(--c-text-secondary);
+  --color-bg: var(--c-bg-card);
+  --color-bg-page: var(--c-bg-page);
+  --color-border: var(--c-border);
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
     'Noto Sans SC', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, monospace;
@@ -23,8 +23,8 @@ body {
   font-family: var(--font-family);
   font-size: 13px;
   line-height: 1.7;
-  color: var(--color-text);
-  background: var(--color-bg);
+  color: var(--c-text);
+  background: var(--c-bg-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -61,3 +61,19 @@ a { color: var(--color-primary); text-decoration: none; }
   background: #C0C5CE; background-clip: content-box;
 }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Glass Dialog ─────────────────────────────────────── */
+.custom-glass-dialog {
+  border-radius: 16px !important;
+  background: rgba(255, 255, 255, 0.75) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+.custom-glass-dialog .el-dialog__header,
+.custom-glass-dialog .el-dialog__body,
+.custom-glass-dialog .el-dialog__footer {
+  background: transparent !important;
+}

@@ -13,7 +13,7 @@
         </el-form-item>
         
         <el-form-item label="图标">
-          <el-input v-model="formData.icon" placeholder="emoji 图标" style="width: 80px" />
+          <el-input v-model="formData.icon" placeholder="图标标识 (如 Files, Folder)" style="width: 200px" />
         </el-form-item>
         
         <el-form-item label="颜色">
@@ -142,7 +142,7 @@ watch(() => props.perspective, (val) => {
     editingPerspective.value = val
     Object.assign(formData, {
       name: val.name,
-      icon: val.icon || '📋',
+      icon: val.icon || '',
       color: val.color || '#409eff',
       filters: { ...defaultFormData.filters, ...val.filters },
       sortBy: val.sortBy || null,

@@ -144,11 +144,8 @@ pub fn recalculate_case_formulas(conn: &Connection, case_id: &str) -> Result<usi
                 let deadline = date + chrono::Duration::days(15);
                 let deadline = evaluator
                     .evaluate(
-                        &parse_formula(&format!(
-                            "WORKDAY(\"{}\", 1)",
-                            deadline.format("%Y-%m-%d")
-                        ))
-                        .unwrap_or(ast::Expr::Literal(Value::Null)),
+                        &parse_formula(&format!("WORKDAY(\"{}\", 1)", deadline.format("%Y-%m-%d")))
+                            .unwrap_or(ast::Expr::Literal(Value::Null)),
                         &ctx,
                     )
                     .unwrap_or(Value::Null);
@@ -254,10 +251,7 @@ pub fn recalculate_case_formulas(conn: &Connection, case_id: &str) -> Result<usi
                             }
                             d
                         };
-                        updates.push((
-                            formula_col,
-                            Some(result.format("%Y-%m-%d").to_string()),
-                        ));
+                        updates.push((formula_col, Some(result.format("%Y-%m-%d").to_string())));
                     } else {
                         updates.push((formula_col, None));
                     }
@@ -335,9 +329,8 @@ mod tests {
         let mut ctx = SimpleRecordContext::new();
         ctx.set("progress", Value::String("结案".to_string()));
 
-        let expr =
-            parse_formula(r#"IF(OR(progress="结案", progress="胜诉"), "已完结", "进行中")"#)
-                .unwrap();
+        let expr = parse_formula(r#"IF(OR(progress="结案", progress="胜诉"), "已完结", "进行中")"#)
+            .unwrap();
         let result = evaluate_formula(&expr, &ctx).unwrap();
         assert_eq!(result, Value::String("已完结".to_string()));
     }
@@ -347,9 +340,8 @@ mod tests {
         let mut ctx = SimpleRecordContext::new();
         ctx.set("progress", Value::String("等待开庭".to_string()));
 
-        let expr =
-            parse_formula(r#"IF(OR(progress="结案", progress="胜诉"), "已完结", "进行中")"#)
-                .unwrap();
+        let expr = parse_formula(r#"IF(OR(progress="结案", progress="胜诉"), "已完结", "进行中")"#)
+            .unwrap();
         let result = evaluate_formula(&expr, &ctx).unwrap();
         assert_eq!(result, Value::String("进行中".to_string()));
     }

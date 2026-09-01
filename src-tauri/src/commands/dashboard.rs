@@ -13,18 +13,22 @@ pub struct NameCount {
     pub value: i64,
 }
 
-/// 项目状态分布（projects 表：legal 由触发器镜像，personal 直管）
+/// 非案件项目状态分布。legal 项目是案件的兼容镜像，不在看板重复统计。
 #[tauri::command]
 pub async fn get_project_status_distribution() -> Result<Vec<NameCount>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT COALESCE(NULLIF(status,''),'active') AS s, COUNT(*)
-             FROM projects GROUP BY s ORDER BY COUNT(*) DESC",
+             FROM projects WHERE kind = 'personal'
+             GROUP BY s ORDER BY COUNT(*) DESC",
         )?;
         let rows = stmt
             .query_map([], |r| {
-                Ok(NameCount { label: r.get(0)?, value: r.get(1)? })
+                Ok(NameCount {
+                    label: r.get(0)?,
+                    value: r.get(1)?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
@@ -43,7 +47,10 @@ pub async fn get_track_distribution() -> Result<Vec<NameCount>, String> {
         )?;
         let rows = stmt
             .query_map([], |r| {
-                Ok(NameCount { label: r.get(0)?, value: r.get(1)? })
+                Ok(NameCount {
+                    label: r.get(0)?,
+                    value: r.get(1)?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
@@ -96,7 +103,11 @@ pub async fn get_monthly_task_trend(months: Option<i32>) -> Result<Vec<MonthTren
                 rusqlite::params![key],
                 |r| r.get(0),
             )?;
-            out.push(MonthTrendPoint { month: key, created, completed });
+            out.push(MonthTrendPoint {
+                month: key,
+                created,
+                completed,
+            });
         }
         Ok(out)
     })
@@ -131,8 +142,7 @@ pub async fn get_upcoming_hearings(days: Option<i32>) -> Result<Vec<UpcomingHear
         let rows = stmt
             .query_map(rusqlite::params![today.to_string(), end.to_string()], |r| {
                 let date: String = r.get(1)?;
-                let d = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-                    .unwrap_or(today);
+                let d = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").unwrap_or(today);
                 Ok(UpcomingHearing {
                     id: r.get(0)?,
                     title: r.get(2)?,
@@ -187,7 +197,12 @@ pub async fn get_today_kpis() -> Result<TodayKpis, String> {
             rusqlite::params![today],
             |r| r.get(0),
         )?;
-        Ok(TodayKpis { today_events, due_today, waiting_overdue, review_due })
+        Ok(TodayKpis {
+            today_events,
+            due_today,
+            waiting_overdue,
+            review_due,
+        })
     })
     .await
 }

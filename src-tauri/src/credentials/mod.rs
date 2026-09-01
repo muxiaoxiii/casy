@@ -50,10 +50,16 @@ impl CredentialType {
 
 /// 存储凭据到 Keychain
 pub fn store_credential(cred_type: CredentialType, account: &str, secret: &str) -> Result<()> {
-    let entry = Entry::new(cred_type.service_name(), account)
-        .with_context(|| format!("创建 keychain 条目失败: {}/{}", cred_type.service_name(), account))?;
+    let entry = Entry::new(cred_type.service_name(), account).with_context(|| {
+        format!(
+            "创建 keychain 条目失败: {}/{}",
+            cred_type.service_name(),
+            account
+        )
+    })?;
 
-    entry.set_password(secret)
+    entry
+        .set_password(secret)
         .with_context(|| format!("存储凭据到 keychain 失败: {}", cred_type.label()))?;
 
     log::info!("凭据已存储到 keychain: {} ({})", cred_type.label(), account);
@@ -62,8 +68,13 @@ pub fn store_credential(cred_type: CredentialType, account: &str, secret: &str) 
 
 /// 从 Keychain 读取凭据
 pub fn get_credential(cred_type: CredentialType, account: &str) -> Result<Option<String>> {
-    let entry = Entry::new(cred_type.service_name(), account)
-        .with_context(|| format!("创建 keychain 条目失败: {}/{}", cred_type.service_name(), account))?;
+    let entry = Entry::new(cred_type.service_name(), account).with_context(|| {
+        format!(
+            "创建 keychain 条目失败: {}/{}",
+            cred_type.service_name(),
+            account
+        )
+    })?;
 
     match entry.get_password() {
         Ok(secret) => Ok(Some(secret)),
@@ -74,12 +85,21 @@ pub fn get_credential(cred_type: CredentialType, account: &str) -> Result<Option
 
 /// 删除 Keychain 中的凭据
 pub fn delete_credential(cred_type: CredentialType, account: &str) -> Result<()> {
-    let entry = Entry::new(cred_type.service_name(), account)
-        .with_context(|| format!("创建 keychain 条目失败: {}/{}", cred_type.service_name(), account))?;
+    let entry = Entry::new(cred_type.service_name(), account).with_context(|| {
+        format!(
+            "创建 keychain 条目失败: {}/{}",
+            cred_type.service_name(),
+            account
+        )
+    })?;
 
     match entry.delete_credential() {
         Ok(()) => {
-            log::info!("凭据已从 keychain 删除: {} ({})", cred_type.label(), account);
+            log::info!(
+                "凭据已从 keychain 删除: {} ({})",
+                cred_type.label(),
+                account
+            );
             Ok(())
         }
         Err(keyring::Error::NoEntry) => Ok(()), // 不存在也视为成功
@@ -125,13 +145,15 @@ pub fn migrate_imap_passwords_to_keychain() -> Result<MigrationResult> {
         "SELECT id, email_address, password_enc FROM imap_accounts WHERE password_enc IS NOT NULL AND password_enc != ''"
     )?;
 
-    let accounts: Vec<(String, String, String)> = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })?.collect::<std::result::Result<Vec<_>, _>>()?;
+    let accounts: Vec<(String, String, String)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     result.total = accounts.len();
 
@@ -154,31 +176,49 @@ pub fn migrate_imap_passwords_to_keychain() -> Result<MigrationResult> {
             Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
             Err(e) => {
                 result.failed += 1;
-                result.errors.push(format!("账号 {} base64 解码失败: {}", email, e));
+                result
+                    .errors
+                    .push(format!("账号 {} base64 解码失败: {}", email, e));
                 continue;
             }
         };
 
-        // 存储到 keychain
+        // 存储到 keychain 并执行严格读回校验（P1-4）
         match store_credential(CredentialType::ImapPassword, email, &password) {
             Ok(()) => {
-                result.migrated += 1;
-                // 迁移成功：password_enc 改写为 'keychain' 标记，清掉 base64 明文
-                let _ = conn.execute(
-                    "UPDATE imap_accounts SET password_enc = 'keychain' WHERE id = ?1",
-                    params![id],
-                );
+                // 读回校验
+                match get_credential(CredentialType::ImapPassword, email) {
+                    Ok(Some(rb)) if rb == password => {
+                        result.migrated += 1;
+                        // 读回校验成功：password_enc 改写为 'keychain' 标记，安全清除明文
+                        let _ = conn.execute(
+                            "UPDATE imap_accounts SET password_enc = 'keychain' WHERE id = ?1",
+                            params![id],
+                        );
+                    }
+                    _ => {
+                        result.failed += 1;
+                        result
+                            .errors
+                            .push(format!("账号 {} keychain 读回校验不一致", email));
+                    }
+                }
             }
             Err(e) => {
                 result.failed += 1;
-                result.errors.push(format!("账号 {} keychain 存储失败: {}", email, e));
+                result
+                    .errors
+                    .push(format!("账号 {} keychain 存储失败: {}", email, e));
             }
         }
     }
 
     log::info!(
         "IMAP 密码迁移完成: 总计 {}, 迁移 {}, 跳过 {}, 失败 {}",
-        result.total, result.migrated, result.skipped, result.failed
+        result.total,
+        result.migrated,
+        result.skipped,
+        result.failed
     );
 
     Ok(result)
@@ -203,7 +243,9 @@ pub fn get_imap_password(email: &str, password_enc: &str) -> Result<String> {
     let password = base64::engine::general_purpose::STANDARD
         .decode(password_enc)
         .map_err(|e| anyhow::anyhow!("base64 解码失败: {}", e))
-        .and_then(|bytes| String::from_utf8(bytes).map_err(|e| anyhow::anyhow!("UTF-8 解码失败: {}", e)))?;
+        .and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|e| anyhow::anyhow!("UTF-8 解码失败: {}", e))
+        })?;
 
     Ok(password)
 }

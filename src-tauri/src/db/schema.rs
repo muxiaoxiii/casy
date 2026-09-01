@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 18;
+pub const CURRENT_SCHEMA_VERSION: i64 = 19;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -423,6 +423,25 @@ CREATE TRIGGER IF NOT EXISTS trg_files_au AFTER UPDATE ON case_files BEGIN
 END;
 
 -- ============================================================
+-- PageIndex 逻辑检索树 (Phase 3)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS page_index_nodes (
+  id              TEXT PRIMARY KEY,
+  file_id         TEXT NOT NULL REFERENCES case_files(id) ON DELETE CASCADE,
+  parent_id       TEXT REFERENCES page_index_nodes(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  summary         TEXT,
+  content         TEXT,
+  level           INTEGER NOT NULL DEFAULT 0,
+  page_start      INTEGER,
+  page_end        INTEGER,
+  created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_index_file ON page_index_nodes(file_id);
+CREATE INDEX IF NOT EXISTS idx_page_index_parent ON page_index_nodes(parent_id);
+
+-- ============================================================
 -- 邮件记录
 -- ============================================================
 CREATE TABLE IF NOT EXISTS email_records (
@@ -551,6 +570,25 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 -- ============================================================
+-- AI 授权提案表（P0-2：服务端不可绕过授权网关）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_proposals (
+  id                 TEXT PRIMARY KEY,
+  tool_name          TEXT NOT NULL,
+  target_entity_type TEXT NOT NULL,
+  target_entity_id   TEXT,
+  pre_state_hash     TEXT,
+  payload_json       TEXT NOT NULL,
+  auth_token         TEXT NOT NULL UNIQUE,
+  expires_at         TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','executed','rejected','expired')),
+  created_at         TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  executed_at        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_proposals_token ON ai_proposals(auth_token);
+CREATE INDEX IF NOT EXISTS idx_ai_proposals_status ON ai_proposals(status);
+
+-- ============================================================
 -- 草稿
 -- ============================================================
 CREATE TABLE IF NOT EXISTS drafts (
@@ -660,6 +698,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("16", MIGRATION_V16_SQL),
     ("17", MIGRATION_V17_SQL),
     ("18", MIGRATION_V18_SQL),
+    ("19", MIGRATION_V19_SQL),
 ];
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
@@ -973,7 +1012,7 @@ CREATE TABLE IF NOT EXISTS reminder_log (
     message         TEXT NOT NULL,
     level           TEXT CHECK(level IN ('R1','R2','R3','R4')),
     status          TEXT DEFAULT 'sent'
-                    CHECK(status IN ('sent','failed','snoozed')),
+                    CHECK(status IN ('sent','failed','snoozed','deferred')),
     sent_at         TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -997,6 +1036,20 @@ CREATE TABLE IF NOT EXISTS task_templates (
 -- tasks 表新增 feishu_task_id 列
 -- ============================================================
 ALTER TABLE tasks ADD COLUMN feishu_task_id TEXT;
+
+-- ============================================================
+-- AI 自我进化偏好库 (Sprint 1)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_preferences (
+    id              TEXT PRIMARY KEY,
+    module          TEXT NOT NULL,
+    prompt_used     TEXT NOT NULL,
+    user_input      TEXT,
+    ai_output       TEXT,
+    action_taken    TEXT CHECK(action_taken IN ('accepted', 'rejected', 'modified')),
+    created_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_pref_module ON ai_preferences(module);
 
 -- ============================================================
 -- 默认提醒规则
@@ -1922,6 +1975,103 @@ pub const MIGRATION_V18_SQL: &str = r#"
 ALTER TABLE tasks ADD COLUMN is_focus INTEGER NOT NULL DEFAULT 0;
 "#;
 
+pub const MIGRATION_V19_SQL: &str = r#"
+-- ============================================================
+-- V19: 扁平化架构改造，绕过 cases 表的硬编码约束
+-- ============================================================
+-- ALTER TABLE cases ADD COLUMN raw_track TEXT; -- 已移至 run_migrations 中，通过条件检查保证幂等
+
+DROP TRIGGER IF EXISTS trg_cases_to_proj_ins;
+CREATE TRIGGER trg_cases_to_proj_ins
+AFTER INSERT ON cases FOR EACH ROW
+BEGIN
+  INSERT INTO projects (id,name,kind,status,area_id,created_at,updated_at)
+  VALUES (NEW.id, NEW.case_name,'legal', COALESCE(NULLIF(NEW.case_status,''),'active'), NEW.area_id, NEW.created_at, NEW.updated_at)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name, status=excluded.status, updated_at=excluded.updated_at;
+  INSERT INTO case_legal_details (project_id,track,case_no,internal_no,cause_action,
+    client_name,our_role,opponent_name,opponent_role,opponent_firm,opponent_agent,
+    court,judge_panel,clerk,attorneys,case_level,case_progress,case_result,
+    patent_name,patent_app_no,procedure_type,filing_date,complaint_received_date,
+    trial_date,trial2_date,trial3_date,verdict_type,verdict_date,stay_date,relief_deadline,
+    petitioner_first_invalid,petitioner_supp_deadline,petitioner_submit_date,
+    petitioner_received_date,petitioner_reply_deadline,
+    patentee_received_date,patentee_statement_deadline,patentee_received_supp_date,
+    patentee_supp_deadline,patentee_submit_supp_date,
+    folder_path,last_doc_path,last_doc_at,completed_text,notes)
+  VALUES (NEW.id,COALESCE(NEW.raw_track, NEW.track),NEW.case_no,NEW.internal_no,NEW.cause_action,
+    NEW.client_name,NEW.our_role,NEW.opponent_name,NEW.opponent_role,NEW.opponent_firm,NEW.opponent_agent,
+    NEW.court,NEW.judge_panel,NEW.clerk,NEW.attorneys,NEW.case_level,NEW.case_progress,NEW.case_result,
+    NEW.patent_name,NEW.patent_app_no,NEW.procedure_type,NEW.filing_date,NEW.complaint_received_date,
+    NEW.trial_date,NEW.trial2_date,NEW.trial3_date,NEW.verdict_type,NEW.verdict_date,NEW.stay_date,NEW.relief_deadline,
+    NEW.petitioner_first_invalid,NEW.petitioner_supp_deadline,NEW.petitioner_submit_date,
+    NEW.petitioner_received_date,NEW.petitioner_reply_deadline,
+    NEW.patentee_received_date,NEW.patentee_statement_deadline,NEW.patentee_received_supp_date,
+    NEW.patentee_supp_deadline,NEW.patentee_submit_supp_date,
+    NEW.folder_path,NEW.last_doc_path,NEW.last_doc_at,NEW.completed_text,NEW.notes)
+  ON CONFLICT(project_id) DO UPDATE SET
+    track=excluded.track, case_no=excluded.case_no, internal_no=excluded.internal_no,
+    cause_action=excluded.cause_action, client_name=excluded.client_name, our_role=excluded.our_role,
+    opponent_name=excluded.opponent_name, opponent_role=excluded.opponent_role,
+    opponent_firm=excluded.opponent_firm, opponent_agent=excluded.opponent_agent,
+    court=excluded.court, judge_panel=excluded.judge_panel, clerk=excluded.clerk,
+    attorneys=excluded.attorneys, case_level=excluded.case_level,
+    case_progress=excluded.case_progress, case_result=excluded.case_result,
+    patent_name=excluded.patent_name, patent_app_no=excluded.patent_app_no,
+    procedure_type=excluded.procedure_type, filing_date=excluded.filing_date,
+    complaint_received_date=excluded.complaint_received_date,
+    trial_date=excluded.trial_date, trial2_date=excluded.trial2_date, trial3_date=excluded.trial3_date,
+    verdict_type=excluded.verdict_type, verdict_date=excluded.verdict_date,
+    stay_date=excluded.stay_date, relief_deadline=excluded.relief_deadline,
+    petitioner_first_invalid=excluded.petitioner_first_invalid,
+    petitioner_supp_deadline=excluded.petitioner_supp_deadline,
+    petitioner_submit_date=excluded.petitioner_submit_date,
+    petitioner_received_date=excluded.petitioner_received_date,
+    petitioner_reply_deadline=excluded.petitioner_reply_deadline,
+    patentee_received_date=excluded.patentee_received_date,
+    patentee_statement_deadline=excluded.patentee_statement_deadline,
+    patentee_received_supp_date=excluded.patentee_received_supp_date,
+    patentee_supp_deadline=excluded.patentee_supp_deadline,
+    patentee_submit_supp_date=excluded.patentee_submit_supp_date,
+    folder_path=excluded.folder_path, last_doc_path=excluded.last_doc_path,
+    last_doc_at=excluded.last_doc_at, completed_text=excluded.completed_text, notes=excluded.notes;
+END;
+
+DROP TRIGGER IF EXISTS trg_cases_to_proj_upd;
+CREATE TRIGGER trg_cases_to_proj_upd
+AFTER UPDATE ON cases FOR EACH ROW
+BEGIN
+  UPDATE projects SET name=NEW.case_name, status=COALESCE(NULLIF(NEW.case_status,''),'active'), updated_at=NEW.updated_at
+  WHERE id=NEW.id;
+  UPDATE case_legal_details SET
+    track=COALESCE(NEW.raw_track, NEW.track), case_no=NEW.case_no, internal_no=NEW.internal_no,
+    cause_action=NEW.cause_action, client_name=NEW.client_name, our_role=NEW.our_role,
+    opponent_name=NEW.opponent_name, opponent_role=NEW.opponent_role,
+    opponent_firm=NEW.opponent_firm, opponent_agent=NEW.opponent_agent,
+    court=NEW.court, judge_panel=NEW.judge_panel, clerk=NEW.clerk,
+    attorneys=NEW.attorneys, case_level=NEW.case_level,
+    case_progress=NEW.case_progress, case_result=NEW.case_result,
+    patent_name=NEW.patent_name, patent_app_no=NEW.patent_app_no,
+    procedure_type=NEW.procedure_type, filing_date=NEW.filing_date,
+    complaint_received_date=NEW.complaint_received_date,
+    trial_date=NEW.trial_date, trial2_date=NEW.trial2_date, trial3_date=NEW.trial3_date,
+    verdict_type=NEW.verdict_type, verdict_date=NEW.verdict_date,
+    stay_date=NEW.stay_date, relief_deadline=NEW.relief_deadline,
+    petitioner_first_invalid=NEW.petitioner_first_invalid,
+    petitioner_supp_deadline=NEW.petitioner_supp_deadline,
+    petitioner_submit_date=NEW.petitioner_submit_date,
+    petitioner_received_date=NEW.petitioner_received_date,
+    petitioner_reply_deadline=NEW.petitioner_reply_deadline,
+    patentee_received_date=NEW.patentee_received_date,
+    patentee_statement_deadline=NEW.patentee_statement_deadline,
+    patentee_received_supp_date=NEW.patentee_received_supp_date,
+    patentee_supp_deadline=NEW.patentee_supp_deadline,
+    patentee_submit_supp_date=NEW.patentee_submit_supp_date,
+    folder_path=NEW.folder_path, last_doc_path=NEW.last_doc_path,
+    last_doc_at=NEW.last_doc_at, completed_text=NEW.completed_text, notes=NEW.notes
+  WHERE project_id=NEW.id;
+END;
+"#;
+
 pub const MIGRATION_V17_SQL: &str = r#"
 -- ============================================================
 -- A1-1/D-9 项目垂直拆表 · 阶段一（绞杀式）
@@ -2045,7 +2195,7 @@ BEGIN
     patentee_received_date,patentee_statement_deadline,patentee_received_supp_date,
     patentee_supp_deadline,patentee_submit_supp_date,
     folder_path,last_doc_path,last_doc_at,completed_text,notes)
-  VALUES (NEW.id,NEW.track,NEW.case_no,NEW.internal_no,NEW.cause_action,
+  VALUES (NEW.id,COALESCE(NEW.raw_track, NEW.track),NEW.case_no,NEW.internal_no,NEW.cause_action,
     NEW.client_name,NEW.our_role,NEW.opponent_name,NEW.opponent_role,NEW.opponent_firm,NEW.opponent_agent,
     NEW.court,NEW.judge_panel,NEW.clerk,NEW.attorneys,NEW.case_level,NEW.case_progress,NEW.case_result,
     NEW.patent_name,NEW.patent_app_no,NEW.procedure_type,NEW.filing_date,NEW.complaint_received_date,
@@ -2091,7 +2241,7 @@ BEGIN
     area_id=NEW.area_id, updated_at=NEW.updated_at
   WHERE id=NEW.id;
   UPDATE case_legal_details SET
-    track=NEW.track, case_no=NEW.case_no, internal_no=NEW.internal_no,
+    track=COALESCE(NEW.raw_track, NEW.track), case_no=NEW.case_no, internal_no=NEW.internal_no,
     cause_action=NEW.cause_action, client_name=NEW.client_name, our_role=NEW.our_role,
     opponent_name=NEW.opponent_name, opponent_role=NEW.opponent_role,
     opponent_firm=NEW.opponent_firm, opponent_agent=NEW.opponent_agent,
@@ -2145,6 +2295,16 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         }
     }
 
+    // 条件补列：cases.raw_track (v19 幂等增加)
+    let has_raw_track: bool = conn
+        .prepare("PRAGMA table_info(cases)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|col| col == "raw_track");
+    if !has_raw_track {
+        conn.execute_batch("ALTER TABLE cases ADD COLUMN raw_track TEXT;")?;
+    }
+
     // 条件补列 + 索引：knowledge_items.law_name（旧 DB 可能缺少该列）
     let has_law_name: bool = conn
         .prepare("PRAGMA table_info(knowledge_items)")?
@@ -2155,10 +2315,14 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN law_name TEXT;")?;
         conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN article_no TEXT;")?;
         conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN effective_date TEXT;")?;
-        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN status TEXT DEFAULT 'current';")?;
+        conn.execute_batch(
+            "ALTER TABLE knowledge_items ADD COLUMN status TEXT DEFAULT 'current';",
+        )?;
         log::info!("Added law_name/article_no/effective_date/status columns to knowledge_items");
     }
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);",
+    )?;
 
     // 条件补列：reminder_log.level（R1-R4 分级，旧 DB 可能缺少该列）
     let has_reminder_level: bool = conn
@@ -2189,10 +2353,14 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         log::info!("Added parent_id column to knowledge_items (block hierarchy)");
     }
     if !ki_cols.iter().any(|c| c == "block_type") {
-        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN block_type TEXT DEFAULT 'page';")?;
+        conn.execute_batch(
+            "ALTER TABLE knowledge_items ADD COLUMN block_type TEXT DEFAULT 'page';",
+        )?;
         log::info!("Added block_type column to knowledge_items (page/block/reference)");
     }
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_items(parent_id);")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_items(parent_id);",
+    )?;
 
     // 报表叙事层（§11.3）：smart_summaries.narrative_source（'rule'/'ai'）
     let ss_cols: Vec<String> = conn
@@ -2201,7 +2369,9 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         .filter_map(|r| r.ok())
         .collect();
     if !ss_cols.iter().any(|c| c == "narrative_source") {
-        conn.execute_batch("ALTER TABLE smart_summaries ADD COLUMN narrative_source TEXT DEFAULT 'rule';")?;
+        conn.execute_batch(
+            "ALTER TABLE smart_summaries ADD COLUMN narrative_source TEXT DEFAULT 'rule';",
+        )?;
         log::info!("Added narrative_source column to smart_summaries (rule/ai)");
     }
 
@@ -2220,7 +2390,9 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
     // v15：tasks.time_block（时间块排程，设计哲学 §7.2）
     if !task_cols.iter().any(|c| c == "time_block") {
         conn.execute_batch("ALTER TABLE tasks ADD COLUMN time_block TEXT CHECK(time_block IN ('morning','afternoon','evening','night','flex',NULL));")?;
-        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_time_block ON tasks(time_block);")?;
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_time_block ON tasks(time_block);",
+        )?;
         log::info!("Added time_block column to tasks (v15 time block scheduling)");
     }
 
@@ -2239,48 +2411,281 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         }
     }
 
+    // AI 授权提案表（阶段 1 P0-2）
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS ai_proposals (
+            id                 TEXT PRIMARY KEY,
+            tool_name          TEXT NOT NULL,
+            target_entity_type TEXT NOT NULL,
+            target_entity_id   TEXT,
+            pre_state_hash     TEXT,
+            payload_json       TEXT NOT NULL,
+            auth_token         TEXT NOT NULL UNIQUE,
+            expires_at         TEXT NOT NULL,
+            status             TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','executed','rejected','expired')),
+            created_at         TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            executed_at        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_proposals_token ON ai_proposals(auth_token);
+        CREATE INDEX IF NOT EXISTS idx_ai_proposals_status ON ai_proposals(status);"
+    )?;
+
+    // Phase 3: 扩展 case_files 增加 ocr_status, index_status
+    let case_files_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(case_files)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !case_files_cols.iter().any(|c| c == "ocr_status") {
+        conn.execute_batch(
+            "ALTER TABLE case_files ADD COLUMN ocr_status TEXT DEFAULT 'pending' CHECK(ocr_status IN ('pending','processing','completed','failed'));"
+        )?;
+        log::info!("Added ocr_status column to case_files (Phase 3)");
+    }
+    if !case_files_cols.iter().any(|c| c == "index_status") {
+        conn.execute_batch(
+            "ALTER TABLE case_files ADD COLUMN index_status TEXT DEFAULT 'pending' CHECK(index_status IN ('pending','processing','completed','failed'));"
+        )?;
+        log::info!("Added index_status column to case_files (Phase 3)");
+    }
+
+    // Phase 3: page_index_nodes 检索树
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS page_index_nodes (
+            id              TEXT PRIMARY KEY,
+            file_id         TEXT NOT NULL REFERENCES case_files(id) ON DELETE CASCADE,
+            parent_id       TEXT REFERENCES page_index_nodes(id) ON DELETE CASCADE,
+            title           TEXT NOT NULL,
+            summary         TEXT,
+            content         TEXT,
+            level           INTEGER NOT NULL DEFAULT 0,
+            page_start      INTEGER,
+            page_end        INTEGER,
+            created_at      TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_page_index_file ON page_index_nodes(file_id);
+        CREATE INDEX IF NOT EXISTS idx_page_index_parent ON page_index_nodes(parent_id);"
+    )?;
+
     Ok(())
 }
 
 /// 种子数据：法定期限规则
 pub fn seed_deadline_rules(conn: &Connection) -> Result<(), anyhow::Error> {
-/// 内置期限规则种子行类型
-type DeadlineRuleSeed = (&'static str, &'static str, &'static str, &'static str, &'static str, i64, &'static str, &'static str, &'static str, i32, Option<&'static str>);
+    /// 内置期限规则种子行类型
+    type DeadlineRuleSeed = (
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        i64,
+        &'static str,
+        &'static str,
+        &'static str,
+        i32,
+        Option<&'static str>,
+    );
 
     let rules: Vec<DeadlineRuleSeed> = vec![
         // ── 专利无效（专利法实施细则算法）──
-        ("rule-pi-001", "patent_invalidation", "专利权人陈述意见期限",
-         "专利法实施细则第58条", "patentee_received_date", 1, "calendar_month", "patent", "statutory", 10, None),
-        ("rule-pi-002", "patent_invalidation", "请求人答复意见期限",
-         "专利法实施细则第58条", "petitioner_received_date", 1, "calendar_month", "patent", "statutory", 10, None),
-        ("rule-pi-003", "patent_invalidation", "专利权人补充意见期限",
-         "专利法实施细则第58条", "patentee_received_supp_date", 1, "calendar_month", "patent", "statutory", 10, None),
-        ("rule-pi-004", "patent_invalidation", "请求人补充意见期限",
-         "专利法实施细则第58条", "petitioner_submit_date", 1, "calendar_month", "patent", "statutory", 10, None),
-        ("rule-pi-005", "patent_invalidation", "预估审限（无效）",
-         "专利审查指南第4部分第3章", "filing_date", 5, "calendar_month", "patent", "recommended", 0, None),
+        (
+            "rule-pi-001",
+            "patent_invalidation",
+            "专利权人陈述意见期限",
+            "专利法实施细则第58条",
+            "patentee_received_date",
+            1,
+            "calendar_month",
+            "patent",
+            "statutory",
+            10,
+            None,
+        ),
+        (
+            "rule-pi-002",
+            "patent_invalidation",
+            "请求人答复意见期限",
+            "专利法实施细则第58条",
+            "petitioner_received_date",
+            1,
+            "calendar_month",
+            "patent",
+            "statutory",
+            10,
+            None,
+        ),
+        (
+            "rule-pi-003",
+            "patent_invalidation",
+            "专利权人补充意见期限",
+            "专利法实施细则第58条",
+            "patentee_received_supp_date",
+            1,
+            "calendar_month",
+            "patent",
+            "statutory",
+            10,
+            None,
+        ),
+        (
+            "rule-pi-004",
+            "patent_invalidation",
+            "请求人补充意见期限",
+            "专利法实施细则第58条",
+            "petitioner_submit_date",
+            1,
+            "calendar_month",
+            "patent",
+            "statutory",
+            10,
+            None,
+        ),
+        (
+            "rule-pi-005",
+            "patent_invalidation",
+            "预估审限（无效）",
+            "专利审查指南第4部分第3章",
+            "filing_date",
+            5,
+            "calendar_month",
+            "patent",
+            "recommended",
+            0,
+            None,
+        ),
         // ── 行政诉讼（诉讼法算法）──
-        ("rule-al-001", "admin_litigation", "提交答辩状期间",
-         "行政诉讼法第67条", "complaint_received_date", 15, "day", "civil", "statutory", 10, None),
-        ("rule-al-002", "admin_litigation", "预估审限（简易）",
-         "行政诉讼法第84条", "filing_date", 3, "calendar_month", "civil", "recommended", 5, Some("简易")),
-        ("rule-al-003", "admin_litigation", "预估审限（普通）",
-         "行政诉讼法第81条", "filing_date", 6, "calendar_month", "civil", "recommended", 5, Some("普通")),
-        ("rule-al-004", "admin_litigation", "判决上诉期",
-         "行政诉讼法第85条", "verdict_date", 15, "day", "civil", "statutory", 10, Some(r#"{"verdict_type":"判决"}"#)),
-        ("rule-al-005", "admin_litigation", "裁定上诉期",
-         "行政诉讼法第85条", "verdict_date", 10, "day", "civil", "statutory", 10, Some(r#"{"verdict_type":"裁定"}"#)),
+        (
+            "rule-al-001",
+            "admin_litigation",
+            "提交答辩状期间",
+            "行政诉讼法第67条",
+            "complaint_received_date",
+            15,
+            "day",
+            "civil",
+            "statutory",
+            10,
+            None,
+        ),
+        (
+            "rule-al-002",
+            "admin_litigation",
+            "预估审限（简易）",
+            "行政诉讼法第84条",
+            "filing_date",
+            3,
+            "calendar_month",
+            "civil",
+            "recommended",
+            5,
+            Some("简易"),
+        ),
+        (
+            "rule-al-003",
+            "admin_litigation",
+            "预估审限（普通）",
+            "行政诉讼法第81条",
+            "filing_date",
+            6,
+            "calendar_month",
+            "civil",
+            "recommended",
+            5,
+            Some("普通"),
+        ),
+        (
+            "rule-al-004",
+            "admin_litigation",
+            "判决上诉期",
+            "行政诉讼法第85条",
+            "verdict_date",
+            15,
+            "day",
+            "civil",
+            "statutory",
+            10,
+            Some(r#"{"verdict_type":"判决"}"#),
+        ),
+        (
+            "rule-al-005",
+            "admin_litigation",
+            "裁定上诉期",
+            "行政诉讼法第85条",
+            "verdict_date",
+            10,
+            "day",
+            "civil",
+            "statutory",
+            10,
+            Some(r#"{"verdict_type":"裁定"}"#),
+        ),
         // ── 民事侵权（诉讼法算法）──
-        ("rule-ct-001", "civil_tort", "提交答辩状期间",
-         "民事诉讼法第128条", "complaint_received_date", 15, "day", "civil", "statutory", 10, None),
-        ("rule-ct-002", "civil_tort", "预估审限（简易）",
-         "民事诉讼法第164条", "filing_date", 3, "calendar_month", "civil", "recommended", 5, Some("简易")),
-        ("rule-ct-003", "civil_tort", "预估审限（普通）",
-         "民事诉讼法第152条", "filing_date", 6, "calendar_month", "civil", "recommended", 5, Some("普通")),
-        ("rule-ct-004", "civil_tort", "判决上诉期",
-         "民事诉讼法第171条", "verdict_date", 15, "day", "civil", "statutory", 10, Some(r#"{"verdict_type":"判决"}"#)),
-        ("rule-ct-005", "civil_tort", "裁定上诉期",
-         "民事诉讼法第171条", "verdict_date", 10, "day", "civil", "statutory", 10, Some(r#"{"verdict_type":"裁定"}"#)),
+        (
+            "rule-ct-001",
+            "civil_tort",
+            "提交答辩状期间",
+            "民事诉讼法第128条",
+            "complaint_received_date",
+            15,
+            "day",
+            "civil",
+            "statutory",
+            10,
+            None,
+        ),
+        (
+            "rule-ct-002",
+            "civil_tort",
+            "预估审限（简易）",
+            "民事诉讼法第164条",
+            "filing_date",
+            3,
+            "calendar_month",
+            "civil",
+            "recommended",
+            5,
+            Some("简易"),
+        ),
+        (
+            "rule-ct-003",
+            "civil_tort",
+            "预估审限（普通）",
+            "民事诉讼法第152条",
+            "filing_date",
+            6,
+            "calendar_month",
+            "civil",
+            "recommended",
+            5,
+            Some("普通"),
+        ),
+        (
+            "rule-ct-004",
+            "civil_tort",
+            "判决上诉期",
+            "民事诉讼法第171条",
+            "verdict_date",
+            15,
+            "day",
+            "civil",
+            "statutory",
+            10,
+            Some(r#"{"verdict_type":"判决"}"#),
+        ),
+        (
+            "rule-ct-005",
+            "civil_tort",
+            "裁定上诉期",
+            "民事诉讼法第171条",
+            "verdict_date",
+            10,
+            "day",
+            "civil",
+            "statutory",
+            10,
+            Some(r#"{"verdict_type":"裁定"}"#),
+        ),
     ];
 
     for (id, track, name, basis, field, offset, unit, calc, source, priority, proc_type) in rules {
@@ -2311,7 +2716,9 @@ mod tests {
         run_migrations(&conn, 11).unwrap();
         run_migrations(&conn, 11).unwrap();
 
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
         let ki_cols: Vec<String> = conn
@@ -2353,7 +2760,9 @@ mod tests {
         run_migrations(&conn, 12).unwrap();
         run_migrations(&conn, 12).unwrap();
 
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
         // 表结构：status CHECK 生效，默认 pending
@@ -2364,7 +2773,11 @@ mod tests {
         )
         .unwrap();
         let status: String = conn
-            .query_row("SELECT status FROM mcp_pending_writes WHERE id='w1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT status FROM mcp_pending_writes WHERE id='w1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(status, "pending");
 
@@ -2376,4 +2789,3 @@ mod tests {
         assert!(bad.is_err(), "非法 status 应被 CHECK 拒绝");
     }
 }
-

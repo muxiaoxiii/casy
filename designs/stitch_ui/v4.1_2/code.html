@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<style>
+        @layer base {
+            html, body { margin: 0; padding: 0; }
+            body { overscroll-behavior: none; }
+            main > :first-child { margin-top: 0 !important; }
+            main > :last-child { margin-bottom: 0 !important; }
+        }
+        ::-webkit-scrollbar { display: none; }
+        @font-face {
+            font-family: 'Material Symbols Outlined';
+            font-style: normal;
+            src: url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v160/kJF1Eq7DzSXYnS8fcZ0asSjY8Cs3lSdBASsGowRTqLM.woff2) format('woff2');
+        }
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-white": "#FFFFFF",
+                        "slate-blue-deep": "#1F2430",
+                        "status-discovery": "#6C6A9C",
+                        "surface-container-lowest": "#ffffff",
+                        "on-surface": "#191c1e",
+                        "surface-bright": "#f7f9fb",
+                        "on-tertiary-container": "#ffcf8c",
+                        "tertiary-fixed-dim": "#f3bd6f",
+                        "bg-warning-weak": "#F6F3EA",
+                        "surface-variant": "#e0e3e5",
+                        "on-tertiary-fixed-variant": "#624000",
+                        "outline-variant": "#c4c6d1",
+                        "on-primary": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "on-surface-variant": "#444750",
+                        "on-primary-container": "#c8d7ff",
+                        "on-secondary": "#ffffff",
+                        "secondary": "#595e6c",
+                        "slate-gray-light": "#9BA2AF",
+                        "on-background": "#191c1e",
+                        "background": "#f7f9fb",
+                        "on-primary-fixed": "#001a43",
+                        "outline": "#747781",
+                        "status-success": "#4C8067",
+                        "primary-container": "#3e5c9a",
+                        "on-primary-fixed-variant": "#254582",
+                        "surface-container-high": "#e6e8ea",
+                        "secondary-container": "#dee2f3",
+                        "status-risk": "#B4554F",
+                        "inverse-surface": "#2d3133",
+                        "on-error-container": "#93000a",
+                        "surface-tint": "#3f5d9b",
+                        "on-secondary-fixed": "#161b27",
+                        "secondary-fixed-dim": "#c2c6d6",
+                        "surface": "#f7f9fb",
+                        "inverse-primary": "#afc6ff",
+                        "on-tertiary-fixed": "#291800",
+                        "bg-success-weak": "#EDF4F0",
+                        "primary-fixed": "#d9e2ff",
+                        "primary": "#244481",
+                        "tertiary-fixed": "#ffddb1",
+                        "error": "#ba1a1a",
+                        "on-secondary-container": "#5f6472",
+                        "inverse-on-surface": "#eff1f3",
+                        "error-container": "#ffdad6",
+                        "surface-dim": "#d8dadc",
+                        "surface-container": "#eceef0",
+                        "surface-container-highest": "#e0e3e5",
+                        "primary-fixed-dim": "#afc6ff",
+                        "on-error": "#ffffff",
+                        "status-warning": "#B0823A",
+                        "bg-risk-weak": "#F7EFEE",
+                        "slate-blue-muted": "#4B5160",
+                        "on-secondary-fixed-variant": "#424754",
+                        "surface-container-low": "#f2f4f6",
+                        "tertiary": "#613f00",
+                        "secondary-fixed": "#dee2f3",
+                        "tertiary-container": "#7d5610",
+                        "border-default": "#E4E7EB"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "212px",
+                        "half": "4px",
+                        "margin-page": "20px",
+                        "base": "8px",
+                        "quarter": "2px",
+                        "container-gap": "14px",
+                        "preview-width": "440px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-section": ["Inter"],
+                        "body-medium": ["Inter"],
+                        "mono-data": ["SF Mono"],
+                        "header-app": ["Inter"],
+                        "display-date": ["Inter"],
+                        "ui-subtext": ["Inter"],
+                        "body-base": ["Inter"],
+                        "mono-micro": ["SF Mono"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", { "lineHeight": "14px", "fontWeight": "600" }],
+                        "headline-section": ["15px", { "lineHeight": "20px", "fontWeight": "700" }],
+                        "body-medium": ["13px", { "lineHeight": "18px", "fontWeight": "500" }],
+                        "mono-data": ["11px", { "lineHeight": "14px", "fontWeight": "500" }],
+                        "header-app": ["14px", { "lineHeight": "20px", "fontWeight": "700" }],
+                        "display-date": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.3px", "fontWeight": "700" }],
+                        "ui-subtext": ["12.5px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-base": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "mono-micro": ["10.5px", { "lineHeight": "12px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-background font-body-base text-on-surface flex flex-col min-h-screen">
+<main class="flex-1 w-full max-w-5xl mx-auto px-8 py-16 flex flex-col items-center">
+<!-- Setup Header -->
+<header class="text-center mb-12 max-w-2xl">
+<div class="mb-4 inline-flex items-center justify-center w-12 h-12 bg-primary-fixed rounded-full text-primary">
+<span class="material-symbols-outlined text-[24px]">account_tree</span>
+</div>
+<h1 class="font-header-app text-[32px] leading-tight text-on-surface mb-3 tracking-tight">Step 1: Define your Areas of Responsibility</h1>
+<p class="font-body-medium text-[16px] text-on-surface-variant">Select the core areas you want to track and manage. You can configure specific goals and commitments for these later.</p>
+</header>
+<!-- Configuration Modules -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 w-full mb-16">
+<!-- Professional -->
+<label class="cursor-pointer group">
+<input checked="" class="peer sr-only" type="checkbox"/>
+<article class="bg-surface-container-lowest rounded-xl p-6 flex flex-col h-full shadow-sm relative overflow-hidden border-2 border-transparent peer-checked:border-primary peer-checked:bg-primary-fixed/10 hover:border-outline-variant transition-all duration-300">
+<div class="absolute top-4 right-4 w-6 h-6 rounded-full border-2 border-outline-variant flex items-center justify-center peer-checked:bg-primary peer-checked:border-primary transition-colors">
+<span class="material-symbols-outlined text-[16px] text-on-primary opacity-0 peer-checked:opacity-100">check</span>
+</div>
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-status-discovery group-hover:bg-status-discovery/10 transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">gavel</span>
+</div>
+<div>
+<h2 class="font-headline-section text-headline-section text-on-surface">执业律师</h2>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light uppercase tracking-wider">Professional</span>
+</div>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface-variant mb-6 flex-grow">
+                        成为专利无效领域的专家，保持极高的胜诉率。
+                    </p>
+<div class="space-y-4 pt-4 border-t border-border-default/50">
+<div class="flex justify-between items-center text-ui-subtext">
+<span class="text-slate-gray-light">Suggested Track</span>
+<span class="font-mono-data text-on-surface">4 Modules</span>
+</div>
+</div>
+</article>
+</label>
+<!-- Client Relations -->
+<label class="cursor-pointer group">
+<input checked="" class="peer sr-only" type="checkbox"/>
+<article class="bg-surface-container-lowest rounded-xl p-6 flex flex-col h-full shadow-sm relative overflow-hidden border-2 border-transparent peer-checked:border-primary peer-checked:bg-primary-fixed/10 hover:border-outline-variant transition-all duration-300">
+<div class="absolute top-4 right-4 w-6 h-6 rounded-full border-2 border-outline-variant flex items-center justify-center peer-checked:bg-primary peer-checked:border-primary transition-colors">
+<span class="material-symbols-outlined text-[16px] text-on-primary opacity-0 peer-checked:opacity-100">check</span>
+</div>
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-status-warning group-hover:bg-status-warning/10 transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">handshake</span>
+</div>
+<div>
+<h2 class="font-headline-section text-headline-section text-on-surface">客户维护</h2>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light uppercase tracking-wider">Client Relations</span>
+</div>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface-variant mb-6 flex-grow">
+                        建立深厚的信任关系，提供超越预期的法律商业价值。
+                    </p>
+<div class="space-y-4 pt-4 border-t border-border-default/50">
+<div class="flex justify-between items-center text-ui-subtext">
+<span class="text-slate-gray-light">Suggested Track</span>
+<span class="font-mono-data text-on-surface">2 Modules</span>
+</div>
+</div>
+</article>
+</label>
+<!-- Research -->
+<label class="cursor-pointer group">
+<input checked="" class="peer sr-only" type="checkbox"/>
+<article class="bg-surface-container-lowest rounded-xl p-6 flex flex-col h-full shadow-sm relative overflow-hidden border-2 border-transparent peer-checked:border-primary peer-checked:bg-primary-fixed/10 hover:border-outline-variant transition-all duration-300">
+<div class="absolute top-4 right-4 w-6 h-6 rounded-full border-2 border-outline-variant flex items-center justify-center peer-checked:bg-primary peer-checked:border-primary transition-colors">
+<span class="material-symbols-outlined text-[16px] text-on-primary opacity-0 peer-checked:opacity-100">check</span>
+</div>
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">library_books</span>
+</div>
+<div>
+<h2 class="font-headline-section text-headline-section text-on-surface">法律研究</h2>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light uppercase tracking-wider">Research</span>
+</div>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface-variant mb-6 flex-grow">
+                        保持对半导体领域最新法条和判例的敏锐追踪。
+                    </p>
+<div class="space-y-4 pt-4 border-t border-border-default/50">
+<div class="flex justify-between items-center text-ui-subtext">
+<span class="text-slate-gray-light">Suggested Track</span>
+<span class="font-mono-data text-on-surface">3 Modules</span>
+</div>
+</div>
+</article>
+</label>
+<!-- Team -->
+<label class="cursor-pointer group">
+<input class="peer sr-only" type="checkbox"/>
+<article class="bg-surface-container-lowest rounded-xl p-6 flex flex-col h-full shadow-sm relative overflow-hidden border-2 border-transparent peer-checked:border-primary peer-checked:bg-primary-fixed/10 hover:border-outline-variant transition-all duration-300">
+<div class="absolute top-4 right-4 w-6 h-6 rounded-full border-2 border-outline-variant flex items-center justify-center peer-checked:bg-primary peer-checked:border-primary transition-colors">
+<span class="material-symbols-outlined text-[16px] text-on-primary opacity-0 peer-checked:opacity-100">check</span>
+</div>
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-tertiary group-hover:bg-tertiary/10 transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">groups</span>
+</div>
+<div>
+<h2 class="font-headline-section text-headline-section text-on-surface">团队管理</h2>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light uppercase tracking-wider">Team</span>
+</div>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface-variant mb-6 flex-grow">
+                        培养下一代合伙人，打造高抗压专业团队。
+                    </p>
+<div class="space-y-4 pt-4 border-t border-border-default/50">
+<div class="flex justify-between items-center text-ui-subtext">
+<span class="text-slate-gray-light">Suggested Track</span>
+<span class="font-mono-data text-on-surface">2 Modules</span>
+</div>
+</div>
+</article>
+</label>
+<!-- Growth -->
+<label class="cursor-pointer group">
+<input class="peer sr-only" type="checkbox"/>
+<article class="bg-surface-container-lowest rounded-xl p-6 flex flex-col h-full shadow-sm relative overflow-hidden border-2 border-transparent peer-checked:border-primary peer-checked:bg-primary-fixed/10 hover:border-outline-variant transition-all duration-300">
+<div class="absolute top-4 right-4 w-6 h-6 rounded-full border-2 border-outline-variant flex items-center justify-center peer-checked:bg-primary peer-checked:border-primary transition-colors">
+<span class="material-symbols-outlined text-[16px] text-on-primary opacity-0 peer-checked:opacity-100">check</span>
+</div>
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center text-status-risk group-hover:bg-status-risk/10 transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">psychology</span>
+</div>
+<div>
+<h2 class="font-headline-section text-headline-section text-on-surface">个人成长</h2>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light uppercase tracking-wider">Growth</span>
+</div>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface-variant mb-6 flex-grow">
+                        维持身心健康，拓展跨学科认知边界。
+                    </p>
+<div class="space-y-4 pt-4 border-t border-border-default/50">
+<div class="flex justify-between items-center text-ui-subtext">
+<span class="text-slate-gray-light">Suggested Track</span>
+<span class="font-mono-data text-on-surface">1 Module</span>
+</div>
+</div>
+</article>
+</label>
+<!-- Add Custom Area -->
+<button class="rounded-xl border-2 border-dashed border-border-default p-6 flex flex-col items-center justify-center h-full min-h-[220px] text-slate-gray-light hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer" type="button">
+<div class="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center mb-3">
+<span class="material-symbols-outlined text-[24px]">add</span>
+</div>
+<span class="font-body-medium font-medium">Create Custom Area</span>
+</button>
+</section>
+<!-- Setup Actions -->
+<div class="flex items-center justify-between w-full max-w-5xl mt-auto pt-8 border-t border-border-default">
+<button class="px-6 py-2.5 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors font-medium">
+                Skip for now
+            </button>
+<div class="flex gap-4">
+<button class="px-6 py-2.5 rounded-lg bg-surface-container-high text-on-surface-variant font-body-medium hover:bg-surface-container-highest transition-colors font-medium shadow-sm">
+                    Back
+                </button>
+<button class="flex items-center gap-2 px-8 py-2.5 rounded-lg bg-primary text-on-primary font-header-app text-[15px] shadow-sm hover:opacity-90 transition-all shadow-md shadow-primary/20">
+                    Save Configuration
+                    <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</main>
+</body></html>

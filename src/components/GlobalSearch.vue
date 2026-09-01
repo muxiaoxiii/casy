@@ -99,12 +99,14 @@ async function runSearch(q: string) {
 
   if (projRes.ok && Array.isArray(projRes.data)) {
     for (const p of projRes.data as Array<{ id: string; name: string; kind: string; description: string | null }>) {
+      // legal 项目只是案件兼容镜像；案件结果已单独出现，避免搜索重复。
+      if (p.kind !== 'personal') continue
       out.push({
         key: 'proj-' + p.id,
         group: '项目',
         icon: Folder,
         title: p.name,
-        meta: p.kind === 'legal' ? '法律项目' : '个人项目',
+        meta: '非案件项目',
         route: '/projects',
       })
     }

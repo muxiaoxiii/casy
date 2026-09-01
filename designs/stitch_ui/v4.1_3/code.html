@@ -1,0 +1,194 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}@font-face{font-family:'Material Symbols Outlined';font-style:normal;src:url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v160/kJF1Eq7DzSXYnS8fcZ0asSjY8Cs3lSdBASsGowRTqLM.woff2) format('woff2');}.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;font-size:24px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{"colors":{"error-container":"#ffdad6","status-risk":"#B4554F","error":"#ba1a1a","on-error-container":"#93000a","surface-container-low":"#f2f4f6","surface-container-high":"#e6e8ea","primary-fixed-dim":"#afc6ff","tertiary-fixed-dim":"#f3bd6f","border-default":"#E4E7EB","bg-risk-weak":"#F7EFEE","on-primary":"#ffffff","bg-warning-weak":"#F6F3EA","on-secondary-fixed":"#161b27","on-secondary":"#ffffff","background":"#f7f9fb","secondary-container":"#dee2f3","surface-container-lowest":"#ffffff","inverse-primary":"#afc6ff","slate-blue-deep":"#1F2430","on-primary-fixed":"#001a43","bg-success-weak":"#EDF4F0","tertiary-fixed":"#ffddb1","secondary":"#595e6c","outline-variant":"#c4c6d1","on-tertiary-container":"#ffcf8c","on-secondary-container":"#5f6472","slate-gray-light":"#9BA2AF","primary":"#244481","primary-fixed":"#d9e2ff","surface-dim":"#d8dadc","on-error":"#ffffff","on-tertiary-fixed":"#291800","tertiary":"#613f00","secondary-fixed-dim":"#c2c6d6","status-discovery":"#6C6A9C","surface-variant":"#e0e3e5","surface-white":"#FFFFFF","inverse-on-surface":"#eff1f3","surface-tint":"#3f5d9b","on-primary-container":"#c8d7ff","status-success":"#4C8067","secondary-fixed":"#dee2f3","on-tertiary-fixed-variant":"#624000","inverse-surface":"#2d3133","primary-container":"#3e5c9a","slate-blue-muted":"#4B5160","tertiary-container":"#7d5610","on-surface":"#191c1e","on-tertiary":"#ffffff","outline":"#747781","on-primary-fixed-variant":"#254582","on-surface-variant":"#444750","on-background":"#191c1e","surface":"#f7f9fb","surface-container-highest":"#e0e3e5","status-warning":"#B0823A","on-secondary-fixed-variant":"#424754","surface-bright":"#f7f9fb","surface-container":"#eceef0"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"container-gap":"14px","half":"4px","base":"8px","quarter":"2px","margin-page":"20px","sidebar-width":"240px","preview-width":"440px"},"fontFamily":{"mono-micro":["SF Mono"],"label-caps":["Inter"],"headline-section":["Inter"],"display-date":["Inter"],"mono-data":["SF Mono"],"ui-subtext":["Inter"],"body-medium":["Inter"],"body-base":["Inter"],"header-app":["Inter"]},"fontSize":{"mono-micro":["10.5px",{"lineHeight":"12px","fontWeight":"600"}],"label-caps":["11px",{"lineHeight":"14px","fontWeight":"600"}],"headline-section":["15px",{"lineHeight":"20px","fontWeight":"700"}],"display-date":["20px",{"lineHeight":"28px","letterSpacing":"-0.3px","fontWeight":"700"}],"mono-data":["11px",{"lineHeight":"14px","fontWeight":"500"}],"ui-subtext":["12.5px",{"lineHeight":"16px","fontWeight":"500"}],"body-medium":["13px",{"lineHeight":"18px","fontWeight":"500"}],"body-base":["13px",{"lineHeight":"18px","fontWeight":"400"}],"header-app":["14px",{"lineHeight":"20px","fontWeight":"700"}]}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"></head><body class="bg-background font-body-base text-on-surface"><aside class="fixed left-0 top-0 h-full w-[240px] bg-surface-container-low z-50 flex flex-col border-r border-border-default"><div class="p-6 flex items-center gap-3"><div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[20px]">grid_view</span></div><span class="font-header-app text-header-app tracking-tight text-primary">Casy v4.0</span></div><nav class="flex-1 px-3 overflow-y-auto space-y-6" data-active-classes="bg-secondary-container text-on-secondary-container font-bold"><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Focus</h3><div class="space-y-1"><a aria-current="page" class="flex items-center px-4 py-2 rounded-lg transition-colors bg-secondary-container text-on-secondary-container font-bold" data-path="today" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">wb_sunny</span>Today</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="inbox" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">inbox</span>Inbox</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Matters</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="cases" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">gavel</span>Cases</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="calendar" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">calendar_today</span>Calendar</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Knowledge</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="vault" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">token</span>Vault</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="drafting" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">edit_note</span>Drafting</a></div></section></nav><div class="p-4 border-t border-border-default space-y-3"><div class="flex items-center gap-2 px-2 py-1.5 bg-bg-success-weak rounded-full border border-status-success/20"><span class="flex h-2 w-2 rounded-full bg-status-success"></span><span class="font-mono-micro text-mono-micro text-status-success uppercase">Local Llama 3 Active</span></div><a class="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-container-high transition-colors" data-path="settings" href="#"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex flex-col"><span class="font-body-medium text-body-medium text-on-surface">Lawyer Wang</span><span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Senior Partner</span></div></a></div></aside><div class="pl-[240px]"><header class="fixed top-0 left-[240px] right-0 h-16 bg-surface/80 backdrop-blur-xl border-b border-border-default z-40 px-8 flex items-center justify-between"><div class="flex items-center gap-6"><div class="relative flex items-center bg-surface-container px-3 py-2 rounded-lg w-80 group border border-transparent focus-within:border-outline"><span class="material-symbols-outlined text-slate-gray-light text-[20px] mr-2">search</span><input class="bg-transparent border-none outline-none text-body-medium w-full placeholder:text-slate-gray-light text-on-surface" placeholder="Search matters (CMD+K)" type="text"><span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded border border-outline-variant text-slate-gray-light">⌘K</span></div></div><div class="flex items-center gap-4"><button class="p-2 rounded-full text-on-surface-variant hover:bg-surface-container relative"><span class="material-symbols-outlined">event_note</span><span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface"></span></button><div class="flex items-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[20px]">add_task</span>+ Task</button><button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-header-app text-header-app shadow-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined text-[20px]">center_focus_strong</span>+ Capture</button></div></div></header><main class="relative pt-16 min-h-screen bg-[#F8FAFC]"><div class="flex flex-col w-full h-full relative">
+<div class="px-8 py-6 mb-4 flex items-center justify-between">
+<div class="flex flex-col gap-1">
+<h1 class="font-display-date text-display-date text-on-surface">August 2024</h1>
+<p class="font-body-medium text-body-medium text-slate-gray-light">27 Days Remaining · 4 Critical Deadlines</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border-default hover:bg-surface-container transition-colors text-body-medium font-body-medium text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+                Filter
+            </button>
+<div class="flex bg-surface-container rounded-lg p-1 border border-border-default"><button class="px-3 py-1 rounded hover:bg-surface text-body-medium font-body-medium text-slate-gray-light transition-colors">Day</button>
+<button class="px-3 py-1 rounded bg-surface shadow-sm text-body-medium font-body-medium text-on-surface">Month</button>
+<button class="px-3 py-1 rounded hover:bg-surface text-body-medium font-body-medium text-slate-gray-light transition-colors">Week</button>
+</div>
+</div>
+</div>
+<div class="px-8 flex gap-8 pb-12 flex-1">
+<!-- Timeline Section -->
+<div class="flex-1 flex flex-col relative"><div class="absolute top-0 bottom-0 left-[60px] w-px bg-border-default z-0"></div>
+<!-- 09:30 - 11:00 Hard Event -->
+<div class="relative z-10 flex gap-6 mb-4 group">
+<div class="w-[60px] shrink-0 text-right pr-4 pt-4">
+<span class="font-mono-data text-mono-data text-status-risk font-bold block">09:30</span>
+<span class="font-mono-data text-mono-data text-slate-gray-light block mt-1">AM</span>
+</div>
+<div class="flex-1 relative">
+<div class="absolute -left-[30px] top-4 w-3 h-3 rounded-full bg-surface border-2 border-status-risk z-20"></div>
+<div class="bg-bg-risk-weak rounded-xl border-l-[4px] border-l-status-risk border border-status-risk/20 shadow-sm p-4">
+<div class="flex justify-between items-start">
+<div>
+<h4 class="font-headline-section text-headline-section text-on-surface">Oral Hearing: TechCorp v. Innovate LLC</h4>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant mt-1">Courtroom 4B • 09:30 - 11:00</p>
+</div>
+<span class="font-mono-micro text-mono-micro px-2 py-1 bg-status-risk text-on-primary rounded">HARD BOUNDARY</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Free Time Slot: 11:00 - 11:00 (Gap before next block) -->
+<!-- 11:00 - 13:00 Flexible Block -->
+<div class="relative z-10 flex gap-6 mb-4 group">
+<div class="w-[60px] shrink-0 text-right pr-4 pt-4">
+<span class="font-mono-data text-mono-data text-primary block">11:00</span>
+</div>
+<div class="flex-1 relative">
+<div class="absolute -left-[30px] top-4 w-3 h-3 rounded-full bg-surface border-2 border-primary z-20"></div>
+<div class="bg-surface-white rounded-xl border-l-[4px] border-l-primary border border-border-default shadow-sm p-4">
+<div class="flex justify-between items-start">
+<div>
+<h4 class="font-headline-section text-headline-section text-on-surface">Review Evidence List (Plaintiff)</h4>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant mt-1">Deep Work • 11:00 - 13:00</p>
+</div>
+<span class="font-mono-micro text-mono-micro px-2 py-1 bg-secondary-container text-on-secondary-container rounded">FLEXIBLE BLOCK</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Explicit Free Time Slot: 13:00 - 14:00 -->
+<div class="relative z-10 flex gap-6 mb-4 group">
+<div class="w-[60px] shrink-0 text-right pr-4 pt-4">
+<span class="font-mono-data text-mono-data text-slate-gray-light block">13:00</span>
+</div>
+<div class="flex-1 relative">
+<div class="absolute -left-[30px] top-4 w-3 h-3 rounded-full bg-surface border-2 border-border-default z-20"></div>
+<div class="bg-surface-container-lowest rounded-xl border border-dashed border-outline-variant p-4 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group/slot">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-gray-light">more_time</span>
+<div>
+<p class="font-body-medium text-body-medium text-slate-gray-light">1h Free Time</p>
+<p class="font-ui-subtext text-ui-subtext text-slate-gray-light/60">Perfect for 'Client Call'</p>
+</div>
+</div>
+<div class="flex items-center gap-2 opacity-0 group-hover/slot:opacity-100 transition-opacity">
+<span class="font-ui-subtext text-primary font-bold">Drop Task Here</span>
+<span class="material-symbols-outlined text-primary">add_circle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 14:00 - 16:30 Hard Event -->
+<div class="relative z-10 flex gap-6 mb-4 group">
+<div class="w-[60px] shrink-0 text-right pr-4 pt-4">
+<span class="font-mono-data text-mono-data text-status-risk font-bold block">14:00</span>
+<span class="font-mono-data text-mono-data text-slate-gray-light block mt-1">PM</span>
+</div>
+<div class="flex-1 relative">
+<div class="absolute -left-[30px] top-4 w-3 h-3 rounded-full bg-surface border-2 border-status-risk z-20"></div>
+<div class="bg-bg-risk-weak rounded-xl border-l-[4px] border-l-status-risk border border-status-risk/20 shadow-sm p-4">
+<div class="flex justify-between items-start">
+<div>
+<h4 class="font-headline-section text-headline-section text-on-surface">Trial: Smith Estate</h4>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant mt-1">Chamber 2 • 14:00 - 16:30</p>
+</div>
+<span class="font-mono-micro text-mono-micro px-2 py-1 bg-status-risk text-on-primary rounded">HARD BOUNDARY</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Explicit Free Time Slot: 16:30 - 18:00 -->
+<div class="relative z-10 flex gap-6 mb-4 group">
+<div class="w-[60px] shrink-0 text-right pr-4 pt-4">
+<span class="font-mono-data text-mono-data text-slate-gray-light block">16:30</span>
+</div>
+<div class="flex-1 relative">
+<div class="absolute -left-[30px] top-4 w-3 h-3 rounded-full bg-surface border-2 border-border-default z-20"></div>
+<div class="bg-surface-container-lowest rounded-xl border border-dashed border-outline-variant p-4 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group/slot">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-gray-light">more_time</span>
+<div>
+<p class="font-body-medium text-body-medium text-slate-gray-light">1.5h Free Time</p>
+<p class="font-ui-subtext text-ui-subtext text-slate-gray-light/60">Available for scheduling</p>
+</div>
+</div>
+<div class="flex items-center gap-2 opacity-0 group-hover/slot:opacity-100 transition-opacity">
+<span class="font-ui-subtext text-primary font-bold">Drop Task Here</span>
+<span class="material-symbols-outlined text-primary">add_circle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 18:00 - 19:30 Growth Block -->
+<div class="relative z-10 flex gap-6 mb-4 group">
+<div class="w-[60px] shrink-0 text-right pr-4 pt-4">
+<span class="font-mono-data text-mono-data text-status-success block">18:00</span>
+</div>
+<div class="flex-1 relative">
+<div class="absolute -left-[30px] top-4 w-3 h-3 rounded-full bg-surface border-2 border-status-success z-20"></div>
+<div class="bg-bg-success-weak rounded-xl border-l-[4px] border-l-status-success border border-status-success/20 shadow-sm p-4">
+<div class="flex justify-between items-start">
+<div>
+<h4 class="font-headline-section text-headline-section text-on-surface">Read updated IP regulations</h4>
+<p class="font-ui-subtext text-ui-subtext text-on-surface-variant mt-1">Professional Growth • 18:00 - 19:30</p>
+</div>
+<span class="font-mono-micro text-mono-micro px-2 py-1 bg-status-success text-on-primary rounded">GROWTH</span>
+</div>
+</div>
+</div>
+</div></div>
+<!-- Sidebar Section -->
+<div class="w-80 shrink-0 flex flex-col gap-6">
+<div class="bg-surface-container-low rounded-xl border border-border-default p-4">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-headline-section text-headline-section text-on-surface">今日待办</h3>
+<span class="font-mono-micro text-mono-micro bg-surface-container-high px-2 py-0.5 rounded">4 Tasks</span>
+</div>
+<div class="space-y-3">
+<div class="p-3 bg-surface-white rounded-lg border border-border-default shadow-sm cursor-pointer hover:border-primary transition-colors"><div class="flex items-center justify-between mb-1">
+<span class="material-symbols-outlined text-[16px] text-slate-gray-light cursor-grab active:cursor-grabbing">drag_indicator</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light/40">#TASK</span>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface">Draft Appeal for Johnson Case</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="material-symbols-outlined text-[14px] text-slate-gray-light">schedule</span>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Est. 2h</span>
+</div>
+</div>
+<div class="p-3 bg-surface-white rounded-lg border border-border-default shadow-sm cursor-pointer hover:border-primary transition-colors"><div class="flex items-center justify-between mb-1">
+<span class="material-symbols-outlined text-[16px] text-slate-gray-light cursor-grab active:cursor-grabbing">drag_indicator</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light/40">#TASK</span>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface">Client Call: TechCorp CEO</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="material-symbols-outlined text-[14px] text-slate-gray-light">schedule</span>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Est. 30m</span>
+</div>
+</div>
+<div class="p-3 bg-surface-white rounded-lg border border-border-default shadow-sm cursor-pointer hover:border-primary transition-colors"><div class="flex items-center justify-between mb-1">
+<span class="material-symbols-outlined text-[16px] text-slate-gray-light cursor-grab active:cursor-grabbing">drag_indicator</span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light/40">#TASK</span>
+</div>
+<p class="font-body-medium text-body-medium text-on-surface">Review Billing Statements</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="material-symbols-outlined text-[14px] text-slate-gray-light">schedule</span>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Est. 1h</span>
+</div>
+</div>
+<button class="w-full py-2 border border-dashed border-outline-variant rounded-lg text-ui-subtext text-slate-gray-light hover:bg-surface-container-high transition-colors">
+                    + Add Task to Queue
+                </button>
+</div>
+</div>
+<div class="p-4 rounded-xl bg-primary-container text-on-primary-container"><div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-[18px]">auto_awesome</span>
+<span class="font-label-caps text-label-caps uppercase">Smart Scheduler</span>
+</div>
+<p class="font-ui-subtext text-ui-subtext leading-relaxed">
+    I've identified <span class="font-bold">2.5 hours</span> of total free time today. Drag tasks from your queue into the dashed slots to optimize your workflow.
+</p></div>
+</div>
+</div>
+</div></main></div></body></html>

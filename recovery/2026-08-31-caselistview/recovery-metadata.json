@@ -1,0 +1,34 @@
+{
+  "7587": {
+    "label": "after-fake-data-cleanup",
+    "lines": 3245,
+    "bytes": 107362,
+    "sha256": "6350e2fc1b5624380ee6130bca981f9f627b65b3fff22a551a8772e1f051d9e8",
+    "states": {
+      "1": 3,
+      "2": 3,
+      "3": 3242
+    }
+  },
+  "7590": {
+    "label": "pre-destructive-edit",
+    "lines": 3246,
+    "bytes": 107435,
+    "sha256": "1c50d389504f74aba25798f3e032f65b1fc0d0710dff607510257dda9c906c9b",
+    "states": {
+      "1": 1,
+      "3": 3245
+    }
+  },
+  "7593": {
+    "label": "damaged-statefeedback-edit",
+    "lines": 3249,
+    "bytes": 107552,
+    "sha256": "f86d12f76eaf0ce983fe9fd48e802471aba9c4fea12c9e9d6c6f1b27bd02911a",
+    "states": {
+      "1": 8,
+      "2": 5,
+      "3": 3241
+    }
+  }
+}

@@ -10,12 +10,12 @@ use chrono::{NaiveDate, NaiveDateTime};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CmpOp {
-    Eq,  // ==
-    Ne,  // !=
-    Lt,  // <
-    Gt,  // >
-    Le,  // <=
-    Ge,  // >=
+    Eq, // ==
+    Ne, // !=
+    Lt, // <
+    Gt, // >
+    Le, // <=
+    Ge, // >=
 }
 
 // ── Logic operators (binary chaining) ─────────────────────────
@@ -34,21 +34,13 @@ pub enum Expr {
     Literal(Value),
 
     /// Reference to a field in the current record (by local column name or field_id)
-    FieldRef {
-        field_id: String,
-    },
+    FieldRef { field_id: String },
 
     /// Cross-table field reference: bitable::$table[xxx].$field[yyy]
-    CrossTableRef {
-        table_id: String,
-        field_id: String,
-    },
+    CrossTableRef { table_id: String, field_id: String },
 
     /// Function call: IF, AND, OR, NOT, ISBLANK, TODAY, EDATE, WORKDAY, etc.
-    Call {
-        name: String,
-        args: Vec<Expr>,
-    },
+    Call { name: String, args: Vec<Expr> },
 
     /// Binary comparison
     Compare {
@@ -84,7 +76,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Date(NaiveDate),
-#[allow(dead_code)]
+    #[allow(dead_code)]
     DateTime(NaiveDateTime),
     Array(Vec<Value>),
 }
@@ -156,11 +148,9 @@ impl Value {
         match self {
             Value::Date(d) => Some(*d),
             Value::DateTime(dt) => Some(dt.date()),
-            Value::String(s) => {
-                NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                    .or_else(|_| NaiveDate::parse_from_str(s, "%Y/%m/%d"))
-                    .ok()
-            }
+            Value::String(s) => NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y/%m/%d"))
+                .ok(),
             _ => None,
         }
     }
@@ -188,7 +178,7 @@ impl Value {
     }
 
     /// Date arithmetic: add days
-#[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn add_days(&self, days: i64) -> Value {
         use chrono::Duration;
         match self {

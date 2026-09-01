@@ -62,13 +62,12 @@ pub(crate) fn parse_due_datetime(due_date: &str, due_time: Option<&str>) -> Opti
 /// 打开 CalDAV 客户端（配置缺失返回 Err）
 fn open_client() -> Result<CalDavClient> {
     let conn = db::open_db()?;
-    let config = caldav::load_caldav_config(&conn)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(crate::error_code::err(
-                crate::error_code::codes::CALDAV_NOT_CONFIGURED,
-                "未配置 CalDAV（caldav_url / caldav_user / caldav_pass）",
-            ))
-        })?;
+    let config = caldav::load_caldav_config(&conn)?.ok_or_else(|| {
+        anyhow::anyhow!(crate::error_code::err(
+            crate::error_code::codes::CALDAV_NOT_CONFIGURED,
+            "未配置 CalDAV（caldav_url / caldav_user / caldav_pass）",
+        ))
+    })?;
     CalDavClient::from_config(&config)
 }
 
@@ -109,7 +108,14 @@ pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
     let result = match open_client() {
         Ok(client) => {
             client
-                .upsert_event(&p.uid, &p.summary, &p.description, p.dtstart, 30, p.alarm_minutes)
+                .upsert_event(
+                    &p.uid,
+                    &p.summary,
+                    &p.description,
+                    p.dtstart,
+                    30,
+                    p.alarm_minutes,
+                )
                 .await
         }
         Err(e) => Err(caldav::CalDavError::Client(0, e.to_string())),
@@ -130,13 +136,18 @@ pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
             match found {
                 Some(etag) => {
                     update_job_status(&p.job_id, "synced", Some(&etag), None);
-                    log::info!("[日历同步] 作业 {} 对账确认已写入（etag: {}）", p.job_id, etag);
+                    log::info!(
+                        "[日历同步] 作业 {} 对账确认已写入（etag: {}）",
+                        p.job_id,
+                        etag
+                    );
                     "synced"
                 }
                 None => {
                     update_job_status(&p.job_id, "delivery_unknown", None, Some(&e.to_string()));
                     log::warn!("[日历同步] 作业 {} 投递结果不明: {}", p.job_id, e);
-                    let _ = super::reminder::send_local_notification(&p.fallback_message, None, None);
+                    let _ =
+                        super::reminder::send_local_notification(&p.fallback_message, None, None);
                     "delivery_unknown"
                 }
             }
@@ -241,7 +252,10 @@ pub async fn sync_reminders_to_calendar() -> Result<CalendarSyncReport, String> 
 
     log::info!(
         "[日历同步] 补同步完成：共 {}，成功 {}，失败 {}，跳过 {}",
-        report.total, report.synced, report.failed, report.skipped
+        report.total,
+        report.synced,
+        report.failed,
+        report.skipped
     );
     Ok(report)
 }

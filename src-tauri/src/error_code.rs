@@ -13,7 +13,7 @@ pub mod codes {
     pub const TASK_NOT_FOUND: &str = "CAS-1001";
     pub const TASK_INVALID_STATE: &str = "CAS-1002";
     pub const AREA_NAME_REQUIRED: &str = "CAS-1100"; // areas 隶属 GTD 1xxx 段
-    // 2xxx calendar
+                                                     // 2xxx calendar
     pub const CALENDAR_NOT_FOUND: &str = "CAS-2001";
     pub const CALENDAR_INVALID_RANGE: &str = "CAS-2002";
     // 3xxx inbox

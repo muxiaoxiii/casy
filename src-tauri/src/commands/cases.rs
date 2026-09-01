@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::run_blocking;
 use crate::db;
@@ -26,10 +26,21 @@ pub async fn get_case(id: String) -> Result<db::cases::Case, String> {
 }
 
 #[tauri::command]
-pub async fn create_case(data: serde_json::Value) -> Result<db::cases::Case, String> {
+pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut case: db::cases::Case = serde_json::from_value(data)?;
+        
+        // 清理空字符串字段并为其赋予默认值
+        if let Some(obj) = data.as_object_mut() {
+            if obj.get("caseLevel").and_then(|v| v.as_str()) == Some("") {
+                obj.insert("caseLevel".to_string(), serde_json::Value::Null);
+            }
+            if obj.get("track").and_then(|v| v.as_str()) == Some("") {
+                obj.insert("track".to_string(), serde_json::json!("patent_invalidation"));
+            }
+        }
+
+        let mut case: db::cases::Case = serde_json::from_value(data).map_err(|e| anyhow::anyhow!("Failed to parse Case: {}", e))?;
         case.id = db::new_id();
         case.created_at = Some(db::now_local());
         case.updated_at = Some(db::now_local());
@@ -292,7 +303,10 @@ pub async fn get_dashboard_stats() -> Result<DashboardStats, String> {
     .await
 }
 
-fn query_recent_activities(conn: &rusqlite::Connection, since: &str) -> anyhow::Result<Vec<RecentActivity>> {
+fn query_recent_activities(
+    conn: &rusqlite::Connection,
+    since: &str,
+) -> anyhow::Result<Vec<RecentActivity>> {
     let mut activities = Vec::new();
 
     // 最近日志
@@ -382,8 +396,8 @@ pub async fn export_cases(format: String, filter: Option<CaseFilter>) -> Result<
                 "casy_export_{}.csv",
                 chrono::Local::now().format("%Y%m%d_%H%M%S")
             );
-            let download_dir = dirs::download_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let download_dir =
+                dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
             let path = download_dir.join(&filename);
             std::fs::write(&path, csv)?;
 
@@ -401,10 +415,26 @@ fn cases_to_csv(cases: &[db::cases::Case]) -> anyhow::Result<String> {
 
     // 写入表头
     wtr.write_record([
-        "案件名称", "案号", "内部卷号", "轨道", "案由", "客户", "我方地位",
-        "对方", "对方地位", "对方代理", "法院", "审级", "案件进展",
-        "案件结果", "专利名称", "专利申请号", "立案日期", "开庭日期",
-        "判决日期", "备注",
+        "案件名称",
+        "案号",
+        "内部卷号",
+        "轨道",
+        "案由",
+        "客户",
+        "我方地位",
+        "对方",
+        "对方地位",
+        "对方代理",
+        "法院",
+        "审级",
+        "案件进展",
+        "案件结果",
+        "专利名称",
+        "专利申请号",
+        "立案日期",
+        "开庭日期",
+        "判决日期",
+        "备注",
     ])?;
 
     for c in cases {
@@ -449,12 +479,10 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<FieldGro
         let conn = db::open_db()?;
 
         // 查询所有字段分组
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, name, description, case_types, court_levels, sort_order
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, case_types, court_levels, sort_order
                  FROM field_groups ORDER BY sort_order",
-            )
-            ?;
+        )?;
 
         let groups: Vec<FieldGroup> = stmt
             .query_map([], |row| {
@@ -464,9 +492,15 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<FieldGro
                 let case_types_json: Option<String> = row.get(3)?;
                 let court_levels_json: Option<String> = row.get(4)?;
                 let sort_order: i32 = row.get(5)?;
-                Ok((id, name, description, case_types_json, court_levels_json, sort_order))
-            })
-            ?
+                Ok((
+                    id,
+                    name,
+                    description,
+                    case_types_json,
+                    court_levels_json,
+                    sort_order,
+                ))
+            })?
             .filter_map(|r| r.ok())
             .filter(|(_, _, _, case_types_json, _, _)| {
                 // 如果指定了 case_type，过滤掉不适用的分组
@@ -483,20 +517,22 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<FieldGro
                     true
                 }
             })
-            .map(|(id, name, description, case_types_json, court_levels_json, sort_order)| {
-                // 查询该分组下的字段项
-                let items = query_field_group_items(&conn, &id).unwrap_or_default();
+            .map(
+                |(id, name, description, case_types_json, court_levels_json, sort_order)| {
+                    // 查询该分组下的字段项
+                    let items = query_field_group_items(&conn, &id).unwrap_or_default();
 
-                FieldGroup {
-                    id,
-                    name,
-                    description,
-                    case_types: case_types_json.and_then(|s| serde_json::from_str(&s).ok()),
-                    court_levels: court_levels_json.and_then(|s| serde_json::from_str(&s).ok()),
-                    sort_order,
-                    items,
-                }
-            })
+                    FieldGroup {
+                        id,
+                        name,
+                        description,
+                        case_types: case_types_json.and_then(|s| serde_json::from_str(&s).ok()),
+                        court_levels: court_levels_json.and_then(|s| serde_json::from_str(&s).ok()),
+                        sort_order,
+                        items,
+                    }
+                },
+            )
             .collect();
 
         Ok(groups)
@@ -504,37 +540,47 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<FieldGro
     .await
 }
 
-fn query_field_group_items(conn: &rusqlite::Connection, group_id: &str) -> anyhow::Result<Vec<FieldGroupItem>> {
+fn query_field_group_items(
+    conn: &rusqlite::Connection,
+    group_id: &str,
+) -> anyhow::Result<Vec<FieldGroupItem>> {
     let mut stmt = conn.prepare(
         "SELECT id, column_name, label, field_type, options, required, sort_order
-         FROM field_group_items WHERE group_id = ?1 ORDER BY sort_order"
+         FROM field_group_items WHERE group_id = ?1 ORDER BY sort_order",
     )?;
 
-    let items = stmt.query_map([group_id], |row| {
-        let id: String = row.get(0)?;
-        let column_name: String = row.get(1)?;
-        let label: String = row.get(2)?;
-        let field_type: String = row.get(3)?;
-        let options: Option<String> = row.get(4)?;
-        let required: i32 = row.get(5)?;
-        let sort_order: i32 = row.get(6)?;
-        Ok(FieldGroupItem {
-            id,
-            column_name,
-            label,
-            field_type,
-            options: options.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::Value::Null),
-            required: required != 0,
-            sort_order,
-        })
-    })?.filter_map(|r| r.ok()).collect();
+    let items = stmt
+        .query_map([group_id], |row| {
+            let id: String = row.get(0)?;
+            let column_name: String = row.get(1)?;
+            let label: String = row.get(2)?;
+            let field_type: String = row.get(3)?;
+            let options: Option<String> = row.get(4)?;
+            let required: i32 = row.get(5)?;
+            let sort_order: i32 = row.get(6)?;
+            Ok(FieldGroupItem {
+                id,
+                column_name,
+                label,
+                field_type,
+                options: options
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or(serde_json::Value::Null),
+                required: required != 0,
+                sort_order,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
 
     Ok(items)
 }
 
 /// 跨类型统一视图查询命令（B1 类型化）
 #[tauri::command]
-pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result<Vec<CaseUnifiedView>, String> {
+pub async fn get_case_unified_view(
+    filters: Option<serde_json::Value>,
+) -> Result<Vec<CaseUnifiedView>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -542,7 +588,7 @@ pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result
             "SELECT id, case_name, case_no, client_name, cause_action, track,
                     status, court, case_level, operator, trial_date, filing_date,
                     next_deadline, next_hearing, updated_at
-             FROM v_case_unified WHERE 1=1"
+             FROM v_case_unified WHERE 1=1",
         );
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut param_idx = 1;
@@ -626,7 +672,8 @@ pub async fn get_case_unified_view(filters: Option<serde_json::Value>) -> Result
         sql.push_str(" ORDER BY next_deadline ASC NULLS LAST, updated_at DESC");
 
         let mut stmt = conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
             Ok(CaseUnifiedView {
@@ -661,7 +708,8 @@ pub async fn recalculate_case_formulas(case_id: String) -> Result<usize, String>
         let conn = db::open_db()?;
         let count = crate::formula::recalculate_case_formulas(&conn, &case_id)?;
         Ok(count)
-    }).await
+    })
+    .await
 }
 
 /// 重新计算所有案件的公式缓存列
@@ -671,7 +719,8 @@ pub async fn recalculate_all_formulas() -> Result<usize, String> {
         let conn = db::open_db()?;
         let count = crate::formula::recalculate_all_formulas(&conn)?;
         Ok(count)
-    }).await
+    })
+    .await
 }
 
 /// 手动切换案件状态（双轨状态机）
@@ -817,6 +866,169 @@ pub async fn get_today_stats() -> Result<TodayStats, String> {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 庭审分表 CRUD 管理 (支持无限次开庭与节点编辑)
+// ═══════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HearingDto {
+    pub id: String,
+    pub case_id: String,
+    pub hearing_record: String,
+    pub hearing_name: Option<String>,
+    pub hearing_date: String,
+    pub venue: Option<String>,
+    pub attendees: Option<String>,
+    pub judges: Option<String>,
+    pub court: Option<String>,
+    pub case_level: Option<String>,
+    pub contact_info: Option<String>,
+    pub actual_status: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[tauri::command]
+pub async fn list_case_hearings(case_id: String) -> Result<Vec<HearingDto>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, case_id, hearing_record, hearing_name, hearing_date, venue, attendees, judges, court, case_level, contact_info, actual_status, created_at
+             FROM hearings WHERE case_id = ?1 ORDER BY hearing_date ASC"
+        )?;
+        let rows = stmt.query_map(rusqlite::params![case_id], |r| {
+            Ok(HearingDto {
+                id: r.get(0)?,
+                case_id: r.get(1)?,
+                hearing_record: r.get(2)?,
+                hearing_name: r.get(3)?,
+                hearing_date: r.get(4)?,
+                venue: r.get(5)?,
+                attendees: r.get(6)?,
+                judges: r.get(7)?,
+                court: r.get(8)?,
+                case_level: r.get(9)?,
+                contact_info: r.get(10)?,
+                actual_status: r.get(11)?,
+                created_at: r.get(12)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for r in rows {
+            result.push(r?);
+        }
+        Ok(result)
+    }).await
+}
+
+#[tauri::command]
+pub async fn create_case_hearing(payload: serde_json::Value) -> Result<HearingDto, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let id = payload["id"].as_str().map(|s| s.to_string()).unwrap_or_else(db::new_id);
+        let case_id = payload["caseId"].as_str().ok_or_else(|| anyhow::anyhow!("缺少 caseId"))?.to_string();
+        let hearing_date = payload["hearingDate"].as_str().ok_or_else(|| anyhow::anyhow!("缺少 hearingDate"))?.to_string();
+        let hearing_name = payload["hearingName"].as_str().unwrap_or("开庭/口审").to_string();
+        let court = payload["court"].as_str().map(|s| s.to_string());
+        let venue = payload["venue"].as_str().map(|s| s.to_string());
+        let judges = payload["judges"].as_str().map(|s| s.to_string());
+        let case_level = payload["caseLevel"].as_str().map(|s| s.to_string());
+        let contact_info = payload["contactInfo"].as_str().map(|s| s.to_string());
+        let actual_status = payload["actualStatus"].as_str().map(|s| s.to_string());
+
+        conn.execute(
+            "INSERT INTO hearings (
+                id, case_id, hearing_record, hearing_name, hearing_date, venue, court, case_level, judges, contact_info, actual_status, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now', 'localtime'))",
+            rusqlite::params![
+                id,
+                case_id,
+                hearing_name,
+                hearing_name,
+                hearing_date,
+                venue,
+                court,
+                case_level,
+                judges,
+                contact_info,
+                actual_status
+            ],
+        )?;
+
+        // 同步更新案件首期开庭 (如果案件 trial_date 为空)
+        let _ = conn.execute(
+            "UPDATE cases SET trial_date = ?1 WHERE id = ?2 AND (trial_date IS NULL OR trial_date = '')",
+            rusqlite::params![hearing_date, case_id],
+        );
+
+        Ok(HearingDto {
+            id,
+            case_id,
+            hearing_record: hearing_name.clone(),
+            hearing_name: Some(hearing_name),
+            hearing_date,
+            venue,
+            attendees: None,
+            judges,
+            court,
+            case_level,
+            contact_info,
+            actual_status,
+            created_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+        })
+    }).await
+}
+
+#[tauri::command]
+pub async fn update_case_hearing(id: String, payload: serde_json::Value) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let hearing_name = payload["hearingName"].as_str();
+        let hearing_date = payload["hearingDate"].as_str();
+        let venue = payload["venue"].as_str();
+        let court = payload["court"].as_str();
+        let judges = payload["judges"].as_str();
+        let case_level = payload["caseLevel"].as_str();
+        let contact_info = payload["contactInfo"].as_str();
+        let actual_status = payload["actualStatus"].as_str();
+
+        conn.execute(
+            "UPDATE hearings SET
+                hearing_name = COALESCE(?1, hearing_name),
+                hearing_record = COALESCE(?1, hearing_record),
+                hearing_date = COALESCE(?2, hearing_date),
+                venue = COALESCE(?3, venue),
+                court = COALESCE(?4, court),
+                judges = COALESCE(?5, judges),
+                case_level = COALESCE(?6, case_level),
+                contact_info = COALESCE(?7, contact_info),
+                actual_status = COALESCE(?8, actual_status)
+             WHERE id = ?9",
+            rusqlite::params![
+                hearing_name,
+                hearing_date,
+                venue,
+                court,
+                judges,
+                case_level,
+                contact_info,
+                actual_status,
+                id
+            ],
+        )?;
+        Ok(())
+    }).await
+}
+
+#[tauri::command]
+pub async fn delete_case_hearing(id: String) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        conn.execute("DELETE FROM hearings WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }).await
+}
+
+// ═══════════════════════════════════════════════════════════
 // 案件类型差异化评估（设计哲学 §原则五 / P3）
 //
 // 按 cases.case_type 输出不同评估指标，纯 SQL 确定性计算，不调 AI：
@@ -884,8 +1096,8 @@ pub fn compute_case_type_metrics(
                  )",
                 due = TASK_DUE_EXPR
             );
-            let (completed_total, with_due, on_time): (i64, Option<i64>, Option<i64>) =
-                conn.query_row(&sql, rusqlite::params![case_id], |row| {
+            let (completed_total, with_due, on_time): (i64, Option<i64>, Option<i64>) = conn
+                .query_row(&sql, rusqlite::params![case_id], |row| {
                     Ok((row.get(0)?, row.get(1)?, row.get(2)?))
                 })?;
             let with_due = with_due.unwrap_or(0);
@@ -1039,7 +1251,14 @@ mod case_type_metrics_tests {
         conn
     }
 
-    fn add_task(conn: &rusqlite::Connection, id: &str, case_id: &str, completed: i32, due: Option<&str>, blocked: i32) {
+    fn add_task(
+        conn: &rusqlite::Connection,
+        id: &str,
+        case_id: &str,
+        completed: i32,
+        due: Option<&str>,
+        blocked: i32,
+    ) {
         conn.execute(
             "INSERT INTO tasks (id, case_id, completed, due_date, blocked) VALUES (?1, ?2, ?3, ?4, ?5)",
             rusqlite::params![id, case_id, completed, due, blocked],
@@ -1050,7 +1269,11 @@ mod case_type_metrics_tests {
     #[test]
     fn test_computational_metrics() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c1', 'computational')", []).unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_type) VALUES ('c1', 'computational')",
+            [],
+        )
+        .unwrap();
         let today = db::today();
         // 按时完成：due 今天，completed 事件今天
         add_task(&conn, "t1", "c1", 1, Some(&today), 0);
@@ -1079,11 +1302,15 @@ mod case_type_metrics_tests {
     #[test]
     fn test_exploratory_metrics() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c2', 'exploratory')", []).unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_type) VALUES ('c2', 'exploratory')",
+            [],
+        )
+        .unwrap();
         add_task(&conn, "t1", "c2", 1, None, 1); // blocked 已完成
         add_task(&conn, "t2", "c2", 0, None, 1); // blocked 未完成
         add_task(&conn, "t3", "c2", 0, None, 0); // 非 blocked
-        // 90 天内 2 次变迁，90 天外 1 次
+                                                 // 90 天内 2 次变迁，90 天外 1 次
         conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h1', 'c2', datetime('now','localtime','-10 days'))", []).unwrap();
         conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h2', 'c2', datetime('now','localtime','-80 days'))", []).unwrap();
         conn.execute("INSERT INTO case_track_history (id, case_id, changed_at) VALUES ('h3', 'c2', datetime('now','localtime','-120 days'))", []).unwrap();
@@ -1100,7 +1327,11 @@ mod case_type_metrics_tests {
     #[test]
     fn test_growth_metrics() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c3', 'growth')", []).unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_type) VALUES ('c3', 'growth')",
+            [],
+        )
+        .unwrap();
         add_task(&conn, "t1", "c3", 0, None, 0);
         // 今天、5 天前、40 天前（超出 30 天窗口）各一条事件
         conn.execute("INSERT INTO task_events (id, task_id, event_type, occurred_at) VALUES ('e1', 't1', 'created', datetime('now','localtime'))", []).unwrap();
@@ -1116,7 +1347,8 @@ mod case_type_metrics_tests {
     #[test]
     fn test_generic_metrics_when_case_type_null() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c4', NULL)", []).unwrap();
+        conn.execute("INSERT INTO cases (id, case_type) VALUES ('c4', NULL)", [])
+            .unwrap();
         add_task(&conn, "t1", "c4", 1, None, 0);
         add_task(&conn, "t2", "c4", 0, Some("2000-01-01"), 0);
         add_task(&conn, "t3", "c4", 0, None, 0);

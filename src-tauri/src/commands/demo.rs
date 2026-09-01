@@ -72,15 +72,39 @@ fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
     let case_a = mkid();
     let case_b = mkid();
     for (id, no, name, client, court, track) in [
-        (&case_a, "2026-0001", "张三诉某公司专利权无效宣告案", "张三", "国家知识产权局", "patent_invalidation"),
-        (&case_b, "2026-0002", "李四发明专利行政纠纷案", "李四", "北京知识产权法院", "admin_litigation"),
+        (
+            &case_a,
+            "2026-0001",
+            "张三诉某公司专利权无效宣告案",
+            "张三",
+            "国家知识产权局",
+            "patent_invalidation",
+        ),
+        (
+            &case_b,
+            "2026-0002",
+            "李四发明专利行政纠纷案",
+            "李四",
+            "北京知识产权法院",
+            "admin_litigation",
+        ),
     ] {
         conn.execute(
             "INSERT INTO cases (id, track, case_name, case_no, client_name, our_role,
                 opponent_name, opponent_firm, court, filing_date, area_id, created_at, updated_at)
              VALUES (?1,?2,?3,?4,?5,'代理人',?6,?7,?8,?9,'area-demo-1',?10,?10)",
-            rusqlite::params![id, track, name, no, client,
-                format!("对方当事人·{no}"), "某律所", court, plus_days(-20), now],
+            rusqlite::params![
+                id,
+                track,
+                name,
+                no,
+                client,
+                format!("对方当事人·{no}"),
+                "某律所",
+                court,
+                plus_days(-20),
+                now
+            ],
         )
         .map_err(|e| format!("step_cases: {e}"))?;
     }
@@ -109,8 +133,14 @@ fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
             "INSERT INTO case_deadlines (id, case_id, deadline_name, due_date, completed,
                 deadline_source, notes, created_at)
              VALUES (?1,?2,?3,?4,0,'manual',?5,?6)",
-            rusqlite::params![mkid(), cid, dname, plus_days(days),
-                format!("演示期限 R{level}"), now],
+            rusqlite::params![
+                mkid(),
+                cid,
+                dname,
+                plus_days(days),
+                format!("演示期限 R{level}"),
+                now
+            ],
         )
         .map_err(|e| format!("step_deadlines: {e}"))?;
     }
@@ -125,16 +155,116 @@ fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
 
     // ── 任务群（bucket, case_id:Option, name, type, due_offset, due_time, est, focus, priority）──
     let tasks_spec: Vec<DemoTaskSpec> = vec![
-        ("today", Some(case_a.as_str()), "核对口审证据清单", "action", Some(0), Some("09:30"), Some(45), 1, "urgent_important"),
-        ("today", Some(case_a.as_str()), "起草答辩状初稿", "action", Some(0), None, Some(120), 0, "important"),
-        ("today", Some(case_b.as_str()), "回复客户进度询问", "waiting", Some(0), Some("16:00"), None, 0, "normal"),
-        ("today", None, "整理会议行动项", "action", Some(0), None, Some(30), 0, "normal"),
-        ("today", Some(case_b.as_str()), "复核缴费回执", "action", Some(0), Some("17:30"), Some(15), 1, "urgent_important"),
-        ("today", None, "准备客户需求评审", "action", Some(1), Some("10:00"), Some(60), 0, "important"),
-        ("today", None, "提交上季度报表", "action", Some(-2), Some("12:00"), Some(30), 0, "high"),
-        ("anytime", None, "深度学习：无效程序新规", "action", None, None, Some(90), 0, "low"),
-        ("anytime", None, "更新律师画像工作时段", "action", None, None, None, 0, "low"),
-        ("someday", None, "搭建类案检索库", "someday", None, None, None, 0, "low"),
+        (
+            "today",
+            Some(case_a.as_str()),
+            "核对口审证据清单",
+            "action",
+            Some(0),
+            Some("09:30"),
+            Some(45),
+            1,
+            "urgent_important",
+        ),
+        (
+            "today",
+            Some(case_a.as_str()),
+            "起草答辩状初稿",
+            "action",
+            Some(0),
+            None,
+            Some(120),
+            0,
+            "important",
+        ),
+        (
+            "today",
+            Some(case_b.as_str()),
+            "回复客户进度询问",
+            "waiting",
+            Some(0),
+            Some("16:00"),
+            None,
+            0,
+            "normal",
+        ),
+        (
+            "today",
+            None,
+            "整理会议行动项",
+            "action",
+            Some(0),
+            None,
+            Some(30),
+            0,
+            "normal",
+        ),
+        (
+            "today",
+            Some(case_b.as_str()),
+            "复核缴费回执",
+            "action",
+            Some(0),
+            Some("17:30"),
+            Some(15),
+            1,
+            "urgent_important",
+        ),
+        (
+            "today",
+            None,
+            "准备客户需求评审",
+            "action",
+            Some(1),
+            Some("10:00"),
+            Some(60),
+            0,
+            "important",
+        ),
+        (
+            "today",
+            None,
+            "提交上季度报表",
+            "action",
+            Some(-2),
+            Some("12:00"),
+            Some(30),
+            0,
+            "high",
+        ),
+        (
+            "anytime",
+            None,
+            "深度学习：无效程序新规",
+            "action",
+            None,
+            None,
+            Some(90),
+            0,
+            "low",
+        ),
+        (
+            "anytime",
+            None,
+            "更新律师画像工作时段",
+            "action",
+            None,
+            None,
+            None,
+            0,
+            "low",
+        ),
+        (
+            "someday",
+            None,
+            "搭建类案检索库",
+            "someday",
+            None,
+            None,
+            None,
+            0,
+            "low",
+        ),
     ];
 
     let mut task_n = 0usize;
@@ -174,11 +304,20 @@ fn seed_demo_data_impl(conn: &Connection) -> Result<SeedReport, String> {
     }
 
     // ── 知识 ×3 ──（category 走 CHECK 白名单内的 'other'）
-    for title in ["无效宣告程序时间轴速查", "口审应对清单", "客户沟通模板：进度同步"] {
+    for title in [
+        "无效宣告程序时间轴速查",
+        "口审应对清单",
+        "客户沟通模板：进度同步",
+    ] {
         conn.execute(
             "INSERT INTO knowledge_items (id, title, category, content, created_at, updated_at)
              VALUES (?1,?2,'other',?3,?4,?4)",
-            rusqlite::params![mkid(), title, format!("演示知识：{title}（Dogfooding 用）"), now],
+            rusqlite::params![
+                mkid(),
+                title,
+                format!("演示知识：{title}（Dogfooding 用）"),
+                now
+            ],
         )
         .map_err(|e| format!("step_knowledge: {e}"))?;
     }
@@ -227,15 +366,23 @@ mod tests {
         assert!(r.tasks >= 10);
         assert_eq!(r.hearings, 2);
 
-        let orphans: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks t WHERE t.case_id IS NOT NULL
+        let orphans: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks t WHERE t.case_id IS NOT NULL
              AND NOT EXISTS (SELECT 1 FROM cases c WHERE c.id = t.case_id)",
-            [], |r| r.get(0)).unwrap();
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(orphans, 0);
 
-        let missing: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM hearings WHERE hearing_record IS NULL OR hearing_record = ''",
-            [], |r| r.get(0)).unwrap();
+        let missing: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM hearings WHERE hearing_record IS NULL OR hearing_record = ''",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(missing, 0);
     }
 
@@ -245,7 +392,9 @@ mod tests {
         seed_demo_data_impl(&conn).expect("first seed ok");
         let err = seed_demo_data_impl(&conn).unwrap_err();
         assert!(err.contains("拒绝注入"), "应明确拒绝: {err}");
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM cases", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM cases", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 2);
     }
 }

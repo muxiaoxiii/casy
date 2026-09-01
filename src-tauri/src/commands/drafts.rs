@@ -180,8 +180,7 @@ pub async fn delete_draft(id: String) -> Result<bool, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
-        let rows = conn
-            .execute("DELETE FROM drafts WHERE id = ?1", rusqlite::params![id])?;
+        let rows = conn.execute("DELETE FROM drafts WHERE id = ?1", rusqlite::params![id])?;
 
         Ok(rows > 0)
     })

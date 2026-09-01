@@ -25,7 +25,7 @@ const mockTasks = [
   { id: 't1', taskName: '核对隆基口审证据清单', caseId: 'c1', priority: 'urgent_important', dueDate: '2026-08-25', taskType: 'action', startBucket: 'today', blocked: 0, sequenceOrder: 1, context: 'office', estimatedMinutes: 45, todayIndex: 0, flagged: true },
   { id: 't2', taskName: '起草华为案补充证据说明', caseId: 'c2', priority: 'urgent', dueDate: '2026-08-20', taskType: 'action', startBucket: 'today', blocked: 0, context: 'office', estimatedMinutes: 60, todayIndex: 1 },
   { id: 't3', taskName: '跟进宁德时代检索报告', caseId: 'c3', priority: 'normal', dueDate: '2026-08-28', taskType: 'waiting', waitingFor: '专利代理师', followUpDate: '2026-08-20', startBucket: 'anytime' },
-  { id: 't4', taskName: '审核腾讯行政诉讼答辩状', caseId: 'c4', priority: 'important', dueDate: '2026-08-30', taskType: 'action', startBucket: 'upcoming', blocked: 0, context: 'court' },
+  { id: 't4', taskName: '审核腾讯行政诉讼答辩状', caseId: 'c4', priority: 'important', dueDate: '2026-08-30', taskType: 'action', startBucket: 'anytime', blocked: 0, context: 'court' },
   { id: 't5', taskName: '整理百度案技术文献', caseId: 'c6', priority: 'normal', taskType: 'action', startBucket: 'anytime', blocked: 0 },
   { id: 't6', taskName: '大疆案庭前调解方案', caseId: null, priority: 'normal', taskType: 'action', startBucket: 'someday' },
   { id: 't7', taskName: '更新案件进度周报', caseId: null, priority: 'normal', dueDate: '2026-08-21', taskType: 'action', startBucket: 'today', blocked: 0 },

@@ -6,8 +6,7 @@
 #[cfg(test)]
 #[test]
 fn export_ts_bindings() {
-    let conf = specta::ts::ExportConfiguration::new()
-        .bigint(specta::ts::BigIntExportBehavior::Number);
-    specta::export::ts_with_cfg("../src/types/bindings.ts", &conf)
-        .expect("specta TS 导出失败");
+    let conf =
+        specta::ts::ExportConfiguration::new().bigint(specta::ts::BigIntExportBehavior::Number);
+    specta::export::ts_with_cfg("../src/types/bindings.ts", &conf).expect("specta TS 导出失败");
 }

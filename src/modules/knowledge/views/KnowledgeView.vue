@@ -394,6 +394,9 @@ onMounted(async () => {
     <div class="knowledge-header">
       <h2>知识库</h2>
       <div class="header-actions">
+        <el-tooltip content="前往案卷库，选中文件内容右键即可沉淀到知识库" placement="bottom">
+          <el-button type="success" plain @click="router.push({ name: 'cases' })">从案卷提取知识</el-button>
+        </el-tooltip>
         <el-button @click="router.push({ name: 'knowledge-graph' })">知识图谱</el-button>
         <el-input
           v-model="filter.search"
@@ -713,21 +716,27 @@ onMounted(async () => {
 
 <style scoped>
 .knowledge-page {
-  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px 28px 48px;
   height: 100%;
   display: flex;
   flex-direction: column;
+  color: var(--c-text);
 }
 
 .knowledge-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .knowledge-header h2 {
   margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--c-text-heading);
 }
 
 .header-actions {
@@ -738,12 +747,13 @@ onMounted(async () => {
 /* 快速捕获条 */
 .quick-capture {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 12px;
-  background: var(--gray-50);
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--c-bg-card);
   border: 1px solid var(--c-border);
-  border-radius: 8px;
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
 }
 
 .quick-capture .el-input {
@@ -753,28 +763,30 @@ onMounted(async () => {
 /* 职能标签页 */
 .category-tabs {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 12px;
-  background: var(--gray-50);
-  border-radius: 8px;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 8px 12px;
+  background: var(--c-bg-subtle);
+  border-radius: var(--c-radius-xl);
+  border: 1px solid var(--c-border);
+  overflow-x: auto;
 }
 
 .category-tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 6px 14px;
+  border-radius: var(--c-radius-lg);
   cursor: pointer;
-  transition: all var(--motion-base) var(--ease-out);
-  background: #fff;
+  transition: all var(--motion-fast) var(--ease-out);
+  background: var(--c-bg-card);
   border: 1px solid var(--c-border);
 }
 
 .category-tab:hover {
   border-color: var(--tab-color);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .category-tab.active {
@@ -794,8 +806,9 @@ onMounted(async () => {
 }
 
 .tab-label {
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-regular);
 }
 
 .knowledge-content {
@@ -808,11 +821,16 @@ onMounted(async () => {
 .knowledge-list {
   flex: 1;
   overflow: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  background: var(--c-bg-card);
+  box-shadow: var(--shadow-sm);
 }
 
 .knowledge-detail {
-  width: 400px;
+  width: 440px;
   overflow: auto;
+  border-radius: var(--c-radius-xl);
 }
 
 .detail-header {
@@ -823,6 +841,9 @@ onMounted(async () => {
 
 .detail-header h3 {
   margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text-heading);
 }
 
 .detail-actions {
@@ -842,12 +863,12 @@ onMounted(async () => {
 .rel-counts {
   display: flex;
   gap: 8px;
-  color: var(--gray-400);
-  font-size: 12px;
+  color: var(--c-text-secondary);
+  font-size: 11px;
 }
 
 .rel-empty {
-  color: var(--gray-300);
+  color: var(--c-text-placeholder);
 }
 
 /* 双链展示区 */
@@ -857,8 +878,9 @@ onMounted(async () => {
 
 .links-section h4 {
   margin: 0 0 8px;
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-heading);
 }
 
 .links-grid {
@@ -866,21 +888,21 @@ onMounted(async () => {
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  background: var(--gray-50);
-  border-radius: 6px;
+  background: var(--c-bg-subtle);
+  border-radius: var(--c-radius-lg);
 }
 
 .link-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .link-label {
   flex-shrink: 0;
   width: 64px;
-  color: var(--gray-400);
+  color: var(--c-text-secondary);
 }
 
 .task-links {
@@ -896,18 +918,21 @@ onMounted(async () => {
 
 .blocks-section h4 {
   margin: 0 0 8px;
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-heading);
 }
 
 .block-item {
-  padding: 8px 0 8px 0;
-  border-bottom: 1px solid var(--c-bg-hover);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--c-border-light);
   cursor: pointer;
+  border-radius: 6px;
+  transition: background var(--motion-fast);
 }
 
 .block-item:hover {
-  background: var(--gray-50);
+  background: var(--c-bg-hover);
 }
 
 .block-item:last-child {
@@ -924,14 +949,14 @@ onMounted(async () => {
 .block-title {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--c-text-heading);
 }
 
 .block-content {
-  font-size: 13px;
-  color: #606266;
+  font-size: 12.5px;
+  color: var(--c-text-regular);
   white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .content-section {
@@ -940,17 +965,20 @@ onMounted(async () => {
 
 .content-section h4 {
   margin: 0 0 8px;
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-heading);
 }
 
 .content-text {
-  padding: 12px;
-  background: var(--gray-50);
-  border-radius: 4px;
+  padding: 14px;
+  background: var(--c-bg-subtle);
+  border-radius: var(--c-radius-lg);
   white-space: pre-wrap;
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.6;
+  color: var(--c-text);
+  border-left: 3px solid var(--c-primary);
 }
 
 .tags-section {
@@ -959,8 +987,9 @@ onMounted(async () => {
 
 .tags-section h4 {
   margin: 0 0 8px;
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-heading);
 }
 
 .tags-list {
@@ -978,13 +1007,13 @@ onMounted(async () => {
 }
 
 .tip {
-  color: var(--gray-400);
-  font-size: 13px;
+  color: var(--c-text-secondary);
+  font-size: 12px;
 }
 
 .content-preview {
   font-size: 12px;
-  color: #606266;
+  color: var(--c-text-regular);
 }
 
 .diff-view {
@@ -1001,23 +1030,25 @@ onMounted(async () => {
 .diff-version-info {
   flex: 1;
   padding: 12px;
-  background: var(--gray-50);
-  border-radius: 4px;
+  background: var(--c-bg-subtle);
+  border-radius: var(--c-radius-lg);
 }
 
 .diff-version-info h4 {
   margin: 0 0 8px;
   font-size: 14px;
+  color: var(--c-text-heading);
 }
 
 .diff-version-info p {
   margin: 4px 0;
-  font-size: 13px;
+  font-size: 12px;
+  color: var(--c-text-secondary);
 }
 
 .diff-content {
-  font-family: monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -1027,20 +1058,22 @@ onMounted(async () => {
 }
 
 .diff-line.equal {
-  background: #fff;
+  background: var(--c-bg-card);
 }
 
 .diff-line.added {
-  background: #e6ffed;
+  background: var(--bg-success-weak);
+  color: var(--status-success);
 }
 
 .diff-line.removed {
-  background: #ffeef0;
+  background: var(--bg-risk-weak);
+  color: var(--status-risk);
 }
 
 .line-number {
   width: 40px;
-  color: var(--gray-400);
+  color: var(--c-text-secondary);
   text-align: right;
   margin-right: 12px;
   user-select: none;

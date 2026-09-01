@@ -46,6 +46,11 @@ export class CalendarService extends Service {
     return tauriCallSafe<unknown>('get_deadline_warnings', {})
   }
 
+  /** 中国法定节假日与调休工作日（内置数据 + 收件箱确认导入）。 */
+  async holidays(year: number): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    return tauriCallSafe<unknown>('get_holiday_calendar', { year })
+  }
+
   async dashboardStats(): Promise<{ ok: boolean; data?: DashboardStats; error?: string }> {
     return tauriCallSafe<DashboardStats>('get_dashboard_stats', {})
   }

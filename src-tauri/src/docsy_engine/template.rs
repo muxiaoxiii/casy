@@ -122,10 +122,7 @@ fn parse_template(path: &Path, base: &Path) -> Result<DocsyTemplate> {
 
     // 生成唯一 ID（基于相对路径的 hash）
     let relative = path.strip_prefix(base).unwrap_or(path);
-    let id = format!(
-        "{:x}",
-        md5_hash(relative.to_string_lossy().as_bytes())
-    );
+    let id = format!("{:x}", md5_hash(relative.to_string_lossy().as_bytes()));
 
     // 尝试从 docx 文件中提取字段
     let (fields, description) = extract_template_info(path).unwrap_or_default();

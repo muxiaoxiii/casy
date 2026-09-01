@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::{Component, Path, PathBuf};
 
 use super::run_blocking;
 use crate::db;
@@ -60,14 +61,14 @@ pub async fn add_case_file(
     run_blocking(move || {
         let conn = db::open_db()?;
         let id = db::new_id();
-        // 审计 P1#1：拒绝登记不存在的文件（防"有记录、没文件"假卷宗）
-        if !std::path::Path::new(&file_path).is_file() {
-            return Err(anyhow::anyhow!("文件不存在，拒绝登记: {file_path}"));
-        }
-        let file_size = std::fs::metadata(&file_path)
+        let (root, _) = case_root(&case_id)?;
+        let root = std::fs::canonicalize(root)?;
+        let safe_path = canonical_file_in_case(&root, Path::new(&file_path))?;
+        let safe_path_string = safe_path.to_string_lossy().to_string();
+        let file_size = std::fs::metadata(&safe_path)
             .ok()
             .map(|m| m.len() as i64);
-        let file_type = std::path::Path::new(&file_path)
+        let file_type = safe_path
             .extension()
             .and_then(|e| e.to_str())
             .map(|s| s.to_string());
@@ -75,14 +76,14 @@ pub async fn add_case_file(
         conn.execute(
             "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![id, case_id, file_name, file_path, file_size, file_type, category],
+            rusqlite::params![id, case_id, file_name, safe_path_string, file_size, file_type, category],
         )?;
 
         Ok(CaseFile {
             id,
             case_id,
             file_name,
-            file_path,
+            file_path: safe_path_string,
             file_size,
             file_type,
             category,
@@ -98,7 +99,10 @@ pub async fn add_case_file(
 pub async fn delete_case_file(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        conn.execute("DELETE FROM case_files WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM case_files WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
     })
     .await
@@ -122,8 +126,6 @@ fn map_file_row(row: &rusqlite::Row) -> rusqlite::Result<CaseFile> {
 // 案卷管理 · 本地文件夹同步（index-v2 精装版规格 · 可交付目标③）
 // ============================================================
 
-use std::path::PathBuf;
-
 /// 案件卷宗根目录（复用 files::ensure_case_folder 的命名规则）
 fn case_root(case_id: &str) -> anyhow::Result<(PathBuf, crate::db::cases::Case)> {
     let conn = crate::db::open_db()?;
@@ -131,6 +133,43 @@ fn case_root(case_id: &str) -> anyhow::Result<(PathBuf, crate::db::cases::Case)>
         .map_err(|e| anyhow::anyhow!("案件不存在: {e}"))?;
     let root = crate::files::ensure_case_folder(&case)?;
     Ok((root, case))
+}
+
+fn validate_case_relative_path(value: &str) -> anyhow::Result<()> {
+    let path = Path::new(value);
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
+    {
+        anyhow::bail!("非法卷宗相对路径: {value}");
+    }
+    Ok(())
+}
+
+fn canonical_dir_in_case(root: &Path, relative: Option<&str>) -> anyhow::Result<PathBuf> {
+    let target = match relative.filter(|value| !value.is_empty()) {
+        Some(value) => {
+            validate_case_relative_path(value)?;
+            root.join(value)
+        }
+        None => root.to_path_buf(),
+    };
+    let target = std::fs::canonicalize(target)?;
+    if !target.is_dir() || !target.starts_with(root) {
+        anyhow::bail!("目标目录不在案件卷宗内");
+    }
+    Ok(target)
+}
+
+fn canonical_file_in_case(root: &Path, path: &Path) -> anyhow::Result<PathBuf> {
+    let path = std::fs::canonicalize(path)
+        .map_err(|_| anyhow::anyhow!("文件不存在，拒绝登记: {}", path.display()))?;
+    if !path.is_file() || !path.starts_with(root) {
+        anyhow::bail!("仅允许登记案件卷宗根目录内的文件");
+    }
+    Ok(path)
 }
 
 #[derive(serde::Serialize)]
@@ -149,23 +188,33 @@ pub async fn list_case_dirs(case_id: String) -> Result<Vec<CaseDirEntry>, String
     run_blocking(move || {
         let (root, _case) = case_root(&case_id)?;
         let mut out = Vec::new();
-        let mut subs: Vec<PathBuf> = std::fs::read_dir(&root)
-            ?
+        let mut subs: Vec<PathBuf> = std::fs::read_dir(&root)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| p.is_dir())
             .collect();
         subs.sort();
         for sub in subs {
-            let name = sub.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let name = sub
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
             let count = std::fs::read_dir(&sub)
-                .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.path().is_file()).count())
+                .map(|rd| {
+                    rd.filter_map(|e| e.ok())
+                        .filter(|e| e.path().is_file())
+                        .count()
+                })
                 .unwrap_or(0);
             out.push(CaseDirEntry {
                 rel_path: name.clone(),
                 name,
                 file_count: count as u64,
-                state: if count > 0 { "ok".into() } else { "empty".into() },
+                state: if count > 0 {
+                    "ok".into()
+                } else {
+                    "empty".into()
+                },
             });
         }
         Ok(out)
@@ -175,18 +224,25 @@ pub async fn list_case_dirs(case_id: String) -> Result<Vec<CaseDirEntry>, String
 
 /// 新建子文件夹（在卷宗根或指定子目录内）
 #[tauri::command]
-pub async fn create_case_subdir(case_id: String, parent_rel: Option<String>, name: String) -> Result<String, String> {
+pub async fn create_case_subdir(
+    case_id: String,
+    parent_rel: Option<String>,
+    name: String,
+) -> Result<String, String> {
     run_blocking(move || {
         let name = name.trim();
-        if name.is_empty() || name.contains('/') || name.contains("..") {
+        if name.is_empty() || Path::new(name).components().count() != 1 {
             return Err(anyhow::anyhow!("非法文件夹名"));
         }
         let (root, _) = case_root(&case_id)?;
-        let target = match parent_rel.as_deref() {
-            Some(p) if !p.is_empty() => root.join(p).join(name),
-            _ => root.join(name),
-        };
-        std::fs::create_dir_all(&target)?;
+        let root = std::fs::canonicalize(root)?;
+        let parent = canonical_dir_in_case(&root, parent_rel.as_deref())?;
+        let target = parent.join(name);
+        std::fs::create_dir(&target)?;
+        let target = std::fs::canonicalize(target)?;
+        if !target.starts_with(&root) {
+            anyhow::bail!("新建目录越出案件卷宗范围");
+        }
         Ok(target.to_string_lossy().to_string())
     })
     .await
@@ -210,11 +266,8 @@ pub async fn import_files_to_case(
 ) -> Result<Vec<ImportedFile>, String> {
     run_blocking(move || {
         let (root, _case) = case_root(&case_id)?;
-        let dir = match dir_rel.as_deref() {
-            Some(d) if !d.is_empty() => root.join(d),
-            _ => root.clone(),
-        };
-        std::fs::create_dir_all(&dir)?;
+        let root = std::fs::canonicalize(root)?;
+        let dir = canonical_dir_in_case(&root, dir_rel.as_deref())?;
 
         let conn_guard = crate::db::open_db()?;
         let conn = &conn_guard;
@@ -259,12 +312,14 @@ pub async fn import_files_to_case(
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|s| s.trim_start_matches('.').to_string());
-            conn.execute(
+            if let Err(db_error) = conn.execute(
                 "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type)
                  VALUES (?1,?2,?3,?4,?5,?6,'other','imported')",
                 rusqlite::params![fid, case_id, final_name, dest.to_string_lossy(), size, ftype],
-            )
-            ?;
+            ) {
+                let _ = std::fs::remove_file(&dest);
+                return Err(anyhow::anyhow!("登记失败，已移除复制文件: {db_error}"));
+            }
 
             out.push(ImportedFile {
                 id: fid,
@@ -298,17 +353,32 @@ pub async fn scan_unregistered_files(case_id: String) -> Result<Vec<Unregistered
             rows.filter_map(|r| r.ok()).collect()
         };
         let mut out = Vec::new();
-        fn walk(dir: &PathBuf, out: &mut Vec<UnregisteredFile>, known: &std::collections::HashSet<String>) {
-            let Ok(rd) = std::fs::read_dir(dir) else { return };
+        fn walk(
+            dir: &PathBuf,
+            out: &mut Vec<UnregisteredFile>,
+            known: &std::collections::HashSet<String>,
+        ) {
+            let Ok(rd) = std::fs::read_dir(dir) else {
+                return;
+            };
             for e in rd.filter_map(|e| e.ok()) {
                 let p = e.path();
-                if p.is_dir() {
+                let Ok(metadata) = std::fs::symlink_metadata(&p) else {
+                    continue;
+                };
+                if metadata.file_type().is_symlink() {
+                    continue;
+                }
+                if metadata.is_dir() {
                     walk(&p, out, known);
                 } else if let Some(ps) = p.to_str() {
                     if !known.contains(ps) {
                         if let Ok(meta) = e.metadata() {
                             out.push(UnregisteredFile {
-                                file_name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                                file_name: p
+                                    .file_name()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_default(),
                                 path: ps.to_string(),
                                 size_bytes: meta.len(),
                             });
@@ -327,26 +397,34 @@ pub async fn scan_unregistered_files(case_id: String) -> Result<Vec<Unregistered
 #[tauri::command]
 pub async fn register_existing_files(case_id: String, paths: Vec<String>) -> Result<u32, String> {
     run_blocking(move || {
-        let conn = crate::db::open_db()?;
+        let (root, _) = case_root(&case_id)?;
+        let root = std::fs::canonicalize(root)?;
+        let mut safe_files = Vec::with_capacity(paths.len());
+        for value in &paths {
+            safe_files.push(canonical_file_in_case(&root, Path::new(value))?);
+        }
+
+        let mut conn = crate::db::open_db()?;
+        let tx = conn.transaction()?;
         let mut n = 0u32;
-        for p in &paths {
+        for p in &safe_files {
             let meta = std::fs::metadata(p).ok();
-            let name = PathBuf::from(p)
+            let name = p
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            let ftype = PathBuf::from(p)
+            let ftype = p
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|s| s.to_string());
-            conn.execute(
+            tx.execute(
                 "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type)
                  VALUES (?1,?2,?3,?4,?5,?6,'other','imported')",
-                rusqlite::params![db::new_id(), case_id, name, p, meta.as_ref().map(|m| m.len() as i64), ftype],
-            )
-            ?;
+                rusqlite::params![db::new_id(), case_id, name, p.to_string_lossy(), meta.as_ref().map(|m| m.len() as i64), ftype],
+            )?;
             n += 1;
         }
+        tx.commit()?;
         Ok(n)
     })
     .await
@@ -357,16 +435,25 @@ pub async fn register_existing_files(case_id: String, paths: Vec<String>) -> Res
 pub async fn reveal_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").args(["-R", &path]).spawn().map_err(|e| e.to_string())?;
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer").args(["/select,", &path]).spawn().map_err(|e| e.to_string())?;
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
         if let Some(parent) = std::path::Path::new(&path).parent() {
-            std::process::Command::new("xdg-open").arg(parent).spawn().map_err(|e| e.to_string())?;
+            std::process::Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -377,15 +464,24 @@ pub async fn reveal_path(path: String) -> Result<(), String> {
 pub async fn open_file_with_default(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").arg(&path).spawn().map_err(|e| e.to_string())?;
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd").args(["/C", "start", "", &path]).spawn().map_err(|e| e.to_string())?;
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
-        std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -418,6 +514,8 @@ pub async fn apply_case_file_renames(
 ) -> Result<Vec<RenameOutcome>, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
+        let (root, _) = case_root(&case_id)?;
+        let root = std::fs::canonicalize(root)?;
         let mut out = Vec::new();
         for r in &renames {
             let row: (String, String) = conn
@@ -428,7 +526,7 @@ pub async fn apply_case_file_renames(
                 )
                 .map_err(|_| anyhow::anyhow!("文件不存在: {}", r.id))?;
             let (old_name, old_path_str) = row;
-            let old_path = PathBuf::from(&old_path_str);
+            let old_path = canonical_file_in_case(&root, Path::new(&old_path_str))?;
             let dir = old_path
                 .parent()
                 .map(|p| p.to_path_buf())
@@ -493,4 +591,21 @@ pub async fn apply_case_file_renames(
         Ok(out)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_case_relative_path;
+
+    #[test]
+    fn accepts_nested_case_relative_path() {
+        assert!(validate_case_relative_path("03_证据/对方证据").is_ok());
+    }
+
+    #[test]
+    fn rejects_case_path_escape_and_absolute_path() {
+        assert!(validate_case_relative_path("../其他案件").is_err());
+        assert!(validate_case_relative_path("03_证据/../../其他案件").is_err());
+        assert!(validate_case_relative_path("/tmp/其他案件").is_err());
+    }
 }

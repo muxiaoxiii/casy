@@ -23,6 +23,7 @@ import { AiService } from './ai'
 import { DocsService } from './docs'
 import { ProjectsService } from './projects'
 import { BackupService } from './backup'
+import { DashboardService } from './dashboard'
 import { installToolAuditWriter } from '../ai/toolAudit'
 import { createTodayBriefingSkill } from '../skills/todayBriefing'
 
@@ -46,6 +47,7 @@ export interface ServicesMap {
   docs: DocsService
   projects: ProjectsService
   backup: BackupService
+  dashboard: DashboardService
 }
 
 declare module '../plugin/types' {
@@ -70,6 +72,7 @@ export async function registerServices(): Promise<void> {
   casyContext.provide('docs', new DocsService(casyContext), [])
   casyContext.provide('projects', new ProjectsService(casyContext), ['settings'])
   casyContext.provide('backup', new BackupService(casyContext), [])
+  casyContext.provide('dashboard', new DashboardService(casyContext), [])
 
   // ── K-3 事件层真实消费者（活性证明 + 归因）──
   // ① task:completed → 提醒引擎立即重算当日（不等周期）
@@ -101,4 +104,5 @@ export {
   SettingsService,
   AiService,
   DocsService,
+  DashboardService,
 }

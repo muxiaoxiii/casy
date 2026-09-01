@@ -1,22 +1,24 @@
 /* ── Casy 主题变量 ────────────────────────────────────────── *
  *
- * 按 casy-design-philosophy.md 第十二章设计规范
- * 默认主题：Slate 石墨蓝（低饱和稳重 · 专业信任感）
+ * 按 casy-design-philosophy.md 第十二章设计规范与 Stitch UI 设计系统
+ * 包含 6 套主题（Slate, Luminous Terra, Solarized Light, Solarized Dark, Dark, System）
  * ──────────────────────────────────────────────────────────── */
 
 :root {
   /* ── 品牌色（Slate 石墨蓝）────────────────────────── */
-  --c-primary: #3E5C9A;
-  --c-primary-hover: #334D82;
-  --c-primary-light: #EDF1F8;
-  --c-primary-lighter: #C3CFE3;
-  --c-primary-soft: #EDF1F8;
+  --c-primary: #244481;
+  --c-primary-hover: #1D3768;
+  --c-primary-light: #EDF2FB;
+  --c-primary-lighter: #C8D7FF;
+  --c-primary-soft: #EDF2FB;
+  --c-primary-container: #3E5C9A;
+  --c-on-primary-container: #C8D7FF;
 
   /* ── 中性灰阶（Slate 风格）────────────────────────── */
-  --gray-50:  #F6F7F9;
-  --gray-100: #EEF0F3;
-  --gray-200: #E0E3E9;
-  --gray-300: #CDD2DB;
+  --gray-50:  #F7F9FB;
+  --gray-100: #F2F4F6;
+  --gray-200: #ECEEF0;
+  --gray-300: #E0E3E5;
   --gray-400: #9BA2AF;
   --gray-500: #6B7280;
   --gray-600: #4B5160;
@@ -26,64 +28,83 @@
 
   /* ── 语义色（克制用色）────────────────────────────── */
   --c-success: #4C8067;
-  --c-success-light: #EDF3EF;
+  --c-success-light: #EDF4F0;
+  --bg-success-weak: #EDF4F0;
+  --status-success: #4C8067;
+
   --c-warning: #B0823A;
-  --c-warning-light: #F7F1E3;
+  --c-warning-light: #F6F3EA;
+  --bg-warning-weak: #F6F3EA;
+  --status-warning: #B0823A;
+
   --c-danger: #B4554F;
-  --c-danger-light: #F6EDEC;
+  --c-danger-light: #F7EFEE;
+  --bg-risk-weak: #F7EFEE;
+  --status-risk: #B4554F;
+
   --c-info: #6C6A9C;
   --c-info-light: #F0EFF6;
+  --bg-discovery-weak: #F0EFF6;
+  --status-discovery: #6C6A9C;
 
   /* ── 文字色 ───────────────────────────────────────── */
-  --c-text: #1F2430;
-  --c-text-regular: #4B5160;
-  --c-text-secondary: #9BA2AF;
+  --c-text: #191C1E;
+  --c-text-regular: #444750;
+  --c-text-secondary: #747781;
   --c-text-placeholder: #9BA2AF;
-  --c-text-heading: #1F2430;
+  --c-text-heading: #191C1E;
+  --slate-gray-light: #9BA2AF;
 
   /* ── 背景/边框 ────────────────────────────────────── */
-  --c-bg: #F6F7F9;
-  --c-bg-page: #F6F7F9;
+  --c-bg: #F7F9FB;
+  --c-bg-page: #F7F9FB;
   --c-bg-card: #FFFFFF;
-  --c-bg-sidebar: #FFFFFF;
-  /* 别名（视图层既有引用，集中在此定义防静默失效） */
-  --c-surface: var(--c-bg-card);
+  --c-bg-sidebar: #F2F4F6;
+  --c-bg-topbar: rgba(247, 249, 251, 0.92);
+  --c-bg-elevated: #FFFFFF;
+  --c-surface: #FFFFFF;
   --c-text-muted: var(--c-text-secondary);
-  --c-bg-hover: #F0F2F5;
-  --c-border: #E0E3E9;
-  --c-border-light: #EEF0F3;
-  --c-border-lighter: #EEF0F3;
+  --c-bg-hover: #ECEEF0;
+  --c-bg-subtle: #F2F4F6;
+  --c-bg-selected: #DEE2F3;
+  --c-border: #E4E7EB;
+  --c-border-light: #ECEEF0;
+  --c-border-lighter: #F2F4F6;
+  --c-border-strong: #C4C6D1;
+  --c-primary-contrast: #FFFFFF;
+  --c-overlay: rgba(25, 28, 30, 0.48);
 
   /* ── 圆角 ─────────────────────────────────────────── */
   --c-radius-sm: 4px;
   --c-radius: 6px;
   --c-radius-lg: 8px;
   --c-radius-xl: 12px;
+  --c-radius-2xl: 16px;
   --c-radius-full: 9999px;
   --radius-card: var(--c-radius-lg);
 
-  /* ── 阴影（克制）──────────────────────────────────── */
-  --shadow-sm: 0 1px 2px rgba(31,36,48,.05);
-  --shadow-md: 0 4px 12px rgba(31,36,48,.08);
-  --shadow-lg: 0 12px 32px rgba(31,36,48,.12);
-  --shadow-xl: 0 20px 25px rgba(31,36,48,.12);
+  /* ── 阴影（极简克制）──────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(25, 28, 30, 0.04);
+  --shadow-md: 0 4px 12px rgba(25, 28, 30, 0.06);
+  --shadow-lg: 0 8px 32px rgba(20, 24, 35, 0.12);
+  --shadow-xl: 0 20px 25px rgba(20, 24, 35, 0.12);
 
   /* ── 字体 ─────────────────────────────────────────── */
   --text-xs: 11px;
-  --text-sm: 12px;
-  --font-sm: 12px;
-  --text-base: 13px;
-  --font-base: 13px;
-  --text-lg: 14px;
-  --font-lg: 14px;
+  --text-sm: 12.5px;
+  --font-sm: 12.5px;
+  --text-base: 13.5px;
+  --font-base: 13.5px;
+  --text-lg: 15px;
+  --font-lg: 15px;
   --text-xl: 16px;
-  --text-2xl: 18px;
+  --text-2xl: 20px;
   --text-3xl: 24px;
-  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+  --font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
     'Noto Sans SC', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, monospace;
 
-  /* ── 间距（4px 基础）──────────────────────────────── */
+  /* ── 间距 ─────────────────────────────────────────── */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -98,138 +119,515 @@
   --space-12: 48px;
 
   /* ── 侧边栏 ───────────────────────────────────────── */
-  --sidebar-width: 216px;
-  --sidebar-width-expanded: 216px;
+  --sidebar-width: 240px;
+  --sidebar-width-expanded: 240px;
 
   /* ── Element Plus 变量覆盖 ─────────────────────────── */
-  --el-color-primary: #3E5C9A;
-  --el-color-primary-light-3: #5A7AB5;
-  --el-color-primary-light-5: #8CA0C8;
-  --el-color-primary-light-7: #B3C3DB;
-  --el-color-primary-light-8: #C3CFE3;
-  --el-color-primary-light-9: #EDF1F8;
-  --el-color-primary-dark-2: #334D82;
+  --el-color-primary: var(--c-primary);
+  --el-color-primary-light-3: #4A6BAA;
+  --el-color-primary-light-5: #7A96CC;
+  --el-color-primary-light-7: #ADC1EB;
+  --el-color-primary-light-8: #C8D7FF;
+  --el-color-primary-light-9: #EDF2FB;
+  --el-color-primary-dark-2: var(--c-primary-hover);
 
-  --el-color-success: #4C8067;
-  --el-color-warning: #B0823A;
-  --el-color-danger: #B4554F;
-  --el-color-info: #6C6A9C;
+  --el-color-success: var(--c-success);
+  --el-color-warning: var(--c-warning);
+  --el-color-danger: var(--c-danger);
+  --el-color-info: var(--c-info);
 
-  --el-text-color-primary: #1F2430;
-  --el-text-color-regular: #4B5160;
-  --el-text-color-secondary: #9BA2AF;
-  --el-text-color-placeholder: #9BA2AF;
-  --el-text-color-disabled: #CDD2DB;
+  --el-text-color-primary: var(--c-text);
+  --el-text-color-regular: var(--c-text-regular);
+  --el-text-color-secondary: var(--c-text-secondary);
+  --el-text-color-placeholder: var(--c-text-placeholder);
+  --el-text-color-disabled: #C4C6D1;
 
-  --el-bg-color: #FFFFFF;
-  --el-bg-color-page: #F6F7F9;
-  --el-bg-color-overlay: #FFFFFF;
+  --el-bg-color: var(--c-bg-card);
+  --el-bg-color-page: var(--c-bg-page);
+  --el-bg-color-overlay: var(--c-bg-elevated);
 
-  --el-fill-color: #EEF0F3;
-  --el-fill-color-light: #EEF0F3;
-  --el-fill-color-lighter: #F6F7F9;
-  --el-fill-color-blank: #FFFFFF;
+  --el-fill-color: var(--c-bg-subtle);
+  --el-fill-color-light: var(--c-bg-subtle);
+  --el-fill-color-lighter: var(--c-bg-page);
+  --el-fill-color-blank: var(--c-bg-card);
 
-  --el-border-color: #CDD2DB;
-  --el-border-color-light: #E0E3E9;
-  --el-border-color-lighter: #E0E3E9;
-  --el-border-color-extra-light: #EEF0F3;
-  --el-border-color-hover: #9BA2AF;
+  --el-border-color: var(--c-border-strong);
+  --el-border-color-light: var(--c-border);
+  --el-border-color-lighter: var(--c-border-light);
+  --el-border-color-extra-light: var(--c-border-lighter);
+  --el-border-color-hover: var(--c-primary);
 
   --el-border-radius-base: 6px;
   --el-border-radius-small: 4px;
   --el-border-radius-round: 9999px;
 
-  --el-font-size-base: 13px;
+  --el-font-size-base: 13.5px;
   --el-font-size-small: 12px;
-  --el-font-size-large: 14px;
+  --el-font-size-large: 15px;
 
-  --el-box-shadow: 0 1px 2px rgba(31,36,48,.05);
-  --el-box-shadow-light: 0 1px 2px rgba(31,36,48,.05);
-  --el-box-shadow-lighter: 0 1px 2px rgba(31,36,48,.03);
-  --el-box-shadow-dark: 0 4px 12px rgba(31,36,48,.08);
+  --el-box-shadow: 0 1px 2px rgba(25, 28, 30, 0.04);
+  --el-box-shadow-light: 0 1px 2px rgba(25, 28, 30, 0.04);
+  --el-box-shadow-lighter: 0 1px 2px rgba(25, 28, 30, 0.02);
+  --el-box-shadow-dark: 0 4px 12px rgba(25, 28, 30, 0.08);
 }
 
-/* ── 全局字体 ─────────────────────────────────────────────── */
+/* ── 主题：Slate (石墨蓝 2.0) ─────────────────────────────── */
+[data-theme="slate"] {
+  --c-primary: #244481;
+  --c-primary-hover: #1D3768;
+  --c-primary-light: #EDF2FB;
+  --c-primary-lighter: #C8D7FF;
+  --c-primary-soft: #EDF2FB;
+  --c-primary-container: #3E5C9A;
+  --c-on-primary-container: #C8D7FF;
+
+  --c-success: #4C8067;
+  --c-success-light: #EDF4F0;
+  --bg-success-weak: #EDF4F0;
+  --status-success: #4C8067;
+
+  --c-warning: #B0823A;
+  --c-warning-light: #F6F3EA;
+  --bg-warning-weak: #F6F3EA;
+  --status-warning: #B0823A;
+
+  --c-danger: #B4554F;
+  --c-danger-light: #F7EFEE;
+  --bg-risk-weak: #F7EFEE;
+  --status-risk: #B4554F;
+
+  --c-info: #6C6A9C;
+  --c-info-light: #F0EFF6;
+  --bg-discovery-weak: #F0EFF6;
+  --status-discovery: #6C6A9C;
+
+  --c-text: #191C1E;
+  --c-text-regular: #444750;
+  --c-text-secondary: #747781;
+  --c-text-placeholder: #9BA2AF;
+  --c-text-heading: #191C1E;
+
+  --c-bg: #F7F9FB;
+  --c-bg-page: #F7F9FB;
+  --c-bg-card: #FFFFFF;
+  --c-bg-sidebar: #F2F4F6;
+  --c-bg-topbar: rgba(247, 249, 251, 0.92);
+  --c-bg-elevated: #FFFFFF;
+  --c-surface: #FFFFFF;
+  --c-bg-hover: #ECEEF0;
+  --c-bg-subtle: #F2F4F6;
+  --c-bg-selected: #DEE2F3;
+  --c-border: #E4E7EB;
+  --c-border-light: #ECEEF0;
+  --c-border-lighter: #F2F4F6;
+  --c-border-strong: #C4C6D1;
+  --c-primary-contrast: #FFFFFF;
+  --c-overlay: rgba(25, 28, 30, 0.48);
+}
+
+/* ── 主题：Luminous Terra (暖砂大地 · Aerated Organic) ──────── */
+[data-theme="luminous-terra"] {
+  --c-primary: #416353;
+  --c-primary-hover: #334F42;
+  --c-primary-light: #F0EEE7;
+  --c-primary-lighter: #C5EBD7;
+  --c-primary-soft: #F0EEE7;
+  --c-primary-container: #597C6B;
+  --c-on-primary-container: #F5FFF7;
+
+  --gray-50:  #FCF9F2;
+  --gray-100: #F6F3EC;
+  --gray-200: #F0EEE7;
+  --gray-300: #E5E2DB;
+  --gray-400: #C1C8C2;
+  --gray-500: #8BA899;
+  --gray-600: #727974;
+  --gray-700: #414844;
+  --gray-800: #2D3436;
+  --gray-900: #1C1C18;
+
+  --c-success: #446556;
+  --c-success-light: #EFF4EF;
+  --bg-success-weak: #EFF4EF;
+  --status-success: #446556;
+
+  --c-warning: #805041;
+  --c-warning-light: #FDF3F0;
+  --bg-warning-weak: #FDF3F0;
+  --status-warning: #805041;
+
+  --c-danger: #BA1A1A;
+  --c-danger-light: #FFDAD6;
+  --bg-risk-weak: #FFDAD6;
+  --status-risk: #BA1A1A;
+
+  --c-info: #3F6375;
+  --c-info-light: #EBF4F9;
+  --bg-discovery-weak: #EBF4F9;
+  --status-discovery: #3F6375;
+
+  --c-text: #1C1C18;
+  --c-text-regular: #414844;
+  --c-text-secondary: #68716C;
+  --c-text-placeholder: #7E8882;
+  --c-text-heading: #1C1C18;
+  --slate-gray-light: #8BA899;
+
+  --c-bg: #FCF9F2;
+  --c-bg-page: #FCF9F2;
+  --c-bg-card: #FFFFFF;
+  --c-bg-sidebar: #F5F2EA;
+  --c-bg-topbar: rgba(252, 249, 242, 0.92);
+  --c-bg-elevated: #FFFFFF;
+  --c-surface: #FFFFFF;
+  --c-text-muted: #68716C;
+  --c-bg-hover: #F0EEE7;
+  --c-bg-subtle: #F6F3EC;
+  --c-bg-selected: #E2EAE5;
+  --c-border: #E5E2DB;
+  --c-border-light: #F0EEE7;
+  --c-border-lighter: #F6F3EC;
+  --c-border-strong: #C9C5BC;
+  --c-primary-contrast: #FFFFFF;
+  --c-overlay: rgba(28, 28, 24, 0.46);
+}
+
+/* ── 主题：Solarized Light (日光浅色) ─────────────────────── */
+[data-theme="solarized-light"] {
+  --c-primary: #247BAA;
+  --c-primary-hover: #1B6289;
+  --c-primary-light: #DDECF5;
+  --c-primary-lighter: #A9D4EC;
+  --c-primary-soft: #DDECF5;
+  --c-primary-container: #268BD2;
+  --c-on-primary-container: #EBF4FC;
+
+  --gray-50:  #FDF6E3;
+  --gray-100: #F4EEDC;
+  --gray-200: #EEE8D5;
+  --gray-300: #D6CEB5;
+  --gray-400: #93A1A1;
+  --gray-500: #839496;
+  --gray-600: #657B83;
+  --gray-700: #586E75;
+  --gray-800: #073642;
+  --gray-900: #002B36;
+
+  --c-success: #6E8200;
+  --c-success-light: #EFF4D2;
+  --bg-success-weak: #EFF4D2;
+  --status-success: #6E8200;
+
+  --c-warning: #9A7200;
+  --c-warning-light: #FAF2D2;
+  --bg-warning-weak: #FAF2D2;
+  --status-warning: #9A7200;
+
+  --c-danger: #C43D3A;
+  --c-danger-light: #FDE8E7;
+  --bg-risk-weak: #FDE8E7;
+  --status-risk: #C43D3A;
+
+  --c-info: #6469B0;
+  --c-info-light: #EBEBFA;
+  --bg-discovery-weak: #EBEBFA;
+  --status-discovery: #6469B0;
+
+  --c-text: #073642;
+  --c-text-regular: #586E75;
+  --c-text-secondary: #697D80;
+  --c-text-placeholder: #7D8F91;
+  --c-text-heading: #073642;
+  --slate-gray-light: #93A1A1;
+
+  --c-bg: #FDF6E3;
+  --c-bg-page: #FDF6E3;
+  --c-bg-card: #FFFDF5;
+  --c-bg-sidebar: #EEE8D5;
+  --c-bg-topbar: rgba(253, 246, 227, 0.92);
+  --c-bg-elevated: #FFFDF5;
+  --c-surface: #FFFDF5;
+  --c-text-muted: #697D80;
+  --c-bg-hover: #E4DEC8;
+  --c-bg-subtle: #F4EEDC;
+  --c-bg-selected: #DDECF5;
+  --c-border: #D6CEB5;
+  --c-border-light: #E0D9C3;
+  --c-border-lighter: #EBE5D1;
+  --c-border-strong: #B8AE92;
+  --c-primary-contrast: #FFFFFF;
+  --c-overlay: rgba(0, 43, 54, 0.5);
+}
+
+/* ── 主题：Solarized Dark (日光深色) ──────────────────────── */
+[data-theme="solarized-dark"] {
+  --c-primary: #2AA6D6;
+  --c-primary-hover: #55B9DE;
+  --c-primary-light: #0B3F4F;
+  --c-primary-lighter: #104C5F;
+  --c-primary-soft: #0B3F4F;
+  --c-primary-container: #0E4757;
+  --c-on-primary-container: #A9D4EC;
+
+  --gray-50:  #002B36;
+  --gray-100: #073642;
+  --gray-200: #0C4352;
+  --gray-300: #145365;
+  --gray-400: #586E75;
+  --gray-500: #657B83;
+  --gray-600: #839496;
+  --gray-700: #93A1A1;
+  --gray-800: #EEE8D5;
+  --gray-900: #FDF6E3;
+
+  --c-success: #A2B62D;
+  --c-success-light: #123B17;
+  --bg-success-weak: #123B17;
+  --status-success: #A2B62D;
+
+  --c-warning: #D1A62A;
+  --c-warning-light: #3D3308;
+  --bg-warning-weak: #3D3308;
+  --status-warning: #D1A62A;
+
+  --c-danger: #E56562;
+  --c-danger-light: #441416;
+  --bg-risk-weak: #441416;
+  --status-risk: #E56562;
+
+  --c-info: #8E92D2;
+  --c-info-light: #20224A;
+  --bg-discovery-weak: #20224A;
+  --status-discovery: #8E92D2;
+
+  --c-text: #EEE8D5;
+  --c-text-regular: #B8BEAE;
+  --c-text-secondary: #8B9A98;
+  --c-text-placeholder: #6F8180;
+  --c-text-heading: #FDF6E3;
+  --slate-gray-light: #839496;
+
+  --c-bg: #002B36;
+  --c-bg-page: #002B36;
+  --c-bg-card: #073642;
+  --c-bg-sidebar: #052F39;
+  --c-bg-topbar: rgba(7, 54, 66, 0.92);
+  --c-bg-elevated: #0A3C48;
+  --c-surface: #073642;
+  --c-text-muted: #8B9A98;
+  --c-bg-hover: #0C4352;
+  --c-bg-subtle: #0C4352;
+  --c-bg-selected: #0B465A;
+  --c-border: #145365;
+  --c-border-light: #0E4757;
+  --c-border-lighter: #073642;
+  --c-border-strong: #276477;
+  --c-primary-contrast: #001F28;
+  --c-overlay: rgba(0, 18, 24, 0.68);
+}
+
+/* ── 主题：暗夜深色 (Dark) ─────────────────────────────────── */
+[data-theme="dark"] {
+  --c-primary: #6487D4;
+  --c-primary-hover: #7899DF;
+  --c-primary-light: #1D2638;
+  --c-primary-lighter: #27344D;
+  --c-primary-soft: #1D2638;
+  --c-primary-container: #202B3F;
+  --c-on-primary-container: #C8D7FF;
+
+  --gray-50:  #111318;
+  --gray-100: #181B22;
+  --gray-200: #222630;
+  --gray-300: #2E3442;
+  --gray-400: #5C6474;
+  --gray-500: #7A8394;
+  --gray-600: #9BA2AF;
+  --gray-700: #C2C7D0;
+  --gray-800: #E2E5EB;
+  --gray-900: #F6F7F9;
+
+  --c-success: #5E9E80;
+  --c-success-light: #142E23;
+  --bg-success-weak: #142E23;
+  --status-success: #5E9E80;
+
+  --c-warning: #C49646;
+  --c-warning-light: #362912;
+  --bg-warning-weak: #362912;
+  --status-warning: #C49646;
+
+  --c-danger: #CF665F;
+  --c-danger-light: #381B1A;
+  --bg-risk-weak: #381B1A;
+  --status-risk: #CF665F;
+
+  --c-info: #8683BC;
+  --c-info-light: #26243D;
+  --bg-discovery-weak: #26243D;
+  --status-discovery: #8683BC;
+
+  --c-text: #F5F7FA;
+  --c-text-regular: #C2C7D0;
+  --c-text-secondary: #7A8394;
+  --c-text-placeholder: #5C6474;
+  --c-text-heading: #FFFFFF;
+  --slate-gray-light: #7A8394;
+
+  --c-bg: #111318;
+  --c-bg-page: #111318;
+  --c-bg-card: #181D27;
+  --c-bg-sidebar: #141821;
+  --c-bg-topbar: rgba(23, 27, 36, 0.92);
+  --c-bg-elevated: #1D2330;
+  --c-surface: #181D27;
+  --c-text-muted: #8993A5;
+  --c-bg-hover: #232A36;
+  --c-bg-subtle: #202631;
+  --c-bg-selected: #253148;
+  --c-border: #303744;
+  --c-border-light: #20242D;
+  --c-border-lighter: #181B22;
+  --c-border-strong: #495363;
+  --c-primary-contrast: #F8FAFD;
+  --c-overlay: rgba(3, 6, 12, 0.72);
+}
+
+/* ── 主题到 Element Plus 的统一语义映射 ────────────────────── */
+:root,
+html[data-theme] {
+  --el-color-primary: var(--c-primary);
+  --el-color-primary-light-3: color-mix(in srgb, var(--c-primary) 72%, var(--c-bg-card));
+  --el-color-primary-light-5: color-mix(in srgb, var(--c-primary) 52%, var(--c-bg-card));
+  --el-color-primary-light-7: color-mix(in srgb, var(--c-primary) 32%, var(--c-bg-card));
+  --el-color-primary-light-8: color-mix(in srgb, var(--c-primary) 22%, var(--c-bg-card));
+  --el-color-primary-light-9: var(--c-primary-light);
+  --el-color-primary-dark-2: var(--c-primary-hover);
+  --el-color-success: var(--c-success);
+  --el-color-warning: var(--c-warning);
+  --el-color-danger: var(--c-danger);
+  --el-color-info: var(--c-info);
+  --el-text-color-primary: var(--c-text);
+  --el-text-color-regular: var(--c-text-regular);
+  --el-text-color-secondary: var(--c-text-secondary);
+  --el-text-color-placeholder: var(--c-text-placeholder);
+  --el-text-color-disabled: color-mix(in srgb, var(--c-text-secondary) 54%, var(--c-bg-card));
+  --el-bg-color: var(--c-bg-card);
+  --el-bg-color-page: var(--c-bg-page);
+  --el-bg-color-overlay: var(--c-bg-elevated);
+  --el-fill-color: var(--c-bg-subtle);
+  --el-fill-color-light: var(--c-bg-subtle);
+  --el-fill-color-lighter: var(--c-bg-page);
+  --el-fill-color-extra-light: var(--c-bg-page);
+  --el-fill-color-blank: var(--c-bg-card);
+  --el-border-color: var(--c-border-strong);
+  --el-border-color-light: var(--c-border);
+  --el-border-color-lighter: var(--c-border-light);
+  --el-border-color-extra-light: var(--c-border-lighter);
+  --el-border-color-hover: var(--c-primary);
+  --el-mask-color: var(--c-overlay);
+}
+
+/* ── 全局基底 ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 body {
-  font-size: 13px;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  font-size: var(--font-base);
   color: var(--c-text);
   background: var(--c-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Element Plus 组件样式覆盖 ────────────────────────────── */
+/* ── Element Plus 组件样式全局覆盖 ────────────────────────── */
 .el-card {
-  border-radius: 8px;
-  border: 1px solid #E0E3E9;
-  box-shadow: 0 1px 2px rgba(31,36,48,.05) !important;
-  --el-card-border-color: #E0E3E9;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+  color: var(--c-text);
+  box-shadow: var(--shadow-sm) !important;
+  --el-card-border-color: var(--c-border);
 }
 
 .el-card__header {
-  border-bottom: 1px solid #EEF0F3;
+  border-bottom: 1px solid var(--c-border-light);
   padding: 14px 16px;
 }
 
 .el-card__body { padding: 16px; }
 
 .el-dialog {
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(31,36,48,.12) !important;
+  background: var(--c-bg-elevated);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid var(--c-border);
 }
 
 .el-button {
   border-radius: 6px;
   font-weight: 500;
+  font-family: inherit;
 }
 
 .el-button--primary {
-  --el-button-hover-bg-color: #334D82;
-  --el-button-hover-border-color: #334D82;
+  --el-button-bg-color: var(--c-primary);
+  --el-button-border-color: var(--c-primary);
+  --el-button-text-color: var(--c-primary-contrast);
+  --el-button-hover-bg-color: var(--c-primary-hover);
+  --el-button-hover-border-color: var(--c-primary-hover);
 }
 
-.el-input__wrapper { border-radius: 6px; }
+.el-input__wrapper {
+  border-radius: 6px;
+  background-color: var(--c-bg-card);
+  box-shadow: 0 0 0 1px var(--c-border) inset;
+}
+
+.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--c-border-strong) inset;
+}
+
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--c-primary) inset !important;
+}
 
 .el-table {
-  --el-table-header-bg-color: #F6F7F9;
-  --el-table-header-text-color: #4B5160;
-  --el-table-border-color: #EEF0F3;
-  --el-table-row-hover-bg-color: #EDF1F8;
+  --el-table-bg-color: var(--c-bg-card);
+  --el-table-tr-bg-color: var(--c-bg-card);
+  --el-table-header-bg-color: var(--c-bg-subtle);
+  --el-table-header-text-color: var(--c-text-regular);
+  --el-table-text-color: var(--c-text);
+  --el-table-border-color: var(--c-border-light);
+  --el-table-row-hover-bg-color: var(--c-bg-hover);
 }
 
-.el-table th.el-table__cell { font-weight: 500; font-size: 12px; }
-
-.el-form-item__label { font-size: 12px; color: #4B5160; }
-.el-tag { font-size: 12px; border-radius: 4px; }
-.el-menu-item { font-size: 12px; }
-.el-empty__description { color: #9BA2AF; }
+.el-table th.el-table__cell { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.el-form-item__label { font-size: 12px; color: var(--c-text-regular); font-weight: 500; }
+.el-tag { font-size: 11.5px; border-radius: 4px; font-weight: 500; }
+.el-menu-item { font-size: 12.5px; }
+.el-empty__description { color: var(--c-text-secondary); }
 .el-pagination { --el-pagination-button-bg-color: transparent; }
-.el-tabs__item { font-size: 12px; }
+.el-tabs__item { font-size: 13px; }
 .el-select__wrapper { border-radius: 6px; }
 
 /* ═══════════════════════════════════════════════════════════ *
  * Motion Tokens（A-UI 工作流 · M-UI-0）
- * 纪律：动效必须有目的；只走 transform/opacity；尊重 reduced-motion
- * 时长三档：fast=微反馈(120ms) base=标准过渡(180ms) slow=面板出入场(240ms)
  * ═══════════════════════════════════════════════════════════ */
 :root {
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-slow: 240ms;
-
-  /* 主曲线：ease-out-quart —— 进程快、收尾稳，符合"即时响应"手感 */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  /* 弹性曲线：轻微过冲，仅用于拖拽落位等"物理落定"表达 */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* 退场曲线：快速离场不抢戏 */
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
 }
 
-/* ── Vue Transition 标准预设 ───────────────────────────────
- * .vfade   淡入淡出（内容切换）
- * .vslide  上移 6px + 淡入（列表项/卡片进入）
- * .vscale  缩放 .96 + 淡入（弹层/捕获面板出入场）
- * 用法：<Transition name="vfade">
- * ─────────────────────────────────────────────────────────── */
+/* ── Vue Transition 标准预设 ─────────────────────────────── */
 .vfade-enter-active { transition: opacity var(--motion-base) var(--ease-out); }
 .vfade-leave-active { transition: opacity var(--motion-fast) var(--ease-in); }
 .vfade-enter-from, .vfade-leave-to { opacity: 0; }
@@ -244,7 +642,7 @@ body {
 .vscale-enter-from { opacity: 0; transform: scale(0.96) translateY(4px); }
 .vscale-leave-to { opacity: 0; transform: scale(0.98); }
 
-/* ── 键盘流：焦点环只对键盘操作显示 ───────────────────────── */
+/* ── 键盘焦点 ─────────────────────────────────────────────── */
 :focus { outline: none; }
 :focus-visible {
   outline: 2px solid var(--c-primary);
@@ -252,18 +650,18 @@ body {
   border-radius: 4px;
 }
 
-/* ── 滚动条（克制、窄）────────────────────────────────────── */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+/* ── 滚动条（极窄优雅）────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #CDD2DB;
+  background: var(--c-border-strong);
   border-radius: 4px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background-clip: content-box;
 }
-::-webkit-scrollbar-thumb:hover { background-color: #9BA2AF; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--c-text-secondary); }
 
-/* ── 无障碍：系统级减弱动态时全部动效优雅降级 ─────────────── */
+/* ── 无障碍 ───────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

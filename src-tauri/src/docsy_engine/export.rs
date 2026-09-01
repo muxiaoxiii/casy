@@ -87,8 +87,7 @@ fn replace_docx_content(
             }
 
             // 写入新 ZIP
-            let options = FileOptions::default()
-                .compression_method(file.compression());
+            let options = FileOptions::default().compression_method(file.compression());
 
             zip.start_file(&name, options)?;
             zip.write_all(&content)?;
@@ -101,10 +100,7 @@ fn replace_docx_content(
 }
 
 /// 替换 XML 中的占位符
-fn replace_placeholders(
-    xml: &str,
-    values: &HashMap<String, serde_json::Value>,
-) -> Result<String> {
+fn replace_placeholders(xml: &str, values: &HashMap<String, serde_json::Value>) -> Result<String> {
     let re = regex::Regex::new(r"\{\{([^}]+)\}\}|\{([^}]+)\}")?;
 
     let result = re.replace_all(xml, |caps: &regex::Captures| {
@@ -142,10 +138,7 @@ fn format_value(value: &serde_json::Value) -> String {
                 .filter_map(|item| {
                     if let Some(obj) = item.as_object() {
                         let name = obj.get("name")?.as_str()?;
-                        let suffix = obj
-                            .get("suffix")
-                            .and_then(|s| s.as_str())
-                            .unwrap_or("");
+                        let suffix = obj.get("suffix").and_then(|s| s.as_str()).unwrap_or("");
                         if suffix.is_empty() {
                             Some(name.to_string())
                         } else {
@@ -203,10 +196,7 @@ mod tests {
 
     #[test]
     fn test_escape_xml() {
-        assert_eq!(
-            escape_xml("Hello & <World>"),
-            "Hello &amp; &lt;World&gt;"
-        );
+        assert_eq!(escape_xml("Hello & <World>"), "Hello &amp; &lt;World&gt;");
     }
 
     #[test]

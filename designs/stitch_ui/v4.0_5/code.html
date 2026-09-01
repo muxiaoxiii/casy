@@ -1,0 +1,162 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}@font-face{font-family:'Material Symbols Outlined';font-style:normal;src:url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v160/kJF1Eq7DzSXYnS8fcZ0asSjY8Cs3lSdBASsGowRTqLM.woff2) format('woff2');}.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;font-size:24px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{"colors":{"error-container":"#ffdad6","status-risk":"#B4554F","error":"#ba1a1a","on-error-container":"#93000a","surface-container-low":"#f2f4f6","surface-container-high":"#e6e8ea","primary-fixed-dim":"#afc6ff","tertiary-fixed-dim":"#f3bd6f","border-default":"#E4E7EB","bg-risk-weak":"#F7EFEE","on-primary":"#ffffff","bg-warning-weak":"#F6F3EA","on-secondary-fixed":"#161b27","on-secondary":"#ffffff","background":"#f7f9fb","secondary-container":"#dee2f3","surface-container-lowest":"#ffffff","inverse-primary":"#afc6ff","slate-blue-deep":"#1F2430","on-primary-fixed":"#001a43","bg-success-weak":"#EDF4F0","tertiary-fixed":"#ffddb1","secondary":"#595e6c","outline-variant":"#c4c6d1","on-tertiary-container":"#ffcf8c","on-secondary-container":"#5f6472","slate-gray-light":"#9BA2AF","primary":"#244481","primary-fixed":"#d9e2ff","surface-dim":"#d8dadc","on-error":"#ffffff","on-tertiary-fixed":"#291800","tertiary":"#613f00","secondary-fixed-dim":"#c2c6d6","status-discovery":"#6C6A9C","surface-variant":"#e0e3e5","surface-white":"#FFFFFF","inverse-on-surface":"#eff1f3","surface-tint":"#3f5d9b","on-primary-container":"#c8d7ff","status-success":"#4C8067","secondary-fixed":"#dee2f3","on-tertiary-fixed-variant":"#624000","inverse-surface":"#2d3133","primary-container":"#3e5c9a","slate-blue-muted":"#4B5160","tertiary-container":"#7d5610","on-surface":"#191c1e","on-tertiary":"#ffffff","outline":"#747781","on-primary-fixed-variant":"#254582","on-surface-variant":"#444750","on-background":"#191c1e","surface":"#f7f9fb","surface-container-highest":"#e0e3e5","status-warning":"#B0823A","on-secondary-fixed-variant":"#424754","surface-bright":"#f7f9fb","surface-container":"#eceef0"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"container-gap":"14px","half":"4px","base":"8px","quarter":"2px","margin-page":"20px","sidebar-width":"240px","preview-width":"440px"},"fontFamily":{"mono-micro":["SF Mono"],"label-caps":["Inter"],"headline-section":["Inter"],"display-date":["Inter"],"mono-data":["SF Mono"],"ui-subtext":["Inter"],"body-medium":["Inter"],"body-base":["Inter"],"header-app":["Inter"]},"fontSize":{"mono-micro":["10.5px",{"lineHeight":"12px","fontWeight":"600"}],"label-caps":["11px",{"lineHeight":"14px","fontWeight":"600"}],"headline-section":["15px",{"lineHeight":"20px","fontWeight":"700"}],"display-date":["20px",{"lineHeight":"28px","letterSpacing":"-0.3px","fontWeight":"700"}],"mono-data":["11px",{"lineHeight":"14px","fontWeight":"500"}],"ui-subtext":["12.5px",{"lineHeight":"16px","fontWeight":"500"}],"body-medium":["13px",{"lineHeight":"18px","fontWeight":"500"}],"body-base":["13px",{"lineHeight":"18px","fontWeight":"400"}],"header-app":["14px",{"lineHeight":"20px","fontWeight":"700"}]}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"></head><body class="bg-background font-body-base text-on-surface"><aside class="fixed left-0 top-0 h-full w-[240px] bg-surface-container-low z-50 flex flex-col border-r border-border-default"><div class="p-6 flex items-center gap-3"><div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[20px]">grid_view</span></div><span class="font-header-app text-header-app tracking-tight text-primary">Casy v4.0</span></div><nav class="flex-1 px-3 overflow-y-auto space-y-6" data-active-classes="bg-secondary-container text-on-secondary-container font-bold"><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Focus</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="today" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">wb_sunny</span>Today</a><a aria-current="page" class="flex items-center px-4 py-2 rounded-lg transition-colors bg-secondary-container text-on-secondary-container font-bold" data-path="inbox" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">inbox</span>Inbox</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Matters</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="cases" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">gavel</span>Cases</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="calendar" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">calendar_today</span>Calendar</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Knowledge</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="vault" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">token</span>Vault</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="drafting" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">edit_note</span>Drafting</a></div></section></nav><div class="p-4 border-t border-border-default space-y-3"><div class="flex items-center gap-2 px-2 py-1.5 bg-bg-success-weak rounded-full border border-status-success/20"><span class="flex h-2 w-2 rounded-full bg-status-success"></span><span class="font-mono-micro text-mono-micro text-status-success uppercase">Local Llama 3 Active</span></div><a class="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-container-high transition-colors" data-path="settings" href="#"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex flex-col"><span class="font-body-medium text-body-medium text-on-surface">Lawyer Wang</span><span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Senior Partner</span></div></a></div></aside><div class="pl-[240px]"><header class="fixed top-0 left-[240px] right-0 h-16 bg-surface/80 backdrop-blur-xl border-b border-border-default z-40 px-8 flex items-center justify-between"><div class="flex items-center gap-6"><div class="relative flex items-center bg-surface-container px-3 py-2 rounded-lg w-80 group border border-transparent focus-within:border-outline"><span class="material-symbols-outlined text-slate-gray-light text-[20px] mr-2">search</span><input class="bg-transparent border-none outline-none text-body-medium w-full placeholder:text-slate-gray-light text-on-surface" placeholder="Search matters (CMD+K)" type="text"><span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded border border-outline-variant text-slate-gray-light">⌘K</span></div></div><div class="flex items-center gap-4"><button class="p-2 rounded-full text-on-surface-variant hover:bg-surface-container relative"><span class="material-symbols-outlined">event_note</span><span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface"></span></button><div class="flex items-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[20px]">add_task</span>+ Task</button><button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-header-app text-header-app shadow-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined text-[20px]">center_focus_strong</span>+ Capture</button></div></div></header><main class="relative pt-16 min-h-screen bg-[#F8FAFC]"><div class="flex flex-col w-full">
+<!-- Top decorative header area (No borders, relies on bg shift and subtle shadow) -->
+<div class="relative w-full bg-surface-container-low px-8 pt-8 pb-16 z-0 shadow-sm">
+<div class="absolute inset-0 overflow-hidden pointer-events-none">
+<svg class="absolute right-0 top-0 w-96 h-96 text-primary/5 translate-x-1/3 -translate-y-1/4" fill="currentColor" viewBox="0 0 100 100">
+<circle cx="50" cy="50" r="50"></circle>
+</svg>
+</div>
+<div class="relative z-10 flex flex-col gap-half">
+<h1 class="font-display-date text-display-date text-on-surface">Global Capture <span class="font-headline-section text-headline-section text-slate-gray-light ml-2">大口袋</span></h1>
+<p class="font-body-base text-body-base text-slate-gray-light">Drop thoughts, links, and files here. Clarify them later.</p>
+</div>
+</div>
+<!-- Main Content Grid -->
+<div class="flex flex-row w-full gap-container-gap px-8 -mt-8 z-10">
+<!-- Left Column: Universal Capture & Stream -->
+<div class="flex flex-col flex-1 gap-container-gap">
+<!-- Universal Capture Bar -->
+<div class="bg-surface-container-lowest shadow-md rounded-xl p-6 flex flex-col gap-4 relative overflow-hidden group">
+<!-- Interactive Drop Zone Background Hint -->
+<div class="absolute inset-0 bg-primary/0 group-hover:bg-primary/[0.02] transition-colors duration-300 pointer-events-none"></div>
+<div class="flex items-start gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-primary text-[20px]">add</span>
+</div>
+<div class="flex-1 flex flex-col gap-2">
+<textarea class="w-full bg-transparent resize-none outline-none font-body-base text-body-base text-on-surface placeholder:text-slate-gray-light min-h-[80px]" placeholder="快捷捕获 (CMD+I)... 粘贴文本、链接或拖拽文件至此" rows="3"></textarea>
+<div class="flex items-center justify-between mt-2">
+<div class="flex gap-2">
+<button class="p-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px]">attachment</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px]">mic</span>
+</button>
+</div>
+<button class="px-6 py-2 bg-primary text-on-primary font-header-app text-header-app rounded-lg shadow-sm hover:opacity-90 transition-opacity">
+                捕获 (Capture)
+              </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Captures Stream Header -->
+<div class="flex items-center justify-between mt-4">
+<h2 class="font-headline-section text-headline-section text-on-surface">未处理 (Raw Inbox)</h2>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light bg-surface-container-low px-2 py-1 rounded shadow-sm">12 ITEMS</span>
+</div>
+<!-- Stream Cards -->
+<div class="flex flex-col gap-container-gap">
+<!-- Card 1: Text Note (WeChat) -->
+<div class="bg-surface-container-lowest shadow-sm rounded-xl p-5 flex flex-col gap-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-status-success">chat</span>
+<span class="font-mono-data text-mono-data text-slate-gray-light uppercase tracking-wider">来自：微信 (WeChat)</span>
+<span class="font-mono-micro text-mono-micro text-surface-dim mx-1">•</span>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light">10 分钟前</span>
+</div>
+<button class="text-slate-gray-light hover:text-error transition-colors">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+<div class="font-body-base text-body-base text-on-surface pl-6">
+            "张总提到关于B轮融资的补充协议，特别是对赌条款那部分，需要我们明天上午重新过一下风险点。"
+          </div>
+<!-- AI Extraction Badge -->
+<div class="ml-6 mt-2 flex flex-col gap-2">
+<div class="flex items-start gap-2 bg-inverse-on-surface p-3 rounded-lg shadow-sm relative overflow-hidden">
+<!-- AI Badge indicator using background color instead of border as requested -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-status-discovery"></div>
+<span class="font-mono-micro text-mono-micro text-status-discovery mt-0.5">AI</span>
+<div class="flex flex-col">
+<span class="font-ui-subtext text-ui-subtext text-on-surface">建议关联事项：<span class="font-body-medium text-body-medium text-primary">B轮融资项目 (Case #1024)</span></span>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light mt-1">实体识别: [张总], [对赌条款]</span>
+</div>
+</div>
+<!-- Quick Actions -->
+<div class="flex gap-2 mt-2">
+<button class="px-4 py-1.5 bg-primary-fixed text-on-primary-fixed-variant font-ui-subtext text-ui-subtext rounded shadow-sm hover:opacity-90">澄清 (Clarify Now)</button>
+<button class="px-4 py-1.5 bg-surface-container text-on-surface-variant font-ui-subtext text-ui-subtext rounded shadow-sm hover:bg-surface-container-high">归档 (Archive)</button>
+</div>
+</div>
+</div>
+<!-- Card 2: Screenshot Image -->
+<div class="bg-surface-container-lowest shadow-sm rounded-xl p-5 flex flex-col gap-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-tertiary">image</span>
+<span class="font-mono-data text-mono-data text-slate-gray-light uppercase tracking-wider">来自：系统截图 (Shortcut)</span>
+<span class="font-mono-micro text-mono-micro text-surface-dim mx-1">•</span>
+<span class="font-ui-subtext text-ui-subtext text-slate-gray-light">1 小时前</span>
+</div>
+</div>
+<div class="pl-6 w-full max-w-md">
+<div class="bg-cover bg-center w-full h-40 rounded-lg shadow-sm" data-alt="A clean, modern user interface screenshot showing a complex legal document with highlighted text in pale yellow and subtle red underline annotations, minimal shadow, high resolution." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDT9RjUl9Fk1l_34hns_skUyoJ56UfdvIM2eQWVc8EoQqWVfAY7sNY-eoexYy2lk-gcx6li_JD_BW5iiKR1FBuYDS3sVObGWJAyGxn8ZgGQlJz1SRcfsh-J2Pxp0w2QG8ioBG6CUP-nIEBtEdgODK9E-rYGVSQTvb1nKhNH56SS4-cFiRchwwLTfOJs0i09USevvXXMHgjZZ5izfxrSefpAS_eiC34fsLJjuRKhAYPJ0oogkWMIZ9z8Ng')"></div>
+</div>
+<!-- AI Analyzing State -->
+<div class="ml-6 mt-2 flex items-center gap-2 text-slate-gray-light">
+<style>
+              @keyframes pulse-opacity {
+                0%, 100% { opacity: 0.4; }
+                50% { opacity: 1; }
+              }
+              .animate-pulse-slow {
+                animation: pulse-opacity 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+              }
+            </style>
+<span class="material-symbols-outlined text-[16px] animate-pulse-slow text-primary">hourglass_empty</span>
+<span class="font-mono-micro text-mono-micro animate-pulse-slow text-primary">AI 正在提取文字与关键信息 (AI is analyzing OCR)...</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Sources & Context (Bento Grid) -->
+<div class="w-[280px] flex flex-col gap-container-gap">
+<!-- Sources Card -->
+<div class="bg-surface-container-lowest shadow-md rounded-xl p-5 flex flex-col gap-4">
+<h3 class="font-label-caps text-label-caps text-slate-gray-light tracking-wider uppercase">捕获渠道 (Sources)</h3>
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface hover:bg-surface-container transition-colors shadow-sm cursor-pointer group">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-status-success/10 flex items-center justify-center text-status-success">
+<span class="material-symbols-outlined text-[16px]">chat</span>
+</div>
+<span class="font-body-medium text-body-medium text-on-surface">微信助手</span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light bg-surface-container-high px-1.5 py-0.5 rounded group-hover:bg-primary group-hover:text-on-primary transition-colors">7</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface hover:bg-surface-container transition-colors shadow-sm cursor-pointer group">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[16px]">mail</span>
+</div>
+<span class="font-body-medium text-body-medium text-on-surface">专属邮箱</span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light bg-surface-container-high px-1.5 py-0.5 rounded group-hover:bg-primary group-hover:text-on-primary transition-colors">3</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface hover:bg-surface-container transition-colors shadow-sm cursor-pointer group">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-tertiary/10 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[16px]">extension</span>
+</div>
+<span class="font-body-medium text-body-medium text-on-surface">浏览器插件</span>
+</div>
+<span class="font-mono-micro text-mono-micro text-slate-gray-light bg-surface-container-high px-1.5 py-0.5 rounded group-hover:bg-primary group-hover:text-on-primary transition-colors">2</span>
+</div>
+</div>
+</div>
+<!-- Quick Tips Card (Asymmetric detail) -->
+<div class="bg-primary-fixed-dim shadow-sm rounded-xl p-5 flex flex-col gap-2 relative overflow-hidden">
+<span class="material-symbols-outlined absolute right-[-10px] bottom-[-10px] text-[80px] text-surface-container-lowest/20 pointer-events-none">lightbulb</span>
+<h4 class="font-headline-section text-headline-section text-on-primary-fixed-variant">Tip: System Shortcut</h4>
+<p class="font-ui-subtext text-ui-subtext text-on-primary-fixed">
+          Press <span class="font-mono-micro text-mono-micro bg-surface-container-lowest/50 px-1 py-0.5 rounded">⌥ + Space</span> anywhere on your Mac to instantly open the global capture window.
+        </p>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

@@ -1,0 +1,97 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "edit": "Edit",
+    "delete": "Delete",
+    "create": "Create",
+    "search": "Search...",
+    "loading": "Loading...",
+    "success": "Success",
+    "error": "Error",
+    "ai_loading": "AI Thinking..."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "cases": "Cases",
+    "tasks": "Tasks",
+    "inbox": "Inbox",
+    "calendar": "Calendar",
+    "knowledge": "Knowledge",
+    "settings": "Settings"
+  },
+  "home": {
+    "greeting_morning": "☀️ Morning Planning",
+    "greeting_evening": "🌙 Evening Summary",
+    "greeting_week_start": "🚀 Weekly Planning",
+    "greeting_week_end": "🏆 Weekend Review",
+    "calendar_shortcut": "Calendar",
+    "hard_schedule": "Hard Schedule",
+    "hard_schedule_count": "{count} Scheduled",
+    "today_commitments": "Today's Commitments",
+    "commitments_unresolved": "{count} Unresolved",
+    "waitlist": "Waitlist Monitor",
+    "waitlist_count": "{count} Follow-ups",
+    "next_action": "NEXT ACTION",
+    "enter_workspace": "Enter Workspace",
+    "smart_recs": "Smart Recommendations",
+    "energy_capacity": "Energy & Capacity",
+    "capacity_free": "Free Space: ",
+    "capacity_percent": "{percent}% Load"
+  },
+  "cases": {
+    "create_case": "Create New Case",
+    "client": "Client",
+    "opponent": "Opponent",
+    "court": "Court",
+    "tags": "Tags",
+    "case_code": "Case Code",
+    "amount": "Amount",
+    "status": "Status"
+  },
+  "settings": {
+    "general": "General",
+    "ai_model": "AI Model",
+    "appearance": "Appearance",
+    "data_sync": "Data & Sync",
+    "language": "Language",
+    "holidays": "Holidays Management",
+    "briefing_style": "Briefing Style",
+    "api_key": "API Key",
+    "base_url": "Base URL"
+  },
+  "inbox": {
+    "capture_placeholder": "Capture anything... (CMD+I) Notes, Laws, Tasks or drop files",
+    "clarify_task": "Clarify Task",
+    "turn_action": "Turn to Action",
+    "wait": "Wait ⌘W",
+    "vault": "Vault ⌘R",
+    "sources": "Sources",
+    "status": "Status",
+    "needs_clarify": "Needs Clarification"
+  },
+  "docs": {
+    "drafts": "Drafts",
+    "templates": "Templates",
+    "new_draft": "New Draft",
+    "export_word": "Export to Word",
+    "draft_title": "Draft Title",
+    "word_count": "Words: {count}",
+    "last_saved": "Last Saved:",
+    "status_draft": "Draft",
+    "status_final": "Final",
+    "status_archived": "Archived"
+  },
+  "editor": {
+    "ai_polish": "AI Polish",
+    "ai_continue": "AI Continue",
+    "task_list": "Checklist",
+    "table": "Table",
+    "align_left": "Left",
+    "align_center": "Center",
+    "insert_field": "Field",
+    "insert_law": "Law",
+    "insert_party": "Party"
+  }
+}

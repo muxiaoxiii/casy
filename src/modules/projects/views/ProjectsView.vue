@@ -4,7 +4,7 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <h3>项目</h3>
-        <span class="shortcut-hint">个人项目直管 · 法律项目由案件管理镜像</span>
+        <span class="shortcut-hint">非诉、顾问、研究与其他长期事项</span>
       </div>
       <div class="toolbar-right">
         <el-input
@@ -19,10 +19,10 @@
     </div>
 
     <div v-loading="loading" class="projects-body">
-      <!-- 个人项目 -->
+      <!-- 非案件项目 -->
       <section class="proj-section">
         <div class="section-head">
-          <span class="section-title">个人项目</span>
+          <span class="section-title">非案件项目</span>
           <el-button size="small" type="primary" text @click="startCreate">
             <el-icon><Plus /></el-icon> 新建
           </el-button>
@@ -33,7 +33,7 @@
           <el-input
             ref="createInputRef"
             v-model="createForm.name"
-            placeholder="项目名称（如：装修、考证、副业）"
+            placeholder="项目名称（如：常年顾问、尽调、专利组合）"
             @keyup.enter="saveCreate"
           />
           <el-button :loading="saving" type="primary" @click="saveCreate">创建</el-button>
@@ -66,37 +66,10 @@
         <EmptyState
           v-else-if="!loading && !creating"
           type="custom"
-          icon="📁"
-          title="还没有个人项目"
-          description="项目是跨越较长时间的目标容器（区别于一次性任务）——任务可归属其中获得上下文。"
+          title="还没有非案件项目"
+          description="用于承载非诉、顾问、研究或个人长期事项；诉讼和争议案件仍在案件模块管理。"
           action-text="新建第一个项目"
           @action="startCreate"
-        />
-      </section>
-
-      <!-- 法律项目（只读透出） -->
-      <section class="proj-section">
-        <div class="section-head">
-          <span class="section-title">法律项目</span>
-          <span class="section-note">由案件管理镜像维护，此处只读</span>
-        </div>
-        <div v-if="legalProjects.length" class="proj-list">
-          <div v-for="p in legalProjects" :key="p.id" class="proj-row" data-kind="legal">
-            <span class="proj-dot legal" />
-            <span class="proj-name">{{ p.name }}</span>
-            <span v-if="p.description" class="proj-desc">{{ p.description }}</span>
-            <span class="proj-status">{{ statusLabel(p.status) }}</span>
-            <div class="row-actions">
-              <el-button size="small" text type="primary" @click="goCase(p.id)">打开案件</el-button>
-            </div>
-          </div>
-        </div>
-        <EmptyState
-          v-else
-          type="custom"
-          title="暂无法律项目"
-          description="在案件管理中创建的案件会自动出现在这里。"
-          compact
         />
       </section>
     </div>
@@ -105,13 +78,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
-
-const router = useRouter()
 
 const projects = ref([])
 const loading = ref(false)
@@ -126,7 +96,6 @@ const editingId = ref(null)
 const editName = ref('')
 
 const personalProjects = computed(() => projects.value.filter(p => p.kind === 'personal'))
-const legalProjects = computed(() => projects.value.filter(p => p.kind === 'legal'))
 
 function statusLabel(s) {
   const map = { active: '进行中', paused: '暂停', done: '已完成', archived: '已归档' }
@@ -197,10 +166,6 @@ async function removeProject(p) {
     // 含"仍有未完成任务"的保护文案透出
     ElMessage.warning(result.error || '删除失败')
   }
-}
-
-function goCase(caseId) {
-  void router.push('/cases/' + caseId)
 }
 
 onMounted(() => {

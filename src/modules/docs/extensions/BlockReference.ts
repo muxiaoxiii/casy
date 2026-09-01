@@ -76,7 +76,7 @@ const BlockReferenceNodeView = {
       </div>
       <div v-else-if="blockData" class="block-ref-content">
         <div class="block-ref-header">
-          <span class="block-ref-icon">📋</span>
+          <el-icon class="block-ref-icon"><Document /></el-icon>
           <span class="block-ref-title">{{ blockData.item?.title || '未知知识' }}</span>
           <span v-if="blockData.block?.blockType" class="block-ref-type">{{ blockData.block.blockType }}</span>
         </div>
@@ -127,7 +127,7 @@ export const BlockReference = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes(HTMLAttributes, { 'data-block-reference': '' }), '📋 引用']
+    return ['span', mergeAttributes(HTMLAttributes, { 'data-block-reference': '' }), '引用']
   },
 
   addNodeView() {

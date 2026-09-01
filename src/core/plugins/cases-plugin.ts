@@ -1,7 +1,7 @@
 /**
  * 案件管理插件
  * 
- * 将案件管理功能封装为插件
+ * 将案件管理功能封装为插件，严格声明 V5 策略
  */
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
@@ -13,15 +13,12 @@ export class CasesPlugin implements CasyPlugin {
   description = '案件管理模块'
   
   async install(ctx: CasyContext): Promise<void> {
-    // 注册工具
     ctx.registerTool(this.createListCasesTool(ctx))
     ctx.registerTool(this.createGetCaseTool(ctx))
     ctx.registerTool(this.createCreateCaseTool(ctx))
     ctx.registerTool(this.createUpdateCaseTool(ctx))
     ctx.registerTool(this.createDeleteCaseTool(ctx))
     ctx.registerTool(this.createSearchCasesTool(ctx))
-    
-    console.log('CasesPlugin installed')
   }
   
   async uninstall(ctx: CasyContext): Promise<void> {
@@ -31,8 +28,6 @@ export class CasesPlugin implements CasyPlugin {
     ctx.unregisterTool('update_case')
     ctx.unregisterTool('delete_case')
     ctx.unregisterTool('search_cases')
-    
-    console.log('CasesPlugin uninstalled')
   }
   
   // ============================================================
@@ -44,6 +39,10 @@ export class CasesPlugin implements CasyPlugin {
       name: 'list_cases',
       description: '获取案件列表，支持按轨道、状态、客户筛选',
       category: 'cases',
+      policy: {
+        write: false,
+        level: 'L1',
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -59,9 +58,7 @@ export class CasesPlugin implements CasyPlugin {
         },
       },
       execute: async (params) => {
-        // 调用 Tauri 命令
-        const result = await ctx.cases.list(params.filter || {})
-        return result
+        return ctx.cases.list(params.filter || {})
       },
     })
   }
@@ -71,6 +68,10 @@ export class CasesPlugin implements CasyPlugin {
       name: 'get_case',
       description: '获取单个案件详情',
       category: 'cases',
+      policy: {
+        write: false,
+        level: 'L1',
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -79,8 +80,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.get(params.id)
-        return result
+        return ctx.cases.get(params.id)
       },
     })
   }
@@ -90,6 +90,12 @@ export class CasesPlugin implements CasyPlugin {
       name: 'create_case',
       description: '创建新案件',
       category: 'cases',
+      policy: {
+        write: true,
+        level: 'L2',
+        title: 'AI 创建案件确认',
+        message: (p) => `确定由 AI 创建案件「${p.caseName || '未命名案件'}」吗？`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -102,7 +108,6 @@ export class CasesPlugin implements CasyPlugin {
         required: ['caseName', 'clientName'],
       },
       execute: async (params) => {
-        // 领域事件由 cases service 层统一发出（K-3①：人与 AI 同一事件流）
         return ctx.cases.create(params)
       },
     })
@@ -113,6 +118,12 @@ export class CasesPlugin implements CasyPlugin {
       name: 'update_case',
       description: '更新案件信息',
       category: 'cases',
+      policy: {
+        write: true,
+        level: 'L2',
+        title: 'AI 更新案件确认',
+        message: (p) => `确定由 AI 修改案件 #${p.id} 吗？`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -122,7 +133,6 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        // 领域事件由 cases service 层统一发出（K-3①）
         return ctx.cases.update(params.id, params.data)
       },
     })
@@ -133,6 +143,12 @@ export class CasesPlugin implements CasyPlugin {
       name: 'delete_case',
       description: '删除案件',
       category: 'cases',
+      policy: {
+        write: true,
+        level: 'L3',
+        title: 'AI 删除案件二次确认',
+        message: (p) => `⚠️ 危险操作：确定由 AI 删除案件 #${p.id} 吗？此操作不可逆。`,
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -140,15 +156,7 @@ export class CasesPlugin implements CasyPlugin {
         },
         required: ['id'],
       },
-      // 需要 L3 确认（策略声明，由 executeTool 统一强制执行）
-      policy: {
-        write: true,
-        level: 'L3',
-        title: '确认删除案件',
-        message: (p) => `确定要删除案件 ${String(p.id)} 吗？此操作不可撤销。`,
-      },
       execute: async (params) => {
-        // 领域事件由 cases service 层统一发出（K-3①）
         return ctx.cases.remove(params.id)
       },
     })
@@ -159,6 +167,10 @@ export class CasesPlugin implements CasyPlugin {
       name: 'search_cases',
       description: '搜索案件',
       category: 'cases',
+      policy: {
+        write: false,
+        level: 'L1',
+      },
       parameters: {
         type: 'object',
         properties: {
@@ -167,8 +179,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['keyword'],
       },
       execute: async (params) => {
-        const result = await ctx.cases.search(params.keyword)
-        return result
+        return ctx.cases.search(params.keyword)
       },
     })
   }

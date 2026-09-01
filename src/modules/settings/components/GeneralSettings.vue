@@ -3,6 +3,8 @@ import { ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
+import { Setting, Calendar, Upload, Refresh } from '@element-plus/icons-vue'
+import { THEME_OPTIONS, applyThemePreference } from '../../../shared/theme'
 
 const settingsStore = useSettingsStore()
 
@@ -61,6 +63,10 @@ async function selectCaseFolder() {
   }
 }
 
+function handleThemeChange(theme) {
+  settingsStore.theme = applyThemePreference(theme)
+}
+
 onMounted(() => {
   loadHolidaysSummary()
 })
@@ -69,7 +75,12 @@ onMounted(() => {
 <template>
   <div class="tab-content">
     <el-card>
-      <template #header><strong>⚙️ 通用设置</strong></template>
+      <template #header>
+        <div class="section-title">
+          <el-icon><Setting /></el-icon>
+          <span>通用设置</span>
+        </div>
+      </template>
 
       <el-form label-width="100px" size="default">
         <el-form-item label="案件文件夹路径">
@@ -80,12 +91,33 @@ onMounted(() => {
           <span class="field-hint">案件文件将存储在此目录下</span>
         </el-form-item>
 
-        <el-form-item label="主题">
-          <el-radio-group v-model="settingsStore.theme">
-            <el-radio value="system">跟随系统</el-radio>
-            <el-radio value="light">浅色</el-radio>
-            <el-radio value="dark">深色</el-radio>
-          </el-radio-group>
+        <el-form-item label="主题风格" class="theme-form-item">
+          <div class="theme-grid" role="radiogroup" aria-label="主题风格">
+            <button
+              v-for="option in THEME_OPTIONS"
+              :key="option.value"
+              type="button"
+              class="theme-option"
+              :class="{ active: settingsStore.theme === option.value }"
+              role="radio"
+              :aria-checked="settingsStore.theme === option.value"
+              @click="handleThemeChange(option.value)"
+            >
+              <span class="theme-swatches" aria-hidden="true">
+                <span
+                  v-for="swatch in option.swatches"
+                  :key="swatch"
+                  class="theme-swatch"
+                  :style="{ background: swatch }"
+                />
+              </span>
+              <span class="theme-copy">
+                <strong>{{ option.label }}</strong>
+                <small>{{ option.description }}</small>
+              </span>
+              <span class="theme-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
         </el-form-item>
 
         <el-form-item label="语言">
@@ -103,7 +135,12 @@ onMounted(() => {
 
     <!-- 节假日配置 -->
     <el-card style="margin-top: 16px">
-      <template #header><strong>📅 节假日日历</strong></template>
+      <template #header>
+        <div class="section-title">
+          <el-icon><Calendar /></el-icon>
+          <span>节假日日历</span>
+        </div>
+      </template>
 
       <p class="tip">管理中国法定节假日数据，用于期限引擎的工作日顺延计算。支持从 JSON 文件导入自定义节假日数据。</p>
 
@@ -117,9 +154,11 @@ onMounted(() => {
 
       <div style="margin-top: 12px; display: flex; gap: 8px;">
         <el-button type="primary" :loading="holidaysImporting" @click="importHolidaysJson">
-          📥 导入节假日 JSON
+          <el-icon style="margin-right: 4px"><Upload /></el-icon> 导入节假日 JSON
         </el-button>
-        <el-button @click="loadHolidaysSummary" :loading="holidaysLoading">刷新</el-button>
+        <el-button @click="loadHolidaysSummary" :loading="holidaysLoading">
+          <el-icon style="margin-right: 4px"><Refresh /></el-icon> 刷新
+        </el-button>
       </div>
 
       <div class="holidays-json-format">
@@ -136,7 +175,7 @@ onMounted(() => {
 
 <style scoped>
 .tab-content {
-  padding: 0 16px;
+  padding: 0;
 }
 
 .tip {
@@ -146,9 +185,94 @@ onMounted(() => {
 }
 
 .field-hint {
-  color: var(--gray-400);
+  color: var(--c-text-secondary);
   font-size: 12px;
   margin-left: 8px;
+}
+
+.theme-form-item :deep(.el-form-item__content) {
+  width: min(100%, 820px);
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.theme-option {
+  min-width: 0;
+  min-height: 76px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+.theme-option:hover {
+  border-color: var(--c-border-strong);
+  background: var(--c-bg-hover);
+}
+
+.theme-option:active {
+  transform: translateY(1px);
+}
+
+.theme-option.active {
+  border-color: var(--c-primary);
+  background: var(--c-primary-light);
+  box-shadow: 0 0 0 1px var(--c-primary);
+}
+
+.theme-swatches {
+  height: 42px;
+  display: flex;
+  overflow: hidden;
+  border-radius: var(--c-radius);
+  border: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
+}
+
+.theme-swatch {
+  flex: 1;
+}
+
+.theme-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.theme-copy strong {
+  color: var(--c-text-heading);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.theme-copy small {
+  color: var(--c-text-secondary);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+.theme-check {
+  color: var(--c-primary);
+  font-weight: 700;
+  opacity: 0;
+}
+
+.theme-option.active .theme-check {
+  opacity: 1;
 }
 
 .folder-input {
@@ -168,7 +292,7 @@ onMounted(() => {
 .holidays-json-format {
   margin-top: 16px;
   padding: 12px;
-  background: var(--gray-50);
+  background: var(--c-bg-subtle);
   border-radius: 6px;
 }
 
@@ -185,6 +309,12 @@ onMounted(() => {
 h4 {
   margin: 12px 0 8px;
   font-size: 14px;
-  color: #606266;
+  color: var(--c-text-heading);
+}
+
+@media (max-width: 900px) {
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

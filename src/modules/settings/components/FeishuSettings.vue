@@ -73,9 +73,10 @@ const incrementalSince = ref('')
 
 async function loadSyncInfo() {
   const result = await casyContext.sync.feishuSyncInfo()
-  if (result.ok) {
+  if (result.ok && result.data) {
     syncInfo.value = result.data
     if (result.data.appToken) feishuAppToken.value = result.data.appToken
+    if (result.data.appId && !feishuAppId.value) feishuAppId.value = result.data.appId
   }
 }
 
@@ -89,7 +90,7 @@ async function saveCredentials() {
   configuring.value = false
 
   if (result.ok) {
-    ElMessage.success('凭证已保存')
+    ElMessage.success('飞书自建应用凭证已安全保存')
     connectionStatus.value = null
     await loadSyncInfo()
   } else {
@@ -100,12 +101,16 @@ async function saveCredentials() {
 async function testConnection() {
   testing.value = true
   connectionStatus.value = null
-  const result = await casyContext.sync.testFeishuConnection()
+  // 优先直接使用当前输入框中的凭证进行实时鉴权测试，未输入则读取已持久化凭据
+  const result = await casyContext.sync.testFeishuConnection(
+    feishuAppId.value.trim() || undefined,
+    feishuAppSecret.value.trim() || undefined,
+  )
   testing.value = false
 
   if (result.ok) {
     connectionStatus.value = 'ok'
-    ElMessage.success(result.data)
+    ElMessage.success(typeof result.data === 'string' ? result.data : '飞书连接测试成功！')
   } else {
     connectionStatus.value = 'fail'
     ElMessage.error(result.error || '连接失败')

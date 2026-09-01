@@ -58,40 +58,60 @@ pub fn generate_today_recommendations(conn: &rusqlite::Connection) -> Result<Rec
          FROM tasks t
          LEFT JOIN cases c ON c.id = t.case_id
          WHERE t.completed = 0
-         ORDER BY t.priority, t.due_date"
+         ORDER BY t.priority, t.due_date",
     )?;
 
     let mut recommendations = Vec::new();
 
     let rows = stmt.query_map([], |row| {
         Ok((
-            row.get::<_, String>(0)?,      // id
-            row.get::<_, String>(1)?,      // task_name
-            row.get::<_, Option<String>>(2)?, // case_id
-            row.get::<_, String>(3)?,      // priority
-            row.get::<_, Option<String>>(4)?, // due_date
-            row.get::<_, Option<String>>(5)?, // deadline
-            row.get::<_, Option<i64>>(6)?, // estimated_minutes
-            row.get::<_, Option<String>>(7)?, // context
-            row.get::<_, String>(8)?,      // task_type
-            row.get::<_, Option<String>>(9)?, // start_date
-            row.get::<_, String>(10)?,     // start_bucket
-            row.get::<_, i32>(11)?,        // flagged
-            row.get::<_, i32>(12)?,        // blocked
+            row.get::<_, String>(0)?,          // id
+            row.get::<_, String>(1)?,          // task_name
+            row.get::<_, Option<String>>(2)?,  // case_id
+            row.get::<_, String>(3)?,          // priority
+            row.get::<_, Option<String>>(4)?,  // due_date
+            row.get::<_, Option<String>>(5)?,  // deadline
+            row.get::<_, Option<i64>>(6)?,     // estimated_minutes
+            row.get::<_, Option<String>>(7)?,  // context
+            row.get::<_, String>(8)?,          // task_type
+            row.get::<_, Option<String>>(9)?,  // start_date
+            row.get::<_, String>(10)?,         // start_bucket
+            row.get::<_, i32>(11)?,            // flagged
+            row.get::<_, i32>(12)?,            // blocked
             row.get::<_, Option<String>>(13)?, // case_name
         ))
     })?;
 
     for row in rows {
-        let (id, name, case_id, priority, due_date, deadline, est_min, context,
-             task_type, start_date, start_bucket, flagged, blocked, case_name) = row?;
+        let (
+            id,
+            name,
+            case_id,
+            priority,
+            due_date,
+            deadline,
+            est_min,
+            context,
+            task_type,
+            start_date,
+            start_bucket,
+            flagged,
+            blocked,
+            case_name,
+        ) = row?;
 
         // 跳过已阻塞的任务
-        if blocked != 0 { continue; }
+        if blocked != 0 {
+            continue;
+        }
         // 跳过收件箱和某天
-        if start_bucket == "inbox" || start_bucket == "someday" { continue; }
+        if start_bucket == "inbox" || start_bucket == "someday" {
+            continue;
+        }
         // 跳过等待类型
-        if task_type == "waiting" { continue; }
+        if task_type == "waiting" {
+            continue;
+        }
 
         let effective_due = due_date.as_deref().or(deadline.as_deref());
 
@@ -127,9 +147,16 @@ pub fn generate_today_recommendations(conn: &rusqlite::Connection) -> Result<Rec
 
         // 3. 优先级加分
         match priority.as_str() {
-            "urgent_important" => { score += 50.0; reasons.push("紧急重要".to_string()); }
-            "urgent" => { score += 35.0; }
-            "important" => { score += 25.0; }
+            "urgent_important" => {
+                score += 50.0;
+                reasons.push("紧急重要".to_string());
+            }
+            "urgent" => {
+                score += 35.0;
+            }
+            "important" => {
+                score += 25.0;
+            }
             _ => {}
         }
 
@@ -149,7 +176,9 @@ pub fn generate_today_recommendations(conn: &rusqlite::Connection) -> Result<Rec
         }
 
         // 基础分
-        if score == 0.0 { score = 5.0; }
+        if score == 0.0 {
+            score = 5.0;
+        }
 
         let reason = if reasons.is_empty() {
             "可随时处理".to_string()
@@ -172,7 +201,11 @@ pub fn generate_today_recommendations(conn: &rusqlite::Connection) -> Result<Rec
     }
 
     // 按分数降序排列
-    recommendations.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    recommendations.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     recommendations.truncate(5);
 
     // 等待跟进建议
@@ -192,7 +225,7 @@ fn generate_followup_suggestions(conn: &rusqlite::Connection) -> Result<Vec<Foll
     let mut stmt = conn.prepare(
         "SELECT t.id, t.task_name, t.waiting_for, t.follow_up_date, t.case_id
          FROM tasks t
-         WHERE t.completed = 0 AND t.task_type = 'waiting'"
+         WHERE t.completed = 0 AND t.task_type = 'waiting'",
     )?;
 
     let mut suggestions = Vec::new();
@@ -214,8 +247,12 @@ fn generate_followup_suggestions(conn: &rusqlite::Connection) -> Result<Vec<Foll
             if let Ok(fup) = NaiveDate::parse_from_str(fud, "%Y-%m-%d") {
                 let today_dt = NaiveDate::parse_from_str(&today, "%Y-%m-%d").unwrap();
                 (today_dt - fup).num_days().max(0)
-            } else { 0 }
-        } else { 0 };
+            } else {
+                0
+            }
+        } else {
+            0
+        };
 
         if waiting_days >= 3 {
             let reason = format!(
@@ -229,7 +266,11 @@ fn generate_followup_suggestions(conn: &rusqlite::Connection) -> Result<Vec<Foll
                 waiting_for,
                 waiting_days,
                 reason,
-                action: if waiting_days >= 7 { "建议催办".to_string() } else { "关注".to_string() },
+                action: if waiting_days >= 7 {
+                    "建议催办".to_string()
+                } else {
+                    "关注".to_string()
+                },
             });
         }
     }

@@ -431,7 +431,7 @@ export interface AppSettings {
   feishu: FeishuConfig
   imap: ImapConfig
   general: {
-    theme: 'light' | 'dark' | 'system'
+    theme: 'system' | 'slate' | 'luminous-terra' | 'solarized-light' | 'solarized-dark' | 'dark'
     language: string
     caseFolderPath: string
     inboxFolderPath: string

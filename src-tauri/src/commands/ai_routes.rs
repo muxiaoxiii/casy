@@ -11,28 +11,36 @@ use rusqlite::OptionalExtension;
 #[serde(rename_all = "camelCase")]
 pub struct CommandRoute {
     pub command_name: String,
-    pub route_type: String,  // 'rule', 'ai', 'hybrid'
+    pub route_type: String, // 'rule', 'ai', 'hybrid'
     pub description: String,
     pub requires_confirmation: bool,
-    pub min_confirm_level: String,  // 'L1', 'L2', 'L3'
+    pub min_confirm_level: String, // 'L1', 'L2', 'L3'
 }
 
 /// 确认等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfirmLevel {
-    L1,  // 可读确认
-    L2,  // 逐项确认
-    L3,  // 双人复核
+    L1, // 可读确认
+    L2, // 逐项确认
+    L3, // 双人复核
 }
 
-impl ConfirmLevel {
-    pub fn from_str(s: &str) -> Self {
-        match s {
+impl std::str::FromStr for ConfirmLevel {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
             "L1" => ConfirmLevel::L1,
             "L2" => ConfirmLevel::L2,
             "L3" => ConfirmLevel::L3,
             _ => ConfirmLevel::L1,
-        }
+        })
+    }
+}
+
+impl ConfirmLevel {
+    pub fn parse_level(s: &str) -> Self {
+        s.parse().unwrap_or(ConfirmLevel::L1)
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -56,22 +64,24 @@ impl ConfirmLevel {
 /// 获取命令路由信息
 pub fn get_command_route(command_name: &str) -> Result<Option<CommandRoute>, anyhow::Error> {
     let conn = db::open_db()?;
-    
+
     let mut stmt = conn.prepare(
         "SELECT command_name, route_type, description, requires_confirmation, min_confirm_level 
-         FROM command_routes WHERE command_name = ?1"
+         FROM command_routes WHERE command_name = ?1",
     )?;
-    
-    let route = stmt.query_row(params![command_name], |row| {
-        Ok(CommandRoute {
-            command_name: row.get(0)?,
-            route_type: row.get(1)?,
-            description: row.get(2)?,
-            requires_confirmation: row.get::<_, i32>(3)? != 0,
-            min_confirm_level: row.get(4)?,
+
+    let route = stmt
+        .query_row(params![command_name], |row| {
+            Ok(CommandRoute {
+                command_name: row.get(0)?,
+                route_type: row.get(1)?,
+                description: row.get(2)?,
+                requires_confirmation: row.get::<_, i32>(3)? != 0,
+                min_confirm_level: row.get(4)?,
+            })
         })
-    }).optional()?;
-    
+        .optional()?;
+
     Ok(route)
 }
 
@@ -85,12 +95,12 @@ pub fn requires_confirmation(command_name: &str) -> Result<bool, anyhow::Error> 
 pub fn get_min_confirm_level(command_name: &str) -> Result<ConfirmLevel, anyhow::Error> {
     let route = get_command_route(command_name)?;
     Ok(route
-        .map(|r| ConfirmLevel::from_str(&r.min_confirm_level))
+        .map(|r| ConfirmLevel::parse_level(&r.min_confirm_level))
         .unwrap_or(ConfirmLevel::L1))
 }
 
 /// 计算 effective_policy
-/// 
+///
 /// effective_policy = max(
 ///   system_minimum_policy,  -- 系统安全下限（外部写 = L3），硬编码，不可降低
 ///   scenario_policy,        -- 场景风险（推荐 L1 / 提取 L2 / 外部写 L3）
@@ -109,29 +119,29 @@ pub fn calculate_effective_policy(
     } else {
         ConfirmLevel::L1
     };
-    
+
     // 2. 场景风险
     let scenario_policy = get_min_confirm_level(command_name)?;
-    
+
     // 3. 模型质量
     let model_policy = match model_quality {
-        Some("local_small") => ConfirmLevel::L2,  // 本地小模型 +1 级
+        Some("local_small") => ConfirmLevel::L2, // 本地小模型 +1 级
         Some("local_large") => ConfirmLevel::L1,
         Some("cloud") => ConfirmLevel::L1,
         _ => ConfirmLevel::L1,
     };
-    
+
     // 4. 用户设置
     let user_policy = user_policy
-        .map(ConfirmLevel::from_str)
+        .map(ConfirmLevel::parse_level)
         .unwrap_or(ConfirmLevel::L1);
-    
+
     // 计算 effective_policy = max(所有策略)
     let effective = system_minimum
         .max(scenario_policy)
         .max(model_policy)
         .max(user_policy);
-    
+
     Ok(effective)
 }
 
@@ -150,7 +160,7 @@ pub fn log_ai_run(
     let conn = db::open_db()?;
     let id = db::new_id();
     let now = db::now_local();
-    
+
     conn.execute(
         "INSERT INTO ai_runs (id, provider, model, purpose, prompt_version, status, input_hash, output_hash, error_message, created_at, completed_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -168,7 +178,7 @@ pub fn log_ai_run(
             if status == "completed" || status == "failed" { Some(&now) } else { None },
         ],
     )?;
-    
+
     Ok(id)
 }
 
@@ -185,13 +195,13 @@ pub fn log_ai_context_item(
 ) -> Result<(), anyhow::Error> {
     let conn = db::open_db()?;
     let id = db::new_id();
-    
+
     conn.execute(
         "INSERT INTO ai_context_items (id, run_id, source_type, source_id, source_field, content_hash, snapshot_version)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![id, run_id, source_type, source_id, source_field, content_hash, snapshot_version],
     )?;
-    
+
     Ok(())
 }
 
@@ -201,28 +211,28 @@ pub fn get_ai_runs(
     purpose: Option<&str>,
 ) -> Result<Vec<serde_json::Value>, anyhow::Error> {
     let conn = db::open_db()?;
-    
+
     let mut sql = String::from(
         "SELECT id, provider, model, purpose, status, input_hash, output_hash, created_at, completed_at
          FROM ai_runs WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     let idx = 1;
-    
+
     if let Some(p) = purpose {
         sql.push_str(&format!(" AND purpose = ?{}", idx));
         params.push(Box::new(p.to_string()));
     }
-    
+
     sql.push_str(" ORDER BY created_at DESC");
-    
+
     if let Some(l) = limit {
         sql.push_str(&format!(" LIMIT {}", l));
     }
-    
+
     let mut stmt = conn.prepare(&sql)?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    
+
     let runs: Vec<serde_json::Value> = stmt
         .query_map(param_refs.as_slice(), |row| {
             Ok(serde_json::json!({
@@ -238,7 +248,7 @@ pub fn get_ai_runs(
             }))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    
+
     Ok(runs)
 }
 
@@ -250,7 +260,10 @@ pub async fn get_command_route_info(command_name: String) -> Result<Option<Comma
 
 /// Tauri 命令：获取 AI 运行历史
 #[tauri::command]
-pub async fn get_ai_run_history(limit: Option<i64>, purpose: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn get_ai_run_history(
+    limit: Option<i64>,
+    purpose: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     get_ai_runs(limit, purpose.as_deref()).map_err(|e| e.to_string())
 }
 
@@ -273,7 +286,65 @@ pub async fn calculate_effective_policy_cmd(
         is_external_write,
         model_quality.as_deref(),
         user_policy.as_deref(),
-    ).map_err(|e| e.to_string())?;
-    
+    )
+    .map_err(|e| e.to_string())?;
+
     Ok(policy.as_str().to_string())
+}
+
+/// Tauri 命令：创建 AI 操作提案（P0-2 服务端授权网关）
+#[tauri::command]
+pub async fn create_ai_proposal(
+    tool_name: String,
+    target_entity_type: String,
+    target_entity_id: Option<String>,
+    pre_state_hash: Option<String>,
+    payload_json: String,
+    ttl_seconds: Option<i64>,
+) -> Result<crate::ai::gateway::AiProposal, String> {
+    super::run_blocking(move || {
+        let conn = db::open_db()?;
+        crate::ai::gateway::create_proposal(
+            &conn,
+            &tool_name,
+            &target_entity_type,
+            target_entity_id.as_deref(),
+            pre_state_hash.as_deref(),
+            &payload_json,
+            ttl_seconds,
+        )
+    })
+    .await
+}
+
+/// Tauri 命令：获取单个提案详情
+#[tauri::command]
+pub async fn get_ai_proposal(
+    proposal_id: String,
+) -> Result<Option<crate::ai::gateway::AiProposal>, String> {
+    super::run_blocking(move || {
+        let conn = db::open_db()?;
+        crate::ai::gateway::get_proposal(&conn, &proposal_id)
+    })
+    .await
+}
+
+/// Tauri 命令：用户授权通过提案（获取一次性 auth_token）
+#[tauri::command]
+pub async fn approve_ai_proposal(proposal_id: String) -> Result<String, String> {
+    super::run_blocking(move || {
+        let conn = db::open_db()?;
+        crate::ai::gateway::approve_proposal(&conn, &proposal_id)
+    })
+    .await
+}
+
+/// Tauri 命令：用户拒绝提案
+#[tauri::command]
+pub async fn reject_ai_proposal(proposal_id: String) -> Result<(), String> {
+    super::run_blocking(move || {
+        let conn = db::open_db()?;
+        crate::ai::gateway::reject_proposal(&conn, &proposal_id)
+    })
+    .await
 }

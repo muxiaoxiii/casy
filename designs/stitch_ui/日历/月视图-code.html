@@ -1,0 +1,409 @@
+<!DOCTYPE html><html lang="en" style=""><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}@font-face{font-family:'Material Symbols Outlined';font-style:normal;src:url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v160/kJF1Eq7DzSXYnS8fcZ0asSjY8Cs3lSdBASsGowRTqLM.woff2) format('woff2');}.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;font-size:24px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{"colors":{"error-container":"#ffdad6","status-risk":"#B4554F","error":"#ba1a1a","on-error-container":"#93000a","surface-container-low":"#f2f4f6","surface-container-high":"#e6e8ea","primary-fixed-dim":"#afc6ff","tertiary-fixed-dim":"#f3bd6f","border-default":"#E4E7EB","bg-risk-weak":"#F7EFEE","on-primary":"#ffffff","bg-warning-weak":"#F6F3EA","on-secondary-fixed":"#161b27","on-secondary":"#ffffff","background":"#f7f9fb","secondary-container":"#dee2f3","surface-container-lowest":"#ffffff","inverse-primary":"#afc6ff","slate-blue-deep":"#1F2430","on-primary-fixed":"#001a43","bg-success-weak":"#EDF4F0","tertiary-fixed":"#ffddb1","secondary":"#595e6c","outline-variant":"#c4c6d1","on-tertiary-container":"#ffcf8c","on-secondary-container":"#5f6472","slate-gray-light":"#9BA2AF","primary":"#244481","primary-fixed":"#d9e2ff","surface-dim":"#d8dadc","on-error":"#ffffff","on-tertiary-fixed":"#291800","tertiary":"#613f00","secondary-fixed-dim":"#c2c6d6","status-discovery":"#6C6A9C","surface-variant":"#e0e3e5","surface-white":"#FFFFFF","inverse-on-surface":"#eff1f3","surface-tint":"#3f5d9b","on-primary-container":"#c8d7ff","status-success":"#4C8067","secondary-fixed":"#dee2f3","on-tertiary-fixed-variant":"#624000","inverse-surface":"#2d3133","primary-container":"#3e5c9a","slate-blue-muted":"#4B5160","tertiary-container":"#7d5610","on-surface":"#191c1e","on-tertiary":"#ffffff","outline":"#747781","on-primary-fixed-variant":"#254582","on-surface-variant":"#444750","on-background":"#191c1e","surface":"#f7f9fb","surface-container-highest":"#e0e3e5","status-warning":"#B0823A","on-secondary-fixed-variant":"#424754","surface-bright":"#f7f9fb","surface-container":"#eceef0"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"container-gap":"14px","half":"4px","base":"8px","quarter":"2px","margin-page":"20px","sidebar-width":"240px","preview-width":"440px"},"fontFamily":{"mono-micro":["SF Mono"],"label-caps":["Inter"],"headline-section":["Inter"],"display-date":["Inter"],"mono-data":["SF Mono"],"ui-subtext":["Inter"],"body-medium":["Inter"],"body-base":["Inter"],"header-app":["Inter"]},"fontSize":{"mono-micro":["10.5px",{"lineHeight":"12px","fontWeight":"600"}],"label-caps":["11px",{"lineHeight":"14px","fontWeight":"600"}],"headline-section":["15px",{"lineHeight":"20px","fontWeight":"700"}],"display-date":["20px",{"lineHeight":"28px","letterSpacing":"-0.3px","fontWeight":"700"}],"mono-data":["11px",{"lineHeight":"14px","fontWeight":"500"}],"ui-subtext":["12.5px",{"lineHeight":"16px","fontWeight":"500"}],"body-medium":["13px",{"lineHeight":"18px","fontWeight":"500"}],"body-base":["13px",{"lineHeight":"18px","fontWeight":"400"}],"header-app":["14px",{"lineHeight":"20px","fontWeight":"700"}]}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"></head><body class="bg-background font-body-base text-on-surface"><aside class="fixed left-0 top-0 h-full w-[240px] bg-surface-container-low z-50 flex flex-col border-r border-border-default"><div class="p-6 flex items-center gap-3"><div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[20px]">grid_view</span></div><span class="font-header-app text-header-app tracking-tight text-primary">Casy v4.0</span></div><nav class="flex-1 px-3 overflow-y-auto space-y-6" data-active-classes="bg-secondary-container text-on-secondary-container font-bold"><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Focus</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="today" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">wb_sunny</span>Today</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="inbox" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">inbox</span>Inbox</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Matters</h3><div class="space-y-1"><a aria-current="page" class="flex items-center px-4 py-2 rounded-lg transition-colors bg-secondary-container text-on-secondary-container font-bold" data-path="cases" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">gavel</span>Cases</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="calendar" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">calendar_today</span>Calendar</a></div></section><section><h3 class="px-4 mb-2 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider">Knowledge</h3><div class="space-y-1"><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="vault" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">token</span>Vault</a><a class="flex items-center px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container-high transition-colors" data-path="drafting" href="#"><span class="material-symbols-outlined mr-3 text-[18px]">edit_note</span>Drafting</a></div></section></nav><div class="p-4 border-t border-border-default space-y-3"><div class="flex items-center gap-2 px-2 py-1.5 bg-bg-success-weak rounded-full border border-status-success/20"><span class="flex h-2 w-2 rounded-full bg-status-success"></span><span class="font-mono-micro text-mono-micro text-status-success uppercase">Local Llama 3 Active</span></div><a class="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-container-high transition-colors" data-path="settings" href="#"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex flex-col"><span class="font-body-medium text-body-medium text-on-surface">Lawyer Wang</span><span class="font-ui-subtext text-ui-subtext text-slate-gray-light">Senior Partner</span></div></a></div></aside><div class="pl-[240px]"><header class="fixed top-0 left-[240px] right-0 h-16 bg-surface/80 backdrop-blur-xl border-b border-border-default z-40 px-8 flex items-center justify-between"><div class="flex items-center gap-6"><div class="relative flex items-center bg-surface-container px-3 py-2 rounded-lg w-80 group border border-transparent focus-within:border-outline"><span class="material-symbols-outlined text-slate-gray-light text-[20px] mr-2">search</span><input class="bg-transparent border-none outline-none text-body-medium w-full placeholder:text-slate-gray-light text-on-surface" placeholder="Search matters (CMD+K)" type="text"><span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded border border-outline-variant text-slate-gray-light">⌘K</span></div></div><div class="flex items-center gap-4"><button class="p-2 rounded-full text-on-surface-variant hover:bg-surface-container relative"><span class="material-symbols-outlined">event_note</span><span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface"></span></button><div class="flex items-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-lg text-body-medium text-on-surface-variant hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[20px]">add_task</span>+ Task</button><button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-header-app text-header-app shadow-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined text-[20px]">center_focus_strong</span>+ Capture</button></div></div></header><main class="relative pt-16 min-h-screen bg-[#F8FAFC]"><div class="flex flex-col w-full h-full relative">
+<!-- Calendar Header -->
+<div class="px-8 py-6 flex items-center justify-between z-10 sticky top-0 bg-surface/90 backdrop-blur-sm">
+<div class="flex items-center gap-4">
+<h1 class="font-display-date text-display-date text-on-surface">August 2024</h1>
+<div class="flex items-center gap-1 bg-surface-container rounded-lg p-1">
+<button class="p-1.5 rounded text-on-surface-variant hover:bg-surface-variant transition-colors" title="Previous Month">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+</button>
+<button class="px-3 py-1.5 rounded font-body-medium text-body-medium text-on-surface hover:bg-surface-variant transition-colors">
+          Today
+        </button>
+<button class="p-1.5 rounded text-on-surface-variant hover:bg-surface-variant transition-colors" title="Next Month">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+</div>
+<div class="flex items-center gap-2 bg-surface-container rounded-lg p-1">
+<button class="px-3 py-1.5 rounded font-body-medium text-body-medium text-on-surface-variant hover:bg-surface-variant transition-colors">Day</button>
+<button class="px-3 py-1.5 rounded font-body-medium text-body-medium text-on-surface-variant hover:bg-surface-variant transition-colors">Week</button>
+<button class="px-3 py-1.5 rounded font-body-medium text-body-medium bg-surface text-on-surface shadow-sm">Month</button>
+</div>
+</div>
+<!-- Calendar Grid -->
+<div class="flex-1 px-8 pb-8">
+<div class="bg-surface-white rounded-xl shadow-sm border-none overflow-hidden h-full flex flex-col">
+<!-- Days of Week -->
+<div class="grid grid-cols-7 bg-surface-container-low border-none">
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Mon</div>
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Tue</div>
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Wed</div>
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Thu</div>
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Fri</div>
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Sat</div>
+<div class="py-3 px-4 font-label-caps text-label-caps text-slate-gray-light uppercase tracking-wider text-right">Sun</div>
+</div>
+<!-- Dates Grid -->
+<div class="flex-1 grid grid-cols-7 grid-rows-5 bg-border-default gap-[1px]">
+<!-- Row 1 -->
+<div class="bg-surface-container-low p-2 min-h-[100px] flex flex-col items-end group">
+<span class="font-body-base text-body-base text-slate-gray-light">29</span>
+</div>
+<div class="bg-surface-container-low p-2 min-h-[100px] flex flex-col items-end group">
+<span class="font-body-base text-body-base text-slate-gray-light">30</span>
+</div>
+<div class="bg-surface-container-low p-2 min-h-[100px] flex flex-col items-end group">
+<span class="font-body-base text-body-base text-slate-gray-light">31</span>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">1</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-primary" title="Flexible Task"></span>
+</div>
+<span class="font-body-base text-body-base text-on-surface">2</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">3</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">4</span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning" title="Waiting"></span>
+</div>
+<span class="font-body-base text-body-base text-on-surface">5</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors bg-bg-risk-weak/30 relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-br from-error/5 to-transparent pointer-events-none"></div>
+<div class="flex justify-between items-start w-full relative z-10">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-risk" title="Hard Deadline"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary" title="Flexible Task"></span>
+</div>
+<span class="font-body-base text-body-base text-status-risk font-semibold">6</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">7</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-primary" title="Flexible Task"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary" title="Flexible Task"></span>
+</div>
+<span class="font-body-base text-body-base text-on-surface">8</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">9</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">10</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">11</span>
+</div>
+</div>
+<!-- Row 3 (Contains active day for demo) -->
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">12</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors relative" id="active-day-trigger">
+<!-- Active State overlay -->
+<div class="absolute inset-0 border-2 border-primary rounded z-20 pointer-events-none hidden" id="active-day-border"></div>
+<div class="flex justify-between items-start w-full relative z-10">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning" title="Waiting"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary" title="Flexible Task"></span>
+</div>
+<span class="font-body-base text-body-base text-on-surface bg-primary text-on-primary rounded-full w-6 h-6 flex items-center justify-center -mr-1 -mt-1 shadow-sm">13</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors bg-bg-risk-weak/40 relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-br from-error/5 to-transparent pointer-events-none"></div>
+<div class="flex justify-between items-start w-full relative z-10">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-risk" title="Hard Deadline"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-status-risk" title="Hard Deadline"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning" title="Waiting"></span>
+</div>
+<span class="font-body-base text-body-base text-status-risk font-semibold">14</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">15</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]">
+<span class="w-1.5 h-1.5 rounded-full bg-primary" title="Flexible Task"></span>
+</div>
+<span class="font-body-base text-body-base text-on-surface">16</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">17</span>
+</div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+<div class="flex justify-between items-start w-full">
+<div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+<span class="font-body-base text-body-base text-on-surface">18</span>
+</div>
+</div>
+<!-- Row 4 -->
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">19</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">20</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">21</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">22</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">23</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">24</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">25</span>
+  </div>
+</div>
+<!-- Row 5 -->
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">26</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">27</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">28</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">29</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">30</span>
+  </div>
+</div>
+<div class="bg-surface-white p-2 min-h-[100px] flex flex-col hover:bg-surface-container-lowest cursor-pointer group transition-colors">
+  <div class="flex justify-between items-start w-full">
+    <div class="flex gap-1 mt-1 flex-wrap w-full max-w-[80%]"></div>
+    <span class="font-body-base text-body-base text-on-surface">31</span>
+  </div>
+</div>
+<div class="bg-surface-container-low p-2 min-h-[100px] flex flex-col items-end group">
+  <span class="font-body-base text-body-base text-slate-gray-light">1</span>
+</div></div>
+</div>
+</div>
+<!-- Side Panel (Summary) -->
+<div class="absolute right-0 top-0 bottom-0 w-[preview-width] bg-surface-white shadow-xl transform transition-transform duration-[0.18s] ease-in-out z-50 flex flex-col translate-x-full" id="day-summary-panel">
+<div class="p-6 border-b border-border-default flex items-center justify-between bg-surface/50 backdrop-blur-md">
+<div>
+<h2 class="font-display-date text-display-date text-on-surface">Tuesday, Aug 13</h2>
+<p class="font-ui-subtext text-ui-subtext text-slate-gray-light mt-1">2 Commitments</p>
+</div>
+<button class="p-2 rounded-full text-on-surface-variant hover:bg-surface-container transition-colors" id="close-panel-btn">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+<!-- Event Item -->
+<div class="flex gap-4 group">
+<div class="flex flex-col items-end pt-1 w-16 shrink-0">
+<span class="font-mono-data text-mono-data text-on-surface">10:00</span>
+<span class="font-mono-data text-mono-data text-slate-gray-light">AM</span>
+</div>
+<div class="flex-1 bg-surface-container rounded-lg p-4 shadow-sm border-l-4 border-status-warning relative">
+<div class="absolute -left-2 top-4 w-3 h-3 bg-surface-white border-2 border-status-warning rounded-full"></div>
+<div class="flex items-center gap-2 mb-2">
+<span class="font-label-caps text-label-caps text-status-warning uppercase">Waiting on Client</span>
+</div>
+<h4 class="font-headline-section text-headline-section text-on-surface">Review Deposition Transcripts</h4>
+<p class="font-body-medium text-body-medium text-on-surface-variant mt-1 line-clamp-2">Smith v. Horizon Corp - Awaiting finalizing signatures from opposing counsel before filing.</p>
+</div>
+</div>
+<!-- Event Item -->
+<div class="flex gap-4 group">
+<div class="flex flex-col items-end pt-1 w-16 shrink-0">
+<span class="font-mono-data text-mono-data text-on-surface">14:30</span>
+<span class="font-mono-data text-mono-data text-slate-gray-light">PM</span>
+</div>
+<div class="flex-1 bg-surface-container rounded-lg p-4 shadow-sm border-l-4 border-primary relative">
+<div class="absolute -left-2 top-4 w-3 h-3 bg-surface-white border-2 border-primary rounded-full"></div>
+<div class="flex items-center gap-2 mb-2">
+<span class="font-label-caps text-label-caps text-primary uppercase">Drafting</span>
+</div>
+<h4 class="font-headline-section text-headline-section text-on-surface">Motion for Summary Judgment</h4>
+<p class="font-body-medium text-body-medium text-on-surface-variant mt-1 line-clamp-2">Doe v. Global Logistics - Needs preliminary review by senior partner.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="px-8 pb-8 grid grid-cols-12 gap-6">
+  <!-- Monthly Insights -->
+  <div class="col-span-5 bg-surface-white rounded-xl p-6 shadow-sm border border-border-default"><div class="flex items-center justify-between mb-6">
+      <h3 class="font-headline-section text-headline-section text-on-surface">August Insights</h3>
+      <span class="material-symbols-outlined text-slate-gray-light">analytics</span>
+    </div>
+    <div class="grid grid-cols-2 gap-4 mb-8">
+      <div class="p-3 bg-surface-container-low rounded-lg">
+        <p class="font-label-caps text-label-caps text-slate-gray-light uppercase mb-1">Deadlines</p>
+        <p class="text-[20px] font-bold text-status-risk">12</p>
+      </div>
+      <div class="p-3 bg-surface-container-low rounded-lg">
+        <p class="font-label-caps text-label-caps text-slate-gray-light uppercase mb-1">Workload</p>
+        <p class="text-[20px] font-bold text-primary">84h</p>
+      </div>
+    <div class="p-3 bg-surface-container-low rounded-lg">
+        <p class="font-label-caps text-label-caps text-slate-gray-light uppercase mb-1">Workdays</p>
+        <p class="text-[20px] font-bold text-on-surface">22</p>
+      </div>
+      <div class="p-3 bg-surface-container-low rounded-lg">
+        <p class="font-label-caps text-label-caps text-slate-gray-light uppercase mb-1">Holidays</p>
+        <p class="text-[20px] font-bold text-status-warning">9</p>
+      </div></div>
+    </div>
+  <!-- Unscheduled / Holding Tank -->
+  <div class="col-span-7 bg-surface-white rounded-xl p-6 shadow-sm border border-border-default flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-headline-section text-headline-section text-on-surface">Holding Tank</h3>
+        <p class="text-ui-subtext text-slate-gray-light">Unscheduled August Tasks</p>
+      </div>
+      <button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-ui-subtext font-body-medium text-primary hover:bg-surface-container transition-colors">
+        <span class="material-symbols-outlined text-[18px]">add</span>
+        Quick Capture
+      </button>
+    </div>
+    <div class="flex-1 space-y-2 overflow-y-auto max-h-[200px] pr-2">
+      <div class="flex items-center justify-between p-3 bg-surface-container-low rounded-lg border border-transparent hover:border-outline-variant cursor-pointer transition-all">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-slate-gray-light text-[20px]">drag_indicator</span>
+          <span class="text-body-medium text-on-surface">Update engagement letter templates</span>
+        </div>
+        <span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded bg-surface-white border border-outline-variant text-slate-gray-light">2h</span>
+      </div>
+      <div class="flex items-center justify-between p-3 bg-surface-container-low rounded-lg border border-transparent hover:border-outline-variant cursor-pointer transition-all">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-slate-gray-light text-[20px]">drag_indicator</span>
+          <span class="text-body-medium text-on-surface">Quarterly CLE compliance review</span>
+        </div>
+        <span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded bg-surface-white border border-outline-variant text-slate-gray-light">4h</span>
+      </div>
+      <div class="flex items-center justify-between p-3 bg-surface-container-low rounded-lg border border-transparent hover:border-outline-variant cursor-pointer transition-all">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-slate-gray-light text-[20px]">drag_indicator</span>
+          <span class="text-body-medium text-on-surface">Archive closed files from Q2</span>
+        </div>
+        <span class="font-mono-micro text-mono-micro px-1.5 py-0.5 rounded bg-surface-white border border-outline-variant text-slate-gray-light">1h</span>
+      </div>
+    </div>
+  </div>
+</div><div class="px-8 py-4 border-t border-border-default flex items-center gap-6 bg-surface-white/50">
+  <p class="font-label-caps text-label-caps text-slate-gray-light uppercase shrink-0">Legend</p>
+  <div class="flex flex-wrap gap-6">
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-status-risk"></span>
+      <span class="text-ui-subtext text-on-surface-variant">Hard Deadline</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-status-warning"></span>
+      <span class="text-ui-subtext text-on-surface-variant">Waiting on Client</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-primary"></span>
+      <span class="text-ui-subtext text-on-surface-variant">Flexible Task</span>
+    </div>
+  </div>
+</div></div>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const trigger = document.getElementById('active-day-trigger');
+    const panel = document.getElementById('day-summary-panel');
+    const closeBtn = document.getElementById('close-panel-btn');
+    const border = document.getElementById('active-day-border');
+
+    trigger.addEventListener('click', () => {
+      panel.classList.remove('translate-x-full');
+      border.classList.remove('hidden');
+    });
+
+    closeBtn.addEventListener('click', () => {
+      panel.classList.add('translate-x-full');
+      border.classList.add('hidden');
+    });
+  });
+</script></main></div>
+
+</body></html>

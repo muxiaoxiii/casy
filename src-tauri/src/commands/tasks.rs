@@ -476,109 +476,403 @@ pub async fn snooze_task(
     .await
 }
 
+use crate::types::PatchField;
+use serde::Deserialize;
+
+fn deserialize_patch_string<'de, D>(deserializer: D) -> Result<PatchField<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde_json::Value;
+    let opt = Option::<Value>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(PatchField::Null),
+        Some(Value::Null) => Ok(PatchField::Null),
+        Some(Value::String(s)) => Ok(PatchField::Value(s)),
+        Some(Value::Number(n)) => Ok(PatchField::Value(n.to_string())),
+        Some(Value::Bool(b)) => Ok(PatchField::Value(b.to_string())),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "expected string or null, got {:?}",
+            other
+        ))),
+    }
+}
+
+fn deserialize_patch_i32<'de, D>(deserializer: D) -> Result<PatchField<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde_json::Value;
+    let opt = Option::<Value>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(PatchField::Null),
+        Some(Value::Null) => Ok(PatchField::Null),
+        Some(Value::Number(n)) => {
+            if let Some(i) = n.as_i64() {
+                Ok(PatchField::Value(i as i32))
+            } else {
+                Err(serde::de::Error::custom("invalid integer number"))
+            }
+        }
+        Some(Value::Bool(b)) => Ok(PatchField::Value(if b { 1 } else { 0 })),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "expected number, bool, or null, got {:?}",
+            other
+        ))),
+    }
+}
+
+/// 任务类型化更新契约（P1-2：三态字段 + 服务端校验 + 影响行数断言）
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTaskPatch {
+    pub id: String,
+
+    // AI 授权凭证（P0-2：服务端不可绕过授权网关）
+    #[serde(default)]
+    pub origin: Option<String>,
+    #[serde(default)]
+    pub proposal_token: Option<String>,
+
+    // 业务字段三态 Patch
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub task_name: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub description: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub deadline: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub priority: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub completed: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub assignee: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub finish_note: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub task_type: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub start_date: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub due_date: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub due_time: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub waiting_for: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub follow_up_date: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub context: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub flagged: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub sequential: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub blocked: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub blocked_reason: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub sequence_order: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub start_bucket: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub today_index: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub estimated_minutes: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub actual_minutes: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub area_id: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub case_id: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub time_block: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub parent_task_id: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub recurrence_rule: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_i32")]
+    pub is_focus: PatchField<i32>,
+}
+
+impl UpdateTaskPatch {
+    pub fn validate(&self) -> Result<(), anyhow::Error> {
+        if self.id.trim().is_empty() {
+            return Err(anyhow::anyhow!("Task ID cannot be empty"));
+        }
+
+        if let PatchField::Value(name) = &self.task_name {
+            if name.trim().is_empty() {
+                return Err(anyhow::anyhow!("Task name cannot be empty"));
+            }
+        }
+
+        if let PatchField::Value(bucket) = &self.start_bucket {
+            let valid = ["inbox", "anytime", "someday", "today"];
+            if !valid.contains(&bucket.as_str()) {
+                return Err(anyhow::anyhow!(
+                    "Invalid start_bucket '{}', must be one of {:?}",
+                    bucket,
+                    valid
+                ));
+            }
+        }
+
+        if let PatchField::Value(p) = &self.priority {
+            let valid = [
+                "urgent_important",
+                "urgent_not_important",
+                "not_urgent_important",
+                "not_urgent_not_important",
+                "urgent",
+                "important",
+                "normal",
+                "low",
+                "high",
+            ];
+            if !valid.contains(&p.as_str()) {
+                return Err(anyhow::anyhow!("Invalid priority '{}'", p));
+            }
+        }
+
+        if let PatchField::Value(tb) = &self.time_block {
+            let valid = ["morning", "afternoon", "evening", "night", "flex"];
+            if !valid.contains(&tb.as_str()) {
+                return Err(anyhow::anyhow!("Invalid time_block '{}'", tb));
+            }
+        }
+
+        // 校验日期格式 (YYYY-MM-DD)
+        let validate_date = |field_name: &str, val: &str| -> Result<(), anyhow::Error> {
+            if !val.trim().is_empty() {
+                chrono::NaiveDate::parse_from_str(val, "%Y-%m-%d").map_err(|_| {
+                    anyhow::anyhow!(
+                        "Invalid date format for {}: expected YYYY-MM-DD, got '{}'",
+                        field_name,
+                        val
+                    )
+                })?;
+            }
+            Ok(())
+        };
+
+        if let PatchField::Value(d) = &self.due_date {
+            validate_date("dueDate", d)?;
+        }
+        if let PatchField::Value(d) = &self.deadline {
+            validate_date("deadline", d)?;
+        }
+        if let PatchField::Value(d) = &self.start_date {
+            validate_date("startDate", d)?;
+        }
+        if let PatchField::Value(d) = &self.follow_up_date {
+            validate_date("followUpDate", d)?;
+        }
+
+        if let PatchField::Value(m) = &self.estimated_minutes {
+            if *m < 0 {
+                return Err(anyhow::anyhow!("estimatedMinutes must be non-negative"));
+            }
+        }
+        if let PatchField::Value(m) = &self.actual_minutes {
+            if *m < 0 {
+                return Err(anyhow::anyhow!("actualMinutes must be non-negative"));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
-        let id = data["id"].as_str().ok_or_else(|| anyhow::anyhow!("Missing task id"))?;
+        let patch: UpdateTaskPatch = serde_json::from_value(data.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to parse UpdateTaskPatch: {}", e))?;
+
+        patch.validate()?;
+
+        let mut conn = db::open_db()?;
+        let tx = conn.transaction()?;
         let now = db::now_local();
 
-        // 读取旧 due_date，用于检测延期（deferred 事件）
-        let old_due_date: Option<String> = conn
+        // 1. 校验任务是否存在并获取旧数据
+        let old_info: (Option<String>, i32, String) = tx
             .query_row(
-                "SELECT due_date FROM tasks WHERE id = ?1",
-                rusqlite::params![id],
-                |row| row.get(0),
+                "SELECT due_date, completed, start_bucket FROM tasks WHERE id = ?1",
+                rusqlite::params![patch.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
-            .ok()
-            .flatten();
+            .map_err(|e| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::TASK_NOT_FOUND,
+                    format!("任务不存在: {} ({})", patch.id, e),
+                ))
+            })?;
 
-        let new_due_date = data["dueDate"].as_str().or(data["deadline"].as_str());
+        let (old_due_date, old_completed, old_start_bucket) = old_info;
 
-        conn.execute(
-            "UPDATE tasks SET
-                task_name = COALESCE(?1, task_name),
-                description = COALESCE(?2, description),
-                deadline = ?3,
-                due_date = ?4,
-                due_time = ?5,
-                priority = COALESCE(?6, priority),
-                case_id = ?7,
-                task_type = COALESCE(?8, task_type),
-                start_date = ?9,
-                waiting_for = ?10,
-                follow_up_date = ?11,
-                context = ?12,
-                flagged = COALESCE(?13, flagged),
-                start_bucket = COALESCE(?14, start_bucket),
-                today_index = COALESCE(?15, today_index),
-                estimated_minutes = ?16,
-                area_id = ?17,
-                time_block = ?18,
-                updated_at = ?19,
-                actual_minutes = COALESCE(?20, actual_minutes),
-                parent_task_id = ?21,
-                recurrence_rule = ?22,
-                is_focus = COALESCE(?24, is_focus)
-             WHERE id = ?23",
-            rusqlite::params![
-                data["taskName"].as_str(),
-                data["description"].as_str(),
-                data["deadline"].as_str(),
-                new_due_date,
-                data["dueTime"].as_str(),
-                data["priority"].as_str(),
-                data["caseId"].as_str(),
-                data["taskType"].as_str(),
-                data["startDate"].as_str(),
-                data["waitingFor"].as_str(),
-                data["followUpDate"].as_str(),
-                data["context"].as_str(),
-                data["flagged"].as_i64(),
-                data["startBucket"].as_str(),
-                data["todayIndex"].as_i64(),
-                data["estimatedMinutes"].as_i64(),
-                data["areaId"].as_str(),
-                data["timeBlock"].as_str(),
-                now,
-                data["actualMinutes"].as_i64(),
-                data["parentId"].as_str(),
-                data["recurrenceRule"].as_str(),
-                data["isFocus"].as_i64(),
-                id,
-            ],
+        // 2. P0-2: AI 授权网关校验
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &tx,
+            patch.origin.as_deref(),
+            patch.proposal_token.as_deref(),
+            "update_task",
+            "task",
+            Some(&patch.id),
+            None,
         )?;
 
-        // due_date 被推迟（新值 > 旧值）→ 记录 deferred 事件（YYYY-MM-DD 字符串可直接比较）
-        if let (Some(old_due), Some(new_due)) = (old_due_date.as_deref(), new_due_date) {
-            if new_due > old_due {
+        // 3. 构建动态 UPDATE SET 语句
+        let mut sets: Vec<String> = Vec::new();
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        macro_rules! apply_patch_text {
+            ($field:expr, $col:expr) => {
+                match &$field {
+                    PatchField::Unset => {}
+                    PatchField::Null => {
+                        sets.push(format!("{} = NULL", $col));
+                    }
+                    PatchField::Value(v) => {
+                        sets.push(format!("{} = ?", $col));
+                        params.push(Box::new(v.clone()));
+                    }
+                }
+            };
+        }
+
+        macro_rules! apply_patch_i32 {
+            ($field:expr, $col:expr) => {
+                match &$field {
+                    PatchField::Unset => {}
+                    PatchField::Null => {
+                        sets.push(format!("{} = NULL", $col));
+                    }
+                    PatchField::Value(v) => {
+                        sets.push(format!("{} = ?", $col));
+                        params.push(Box::new(*v));
+                    }
+                }
+            };
+        }
+
+        apply_patch_text!(patch.task_name, "task_name");
+        apply_patch_text!(patch.description, "description");
+        apply_patch_text!(patch.deadline, "deadline");
+        apply_patch_text!(patch.priority, "priority");
+        apply_patch_i32!(patch.completed, "completed");
+        apply_patch_text!(patch.assignee, "assignee");
+        apply_patch_text!(patch.finish_note, "finish_note");
+        apply_patch_text!(patch.task_type, "task_type");
+        apply_patch_text!(patch.start_date, "start_date");
+        apply_patch_text!(patch.due_date, "due_date");
+        apply_patch_text!(patch.due_time, "due_time");
+        apply_patch_text!(patch.waiting_for, "waiting_for");
+        apply_patch_text!(patch.follow_up_date, "follow_up_date");
+        apply_patch_text!(patch.context, "context");
+        apply_patch_i32!(patch.flagged, "flagged");
+        apply_patch_i32!(patch.sequential, "sequential");
+        apply_patch_i32!(patch.blocked, "blocked");
+        apply_patch_text!(patch.blocked_reason, "blocked_reason");
+        apply_patch_i32!(patch.sequence_order, "sequence_order");
+        apply_patch_text!(patch.start_bucket, "start_bucket");
+        apply_patch_i32!(patch.today_index, "today_index");
+        apply_patch_i32!(patch.estimated_minutes, "estimated_minutes");
+        apply_patch_i32!(patch.actual_minutes, "actual_minutes");
+        apply_patch_text!(patch.area_id, "area_id");
+        apply_patch_text!(patch.case_id, "case_id");
+        apply_patch_text!(patch.time_block, "time_block");
+        apply_patch_text!(patch.parent_task_id, "parent_task_id");
+        apply_patch_text!(patch.recurrence_rule, "recurrence_rule");
+        apply_patch_i32!(patch.is_focus, "is_focus");
+
+        sets.push("updated_at = ?".to_string());
+        params.push(Box::new(now.clone()));
+
+        if !sets.is_empty() {
+            let sql = format!("UPDATE tasks SET {} WHERE id = ?", sets.join(", "));
+            params.push(Box::new(patch.id.clone()));
+
+            let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|b| b.as_ref()).collect();
+            let rows_affected = tx.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            if rows_affected != 1 {
+                return Err(anyhow::anyhow!(
+                    "Expected exactly 1 row updated, got {}",
+                    rows_affected
+                ));
+            }
+        }
+
+        // 4. 事件记录（单事务内原子写入）
+        // 推迟检测
+        if let PatchField::Value(new_due) = &patch.due_date {
+            if let Some(old_due) = &old_due_date {
+                if new_due > old_due {
+                    let payload = serde_json::json!({
+                        "from": old_due,
+                        "to": new_due,
+                    })
+                    .to_string();
+                    tx.execute(
+                        "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deferred', ?3, ?4, 'user')",
+                        rusqlite::params![db::new_id(), patch.id, now, payload],
+                    )?;
+                }
+            }
+        }
+
+        // 桶移动检测
+        if let PatchField::Value(new_bucket) = &patch.start_bucket {
+            if new_bucket != &old_start_bucket {
                 let payload = serde_json::json!({
-                    "from": old_due,
-                    "to": new_due,
+                    "fromBucket": old_start_bucket,
+                    "toBucket": new_bucket,
                 })
                 .to_string();
-                conn.execute(
-                    "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deferred', ?3, ?4, 'user')",
-                    rusqlite::params![db::new_id(), id, now, payload],
+                tx.execute(
+                    "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'moved', ?3, ?4, 'user')",
+                    rusqlite::params![db::new_id(), patch.id, now, payload],
                 )?;
             }
         }
 
-        // 记录 task_event
-        conn.execute(
-            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'moved', ?3, ?4, 'user')",
-            rusqlite::params![db::new_id(), id, now, serde_json::to_string(&data).unwrap_or_default()],
+        // 完成状态检测
+        if let PatchField::Value(new_done) = &patch.completed {
+            if *new_done != old_completed {
+                let event_type = if *new_done == 1 {
+                    "completed"
+                } else {
+                    "created"
+                };
+                tx.execute(
+                    "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, ?3, ?4, 'user')",
+                    rusqlite::params![db::new_id(), patch.id, event_type, now],
+                )?;
+            }
+        }
+
+        // 常规审计日志
+        tx.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'edited', ?3, ?4, 'user')",
+            rusqlite::params![db::new_id(), patch.id, now, serde_json::to_string(&data).unwrap_or_default()],
         )?;
 
-        // 改期联动（设计哲学 §11.2）：due_date/due_time 变化 → 重新同步 CalDAV（同 UID 幂等更新）
-        if let Some(due) = data["dueDate"].as_str().or(data["deadline"].as_str()) {
+        // 提交事务
+        tx.commit()?;
+
+        // 5. 日历同步联动
+        if let PatchField::Value(due) = &patch.due_date {
+            let due_time_val = patch.due_time.value().map(|s| s.as_str());
+            let task_name_val = patch.task_name.value().map(|s| s.as_str()).unwrap_or("");
+            let case_id_val = patch.case_id.value().map(|s| s.as_str());
             let _ = crate::commands::reminder::sync_task_reminder_calendar(
                 &conn,
-                id,
+                &patch.id,
                 due,
-                data["dueTime"].as_str(),
-                data["taskName"].as_str().unwrap_or(""),
-                data["caseId"].as_str(),
+                due_time_val,
+                task_name_val,
+                case_id_val,
             );
         }
 
@@ -589,12 +883,36 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
 
 /// 庭审准备任务模板
 const HEARING_PREP_TASKS: &[(&str, &str, &str)] = &[
-    ("准备证据材料", "整理并提交本案相关证据材料，包括证据清单、证据原件及复印件", "important"),
-    ("准备代理词/法律意见书", "撰写庭审代理词或法律意见书，梳理案件事实和法律依据", "important"),
-    ("确认出庭人员", "确认出庭律师、当事人及其他相关人员是否能够按时出庭", "urgent"),
-    ("检查案件材料完整性", "检查案件卷宗材料是否齐全，包括起诉状、答辩状、证据材料等", "normal"),
-    ("准备庭审提纲", "准备庭审发言提纲，包括举证质证要点、辩论要点等", "important"),
-    ("确认庭审时间和地点", "核实庭审具体时间、地点及法庭编号，确保准时到达", "urgent"),
+    (
+        "准备证据材料",
+        "整理并提交本案相关证据材料，包括证据清单、证据原件及复印件",
+        "important",
+    ),
+    (
+        "准备代理词/法律意见书",
+        "撰写庭审代理词或法律意见书，梳理案件事实和法律依据",
+        "important",
+    ),
+    (
+        "确认出庭人员",
+        "确认出庭律师、当事人及其他相关人员是否能够按时出庭",
+        "urgent",
+    ),
+    (
+        "检查案件材料完整性",
+        "检查案件卷宗材料是否齐全，包括起诉状、答辩状、证据材料等",
+        "normal",
+    ),
+    (
+        "准备庭审提纲",
+        "准备庭审发言提纲，包括举证质证要点、辩论要点等",
+        "important",
+    ),
+    (
+        "确认庭审时间和地点",
+        "核实庭审具体时间、地点及法庭编号，确保准时到达",
+        "urgent",
+    ),
 ];
 
 /// 从庭审自动生成准备任务
@@ -888,9 +1206,7 @@ fn next_occurrence(rule: &str, from: &str) -> Option<String> {
                     y += 1;
                 }
                 let dim = NaiveDate::from_ymd_opt(y, m + if m == 12 { 0 } else { 1 }, 1)
-                    .map(|first| {
-                        (first - Duration::days(1)).day()
-                    })
+                    .map(|first| (first - Duration::days(1)).day())
                     .unwrap_or(28);
                 if let Some(nd) = NaiveDate::from_ymd_opt(y, m, day.min(dim)) {
                     break nd;
@@ -900,4 +1216,32 @@ fn next_occurrence(rule: &str, from: &str) -> Option<String> {
         _ => return None,
     };
     Some(next.format("%Y-%m-%d").to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_next_occurrence_rules() {
+        assert_eq!(
+            next_occurrence("daily", "2026-08-28"),
+            Some("2026-08-29".to_string())
+        );
+        // 2026-08-28 is Friday -> next weekday is Monday 2026-08-31
+        assert_eq!(
+            next_occurrence("weekdays", "2026-08-28"),
+            Some("2026-08-31".to_string())
+        );
+        // weekly on Tuesday (2) from Friday (5) -> next Tuesday is +4 days = 2026-09-01
+        assert_eq!(
+            next_occurrence("weekly:2", "2026-08-28"),
+            Some("2026-09-01".to_string())
+        );
+        // monthly on 15th from 2026-08-28 -> 2026-09-15
+        assert_eq!(
+            next_occurrence("monthly:15", "2026-08-28"),
+            Some("2026-09-15".to_string())
+        );
+    }
 }

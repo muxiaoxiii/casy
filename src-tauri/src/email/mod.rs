@@ -271,12 +271,10 @@ fn process_email(config: &ImapAccountConfig, raw_email: &[u8], uid: u32) -> Resu
         .iter()
         .find(|h| h.get_key().to_lowercase() == "date")
         .and_then(|h| {
-            mailparse::dateparse(&h.get_value())
-                .ok()
-                .and_then(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts * 1000)
-                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                })
+            mailparse::dateparse(&h.get_value()).ok().and_then(|ts| {
+                chrono::DateTime::from_timestamp_millis(ts * 1000)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            })
         })
         .unwrap_or_else(now_local);
 
@@ -403,7 +401,8 @@ fn classify_email_type(subject: &str, body: &str) -> &'static str {
     } else if combined.contains("对方") || combined.contains("答辩") || combined.contains("代理词")
     {
         "opposing_counsel"
-    } else if combined.contains("函") || combined.contains("沟通") || combined.contains("协商") {
+    } else if combined.contains("函") || combined.contains("沟通") || combined.contains("协商")
+    {
         "correspondence"
     } else {
         "other"
@@ -504,15 +503,17 @@ async fn watch_account(config: ImapAccountConfig, running: Arc<AtomicBool>) -> R
 }
 
 /// 连接并进入 IDLE 模式
-async fn connect_and_idle(
-    config: &ImapAccountConfig,
-    running: &Arc<AtomicBool>,
-) -> Result<()> {
+async fn connect_and_idle(config: &ImapAccountConfig, running: &Arc<AtomicBool>) -> Result<()> {
     let mut session = Some(connect_imap(config).await?);
 
     // 选择监听文件夹
     let folder = config.watch_folders.split(',').next().unwrap_or("INBOX");
-    session.as_mut().unwrap().select(folder).await.context("选择文件夹失败")?;
+    session
+        .as_mut()
+        .unwrap()
+        .select(folder)
+        .await
+        .context("选择文件夹失败")?;
 
     // 先拉取未读邮件
     fetch_new_emails(session.as_mut().unwrap(), config).await?;
@@ -593,10 +594,7 @@ async fn connect_and_idle(
 }
 
 /// 拉取新邮件
-async fn fetch_new_emails(
-    session: &mut ImapSession,
-    config: &ImapAccountConfig,
-) -> Result<()> {
+async fn fetch_new_emails(session: &mut ImapSession, config: &ImapAccountConfig) -> Result<()> {
     // 获取上次同步的 UID
     let last_uid = {
         let conn = crate::db::open_db()?;
@@ -665,8 +663,7 @@ fn get_watcher() -> &'static Arc<Mutex<ImapWatcher>> {
 /// 保存 IMAP 账号配置
 #[tauri::command]
 pub async fn configure_imap(account: ImapAccountConfig) -> Result<String, String> {
-    crate::commands::run_blocking(move || save_imap_account_cmd(&account))
-        .await
+    crate::commands::run_blocking(move || save_imap_account_cmd(&account)).await
 }
 
 /// 启动邮件监听

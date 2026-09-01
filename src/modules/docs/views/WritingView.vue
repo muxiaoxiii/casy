@@ -12,6 +12,15 @@ import WikiLinkSuggestion from '../extensions/WikiLinkSuggestion.ts'
 import { useCasesStore } from '../../../stores/cases'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
+import {
+  Collection,
+  Opportunity,
+  Memo,
+  Reading,
+  QuestionFilled,
+  Medal,
+  Document
+} from '@element-plus/icons-vue'
 import CopilotSidebar from '../components/CopilotSidebar.vue'
 import { useCopilot } from '../composables/useCopilot.js'
 
@@ -313,14 +322,14 @@ function insertCaseField(field) {
 }
 
 const caseFields = [
-  { key: 'caseNo', label: '案号', icon: '📋' },
-  { key: 'caseName', label: '案件名称', icon: '📋' },
-  { key: 'clientName', label: '客户名称', icon: '👤' },
-  { key: 'opponentName', label: '对方名称', icon: '👥' },
-  { key: 'court', label: '审理机关', icon: '🏛️' },
-  { key: 'causeAction', label: '案由', icon: '📝' },
-  { key: 'patentName', label: '专利名称', icon: '📄' },
-  { key: 'patentAppNo', label: '专利申请号', icon: '📄' },
+  { key: 'caseNo', label: '案号' },
+  { key: 'caseName', label: '案件名称' },
+  { key: 'clientName', label: '客户名称' },
+  { key: 'opponentName', label: '对方名称' },
+  { key: 'court', label: '审理机关' },
+  { key: 'causeAction', label: '案由' },
+  { key: 'patentName', label: '专利名称' },
+  { key: 'patentAppNo', label: '专利申请号' },
 ]
 
 function onDocumentClick() {
@@ -393,7 +402,7 @@ onBeforeUnmount(() => {
               @click="insertCaseField(f.key)"
               :title="caseData[f.key] || '（空）'"
             >
-              {{ f.icon }} {{ f.label }}
+              {{ f.label }}
             </el-button>
           </div>
         </div>
@@ -405,19 +414,19 @@ onBeforeUnmount(() => {
               <el-button
                 :type="editor.isActive('bold') ? 'primary' : 'default'"
                 @click="editor.chain().focus().toggleBold().run()"
-              >B</el-button>
+              >粗体</el-button>
               <el-button
                 :type="editor.isActive('italic') ? 'primary' : 'default'"
                 @click="editor.chain().focus().toggleItalic().run()"
-              >I</el-button>
+              >斜体</el-button>
               <el-button
                 :type="editor.isActive('underline') ? 'primary' : 'default'"
                 @click="editor.chain().focus().toggleUnderline().run()"
-              >U</el-button>
+              >下划线</el-button>
               <el-button
                 :type="editor.isActive('highlight') ? 'primary' : 'default'"
                 @click="editor.chain().focus().toggleHighlight().run()"
-              >H</el-button>
+              >高亮</el-button>
             </el-button-group>
             <el-button-group size="small" style="margin-left: 8px">
               <el-button @click="editor.chain().focus().setHeading({ level: 1 }).run()">H1</el-button>
@@ -435,7 +444,7 @@ onBeforeUnmount(() => {
             </el-button-group>
             <el-button-group size="small" style="margin-left: 8px">
               <el-button @click="copilotOpenAiDialog()" title="AI 写作辅助 (Ctrl+K)">
-                ✨ AI 辅助
+                AI 辅助
               </el-button>
             </el-button-group>
           </div>
@@ -464,7 +473,7 @@ onBeforeUnmount(() => {
     <!-- AI 写作辅助对话框 (Ctrl+K) -->
     <el-dialog
       v-model="copilotDialogVisible"
-      title="✨ AI 写作辅助"
+      title="AI 写作辅助"
       width="520px"
       append-to-body
       @close="copilotCloseAiDialog"
@@ -501,7 +510,7 @@ onBeforeUnmount(() => {
           :disabled="!copilotIntent?.trim()"
           @click="onAiAction(copilotIntent)"
         >
-          {{ copilotGenerating ? '生成中...' : '✨ 生成建议' }}
+          {{ copilotGenerating ? '生成中...' : '生成建议' }}
         </el-button>
       </template>
     </el-dialog>
@@ -514,9 +523,11 @@ onBeforeUnmount(() => {
         :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
         @click.stop
       >
-        <div class="ctx-menu-header">📚 知识入库</div>
+        <div class="ctx-menu-header">
+          <el-icon :size="14"><Collection /></el-icon> 知识入库
+        </div>
         <div class="ctx-menu-item" @click="captureAs('inspiration')">
-          <span class="ctx-icon">💡</span> 灵感记录
+          <el-icon class="ctx-icon" :size="14"><Opportunity /></el-icon> 灵感记录
         </div>
         <div class="ctx-menu-item" @click="captureAs('method')">
           <span class="ctx-icon">📐</span> 工作方法

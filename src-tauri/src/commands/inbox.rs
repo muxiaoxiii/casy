@@ -71,12 +71,20 @@ pub async fn add_inbox_item(
         let id = db::new_id();
         let text = content_text.clone().unwrap_or_default();
 
+        let norm_source_type = match source_type.to_lowercase().as_str() {
+            "text" | "note" | "manual" | "voice" => "note",
+            "paste" | "clipboard" => "paste",
+            "file" | "attachment" => "file",
+            "email" | "mail" => "email",
+            "sms" | "message" => "sms",
+            "imap" => "imap",
+            _ => "note",
+        };
+
         // 尝试 AI 分类（使用 prompt 增强）
         let ai_config = crate::ai::load_ai_config();
-        let (category, confidence, ai_extracted, suggested_case_id) = if ai_config.mode != "noop"
-        {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(crate::ai::process_inbox_with_ai(&text)) {
+        let (category, confidence, ai_extracted, suggested_case_id) = if ai_config.mode != "noop" {
+            match tauri::async_runtime::block_on(crate::ai::process_inbox_with_ai(&text)) {
                 Ok((result, routing)) => {
                     let suggested_id = match &routing {
                         crate::ai::RoutingDecision::AutoLinked { case_id, .. } => {
@@ -109,7 +117,7 @@ pub async fn add_inbox_item(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10)",
             rusqlite::params![
                 id,
-                source_type,
+                norm_source_type,
                 title.unwrap_or_else(|| category.clone()),
                 text,
                 source_path,
@@ -151,12 +159,13 @@ pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto
         sql.push_str(" ORDER BY created_at DESC LIMIT 100");
 
         let mut stmt = conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         let items: Vec<InboxItemDto> = stmt
             .query_map(param_refs.as_slice(), |row| {
                 let ai_extracted: Option<String> = row.get("ai_extracted")?;
-                let parsed_extracted: Option<serde_json::Value> = ai_extracted
-                    .and_then(|s| serde_json::from_str(&s).ok());
+                let parsed_extracted: Option<serde_json::Value> =
+                    ai_extracted.and_then(|s| serde_json::from_str(&s).ok());
 
                 Ok(InboxItemDto {
                     id: row.get::<_, String>("id")?,
@@ -206,8 +215,7 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
         // 尝试 AI 分类（使用 prompt 增强）
         let ai_config = crate::ai::load_ai_config();
         let (category, confidence, extracted, routing) = if ai_config.mode != "noop" {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(crate::ai::process_inbox_with_ai(&content_text)) {
+            match tauri::async_runtime::block_on(crate::ai::process_inbox_with_ai(&content_text)) {
                 Ok((result, routing)) => {
                     let extracted = result.extracted_info.clone();
                     (result.category, result.confidence, extracted, Some(routing))
@@ -330,43 +338,39 @@ fn execute_auto_routes(
 
     match category {
         // ── 法条/法规 → 自动入库知识库 ──
-        "legal_provision" => {
-            match auto_import_legal_provisions(conn, content_text, inbox_id) {
-                Ok(count) => {
-                    actions.push(serde_json::json!({
-                        "action": "knowledge_import",
-                        "type": "legal_provision",
-                        "count": count,
-                        "message": format!("已自动导入 {} 条法条到知识库", count)
-                    }));
-                }
-                Err(e) => {
-                    actions.push(serde_json::json!({
-                        "action": "knowledge_import_failed",
-                        "error": e
-                    }));
-                }
+        "legal_provision" => match auto_import_legal_provisions(conn, content_text, inbox_id) {
+            Ok(count) => {
+                actions.push(serde_json::json!({
+                    "action": "knowledge_import",
+                    "type": "legal_provision",
+                    "count": count,
+                    "message": format!("已自动导入 {} 条法条到知识库", count)
+                }));
             }
-        }
+            Err(e) => {
+                actions.push(serde_json::json!({
+                    "action": "knowledge_import_failed",
+                    "error": e
+                }));
+            }
+        },
 
         // ── 节假日通知 → 解析并提示确认 ──
-        "holiday_notice" => {
-            match parse_holiday_dates(content_text) {
-                Ok(parsed) => {
-                    actions.push(serde_json::json!({
-                        "action": "holiday_parsed",
-                        "data": parsed,
-                        "message": "已解析节假日数据，请确认后更新日历"
-                    }));
-                }
-                Err(e) => {
-                    actions.push(serde_json::json!({
-                        "action": "holiday_parse_failed",
-                        "error": e
-                    }));
-                }
+        "holiday_notice" => match parse_holiday_dates(content_text) {
+            Ok(parsed) => {
+                actions.push(serde_json::json!({
+                    "action": "holiday_parsed",
+                    "data": parsed,
+                    "message": "已解析节假日数据，请确认后更新日历"
+                }));
             }
-        }
+            Err(e) => {
+                actions.push(serde_json::json!({
+                    "action": "holiday_parse_failed",
+                    "error": e
+                }));
+            }
+        },
 
         // ── 传票/口审通知 → 自动创建准备任务 ──
         "summons" | "hearing_notice" => {
@@ -471,8 +475,12 @@ fn execute_auto_routes(
             }));
             // 写入知识库
             let _ = insert_knowledge_item(
-                conn, "案由规定更新", "cause_action", content_text,
-                inbox_id, suggested_case_id,
+                conn,
+                "案由规定更新",
+                "cause_action",
+                content_text,
+                inbox_id,
+                suggested_case_id,
             );
         }
 
@@ -480,7 +488,10 @@ fn execute_auto_routes(
         "note" | "client_instruction" | "correspondence" => {
             match insert_knowledge_item(
                 conn,
-                &format!("收件箱笔记: {}", &content_text[..content_text.len().min(50)]),
+                &format!(
+                    "收件箱笔记: {}",
+                    &content_text[..content_text.len().min(50)]
+                ),
                 "case_note",
                 content_text,
                 inbox_id,
@@ -561,10 +572,8 @@ fn auto_import_legal_provisions(
         let title = format!("{}{}", law_name, article_no);
         let id = db::new_id();
         let now = db::now_local();
-        let tags = serde_json::to_string(&serde_json::json!([
-            law_name, article_no, "法条"
-        ]))
-        .unwrap_or_default();
+        let tags = serde_json::to_string(&serde_json::json!([law_name, article_no, "法条"]))
+            .unwrap_or_default();
 
         if conn
             .execute(
@@ -598,37 +607,103 @@ fn auto_import_legal_provisions(
 
 /// 解析节假日日期（B1 类型化）
 fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String> {
+    use chrono::{Duration, NaiveDate};
+    use std::collections::BTreeSet;
+
     let year_re = regex::Regex::new(r"(\d{4})\s*年").unwrap();
     let year = year_re
         .captures(content)
         .and_then(|c| c[1].parse::<i32>().ok())
         .unwrap_or(chrono::Local::now().year());
 
+    let range_re = regex::Regex::new(
+        r"(\d{1,2})\s*月\s*(\d{1,2})\s*日(?:（[^）]*）|\([^)]*\))?\s*(?:至|到|[-—~])\s*(?:(\d{1,2})\s*月\s*)?(\d{1,2})\s*日",
+    )
+    .unwrap();
     let date_re = regex::Regex::new(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日").unwrap();
-    let mut holidays = Vec::new();
-    for caps in date_re.captures_iter(content) {
-        let month = caps[1].parse::<u32>().unwrap_or(1);
-        let day = caps[2].parse::<u32>().unwrap_or(1);
-        holidays.push(format!("{:04}-{:02}-{:02}", year, month, day));
+    let mut holidays = BTreeSet::new();
+    let mut workdays = BTreeSet::new();
+
+    for segment in content.split(['。', '；', ';', '\n']) {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        let is_workday_segment = segment.contains("上班") || segment.contains("补班");
+        let is_holiday_segment = segment.contains("放假")
+            || segment.contains("休假")
+            || segment.contains("节假日")
+            || segment.contains("调休");
+        if !is_workday_segment && !is_holiday_segment {
+            continue;
+        }
+
+        let mut parsed_dates = BTreeSet::new();
+        let mut range_spans = Vec::new();
+        for captures in range_re.captures_iter(segment) {
+            let whole = captures.get(0).unwrap();
+            range_spans.push(whole.start()..whole.end());
+            let start_month = captures[1].parse::<u32>().map_err(|_| "无效月份")?;
+            let start_day = captures[2].parse::<u32>().map_err(|_| "无效日期")?;
+            let end_month = captures
+                .get(3)
+                .and_then(|value| value.as_str().parse::<u32>().ok())
+                .unwrap_or(start_month);
+            let end_day = captures[4].parse::<u32>().map_err(|_| "无效日期")?;
+            let mut date = NaiveDate::from_ymd_opt(year, start_month, start_day)
+                .ok_or_else(|| "节假日通知包含无效起始日期".to_string())?;
+            let end = NaiveDate::from_ymd_opt(year, end_month, end_day)
+                .ok_or_else(|| "节假日通知包含无效结束日期".to_string())?;
+            if end < date || (end - date).num_days() > 31 {
+                return Err("节假日日期范围异常，请检查原文".to_string());
+            }
+            while date <= end {
+                parsed_dates.insert(date);
+                date += Duration::days(1);
+            }
+        }
+        for captures in date_re.captures_iter(segment) {
+            let whole = captures.get(0).unwrap();
+            if range_spans
+                .iter()
+                .any(|span| whole.start() >= span.start && whole.end() <= span.end)
+            {
+                continue;
+            }
+            let month = captures[1].parse::<u32>().map_err(|_| "无效月份")?;
+            let day = captures[2].parse::<u32>().map_err(|_| "无效日期")?;
+            let date = NaiveDate::from_ymd_opt(year, month, day)
+                .ok_or_else(|| "节假日通知包含无效日期".to_string())?;
+            parsed_dates.insert(date);
+        }
+
+        let target = if is_workday_segment {
+            &mut workdays
+        } else {
+            &mut holidays
+        };
+        target.extend(parsed_dates);
     }
 
-    let workday_re = regex::Regex::new(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日[^，。]*上班").unwrap();
-    let mut workdays = Vec::new();
-    for caps in workday_re.captures_iter(content) {
-        let month = caps[1].parse::<u32>().unwrap_or(1);
-        let day = caps[2].parse::<u32>().unwrap_or(1);
-        workdays.push(format!("{:04}-{:02}-{:02}", year, month, day));
+    for workday in &workdays {
+        holidays.remove(workday);
+    }
+    if holidays.is_empty() && workdays.is_empty() {
+        return Err("未从通知中识别到放假或调休上班日期".to_string());
     }
 
     Ok(HolidayNotice {
         year,
-        holidays,
-        workdays,
+        holidays: holidays.into_iter().map(|date| date.to_string()).collect(),
+        workdays: workdays.into_iter().map(|date| date.to_string()).collect(),
     })
 }
 
 /// 从 extracted 中提取日期字段
-fn extract_date_from_extracted(extracted: Option<&serde_json::Value>, field: &str) -> Option<String> {
+fn extract_date_from_extracted(
+    extracted: Option<&serde_json::Value>,
+    field: &str,
+) -> Option<String> {
     extracted
         .and_then(|e| e.get(field))
         .and_then(|v| v.as_str())
@@ -642,7 +717,9 @@ fn extract_date_from_extracted(extracted: Option<&serde_json::Value>, field: &st
                         .find(|d| {
                             d.get("description")
                                 .and_then(|desc| desc.as_str())
-                                .map(|s| s.contains(field) || s.contains("开庭") || s.contains("口审"))
+                                .map(|s| {
+                                    s.contains(field) || s.contains("开庭") || s.contains("口审")
+                                })
                                 .unwrap_or(false)
                         })
                         .and_then(|d| d.get("date"))
@@ -715,7 +792,8 @@ fn auto_update_case_from_judgment(
         conn.execute(
             "UPDATE cases SET verdict_date = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![date, db::now_local(), case_id],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
         updated.push("verdict_date".to_string());
     }
 
@@ -735,7 +813,8 @@ fn auto_update_case_from_judgment(
                 conn.execute(
                     "UPDATE cases SET verdict_type = ?1, updated_at = ?2 WHERE id = ?3",
                     rusqlite::params![verdict_type, db::now_local(), case_id],
-                ).map_err(|e| e.to_string())?;
+                )
+                .map_err(|e| e.to_string())?;
                 updated.push("verdict_type".to_string());
             }
         }
@@ -745,7 +824,8 @@ fn auto_update_case_from_judgment(
             conn.execute(
                 "UPDATE cases SET case_result = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![result, db::now_local(), case_id],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
             updated.push("case_result".to_string());
         }
     }
@@ -763,11 +843,16 @@ fn auto_update_case_from_complaint(
     let now = db::now_local();
 
     // 更新收到起诉状时间
-    let today = chrono::Local::now().naive_local().date().format("%Y-%m-%d").to_string();
+    let today = chrono::Local::now()
+        .naive_local()
+        .date()
+        .format("%Y-%m-%d")
+        .to_string();
     conn.execute(
         "UPDATE cases SET complaint_received_date = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![today, now, case_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     updated.push("complaint_received_date".to_string());
 
     // 更新法院
@@ -776,7 +861,8 @@ fn auto_update_case_from_complaint(
             conn.execute(
                 "UPDATE cases SET court = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![court, now, case_id],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
             updated.push("court".to_string());
         }
     }
@@ -799,7 +885,8 @@ fn auto_update_case_from_examination(
             conn.execute(
                 "UPDATE cases SET relief_deadline = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![deadline, now, case_id],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
             updated.push("relief_deadline".to_string());
         }
     }
@@ -920,10 +1007,7 @@ pub async fn dismiss_inbox_item(id: String) -> Result<(), String> {
 /// 解析节假日通知并更新日历（B1 类型化）
 #[tauri::command]
 pub async fn parse_holiday_notice(content: String) -> Result<HolidayNotice, String> {
-    run_blocking(move || {
-        parse_holiday_dates(&content).map_err(|e| anyhow::anyhow!(e))
-    })
-    .await
+    run_blocking(move || parse_holiday_dates(&content).map_err(|e| anyhow::anyhow!(e))).await
 }
 
 // ── v2.1: 即时判断 + 安全拷贝 + AI 缓存 ──────────────────────
@@ -934,7 +1018,7 @@ pub async fn parse_holiday_notice(content: String) -> Result<HolidayNotice, Stri
 pub struct QuickJudgeResult {
     pub category: String,
     pub confidence: f32,
-    pub strength: String,          // "strong" / "candidate" / "fallback"
+    pub strength: String, // "strong" / "candidate" / "fallback"
     pub recommendations: Vec<QuickRecommendation>,
     pub ai_available: bool,
     pub ai_analyzed: bool,
@@ -943,7 +1027,7 @@ pub struct QuickJudgeResult {
 #[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct QuickRecommendation {
-    /// 动作类型：file_to_case | create_task | create_deadline | save_knowledge | create_case | set_reminder
+    /// 动作类型：file_to_case | create_task | create_deadline | create_event | save_knowledge | create_case | create_project | update_holidays | set_reminder
     pub action: String,
     pub target_case_id: Option<String>,
     pub target_case_name: Option<String>,
@@ -959,27 +1043,118 @@ struct ServiceDeliveryInfo {
     pub case_no: String,
     pub service_url: String,
     pub recipient_name: String,
-    pub matched_case_id: Option<String>,
-    pub matched_case_name: Option<String>,
 }
 
-/// 检测文本中是否包含法院送达链接（占位实现）
+/// 检测文本中的法院送达链接。只接受 court.gov.cn 子域，避免把任意网址送入下载器。
 fn detect_service_delivery(text: &str) -> Option<ServiceDeliveryInfo> {
-    // 检测 zxfw.court.gov.cn 链接
-    if !text.contains("zxfw.court.gov.cn") {
-        return None;
-    }
-    // 提取案号（简单正则）
-    let case_no_re = regex::Regex::new(r"[(（]d{4}[）)].{2,20}号").ok()?;
-    let case_no = case_no_re.find(text).map(|m| m.as_str().to_string()).unwrap_or_default();
-    
+    let url_re = regex::Regex::new(r#"https?://[^\s<>\"']+"#).ok()?;
+    let service_url = url_re
+        .find_iter(text)
+        .map(|m| m.as_str().trim_end_matches(['。', '，', ',', '.']))
+        .find(|url| {
+            reqwest::Url::parse(url)
+                .ok()
+                .and_then(|parsed| parsed.host_str().map(str::to_string))
+                .is_some_and(|host| host == "court.gov.cn" || host.ends_with(".court.gov.cn"))
+        })?
+        .to_string();
+    let case_no_re = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)].{2,30}?号").ok()?;
+    let case_no = case_no_re
+        .find(text)
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_default();
+    let recipient_re =
+        regex::Regex::new(r"(?:受送达人|收件人)[：:]?\s*([\u{4e00}-\u{9fff}]{2,8})").ok()?;
+    let recipient_name = recipient_re
+        .captures(text)
+        .and_then(|capture| capture.get(1))
+        .map(|value| value.as_str().to_string())
+        .unwrap_or_default();
+
     Some(ServiceDeliveryInfo {
         case_no,
-        service_url: "https://zxfw.court.gov.cn".to_string(),
-        recipient_name: "".to_string(),
-        matched_case_id: None,
-        matched_case_name: None,
+        service_url,
+        recipient_name,
     })
+}
+
+/// 尝试下载法院送达链接中的直接文书响应。登录页、验证码页和其他 HTML 页面不会伪装成成功。
+async fn download_service_delivery_url(
+    inbox_item_id: &str,
+    service_url: &str,
+) -> Result<String, String> {
+    let parsed =
+        reqwest::Url::parse(service_url).map_err(|_| "法院送达链接格式无效".to_string())?;
+    let host = parsed.host_str().unwrap_or_default();
+    if host != "court.gov.cn" && !host.ends_with(".court.gov.cn") {
+        return Err("仅允许下载 court.gov.cn 官方域名的送达链接".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("无法初始化送达下载器: {e}"))?;
+    let response = client
+        .get(parsed)
+        .header(reqwest::header::USER_AGENT, "Casy/0.1 court-delivery")
+        .send()
+        .await
+        .map_err(|e| format!("法院送达链接访问失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("法院送达链接返回错误: {e}"))?;
+
+    if response
+        .content_length()
+        .is_some_and(|size| size > 50 * 1024 * 1024)
+    {
+        return Err("送达文件超过 50MB 安全限制".to_string());
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if content_type.contains("text/html") {
+        return Err("法院页面需要登录或验证码，已保留短信原文，请在收件箱中人工继续".to_string());
+    }
+    let extension = if content_type.contains("pdf") {
+        "pdf"
+    } else if content_type.contains("zip") {
+        "zip"
+    } else {
+        "bin"
+    };
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取送达文件失败: {e}"))?;
+    if bytes.is_empty() {
+        return Err("法院送达链接没有返回文件内容".to_string());
+    }
+
+    let directory = dirs::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Casy")
+        .join("inbox");
+    std::fs::create_dir_all(&directory).map_err(|e| format!("无法创建收件目录: {e}"))?;
+    let path = directory.join(format!("法院送达-{}.{}", inbox_item_id, extension));
+    std::fs::write(&path, &bytes).map_err(|e| format!("无法保存送达文件: {e}"))?;
+
+    let stored_path = path.to_string_lossy().to_string();
+    let update_id = inbox_item_id.to_string();
+    let update_path = stored_path.clone();
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        conn.execute(
+            "UPDATE inbox_items SET source_type = 'file', source_path = ?1, title = ?2, quick_category = NULL, quick_confidence = NULL WHERE id = ?3",
+            rusqlite::params![update_path, path.file_name().and_then(|name| name.to_str()).unwrap_or("法院送达文件"), update_id],
+        )?;
+        Ok(())
+    })
+    .await?;
+    Ok(stored_path)
 }
 
 /// 即时判断命令（纯本地，0ms）
@@ -1038,7 +1213,8 @@ fn quick_judge(
     let category = crate::files::auto_classify(file_name).to_string();
 
     // 匹配到的案件按 case_id 去重
-    let mut matches: std::collections::HashMap<String, (String, Vec<String>)> = std::collections::HashMap::new();
+    let mut matches: std::collections::HashMap<String, (String, Vec<String>)> =
+        std::collections::HashMap::new();
 
     // 1. 案号提取（最高权重信号）
     if let Some(cn) = extract_case_no_from_name(file_name) {
@@ -1047,14 +1223,18 @@ fn quick_judge(
             rusqlite::params![format!("%{}%", cn)],
             |r| r.get::<_, String>(0),
         ) {
-            let case_name: String = conn.query_row(
-                "SELECT COALESCE(display_name, case_name) FROM cases WHERE id = ?1",
-                rusqlite::params![case_id],
-                |r| r.get(0),
-            ).unwrap_or_default();
-            matches.entry(case_id.clone())
+            let case_name: String = conn
+                .query_row(
+                    "SELECT COALESCE(display_name, case_name) FROM cases WHERE id = ?1",
+                    rusqlite::params![case_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or_default();
+            matches
+                .entry(case_id.clone())
                 .or_insert_with(|| (case_name, vec![]))
-                .1.push(format!("文件名包含案号 {}", cn));
+                .1
+                .push(format!("文件名包含案号 {}", cn));
         }
     }
 
@@ -1067,17 +1247,31 @@ fn quick_judge(
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         for (case_id, case_name) in case_iter.flatten() {
-            matches.entry(case_id)
+            matches
+                .entry(case_id)
                 .or_insert_with(|| (case_name, vec![]))
-                .1.push(format!("文件名包含当事人 {}", party));
+                .1
+                .push(format!("文件名包含当事人 {}", party));
         }
     }
 
     // 3. 置信度 = 信号加权，封顶 0.95
     let mut confidence: f32 = 0.0;
-    if category != "other" { confidence += 0.3; }
-    if matches.values().any(|(_, r)| r.iter().any(|s| s.contains("案号"))) { confidence += 0.4; }
-    if matches.values().any(|(_, r)| r.iter().any(|s| s.contains("当事人"))) { confidence += 0.2; }
+    if category != "other" {
+        confidence += 0.3;
+    }
+    if matches
+        .values()
+        .any(|(_, r)| r.iter().any(|s| s.contains("案号")))
+    {
+        confidence += 0.4;
+    }
+    if matches
+        .values()
+        .any(|(_, r)| r.iter().any(|s| s.contains("当事人")))
+    {
+        confidence += 0.2;
+    }
     confidence = confidence.min(0.95);
 
     // 4. 推荐强度分级
@@ -1116,8 +1310,8 @@ fn quick_judge(
 }
 /// 文本意图判断（设计哲学 §10：捕获任意信息 → 判断意图 → 推荐按钮 → 自行推送）
 ///
-/// 意图优先级：期限 > 任务 > 提醒 > 知识 > 新案件 > 兜底
-/// 推荐动作：create_deadline / create_task / set_reminder / save_knowledge / create_case
+/// 意图优先级：期限 > 日程 > 任务 > 提醒 > 知识 > 新案件 > 兜底
+/// 推荐动作：update_holidays / create_deadline / create_event / create_task / set_reminder / save_knowledge / create_case
 fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<QuickJudgeResult> {
     let text = text.trim();
     if text.is_empty() {
@@ -1141,18 +1335,45 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
             rusqlite::params![format!("%{}%", cn)],
             |r| r.get::<_, String>(0),
         ) {
-            let case_name: String = conn.query_row(
-                "SELECT COALESCE(display_name, case_name) FROM cases WHERE id = ?1",
-                rusqlite::params![case_id],
-                |r| r.get(0),
-            ).unwrap_or_default();
+            let case_name: String = conn
+                .query_row(
+                    "SELECT COALESCE(display_name, case_name) FROM cases WHERE id = ?1",
+                    rusqlite::params![case_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or_default();
             matched_case = Some((case_id, case_name));
+        }
+    }
+    if matched_case.is_none() {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, COALESCE(display_name, case_name) AS cname, client_name, opponent_name FROM cases"
+        ) {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                ))
+            }) {
+                for r in rows.flatten() {
+                    let (cid, cname, client, opponent) = r;
+                    if (!client.is_empty() && client.chars().count() >= 2 && text.contains(&client))
+                        || (!opponent.is_empty() && opponent.chars().count() >= 2 && text.contains(&opponent))
+                        || (!cname.is_empty() && cname.chars().count() >= 2 && text.contains(&cname))
+                    {
+                        matched_case = Some((cid, cname));
+                        break;
+                    }
+                }
+            }
         }
     }
     if matched_case.is_none() {
         for party in extract_parties_from_name(text) {
             if let Ok((case_id, case_name)) = conn.query_row(
-                "SELECT id, COALESCE(display_name, case_name) FROM cases WHERE client_name LIKE ?1 OR opponent_name LIKE ?1 LIMIT 1",
+                "SELECT id, COALESCE(display_name, case_name) FROM cases WHERE client_name LIKE ?1 OR opponent_name LIKE ?1 OR case_name LIKE ?1 OR display_name LIKE ?1 LIMIT 1",
                 rusqlite::params![format!("%{}%", party)],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
             ) {
@@ -1165,8 +1386,12 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
     let due = extract_date_hint(text);
     let intent_base = |action: &str, _name: &str, reason: &str| -> QuickRecommendation {
         let mut intent = serde_json::json!({ "name": truncate_text(text, 60) });
-        if let Some(d) = &due { intent["dueDate"] = serde_json::Value::String(d.clone()); }
-        if let Some(c) = &matched_case { intent["caseId"] = serde_json::Value::String(c.0.clone()); }
+        if let Some(d) = &due {
+            intent["dueDate"] = serde_json::Value::String(d.clone());
+        }
+        if let Some(c) = &matched_case {
+            intent["caseId"] = serde_json::Value::String(c.0.clone());
+        }
         QuickRecommendation {
             action: action.to_string(),
             target_case_id: matched_case.as_ref().map(|c| c.0.clone()),
@@ -1177,36 +1402,89 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
         }
     };
 
-    // 1) 期限意图
-    if ["截止", "到期", "期限", "届满", "失效", "最后一天", "提交日"].iter().any(|w| text.contains(w)) {
-        recommendations.push(intent_base("create_deadline", "", "文本含期限词（截止/到期/期限）"));
+    // 0.5) 法定节假日通知：先解析，确认后才覆盖本地日历数据。
+    if ["节假日", "放假安排", "放假调休", "调休上班", "国务院办公厅"]
+        .iter()
+        .any(|word| text.contains(word))
+    {
+        if let Ok(notice) = parse_holiday_dates(text) {
+            recommendations.push(QuickRecommendation {
+                action: "update_holidays".to_string(),
+                target_case_id: None,
+                target_case_name: None,
+                target_folder: None,
+                intent: Some(serde_json::json!({
+                    "year": notice.year,
+                    "holidays": notice.holidays,
+                    "workdays": notice.workdays,
+                })),
+                reason: "检测到法定节假日或调休通知，确认后更新日历".to_string(),
+            });
+        }
     }
 
-    // 2) 任务意图
-    if ["需要", "要做", "尽快", "别忘了", "安排", "完成", "准备"].iter().any(|w| text.contains(w)) {
-        let mut rec = intent_base("create_task", "", "文本含行动词（需要/要做/尽快）");
+    // 1) 期限意图
+    if ["截止", "到期", "期限", "届满", "失效", "最后一天", "提交日"]
+        .iter()
+        .any(|w| text.contains(w))
+    {
+        recommendations.push(intent_base(
+            "create_deadline",
+            "",
+            "文本含期限词（截止/到期/期限）",
+        ));
+    }
+
+    // 2) 日程意图
+    if [
+        "会议", "开会", "开庭", "日程", "预约", "拜访", "会面", "庭审",
+    ]
+    .iter()
+    .any(|w| text.contains(w))
+    {
+        let mut rec = intent_base("create_event", "", "文本含日程词（会议/开庭/预约）");
+        if let Some(intent) = rec.intent.as_mut() {
+            intent["title"] = serde_json::Value::String(truncate_text(text, 60));
+            if let Some(d) = &due {
+                intent["eventDate"] = serde_json::Value::String(d.clone());
+            }
+        }
+        recommendations.push(rec);
+    }
+
+    // 3) 任务意图
+    if [
+        "需要", "要做", "尽快", "别忘了", "安排", "完成", "准备", "交", "提交", "递交", "办理",
+        "出具", "草拟", "签署", "寄送", "发送", "委托书", "授权委托书",
+    ]
+    .iter()
+    .any(|w| text.contains(w))
+    {
+        let mut rec = intent_base("create_task", "", "文本含行动词（交/提交/办理/委托书）");
         if let Some(intent) = rec.intent.as_mut() {
             intent["taskName"] = serde_json::Value::String(truncate_text(text, 60));
         }
         recommendations.push(rec);
     }
 
-    // 3) 提醒意图
+    // 4) 提醒意图
     if ["提醒", "记得"].iter().any(|w| text.contains(w)) {
         let mut rec = intent_base("set_reminder", "", "文本含提醒词（提醒/记得）");
         if let Some(intent) = rec.intent.as_mut() {
             intent["title"] = serde_json::Value::String(truncate_text(text, 60));
-            if let Some(d) = &due { intent["remindAt"] = serde_json::Value::String(d.clone()); }
+            if let Some(d) = &due {
+                intent["remindAt"] = serde_json::Value::String(d.clone());
+            }
         }
         recommendations.push(rec);
     }
 
-    // 3.5) 法院送达短信意图（zxfw.court.gov.cn 链接 → 抓取送达文书）
+    // 4.5) 法院送达短信意图（court.gov.cn 官方链接 → 抓取送达文书）
     if let Some(delivery) = detect_service_delivery(text) {
         recommendations.push(QuickRecommendation {
             action: "service_delivery".to_string(),
-            target_case_id: delivery.matched_case_id.clone(),
-            target_case_name: delivery.matched_case_name.clone(),
+            target_case_id: matched_case.as_ref().map(|c| c.0.clone()),
+            target_case_name: matched_case.as_ref().map(|c| c.1.clone()),
             target_folder: None,
             intent: Some(serde_json::json!({
                 "caseNo": delivery.case_no,
@@ -1217,8 +1495,13 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
         });
     }
 
-    // 4) 知识意图
-    if ["笔记", "参考", "资料", "心得", "总结", "整理", "备忘", "要点"].iter().any(|w| text.contains(w)) {
+    // 5) 知识意图
+    if [
+        "笔记", "参考", "资料", "心得", "总结", "整理", "备忘", "要点",
+    ]
+    .iter()
+    .any(|w| text.contains(w))
+    {
         recommendations.push(QuickRecommendation {
             action: "save_knowledge".to_string(),
             target_case_id: matched_case.as_ref().map(|c| c.0.clone()),
@@ -1233,8 +1516,11 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
         });
     }
 
-    // 5) 新案件意图
-    if ["收案", "委托", "新案件", "代理", "接案"].iter().any(|w| text.contains(w)) {
+    // 6) 新案件意图
+    if ["收案", "委托", "新案件", "代理", "接案"]
+        .iter()
+        .any(|w| text.contains(w))
+    {
         recommendations.push(QuickRecommendation {
             action: "create_case".to_string(),
             target_case_id: None,
@@ -1247,7 +1533,32 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
         });
     }
 
-    // 6) 兜底：关联案件 → 转任务；否则 → 存知识
+    // 6.5) 非案件项目意图
+    if [
+        "新项目",
+        "创建项目",
+        "立项",
+        "顾问项目",
+        "尽调项目",
+        "研究项目",
+    ]
+    .iter()
+    .any(|word| text.contains(word))
+    {
+        recommendations.push(QuickRecommendation {
+            action: "create_project".to_string(),
+            target_case_id: None,
+            target_case_name: None,
+            target_folder: None,
+            intent: Some(serde_json::json!({
+                "name": truncate_text(text, 60),
+                "description": text,
+            })),
+            reason: "文本含非案件项目词（新项目/顾问项目/尽调项目）".to_string(),
+        });
+    }
+
+    // 7) 兜底：关联案件 → 转任务；否则 → 存知识
     if recommendations.is_empty() {
         if let Some((case_id, case_name)) = &matched_case {
             recommendations.push(QuickRecommendation {
@@ -1279,9 +1590,29 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
 
     // 强度：有关联案件或 2+ 意图 → strong；有明确意图词 → candidate；兜底 → fallback
     let primary = recommendations[0].action.clone();
-    let explicit = matches!(primary.as_str(), "create_deadline" | "create_task" | "set_reminder" | "create_case");
-    let confidence: f32 = if matched_case.is_some() || recommendations.len() >= 2 { 0.85 } else if explicit { 0.72 } else { 0.4 };
-    let strength = if confidence >= 0.7 { "strong" } else { "candidate" };
+    let explicit = matches!(
+        primary.as_str(),
+        "update_holidays"
+            | "create_deadline"
+            | "create_event"
+            | "create_task"
+            | "set_reminder"
+            | "create_case"
+            | "create_project"
+            | "service_delivery"
+    );
+    let confidence: f32 = if matched_case.is_some() || recommendations.len() >= 2 {
+        0.85
+    } else if explicit {
+        0.72
+    } else {
+        0.4
+    };
+    let strength = if confidence >= 0.7 {
+        "strong"
+    } else {
+        "candidate"
+    };
 
     Ok(QuickJudgeResult {
         category: primary,
@@ -1293,54 +1624,338 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
     })
 }
 
-/// 从文本提取日期提示（YYYY-MM-DD / MM-DD / 明天 / 后天）
-fn extract_date_hint(text: &str) -> Option<String> {
-    use chrono::{Duration, Local};
-    // YYYY-MM-DD / YYYY/M/D
-    if let Ok(full) = regex::Regex::new(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}") {
-        if let Some(m) = full.find(text) {
-            return normalize_date(m.as_str());
+/// 中文数字与常规数字统一解析 (1-100)
+fn parse_zh_num(s: &str) -> Option<u32> {
+    if let Ok(n) = s.parse::<u32>() {
+        return Some(n);
+    }
+    match s {
+        "一" | "壹" | "1" => Some(1),
+        "二" | "两" | "贰" | "2" => Some(2),
+        "三" | "叁" | "3" => Some(3),
+        "四" | "肆" | "4" => Some(4),
+        "五" | "伍" | "5" => Some(5),
+        "六" | "陆" | "6" => Some(6),
+        "七" | "柒" | "7" => Some(7),
+        "八" | "捌" | "8" => Some(8),
+        "九" | "玖" | "9" => Some(9),
+        "十" | "拾" | "10" => Some(10),
+        "十一" | "11" => Some(11),
+        "十二" | "12" => Some(12),
+        "十三" | "13" => Some(13),
+        "十四" | "14" => Some(14),
+        "十五" | "15" => Some(15),
+        "十六" | "16" => Some(16),
+        "十七" | "17" => Some(17),
+        "十八" | "18" => Some(18),
+        "十九" | "19" => Some(19),
+        "二十" | "廿" | "20" => Some(20),
+        "二十一" | "21" => Some(21),
+        "二十二" | "22" => Some(22),
+        "二十三" | "23" => Some(23),
+        "二十四" | "24" => Some(24),
+        "二十五" | "25" => Some(25),
+        "二十六" | "26" => Some(26),
+        "二十七" | "27" => Some(27),
+        "二十八" | "28" => Some(28),
+        "二十九" | "29" => Some(29),
+        "三十" | "卅" | "30" => Some(30),
+        "三十一" | "31" => Some(31),
+        _ => None,
+    }
+}
+
+/// 计算月份加减（自动对齐月末有效天数）
+fn add_months_clamped(date: chrono::NaiveDate, months: i32) -> Option<chrono::NaiveDate> {
+    use chrono::Datelike;
+    let total_m = date.year() * 12 + (date.month() as i32 - 1) + months;
+    let new_y = total_m / 12;
+    let new_m = (total_m % 12 + 1) as u32;
+    let max_day = last_day_of_month(new_y, new_m).day();
+    let new_d = std::cmp::min(date.day(), max_day);
+    chrono::NaiveDate::from_ymd_opt(new_y, new_m, new_d)
+}
+
+/// 获取指定年月最后一天
+fn last_day_of_month(year: i32, month: u32) -> chrono::NaiveDate {
+    let (next_y, next_m) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    chrono::NaiveDate::from_ymd_opt(next_y, next_m, 1)
+        .unwrap()
+        .pred_opt()
+        .unwrap()
+}
+
+/// 解析周几与周期相对日期 (本周五 / 下周一 / 星期三 / 这周天 / 下下周二等)
+fn parse_weekday_match(text: &str, today: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    use chrono::{Datelike, Duration};
+
+    let re = regex::Regex::new(
+        r"(本周|这周|这个星期|这个礼拜|下周|下个星期|下礼拜|下下周|下两个星期|周|星期|礼拜)\s*([一二三四五六日天七1-7])",
+    )
+    .ok()?;
+    let caps = re.captures(text)?;
+    let prefix = &caps[1];
+    let day_str = &caps[2];
+
+    let target_weekday_num = match day_str {
+        "一" | "1" => 1,
+        "二" | "2" => 2,
+        "三" | "3" => 3,
+        "四" | "4" => 4,
+        "五" | "5" => 5,
+        "六" | "6" => 6,
+        "日" | "天" | "七" | "7" => 7,
+        _ => return None,
+    };
+
+    let cur_weekday_num = today.weekday().number_from_monday(); // 1 = Mon, 7 = Sun
+
+    if prefix.starts_with("下下周") || prefix.starts_with("下两个星期") {
+        let days_until_next_next_mon = (7 - cur_weekday_num + 1) + 7;
+        let target_mon = today + Duration::days(days_until_next_next_mon as i64);
+        Some(target_mon + Duration::days((target_weekday_num - 1) as i64))
+    } else if prefix.starts_with("下周")
+        || prefix.starts_with("下个星期")
+        || prefix.starts_with("下礼拜")
+    {
+        let days_until_next_mon = 7 - cur_weekday_num + 1;
+        let next_mon = today + Duration::days(days_until_next_mon as i64);
+        Some(next_mon + Duration::days((target_weekday_num - 1) as i64))
+    } else if prefix.starts_with("本周")
+        || prefix.starts_with("这周")
+        || prefix.starts_with("这个星期")
+        || prefix.starts_with("这个礼拜")
+    {
+        let mon = today - Duration::days((cur_weekday_num - 1) as i64);
+        Some(mon + Duration::days((target_weekday_num - 1) as i64))
+    } else {
+        // 单纯出现 "周五" / "星期三"：若是今天及之后的周几算本周，否则算下周
+        if target_weekday_num >= cur_weekday_num {
+            let diff = target_weekday_num - cur_weekday_num;
+            Some(today + Duration::days(diff as i64))
+        } else {
+            let diff = 7 - (cur_weekday_num - target_weekday_num);
+            Some(today + Duration::days(diff as i64))
         }
     }
-    // MM-DD
-    if let Ok(md) = regex::Regex::new(r"\d{1,2}[-/]\d{1,2}") {
-        if let Some(m) = md.find(text) {
-            let parts: Vec<&str> = m.as_str().split(['-', '/']).collect();
-            if parts.len() == 2 {
-                if let (Ok(mm), Ok(dd)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                    let now = Local::now();
-                    let this_year = chrono::NaiveDate::from_ymd_opt(now.year(), mm, dd);
-                    if let Some(date) = this_year {
-                        if date >= now.date_naive() {
-                            return Some(date.format("%Y-%m-%d").to_string());
-                        }
-                        if let Some(next) = chrono::NaiveDate::from_ymd_opt(now.year() + 1, mm, dd) {
-                            return Some(next.format("%Y-%m-%d").to_string());
+}
+
+/// 解析相对日期 (今天/明天/后天/大后天/N天后/N周后/N月后/月初/月末等)
+fn parse_relative_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    use chrono::{Datelike, Duration};
+
+    // 今日 / 今天 / 今早 / 今晚 / 今晨
+    if text.contains("今天")
+        || text.contains("今日")
+        || text.contains("今早")
+        || text.contains("今晚")
+        || text.contains("今晨")
+    {
+        return Some(today);
+    }
+    // 大后天
+    if text.contains("大后天") {
+        return Some(today + Duration::days(3));
+    }
+    // 后天 / 后日
+    if text.contains("后天") || text.contains("后日") {
+        return Some(today + Duration::days(2));
+    }
+    // 明天 / 明日 / 明早 / 明晚 / 明晨
+    if text.contains("明天")
+        || text.contains("明日")
+        || text.contains("明早")
+        || text.contains("明晚")
+        || text.contains("明晨")
+    {
+        return Some(today + Duration::days(1));
+    }
+    // 昨天 / 昨晚
+    if text.contains("昨天") || text.contains("昨日") || text.contains("昨晚") {
+        return Some(today - Duration::days(1));
+    }
+    // 前天
+    if text.contains("前天") || text.contains("前日") {
+        return Some(today - Duration::days(2));
+    }
+    // 半个月后 / 半月后 / 半个月内
+    if text.contains("半个月后")
+        || text.contains("半个月内")
+        || text.contains("半月后")
+        || text.contains("半月内")
+    {
+        return Some(today + Duration::days(15));
+    }
+
+    // N天后 / N日后 / N天内 / N日内 / N天之后 / N天以内
+    if let Ok(re_days) = regex::Regex::new(
+        r"(\d+|[一二两三四五六七八九十百]+)\s*(?:个)?(?:工作)?(?:天|日)\s*(?:之|以)?(?:后|内|后交|后截止|后到期|之后|以内)",
+    ) {
+        if let Some(caps) = re_days.captures(text) {
+            if let Some(n) = parse_zh_num(&caps[1]) {
+                return Some(today + Duration::days(n as i64));
+            }
+        }
+    }
+
+    // N周后 / N个星期后 / N礼拜后 / N周内
+    if let Ok(re_weeks) = regex::Regex::new(
+        r"(\d+|[一二两三四五六七八九十]+)\s*(?:个)?(?:周|星期|礼拜)\s*(?:之|以)?(?:后|内|之后|以内)",
+    ) {
+        if let Some(caps) = re_weeks.captures(text) {
+            if let Some(n) = parse_zh_num(&caps[1]) {
+                return Some(today + Duration::days((n * 7) as i64));
+            }
+        }
+    }
+
+    // N个月后 / N月后 / N个月内
+    if let Ok(re_months) = regex::Regex::new(
+        r"(\d+|[一二两三四五六七八九十]+)\s*(?:个)?月\s*(?:之|以)?(?:后|内|之后|以内)",
+    ) {
+        if let Some(caps) = re_months.captures(text) {
+            if let Some(n) = parse_zh_num(&caps[1]) {
+                return add_months_clamped(today, n as i32);
+            }
+        }
+    }
+
+    // N年后 / N年内
+    if let Ok(re_years) =
+        regex::Regex::new(r"(\d+|[一二两三四五六七八九十]+)\s*年\s*(?:之|以)?(?:后|内|之后|以内)")
+    {
+        if let Some(caps) = re_years.captures(text) {
+            if let Some(n) = parse_zh_num(&caps[1]) {
+                return chrono::NaiveDate::from_ymd_opt(
+                    today.year() + n as i32,
+                    today.month(),
+                    today.day(),
+                )
+                .or_else(|| {
+                    chrono::NaiveDate::from_ymd_opt(today.year() + n as i32, today.month(), 28)
+                });
+            }
+        }
+    }
+
+    // 周几解析：本周X / 下周X / 这周X / 星期X / 礼拜X
+    if let Some(d) = parse_weekday_match(text, today) {
+        return Some(d);
+    }
+
+    // 月初 / 月末 / 月底解析
+    if text.contains("本月底")
+        || text.contains("当月底")
+        || text.contains("这个月底")
+        || text.contains("月末")
+        || text.contains("月底")
+    {
+        return Some(last_day_of_month(today.year(), today.month()));
+    }
+    if text.contains("下月初") || text.contains("下月头") {
+        let (y, m) = if today.month() == 12 {
+            (today.year() + 1, 1)
+        } else {
+            (today.year(), today.month() + 1)
+        };
+        return chrono::NaiveDate::from_ymd_opt(y, m, 1);
+    }
+    if text.contains("下月底") || text.contains("下月末") {
+        let (y, m) = if today.month() == 12 {
+            (today.year() + 1, 1)
+        } else {
+            (today.year(), today.month() + 1)
+        };
+        return Some(last_day_of_month(y, m));
+    }
+
+    None
+}
+
+/// 解析绝对日期 (YYYY-MM-DD / YYYY年M月D日 / MM-DD / M月D日 / 中文月份日期)
+fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    use chrono::Datelike;
+
+    // 1. YYYY-MM-DD / YYYY/M/D / YYYY.M.D / YYYY年M月D日(号)
+    if let Ok(re) =
+        regex::Regex::new(r"(\d{4})\s*[\-/\.年]\s*(\d{1,2})\s*[\-/\.月]\s*(\d{1,2})\s*[日号]?")
+    {
+        if let Some(caps) = re.captures(text) {
+            if let (Ok(y), Ok(m), Ok(d)) = (
+                caps[1].parse::<i32>(),
+                caps[2].parse::<u32>(),
+                caps[3].parse::<u32>(),
+            ) {
+                if let Some(dt) = chrono::NaiveDate::from_ymd_opt(y, m, d) {
+                    return Some(dt);
+                }
+            }
+        }
+    }
+
+    // 2. MM-DD / M/D / M.D / M月D日 / M月D号
+    if let Ok(re) = regex::Regex::new(
+        r"(?:^|[^\d])(\d{1,2})\s*[\-/\.月]\s*(\d{1,2})(?:[日号]|\b|$)",
+    ) {
+        if let Some(caps) = re.captures(text) {
+            if let (Ok(m), Ok(d)) = (caps[1].parse::<u32>(), caps[2].parse::<u32>()) {
+                if (1..=12).contains(&m) && (1..=31).contains(&d) {
+                    if let Some(dt) = chrono::NaiveDate::from_ymd_opt(today.year(), m, d) {
+                        if dt >= today {
+                            return Some(dt);
+                        } else if let Some(next_year_dt) =
+                            chrono::NaiveDate::from_ymd_opt(today.year() + 1, m, d)
+                        {
+                            return Some(next_year_dt);
                         }
                     }
                 }
             }
         }
     }
-    if text.contains("明天") {
-        return Some((Local::now().date_naive() + Duration::days(1)).format("%Y-%m-%d").to_string());
-    }
-    if text.contains("后天") {
-        return Some((Local::now().date_naive() + Duration::days(2)).format("%Y-%m-%d").to_string());
-    }
-    None
-}
 
-/// 规范化日期字符串为 YYYY-MM-DD
-fn normalize_date(s: &str) -> Option<String> {
-    let parts: Vec<&str> = s.split(['-', '/']).collect();
-    if parts.len() == 3 {
-        if let (Ok(y), Ok(m), Ok(d)) = (parts[0].parse::<i32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>()) {
-            if let Some(dt) = chrono::NaiveDate::from_ymd_opt(y, m, d) {
-                return Some(dt.format("%Y-%m-%d").to_string());
+    // 3. 中文数字月份与日期：如 "九月十五日" / "十月一号" / "五月二十"
+    if let Ok(re) = regex::Regex::new(
+        r"([一二三四五六七八九十]+)月\s*([一二三四五六七八九十廿卅]+)[日号]?",
+    ) {
+        if let Some(caps) = re.captures(text) {
+            if let (Some(m), Some(d)) = (parse_zh_num(&caps[1]), parse_zh_num(&caps[2])) {
+                if (1..=12).contains(&m) && (1..=31).contains(&d) {
+                    if let Some(dt) = chrono::NaiveDate::from_ymd_opt(today.year(), m, d) {
+                        if dt >= today {
+                            return Some(dt);
+                        } else if let Some(next_year_dt) =
+                            chrono::NaiveDate::from_ymd_opt(today.year() + 1, m, d)
+                        {
+                            return Some(next_year_dt);
+                        }
+                    }
+                }
             }
         }
     }
+
+    None
+}
+
+/// 从文本提取完整自然语言日期与时间（支持所有相对日期、中文表达、周期、年月日及 N 天/周/月/年后）
+fn extract_date_hint(text: &str) -> Option<String> {
+    let today = chrono::Local::now().date_naive();
+
+    // 1. 优先绝对日期
+    if let Some(d) = parse_absolute_date(text, today) {
+        return Some(d.format("%Y-%m-%d").to_string());
+    }
+
+    // 2. 相对日期推断
+    if let Some(d) = parse_relative_date(text, today) {
+        return Some(d.format("%Y-%m-%d").to_string());
+    }
+
     None
 }
 
@@ -1354,26 +1969,78 @@ fn truncate_text(s: &str, max: usize) -> String {
     }
 }
 
-
-/// 从文件名提取案号
+/// 从文件名或文本中提取案号/决定号（支持全国法院案号、最高法知产案号、国知局4W编号及决定号）
 fn extract_case_no_from_name(file_name: &str) -> Option<String> {
-    let re = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)].*?号").ok()?;
-    re.find(file_name).map(|m| m.as_str().to_string())
+    // 1. 标准法院案号：如 (2023)最高法知行终123号 / （2024）京73行初456号
+    if let Ok(re) = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)][\u{4e00}-\u{9fff}\w\d\-_]+?\d+号")
+    {
+        if let Some(m) = re.find(file_name) {
+            return Some(m.as_str().to_string());
+        }
+    }
+    // 2. 国知局无效/复审案件编号：4W123456 / 5W123456 / 5F123456
+    if let Ok(re) = regex::Regex::new(r"\b(\d+[WF]\d+)\b") {
+        if let Some(caps) = re.captures(file_name) {
+            return Some(caps[1].to_string());
+        }
+    }
+    // 3. 决定号：第56123号
+    if let Ok(re) = regex::Regex::new(r"第\s*\d{4,7}\s*号") {
+        if let Some(m) = re.find(file_name) {
+            return Some(m.as_str().to_string());
+        }
+    }
+    // 4. 宽松兜底案号格式：[(（]202x[)）]...号
+    if let Ok(re) = regex::Regex::new(r"[（(]\s*\d{4}\s*[）)].*?号") {
+        if let Some(m) = re.find(file_name) {
+            return Some(m.as_str().to_string());
+        }
+    }
+    None
 }
 
-/// 从文件名提取当事人名（简单规则：中文字符连续出现 > 2 字）
-fn extract_parties_from_name(file_name: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"[\u{4e00}-\u{9fff}]{2,8}").unwrap();
-    // 过滤掉常见非当事人词
-    let stop_words: std::collections::HashSet<&str> = [
-        "传票", "判决", "裁定", "决定", "起诉", "答辩", "证据", "通知书",
-        "口审", "函件", "文件", "扫描", "复印件", "原件", "副本",
-    ].iter().copied().collect();
+/// 从文件名或文本中提取当事人/案件关键词
+fn extract_parties_from_name(text: &str) -> Vec<String> {
+    let mut parties = Vec::new();
 
-    re.find_iter(file_name)
-        .map(|m| m.as_str().to_string())
-        .filter(|w| !stop_words.contains(w.as_str()))
-        .collect()
+    // 1. 匹配 "...案" (如 "李四案", "张三诉李四案", "华为中兴案")
+    if let Ok(re_case) = regex::Regex::new(r"([\u{4e00}-\u{9fff}\w]{2,12})案") {
+        for cap in re_case.captures_iter(text) {
+            let p = cap[1].to_string();
+            let trimmed = p.trim_start_matches(|c| "交办写发关于对看查与".contains(c)).to_string();
+            if trimmed.chars().count() >= 2 {
+                parties.push(trimmed);
+            }
+        }
+    }
+
+    // 2. 匹配 "X诉Y"
+    if let Ok(re_vs) = regex::Regex::new(r"([\u{4e00}-\u{9fff}]{2,10})诉([\u{4e00}-\u{9fff}]{2,10})") {
+        for cap in re_vs.captures_iter(text) {
+            parties.push(cap[1].to_string());
+            parties.push(cap[2].to_string());
+        }
+    }
+
+    // 3. 过滤掉常见非当事人词
+    let stop_words: std::collections::HashSet<&str> = [
+        "传票", "判决", "裁定", "决定", "起诉", "答辩", "证据", "通知书", "口审",
+        "函件", "文件", "扫描", "复印件", "原件", "副本", "明天", "后天", "今天",
+        "委托书", "授权委托书", "起诉状", "答辩状", "代理词",
+    ]
+    .iter()
+    .copied()
+    .collect();
+
+    let re = regex::Regex::new(r"[\u{4e00}-\u{9fff}]{2,6}").unwrap();
+    for m in re.find_iter(text) {
+        let w = m.as_str();
+        if !stop_words.contains(w) && !parties.iter().any(|p| p == w) {
+            parties.push(w.to_string());
+        }
+    }
+
+    parties
 }
 
 /// 分类 → 标准子目录映射
@@ -1400,8 +2067,7 @@ pub async fn copy_file_with_progress(
         use sha2::Digest;
 
         let source = std::path::Path::new(&source_path);
-        let meta = std::fs::metadata(source)
-            .map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
+        let meta = std::fs::metadata(source).map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
         let file_size = meta.len();
 
         // 读取案件 folder_name，回退到 case_name
@@ -1429,7 +2095,10 @@ pub async fn copy_file_with_progress(
         std::fs::create_dir_all(&cases_root)?;
 
         // 生成目标文件名（处理已存在）
-        let file_stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let file_stem = source
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file");
         let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
         let mut target_name = if ext.is_empty() {
             file_stem.to_string()
@@ -1463,7 +2132,9 @@ pub async fn copy_file_with_progress(
             let mut buf = vec![0u8; 8192];
             loop {
                 let n = src.read(&mut buf)?;
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 dst.write_all(&buf[..n])?;
             }
         }
@@ -1478,7 +2149,6 @@ pub async fn copy_file_with_progress(
     })
     .await
 }
-
 
 /// 拒绝推荐反馈（设计哲学 §10：推荐拒绝 → 学习信号）
 ///
@@ -1515,10 +2185,6 @@ pub async fn reject_inbox_recommendation(
     .await
 }
 
-// ═══════════════════════════════════════════════════════════
-// 以下函数为占位实现（设计哲学路线图功能，待完整实现）
-// ═══════════════════════════════════════════════════════════
-
 /// 确认收件箱推荐动作（设计哲学 §10：捕获→厘清→执行闭环）
 #[tauri::command]
 pub async fn confirm_inbox_action(
@@ -1526,132 +2192,225 @@ pub async fn confirm_inbox_action(
     action: String,
     target_case_id: Option<String>,
     target_category: Option<String>,
+    intent: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    run_blocking(move || {
+    let lookup_id = inbox_item_id.clone();
+    let content_text = run_blocking(move || {
         let conn = db::open_db()?;
-        let now = db::now_local();
-        
-        // 获取收件箱项信息
-        let (content_text, _source_type): (String, String) = conn.query_row(
-            "SELECT content_text, source_type FROM inbox_items WHERE id = ?1",
-            rusqlite::params![inbox_item_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).map_err(|_| anyhow::anyhow!("收件箱项不存在"))?;
-        
-        // 根据 action 执行对应操作
-        let result = match action.as_str() {
-            "file_to_case" => {
-                // 归档到案件文件夹
-                if let (Some(case_id), Some(category)) = (&target_case_id, &target_category) {
-                    // 更新 inbox_item 状态
-                    conn.execute(
-                        "UPDATE inbox_items SET status = 'processed', linked_case_id = ?1, user_category = ?2, processed_at = ?3 WHERE id = ?4",
-                        rusqlite::params![case_id, category, &now, &inbox_item_id],
-                    )?;
-                    serde_json::json!({"success": true, "action": "filed", "caseId": case_id, "category": category})
-                } else {
-                    serde_json::json!({"success": false, "error": "缺少案件ID或分类"})
-                }
-            }
-            "create_task" => {
-                // 创建任务
-                let task_id = db::new_id();
-                conn.execute(
-                    "INSERT INTO tasks (id, task_name, case_id, created_date, task_type, start_bucket, created_at) VALUES (?1, ?2, ?3, ?4, 'action', 'inbox', ?5)",
-                    rusqlite::params![&task_id, &content_text, target_case_id.as_ref().unwrap_or(&String::new()), &now, &now],
-                )?;
-                // 更新 inbox_item
-                conn.execute(
-                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now, &inbox_item_id],
-                )?;
-                serde_json::json!({"success": true, "action": "task_created", "taskId": task_id})
-            }
-            "save_knowledge" => {
-                // 保存到知识库
-                let knowledge_id = db::new_id();
-                conn.execute(
-                    "INSERT INTO knowledge_items (id, title, content, category, created_at) VALUES (?1, ?2, ?3, 'reference', ?4)",
-                    rusqlite::params![&knowledge_id, &content_text, &content_text, &now],
-                )?;
-                conn.execute(
-                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now, &inbox_item_id],
-                )?;
-                serde_json::json!({"success": true, "action": "knowledge_saved", "knowledgeId": knowledge_id})
-            }
-            "set_reminder" => {
-                // 设置提醒
-                conn.execute(
-                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now, &inbox_item_id],
-                )?;
-                serde_json::json!({"success": true, "action": "reminder_set"})
-            }
-            "create_case" => {
-                // 创建新案件
-                let case_id = db::new_id();
-                conn.execute(
-                    "INSERT INTO cases (id, case_name, client_name, opponent_name, created_at) VALUES (?1, ?2, '', '', ?3)",
-                    rusqlite::params![&case_id, &content_text, &now],
-                )?;
-                conn.execute(
-                    "UPDATE inbox_items SET status = 'processed', processed_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now, &inbox_item_id],
-                )?;
-                serde_json::json!({"success": true, "action": "case_created", "caseId": case_id})
-            }
-            "ignore" | "dismiss" => {
-                conn.execute(
-                    "UPDATE inbox_items SET status = 'ignored', processed_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now, &inbox_item_id],
-                )?;
-                serde_json::json!({"success": true, "action": "ignored"})
-            }
-            _ => {
-                serde_json::json!({"success": false, "error": "未知动作"})
-            }
-        };
-        
-        // 记录处理历史到 inbox_feedback（设计哲学 §10：反馈学习）
-        let feedback_id = db::new_id();
-        conn.execute(
-            "INSERT INTO inbox_feedback (id, inbox_item_id, action, intent_json, accepted, rejected_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
-            rusqlite::params![
-                &feedback_id,
-                &inbox_item_id,
-                &action,
-                serde_json::json!({"targetCaseId": target_case_id, "targetCategory": target_category}).to_string(),
-                &now,
-            ],
-        )?;
-        
-        Ok(result)
+        conn.query_row(
+            "SELECT COALESCE(content_text, title, '') FROM inbox_items WHERE id = ?1",
+            rusqlite::params![lookup_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| anyhow::anyhow!("收件箱项不存在"))
     })
-    .await
+    .await?;
+
+    let field = |name: &str| {
+        intent
+            .as_ref()
+            .and_then(|value| value.get(name))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+    };
+
+    let result = match action.as_str() {
+        "file_to_case" => {
+            let case_id = target_case_id
+                .clone()
+                .ok_or_else(|| "请选择目标案件".to_string())?;
+            let category = target_category
+                .clone()
+                .unwrap_or_else(|| "07_其他".to_string());
+            file_inbox_item(inbox_item_id.clone(), case_id.clone(), category.clone()).await?;
+            serde_json::json!({"success": true, "action": "filed", "caseId": case_id, "category": category})
+        }
+        "create_task" | "create_deadline" | "set_reminder" => {
+            let task_name = field("taskName")
+                .or_else(|| field("name"))
+                .unwrap_or_else(|| content_text.clone());
+            let due_date = field("dueDate").or_else(|| field("remindAt"));
+            let data = serde_json::json!({
+                "taskName": task_name,
+                "caseId": target_case_id,
+                "taskType": if action == "create_deadline" { "deadline" } else { "action" },
+                "startBucket": if due_date.is_some() { "upcoming" } else { "inbox" },
+                "startDate": due_date,
+                "dueDate": due_date,
+                "dueTime": field("dueTime"),
+                "inboxSourceId": inbox_item_id,
+            });
+            let created = super::tasks::create_task(data).await?;
+            serde_json::json!({"success": true, "action": "task_created", "task": created})
+        }
+        "update_holidays" => {
+            let notice = parse_holiday_dates(&content_text)?;
+            let notice_year = notice.year;
+            let holidays_count = notice.holidays.len();
+            let workdays_count = notice.workdays.len();
+            run_blocking(move || {
+                let conn = db::open_db()?;
+                let mut calendar = db::get_setting(&conn, "holidays_json")
+                    .ok()
+                    .flatten()
+                    .and_then(|value| {
+                        crate::deadline::holidays::HolidayCalendar::from_json_str(&value).ok()
+                    })
+                    .unwrap_or_else(crate::deadline::holidays::HolidayCalendar::builtin);
+                calendar
+                    .merge_dates(&notice.holidays, &notice.workdays)
+                    .map_err(anyhow::Error::msg)?;
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES ('holidays_json', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    rusqlite::params![calendar.to_json()],
+                )?;
+                Ok(())
+            })
+            .await?;
+            serde_json::json!({
+                "success": true,
+                "action": "holidays_updated",
+                "year": notice_year,
+                "holidaysCount": holidays_count,
+                "workdaysCount": workdays_count,
+            })
+        }
+        "create_event" => {
+            let title = field("title")
+                .or_else(|| field("name"))
+                .unwrap_or_else(|| content_text.clone());
+            let event_date = field("eventDate")
+                .or_else(|| field("dueDate"))
+                .unwrap_or_else(db::today);
+            let created = super::calendar_events::create_calendar_event(serde_json::json!({
+                "title": title,
+                "eventDate": event_date,
+                "startTime": field("startTime"),
+                "endTime": field("endTime"),
+                "allDay": field("startTime").is_none(),
+                "caseId": target_case_id,
+                "notes": content_text,
+            }))
+            .await?;
+            serde_json::json!({"success": true, "action": "event_created", "event": created})
+        }
+        "save_knowledge" => {
+            let title = field("title").unwrap_or_else(|| truncate_text(&content_text, 60));
+            let input = super::knowledge::CreateKnowledgeInput {
+                title,
+                content: field("content").unwrap_or_else(|| content_text.clone()),
+                category: "other".to_string(),
+                source_type: Some("inbox".to_string()),
+                source_id: Some(inbox_item_id.clone()),
+                linked_case_id: target_case_id.clone(),
+                ..Default::default()
+            };
+            let id = super::knowledge::create_knowledge(input).await?;
+            serde_json::json!({"success": true, "action": "knowledge_saved", "knowledgeId": id})
+        }
+        "create_case" => {
+            let case_name = field("caseName")
+                .or_else(|| field("name"))
+                .unwrap_or_else(|| content_text.clone());
+            let created = super::cases::create_case(serde_json::json!({
+                "track": field("track").unwrap_or_else(|| "patent_invalidation".to_string()),
+                "caseName": case_name,
+                "clientName": field("clientName").unwrap_or_default(),
+                "opponentName": field("opponentName").unwrap_or_default(),
+                "caseNo": field("caseNo"),
+                "court": field("court"),
+                "causeAction": field("causeAction"),
+            }))
+            .await?;
+            serde_json::json!({"success": true, "action": "case_created", "case": created})
+        }
+        "create_project" => {
+            let name = field("name")
+                .or_else(|| field("title"))
+                .unwrap_or_else(|| content_text.clone());
+            let created = super::projects::create_personal_project(serde_json::json!({
+                "name": name,
+                "description": field("description").unwrap_or_else(|| content_text.clone()),
+            }))
+            .await?;
+            serde_json::json!({"success": true, "action": "project_created", "project": created})
+        }
+        "service_delivery" => {
+            let service_url =
+                field("serviceUrl").ok_or_else(|| "法院送达短信中缺少有效链接".to_string())?;
+            let path = download_service_delivery_url(&inbox_item_id, &service_url).await?;
+            serde_json::json!({"success": true, "action": "service_downloaded", "path": path})
+        }
+        "ignore" | "dismiss" => {
+            dismiss_inbox_item(inbox_item_id.clone()).await?;
+            serde_json::json!({"success": true, "action": "dismissed"})
+        }
+        _ => return Err(format!("未知收件箱动作: {action}")),
+    };
+
+    if !matches!(
+        action.as_str(),
+        "file_to_case" | "service_delivery" | "ignore" | "dismiss"
+    ) {
+        let finalize_id = inbox_item_id.clone();
+        let feedback_action = action.clone();
+        let feedback_intent = intent.clone();
+        run_blocking(move || {
+            let conn = db::open_db()?;
+            let now = db::now_local();
+            conn.execute(
+                "UPDATE inbox_items SET status = 'filed', processed_at = ?1 WHERE id = ?2",
+                rusqlite::params![&now, &finalize_id],
+            )?;
+            let feedback_id = db::new_id();
+            conn.execute(
+                "INSERT INTO inbox_feedback (id, inbox_item_id, action, intent_json, accepted, rejected_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
+                rusqlite::params![feedback_id, finalize_id, feedback_action, feedback_intent.map(|v| v.to_string()), now],
+            )?;
+            Ok(())
+        })
+        .await?;
+    }
+
+    Ok(result)
 }
 
-/// AI 分析收件箱项（占位）
+/// 深度分析收件箱项。复用统一处理链：AI 可用时调用 AI，失败或关闭时回退本地规则。
 #[tauri::command]
-pub async fn ai_analyze_inbox_item(_id: String) -> Result<serde_json::Value, String> {
-    Err("AI 分析功能开发中，敬请期待".into())
+pub async fn ai_analyze_inbox_item(id: String) -> Result<serde_json::Value, String> {
+    let result = process_inbox_item(id).await?;
+    serde_json::to_value(result).map_err(|e| format!("无法序列化分析结果: {e}"))
 }
 
-/// 下载送达文书（占位）
+/// 兼容旧入口：旧命令没有 URL 参数，提示用户改走可审计的 Inbox 完整短信流程。
 #[tauri::command]
 pub async fn download_service_delivery(
     _case_no: String,
     _recipient_name: String,
 ) -> Result<String, String> {
-    Err("送达文书抓取功能待实现".to_string())
+    Err("请把包含法院链接的完整短信粘贴到统一捕获，Casy 会先校验官方域名再尝试下载".to_string())
 }
 
-/// 处理送达文书（占位）
+/// 处理已进入收件箱的法院送达短信。
 #[tauri::command]
-pub async fn process_service_delivery(
-    _inbox_item_id: String,
-) -> Result<(), String> {
-    Err("送达文书处理功能开发中，敬请期待".into())
+pub async fn process_service_delivery(inbox_item_id: String) -> Result<(), String> {
+    let lookup_id = inbox_item_id.clone();
+    let content = run_blocking(move || {
+        let conn = db::open_db()?;
+        conn.query_row(
+            "SELECT COALESCE(content_text, '') FROM inbox_items WHERE id = ?1",
+            rusqlite::params![lookup_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| anyhow::anyhow!("收件箱项不存在"))
+    })
+    .await?;
+    let delivery = detect_service_delivery(&content)
+        .ok_or_else(|| "未检测到 court.gov.cn 法院送达链接".to_string())?;
+    download_service_delivery_url(&inbox_item_id, &delivery.service_url).await?;
+    Ok(())
 }
 
 /// 捕获屏幕截图到收件箱（占位）
@@ -1714,7 +2473,11 @@ pub async fn cancel_inbox_batch() -> Result<(), String> {
 /// 获取收件箱处理进度（占位）
 #[tauri::command]
 pub async fn get_inbox_progress() -> Result<InboxProgress, String> {
-    Ok(InboxProgress { total: 0, processed: 0, pending: 0 })
+    Ok(InboxProgress {
+        total: 0,
+        processed: 0,
+        pending: 0,
+    })
 }
 
 /// 重试收件箱项（占位）
@@ -1727,4 +2490,135 @@ pub async fn retry_inbox_item(_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn retry_inbox_case(_case_id: String) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        detect_service_delivery, extract_date_hint, parse_holiday_dates, quick_judge_text,
+    };
+
+    #[test]
+    fn detects_official_court_delivery_link_and_fields() {
+        let text = "受送达人：张三，案号（2026）京73民初12号，请访问 https://zxfw.court.gov.cn/sd/abc123 查看文书";
+        let delivery = detect_service_delivery(text).expect("应识别法院送达短信");
+        assert_eq!(delivery.service_url, "https://zxfw.court.gov.cn/sd/abc123");
+        assert_eq!(delivery.recipient_name, "张三");
+        assert!(delivery.case_no.contains("2026"));
+    }
+
+    #[test]
+    fn rejects_non_court_link() {
+        let text = "请访问 https://example.com/zxfw.court.gov.cn/fake 下载文书";
+        assert!(detect_service_delivery(text).is_none());
+    }
+
+    #[test]
+    fn recognizes_short_date_event_intent() {
+        let conn = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        let result = quick_judge_text(&conn, "9-10 下午开庭").expect("规则判断应成功");
+        assert!(result
+            .recommendations
+            .iter()
+            .any(|item| item.action == "create_event"));
+        assert_eq!(
+            result.recommendations[0]
+                .intent
+                .as_ref()
+                .and_then(|intent| intent.get("eventDate"))
+                .and_then(|value| value.as_str())
+                .map(|value| &value[value.len() - 5..]),
+            Some("09-10")
+        );
+    }
+
+    #[test]
+    fn parses_short_date_without_control_characters() {
+        let date = extract_date_hint("请安排 10/8 会面").expect("应识别短日期");
+        assert!(date.ends_with("-10-08"));
+    }
+
+    #[test]
+    fn parses_official_holiday_ranges_and_makeup_days() {
+        let text = "2027年元旦：1月1日至3日放假调休，共3天。1月4日上班。春节：2月5日至11日放假，共7天。2月4日、2月20日上班。";
+        let notice = parse_holiday_dates(text).expect("应解析节假日通知");
+        assert_eq!(notice.year, 2027);
+        assert_eq!(notice.holidays.len(), 10);
+        assert_eq!(
+            notice.workdays,
+            vec!["2027-01-04", "2027-02-04", "2027-02-20"]
+        );
+    }
+
+    #[test]
+    fn recommends_holiday_update_before_generic_task() {
+        let conn = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        let result = quick_judge_text(
+            &conn,
+            "2027年节假日放假安排：1月1日至3日放假调休。1月4日上班。",
+        )
+        .expect("规则判断应成功");
+        assert_eq!(result.recommendations[0].action, "update_holidays");
+    }
+
+    #[test]
+    fn test_quick_judge_tomorrow_submit_poa_with_or_without_case() {
+        let conn = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        conn.execute_batch(
+            "CREATE TABLE cases (id TEXT PRIMARY KEY, case_name TEXT, display_name TEXT, client_name TEXT, opponent_name TEXT, case_no TEXT);
+             INSERT INTO cases (id, case_name, client_name) VALUES ('case-101', '李四专利侵权纠纷案', '李四');"
+        ).expect("初始化cases表应成功");
+
+        // 1. 命中「李四案」时
+        let result_matched = quick_judge_text(&conn, "明天交李四案的授权委托书").expect("规则判断应成功");
+        assert!(result_matched.recommendations.iter().any(|r| r.action == "create_task"));
+        let task_rec = result_matched.recommendations.iter().find(|r| r.action == "create_task").unwrap();
+        assert_eq!(task_rec.target_case_id, Some("case-101".to_string()));
+        assert!(task_rec.intent.as_ref().unwrap().get("dueDate").is_some());
+
+        // 2. 未命中任何案件时（例如数据库中无王五）
+        let result_unmatched = quick_judge_text(&conn, "明天交王五案的授权委托书").expect("规则判断应成功");
+        assert!(result_unmatched.recommendations.iter().any(|r| r.action == "create_task"));
+        let unlinked_rec = result_unmatched.recommendations.iter().find(|r| r.action == "create_task").unwrap();
+        assert_eq!(unlinked_rec.target_case_id, None);
+        assert!(unlinked_rec.intent.as_ref().unwrap().get("dueDate").is_some());
+    }
+
+    #[test]
+    fn test_all_natural_language_dates_recognition() {
+        use chrono::{Datelike, Duration, Local};
+        let today = Local::now().date_naive();
+
+        // 1. 相对今天/明天/后天/大后天
+        assert_eq!(extract_date_hint("今天下午开会"), Some(today.format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("明天提交答辩状"), Some((today + Duration::days(1)).format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("后天上午开庭"), Some((today + Duration::days(2)).format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("大后天截止"), Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()));
+
+        // 2. N天/周/月/年后
+        assert_eq!(extract_date_hint("3天后交证据"), Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("三天内提交"), Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("15日内提出上诉"), Some((today + Duration::days(15)).format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("2周后交代理词"), Some((today + Duration::days(14)).format("%Y-%m-%d").to_string()));
+        assert_eq!(extract_date_hint("半个月后截止"), Some((today + Duration::days(15)).format("%Y-%m-%d").to_string()));
+        assert!(extract_date_hint("1个月后").is_some());
+        assert!(extract_date_hint("3个月内").is_some());
+
+        // 3. 周几 (下周五 / 本周三 / 星期一)
+        assert!(extract_date_hint("下周五开庭").is_some());
+        assert!(extract_date_hint("下个星期二交材料").is_some());
+        assert!(extract_date_hint("本周五必须完成").is_some());
+
+        // 4. 月底 / 月初
+        assert!(extract_date_hint("本月底之前完成").is_some());
+        assert!(extract_date_hint("下月初开会").is_some());
+
+        // 5. 绝对中文/点号/斜杠/横杠日期
+        assert_eq!(extract_date_hint("2026年9月15日交公证书"), Some("2026-09-15".to_string()));
+        assert_eq!(extract_date_hint("2026.09.15 开庭"), Some("2026-09-15".to_string()));
+        assert_eq!(extract_date_hint("2026/9/15"), Some("2026-09-15".to_string()));
+        assert_eq!(extract_date_hint("2026-9-15"), Some("2026-09-15".to_string()));
+        assert_eq!(extract_date_hint("九月十五日截止"), Some(format!("{}-09-15", today.year())));
+        assert_eq!(extract_date_hint("十月一日放假"), Some(format!("{}-10-01", today.year())));
+    }
 }

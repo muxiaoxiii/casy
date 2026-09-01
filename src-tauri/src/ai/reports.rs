@@ -330,7 +330,11 @@ pub async fn try_narrative_layer(
         return Ok(false);
     }
 
-    let label = if summary_type == "daily" { "每日早报" } else { "每周总结" };
+    let label = if summary_type == "daily" {
+        "每日早报"
+    } else {
+        "每周总结"
+    };
     let system_prompt = "你是专利律师的工作助手。把给定的结构化报表数据（JSON）改写为自然、连贯、易读的中文叙事版报告（Markdown）。\
         不得编造数据中没有的事实、数字或日期，保留所有关键数字与名称。只输出报告正文，不要额外解释。";
     let user_prompt = format!(
@@ -374,7 +378,13 @@ pub async fn try_narrative_layer(
         Ok(_) => {
             log::warn!("叙事层返回空内容，回退规则版");
             let _ = crate::commands::ai_routes::log_ai_run(
-                &provider, &model, purpose, Some("v1"), &input_hash, None, "failed",
+                &provider,
+                &model,
+                purpose,
+                Some("v1"),
+                &input_hash,
+                None,
+                "failed",
                 Some("AI 返回空内容"),
             );
             Ok(false)
@@ -383,7 +393,13 @@ pub async fn try_narrative_layer(
             // §12.5 降级铁律：失败静默回退规则版，只记日志 + 审计
             log::warn!("叙事层生成失败，回退规则版: {}", e);
             let _ = crate::commands::ai_routes::log_ai_run(
-                &provider, &model, purpose, Some("v1"), &input_hash, None, "failed",
+                &provider,
+                &model,
+                purpose,
+                Some("v1"),
+                &input_hash,
+                None,
+                "failed",
                 Some(&e.to_string()),
             );
             Ok(false)
@@ -391,7 +407,10 @@ pub async fn try_narrative_layer(
     }
 }
 
-fn generate_yesterday_review(conn: &rusqlite::Connection, yesterday: &str) -> Result<YesterdayReview> {
+fn generate_yesterday_review(
+    conn: &rusqlite::Connection,
+    yesterday: &str,
+) -> Result<YesterdayReview> {
     // tasks 表没有 completed_at 列，完成数以 task_events 的 completed 事件为准
     let completed: i64 = conn
         .query_row(
@@ -422,7 +441,11 @@ fn generate_yesterday_review(conn: &rusqlite::Connection, yesterday: &str) -> Re
         )
         .unwrap_or(0);
 
-    let completion_rate = if total > 0 { completed as f64 / total as f64 } else { 0.0 };
+    let completion_rate = if total > 0 {
+        completed as f64 / total as f64
+    } else {
+        0.0
+    };
     let compared_to_last_week = if completed > last_week_completed {
         format!("较上周同日多完成 {} 项", completed - last_week_completed)
     } else if completed < last_week_completed {
@@ -456,7 +479,9 @@ fn generate_today_focus(conn: &rusqlite::Connection, today: &str) -> Result<Toda
                 String::new()
             };
             Ok(ScheduleItem {
-                title: row.get::<_, Option<String>>(1)?.unwrap_or_else(|| "庭审".to_string()),
+                title: row
+                    .get::<_, Option<String>>(1)?
+                    .unwrap_or_else(|| "庭审".to_string()),
                 time,
                 case_id: row.get(3)?,
                 event_type: "hearing".to_string(),
@@ -546,7 +571,11 @@ fn generate_waiting_alerts(conn: &rusqlite::Connection, today: &str) -> Result<V
                 task_name: name,
                 waiting_for: waiting_for.unwrap_or_else(|| "未知".to_string()),
                 waiting_days,
-                suggestion: if waiting_days >= 7 { "建议催办".to_string() } else { "关注中".to_string() },
+                suggestion: if waiting_days >= 7 {
+                    "建议催办".to_string()
+                } else {
+                    "关注中".to_string()
+                },
             });
         }
     }
@@ -583,7 +612,10 @@ fn generate_smart_suggestions(conn: &rusqlite::Connection, today: &str) -> Resul
 
     for row in rows {
         let (client, count) = row?;
-        suggestions.push(format!("{} 名下有 {} 个活跃案件，建议统一梳理", client, count));
+        suggestions.push(format!(
+            "{} 名下有 {} 个活跃案件，建议统一梳理",
+            client, count
+        ));
     }
 
     Ok(suggestions)
@@ -632,7 +664,11 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
         )
         .unwrap_or(0);
     let base = tasks_completed + open_with_due;
-    let overdue_rate = if base > 0 { overdue_count as f64 / base as f64 } else { 0.0 };
+    let overdue_rate = if base > 0 {
+        overdue_count as f64 / base as f64
+    } else {
+        0.0
+    };
 
     // 本周案件状态变迁（读 case_track_history）
     let case_transitions = query_case_transitions(conn, &week_start, &week_end)?;
@@ -677,7 +713,9 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
                 hearing_date.clone()
             };
             Ok(ScheduleItem {
-                title: row.get::<_, Option<String>>(1)?.unwrap_or_else(|| "庭审".to_string()),
+                title: row
+                    .get::<_, Option<String>>(1)?
+                    .unwrap_or_else(|| "庭审".to_string()),
                 time,
                 case_id: row.get(3)?,
                 event_type: "hearing".to_string(),
@@ -783,7 +821,11 @@ fn render_daily_markdown(brief: &DailyBrief) -> String {
         md.push_str("- 今日无庭审安排\n");
     } else {
         for item in &brief.today_focus.hard_schedule {
-            let time = if item.time.is_empty() { "全天".to_string() } else { item.time.clone() };
+            let time = if item.time.is_empty() {
+                "全天".to_string()
+            } else {
+                item.time.clone()
+            };
             md.push_str(&format!("- ⏰ {} {}\n", time, item.title));
         }
     }
@@ -827,7 +869,11 @@ fn render_weekly_markdown(s: &WeeklySummary) -> String {
 
     md.push_str("## 本周概览\n");
     md.push_str(&format!("- 完成任务：{} 项\n", s.tasks_completed));
-    md.push_str(&format!("- 当前逾期：{} 项（逾期率 {:.0}%）\n\n", s.overdue_count, s.overdue_rate * 100.0));
+    md.push_str(&format!(
+        "- 当前逾期：{} 项（逾期率 {:.0}%）\n\n",
+        s.overdue_count,
+        s.overdue_rate * 100.0
+    ));
 
     if !s.case_transitions.is_empty() {
         md.push_str("## 案件状态变迁\n");
@@ -854,7 +900,10 @@ fn render_weekly_markdown(s: &WeeklySummary) -> String {
                     t.actual_minutes as f64 / 60.0
                 ));
             } else {
-                md.push_str(&format!("- {}：{} 项任务（未记录耗时）\n", t.track, t.task_count));
+                md.push_str(&format!(
+                    "- {}：{} 项任务（未记录耗时）\n",
+                    t.track, t.task_count
+                ));
             }
         }
         md.push('\n');
@@ -868,7 +917,10 @@ fn render_weekly_markdown(s: &WeeklySummary) -> String {
             md.push_str(&format!("- ⚖️ 开庭：{}（{}）\n", h.title, h.time));
         }
         for d in &s.next_week_deadlines {
-            md.push_str(&format!("- 📅 期限：{} 到期日 {}\n", d.deadline_name, d.due_date));
+            md.push_str(&format!(
+                "- 📅 期限：{} 到期日 {}\n",
+                d.deadline_name, d.due_date
+            ));
         }
     }
 

@@ -22,6 +22,8 @@ const props = defineProps({
   description: { type: String, default: '' },
   /** 自定义按钮文案 */
   actionText: { type: String, default: '' },
+  /** 只展示状态说明，不提供上下文动作 */
+  hideAction: { type: Boolean, default: false },
   /** 是否紧凑模式 */
   compact: { type: Boolean, default: false },
 })
@@ -95,7 +97,7 @@ const config = computed(() => {
 const displayIcon = computed(() => config.value.icon)
 const displayTitle = computed(() => props.title || config.value.title)
 const displayDesc = computed(() => props.description || config.value.description)
-const displayAction = computed(() => props.actionText || config.value.actionText)
+const displayAction = computed(() => props.hideAction ? '' : (props.actionText || config.value.actionText))
 
 function handleAction() {
   emit('action')

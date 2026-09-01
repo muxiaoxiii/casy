@@ -7,7 +7,7 @@ export class InboxService extends Service {
   static inject: string[] = []
 
   async list(status?: string): Promise<{ ok: boolean; data?: InboxItem[]; error?: string }> {
-    return tauriCallSafe<InboxItem[]>('list_inbox_items', { status: status || 'all' })
+    return tauriCallSafe<InboxItem[]>('list_inbox_items', { status: status || null })
   }
 
   async add(sourceType: string, contentText?: string, sourcePath?: string): Promise<{ ok: boolean; data?: string; error?: string }> {

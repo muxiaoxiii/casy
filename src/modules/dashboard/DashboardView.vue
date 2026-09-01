@@ -7,7 +7,7 @@
  */
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { TrendCharts, PieChart, Histogram, Calendar } from '@element-plus/icons-vue'
+import { TrendCharts, PieChart, Histogram, Calendar, MagicStick } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../core/plugin/context'
 import AreaLineChart from '../../shared/charts/AreaLineChart.vue'
@@ -21,6 +21,7 @@ const statusDist = ref([])
 const trackDist = ref([])
 const hearings = ref([])
 const kpis = ref({ today_events: 0, due_today: 0, waiting_overdue: 0, review_due: 0 })
+const aiInsight = ref('')
 const loading = ref(true)
 
 // 状态 → 语义色（Slate）
@@ -56,20 +57,27 @@ const trackColor = label =>
 
 async function load() {
   loading.value = true
-  const [t, s, tr, h, k] = await Promise.all([
-    casyContext.dashboard.monthlyTaskTrend(6),
-    casyContext.dashboard.projectStatusDistribution(),
-    casyContext.dashboard.trackDistribution(),
-    casyContext.dashboard.upcomingHearings(30),
-    casyContext.dashboard.todayKpis(),
-  ])
-  loading.value = false
-  if (t.ok) trend.value = t.data || []
-  if (s.ok) statusDist.value = s.data || []
-  if (tr.ok) trackDist.value = tr.data || []
-  if (h.ok) hearings.value = h.data || []
-  if (k.ok && k.data) kpis.value = k.data
-  if (!t.ok && !s.ok && !tr.ok && !h.ok) ElMessage.error(t.error || '仪表盘数据加载失败')
+  try {
+    const [t, s, tr, h, k, aiRes] = await Promise.all([
+      casyContext.dashboard.monthlyTaskTrend(6),
+      casyContext.dashboard.projectStatusDistribution(),
+      casyContext.dashboard.trackDistribution(),
+      casyContext.dashboard.upcomingHearings(30),
+      casyContext.dashboard.todayKpis(),
+      casyContext.ai.askAi('请根据当前的日期，给律师一句简短的早安问候和一天工作重点的建议（不超过50字）。')
+    ])
+    if (t.ok) trend.value = t.data || []
+    if (s.ok) statusDist.value = s.data || []
+    if (tr.ok) trackDist.value = tr.data || []
+    if (h.ok) hearings.value = h.data || []
+    if (k.ok && k.data) kpis.value = k.data
+    if (aiRes.ok && aiRes.text) aiInsight.value = aiRes.text
+    if (!t.ok && !s.ok && !tr.ok && !h.ok) ElMessage.error(t.error || '仪表盘数据加载失败')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '仪表盘数据加载失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
@@ -79,7 +87,13 @@ onMounted(() => {
 
 <template>
   <div class="dash-page" v-loading="loading">
-    <h2 class="page-title">数据看板</h2>
+    <div class="dash-header">
+      <h2 class="page-title">数据看板</h2>
+      <div v-if="aiInsight" class="ai-insight-banner">
+        <el-icon><MagicStick /></el-icon>
+        <span class="ai-text">{{ aiInsight }}</span>
+      </div>
+    </div>
 
     <!-- KPI 行（点击下钻） -->
     <div class="kpi-row">
@@ -108,15 +122,15 @@ onMounted(() => {
         <div v-else class="card-empty">近 6 个月暂无数据</div>
       </div>
       <div class="card">
-        <div class="card-title"><el-icon :size="15"><PieChart /></el-icon> 项目状态</div>
+        <div class="card-title"><el-icon :size="15"><PieChart /></el-icon> 非案件项目状态</div>
         <DonutChart
           v-if="statusDonutData.length"
           :data="statusDonutData"
           :size="170"
-          center-sub="总项目"
+          center-sub="非案件项目"
           @select="onStatusSelect"
         />
-        <div v-else class="card-empty">暂无项目</div>
+        <div v-else class="card-empty">暂无非案件项目</div>
       </div>
     </div>
 
@@ -147,11 +161,35 @@ onMounted(() => {
   max-width: 1100px;
   margin: 0 auto;
 }
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
 .page-title {
-  margin: 0 0 18px;
+  margin: 0;
   font-size: 20px;
   font-weight: 700;
   color: var(--c-text);
+}
+.ai-insight-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--c-primary-light);
+  border: 1px solid var(--c-primary-soft);
+  border-radius: 8px;
+  color: var(--c-primary);
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 500px;
+}
+.ai-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .kpi-row {
   display: grid;

@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { safeListen } from './core/tauriEvents'
-import { ElMessage } from 'element-plus'
 import { casyContext } from './core/plugin/context'
 import ReminderToast from './shared/components/ReminderToast.vue'
 import ReminderBanner from './shared/components/ReminderBanner.vue'
@@ -11,8 +10,12 @@ import OverdueMorningBrief from './shared/components/OverdueMorningBrief.vue'
 import AIStatusBadge from './shared/components/AIStatusBadge.vue'
 import OnboardingWizard from './shared/components/OnboardingWizard.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
+import UnifiedCaptureDialog from './shared/components/UnifiedCaptureDialog.vue'
 import { registerShortcut } from './shared/keyboard'
 import { useProfileStore } from './stores/profile'
+import { useSettingsStore } from './stores/settings'
+import { applyThemePreference, disposeThemeListener } from './shared/theme'
+import { isTauriRuntime } from './core/mockData'
 import {
   DataBoard,
   Briefcase,
@@ -23,18 +26,38 @@ import {
   Document,
   Setting,
   Plus,
-  Clock,
-  Warning,
-  Folder,
-  Bell,
-  Cpu,
   Search,
   Expand,
   Fold,
+  Folder,
+  Bell,
+  Cpu,
+  User,
+  Sunny,
 } from '@element-plus/icons-vue'
+
+import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
 const route = useRoute()
+const settingsStore = useSettingsStore()
+const { locale } = useI18n()
+const isBrowserPreview = computed(() => !isTauriRuntime())
+
+function applyTheme(theme) {
+  applyThemePreference(theme || settingsStore.theme || 'system')
+}
+
+watch(() => settingsStore.theme, (newTheme) => {
+  applyTheme(newTheme)
+})
+
+watch(() => settingsStore.language, (newLang) => {
+  if (newLang) {
+    locale.value = newLang
+    localStorage.setItem('casy_language', newLang)
+  }
+})
 
 // ============================================================
 // 律师画像 / 首次使用引导
@@ -62,234 +85,118 @@ function toggleSidebar() {
 }
 const showGlobalSearch = ref(false)
 
-// ============================================================
-// 今日面板数据
-// ============================================================
-const todayStats = ref({
-  hardSchedule: 0,
-  dueToday: 0,
-  waitingOverdue: 0,
-  needReview: 0,
+const aiStatusText = computed(() => {
+  if (settingsStore.ai_backend === 'openai') return `OpenAI (${settingsStore.ai_model})`
+  if (settingsStore.ai_backend === 'ollama') return `Local (${settingsStore.ai_model})`
+  return 'AI Offline'
 })
 
-const loadingStats = ref(false)
-
-async function loadTodayStats() {
-  loadingStats.value = true
-  try {
-    const result = await casyContext.cases.todayStats()
-    if (result.ok && result.data) {
-      todayStats.value = result.data
-    }
-  } catch (e) {
-    console.error('Failed to load today stats:', e)
-  }
-  loadingStats.value = false
-}
-
 // ============================================================
-// 核心模块导航（分组）
+// 导航配置（对标 Stitch UI v4.0 核心三大分组）
 // ============================================================
 const navGroups = [
   {
-    label: '工作台',
+    label: 'Focus',
     items: [
-      { name: 'home', label: '今日', icon: DataBoard },
+      { name: 'home', label: 'Today', sublabel: '今日', icon: Sunny, routePrefix: '/' },
+      { name: 'inbox', label: 'Inbox', sublabel: '收件箱', icon: Box, routePrefix: '/inbox' },
     ],
   },
   {
-    label: '核心',
+    label: 'Matters',
     items: [
-      { name: 'cases', label: '案件', icon: Briefcase },
-      { name: 'projects', label: '项目', icon: Folder },
-      { name: 'tasks', label: '任务', icon: Finished },
-      { name: 'calendar', label: '日历', icon: Calendar },
-      { name: 'dashboard', label: '数据看板', icon: Cpu },
+      { name: 'cases', label: 'Cases', sublabel: '案件', icon: Briefcase, routePrefix: '/cases' },
+      { name: 'tasks', label: 'Tasks', sublabel: '任务', icon: Finished, routePrefix: '/tasks' },
+      { name: 'calendar', label: 'Calendar', sublabel: '日历', icon: Calendar, routePrefix: '/calendar' },
     ],
   },
   {
-    label: '知识',
+    label: 'Knowledge',
     items: [
-      { name: 'clients', label: '客户', icon: Folder },
-      { name: 'inbox', label: '收件箱', icon: Box },
-      { name: 'knowledge', label: '知识库', icon: Collection },
-      { name: 'docs', label: '文书', icon: Document },
+      { name: 'knowledge', label: 'Vault', sublabel: '知识库', icon: Collection, routePrefix: '/knowledge' },
+      { name: 'docs', label: 'Drafting', sublabel: '文书工坊', icon: Document, routePrefix: '/docs' },
     ],
   },
 ]
 
-const allModules = navGroups.flatMap(g => g.items)
+const utilityModules = [
+  { name: 'projects', label: 'Projects', sublabel: '项目', icon: Folder },
+  { name: 'clients', label: 'Clients', sublabel: '客户', icon: Folder },
+  { name: 'dashboard', label: 'Dashboard', sublabel: '数据看板', icon: Cpu },
+  { name: 'ai', label: 'AI Companion', sublabel: 'AI 智伴', icon: Cpu },
+  { name: 'reminder', label: 'Reminders', sublabel: '提醒预警', icon: Bell },
+  { name: 'sync', label: 'Sync Status', sublabel: '同步状态', icon: Cpu },
+]
 
-// ============================================================
-// 模块内 Tab（第三层，内容区顶部）
-// ============================================================
-const moduleTabs = computed(() => {
-  const moduleName = route.name || 'home'
-
-  const tabsMap = {
-    cases: [
-      { key: 'all', label: '全部' },
-      { key: 'my', label: '我负责' },
-      { key: 'waiting', label: '等待中' },
-      { key: 'closed', label: '已结案' },
-      { key: 'client', label: '按客户' },
-    ],
-    tasks: [
-      { key: 'inbox', label: '收件箱' },
-      { key: 'next', label: '下一步' },
-      { key: 'waiting', label: '等待' },
-      { key: 'today', label: '今日' },
-      { key: 'review', label: '回顾' },
-      { key: 'someday', label: '某天' },
-    ],
-    knowledge: [
-      { key: 'inspiration', label: '灵感' },
-      { key: 'method', label: '方法' },
-      { key: 'reference', label: '参考' },
-      { key: 'question', label: '问题' },
-      { key: 'experience', label: '经验' },
-      { key: 'log', label: '日志' },
-    ],
-    calendar: [
-      { key: 'month', label: '月视图' },
-      { key: 'week', label: '周视图' },
-      { key: 'forecast', label: '预测' },
-    ],
+function isNavActive(item) {
+  if (item.name === 'home') {
+    return route.path === '/' || route.name === 'home'
   }
-
-  return tabsMap[moduleName] || []
-})
-
-const activeTab = ref('')
-
-function onTabChange(tab) {
-  activeTab.value = tab
-  router.replace({ query: { tab } })
+  if (item.routePrefix && item.routePrefix !== '/') {
+    return route.path.startsWith(item.routePrefix)
+  }
+  return route.name === item.name
 }
 
 // ============================================================
-// 捕获
+// 统一捕获
 // ============================================================
-const showCaptureMenu = ref(false)
+const showUnifiedCapture = ref(false)
+const captureInitialAction = ref('auto')
 
-function openCapture(type) {
-  showCaptureMenu.value = false
-  router.push({ name: 'tasks', query: { capture: type } })
+function openUnifiedCapture(action = 'auto') {
+  const mapping = {
+    note: 'save_knowledge',
+    task: 'create_task',
+    event: 'create_event',
+    quick: 'auto',
+  }
+  captureInitialAction.value = mapping[action] || action || 'auto'
+  showUnifiedCapture.value = true
+}
+
+function openCreateTask() {
+  openUnifiedCapture('create_task')
 }
 
 // ============================================================
-// 当前模块信息
+// 全局快速捕获
 // ============================================================
-const currentModule = computed(() => {
-  const name = route.name || 'home'
-  return allModules.find(m => m.name === name) || allModules[0]
-})
-
-const pageTitle = computed(() => {
-  return route.meta?.title || currentModule.value.label
-})
-
-// ============================================================
-// 全局快速捕获（Cmd+I/E/N/T → emit 'global:quick_capture'）
-// ============================================================
-const showQuickCapture = ref(false)
-const quickCaptureText = ref('')
-const quickCaptureSaving = ref(false)
-const quickCaptureType = ref('note') // note/task/event/quick
-const quickCaptureTitle = computed(() => {
-  const titles = { note: '快速笔记', task: '快速任务', event: '快速日程', quick: '速记' }
-  return titles[quickCaptureType.value] || '快速捕获'
-})
 let unlistenQuickCapture = null
 
 async function setupQuickCaptureListener() {
   try {
     unlistenQuickCapture = await safeListen('global:quick_capture', (event) => {
-      quickCaptureType.value = event.payload || 'note'
-      quickCaptureText.value = ''
-      showQuickCapture.value = true
-      // 自动聚焦输入框
-      setTimeout(() => {
-        const input = document.querySelector('.quick-capture-dialog textarea')
-        if (input) input.focus()
-      }, 100)
+      openUnifiedCapture(event.payload || 'auto')
+    })
+    
+    // 全局拖拽文件支持 (Tauri 原生事件)
+    await safeListen('tauri://drag-drop', (event) => {
+      // payload 包含 paths (文件路径数组)
+      window.dispatchEvent(new CustomEvent('casy:file-drop', { detail: event.payload }))
     })
   } catch (e) {
-    console.warn('[Casy] 全局快速捕获监听未建立:', e)
+    console.warn('[Casy] 全局事件监听建立失败:', e)
   }
 }
 
-async function saveQuickCapture() {
-  const text = quickCaptureText.value.trim()
-  if (!text) return
-  quickCaptureSaving.value = true
-  
-  let result
-  const type = quickCaptureType.value
-  
-  if (type === 'task') {
-    // 快速创建任务 - 解析文本中的日期与时间（A0-5：dueTime 现在真正落库）
-    const parsed = parseQuickTask(text)
-    result = await casyContext.tasks.create({
-      taskName: parsed.taskName || text,
-      startDate: parsed.startDate,
-      dueDate: parsed.dueDate,
-      dueTime: parsed.dueTime || null,
-      startBucket: parsed.startBucket || 'inbox',
-      taskType: 'action',
-    })
-  } else if (type === 'event') {
-    // 快速创建日程（M-CAL-1 待接入独立 calendar_events；当前先入收件箱待厘清）
-    result = await casyContext.inbox.add('note', text)
-  } else {
-    // 笔记/速记 - 进收件箱
-    result = await casyContext.inbox.add('note', text)
-  }
-  
-  quickCaptureSaving.value = false
-  if (result.ok) {
-    ElMessage.success('已捕获')
-    quickCaptureText.value = ''
-    showQuickCapture.value = false
-  } else {
-    ElMessage.error(result.error || '保存失败')
-  }
-}
-
-// 快速任务文本解析（M-GTD-1 A0-5：统一走 shared/nlp/parseWhen，修复原实现的
-// `s*` 非法正则、缺时间词解析、startBucket 缺省值等问题）
-import { parseWhen, bucketForDate } from './shared/nlp/parseWhen'
-
-function parseQuickTask(text) {
-  const { taskName, date, time } = parseWhen(text)
-  return {
-    taskName,
-    startDate: date,
-    dueDate: date,
-    dueTime: time,
-    startBucket: bucketForDate(date),
-  }
-}
-
-function formatDate(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return y + '-' + m + '-' + day
+function handleOpenCapture(event) {
+  openUnifiedCapture(event.detail?.action || 'auto')
 }
 
 // ============================================================
-// 生命周期
+// 生命周期与快捷键
 // ============================================================
-// U-4：全局快捷键统一走 KeyboardCenter（src/shared/keyboard.ts）
 let unregisterShortcuts = []
 
-onMounted(() => {
-  loadTodayStats()
+onMounted(async () => {
+  await settingsStore.load()
+  applyTheme(settingsStore.theme)
   checkOnboarding()
   setupQuickCaptureListener()
+  window.addEventListener('casy:open-capture', handleOpenCapture)
 
-  // ⌘K 全局搜索：输入框聚焦时让位于原生行为（默认守卫）
+  // ⌘K 全局搜索
   unregisterShortcuts.push(
     registerShortcut(
       'meta+k',
@@ -297,25 +204,18 @@ onMounted(() => {
       { description: '全局搜索面板开关' },
     ),
     registerShortcut('ctrl+k', () => { showGlobalSearch.value = !showGlobalSearch.value }, { description: '全局搜索面板开关' }),
+    // ⌘I 快速捕获
+    registerShortcut('meta+i', () => { openUnifiedCapture('auto') }, { description: '快速捕获' }),
+    registerShortcut('ctrl+i', () => { openUnifiedCapture('auto') }, { description: '快速捕获' }),
   )
-
-  if (route.query.tab) {
-    activeTab.value = route.query.tab
-  }
 })
 
 onUnmounted(() => {
   if (unlistenQuickCapture) unlistenQuickCapture()
+  window.removeEventListener('casy:open-capture', handleOpenCapture)
   unregisterShortcuts.forEach(fn => fn())
   unregisterShortcuts = []
-})
-
-watch(() => route.name, () => {
-  const tabs = moduleTabs.value
-  if (tabs.length > 0 && !tabs.find(t => t.key === activeTab.value)) {
-    activeTab.value = tabs[0].key
-    router.replace({ query: { tab: activeTab.value } })
-  }
+  disposeThemeListener()
 })
 
 function onMenuSelect(name) {
@@ -325,260 +225,286 @@ function onMenuSelect(name) {
 
 <template>
   <div class="app-shell">
-    <!-- ═══ 左侧侧栏 ═══ -->
+    <div class="mock-watermark" v-if="isBrowserPreview">
+      <span>[Mock 预览模式] 本地无后端</span>
+    </div>
+    <!-- ═══ 左侧侧栏 (Stitch UI 240px Fixed Sidebar) ═══ -->
     <aside class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
-      <!-- 品牌 -->
+      <!-- 品牌 Header -->
       <div class="sidebar-brand" @click="router.push('/')">
-        <span class="brand-mark">C</span>
-        <span v-show="!sidebarCollapsed" class="brand-name">Casy</span>
+        <div class="brand-badge">
+          <span class="brand-grid-icon">
+            <span class="grid-cell" />
+            <span class="grid-cell" />
+            <span class="grid-cell" />
+            <span class="grid-cell" />
+          </span>
+        </div>
+        <div v-show="!sidebarCollapsed" class="brand-copy">
+          <span class="brand-title">Casy v5.0</span>
+          <span class="brand-subtitle">法律工作台</span>
+        </div>
       </div>
 
-      <!-- 导航 -->
+      <!-- 导航组 -->
       <nav class="sidebar-nav">
-        <div v-for="group in navGroups" :key="group.label" class="nav-group">
-          <div v-show="!sidebarCollapsed" class="nav-group-label">{{ group.label }}</div>
-          <div
-            v-for="item in group.items"
-            :key="item.name"
-            class="nav-item"
-            :class="{ active: route.name === item.name }"
-            @click="onMenuSelect(item.name)"
-            :title="item.label"
-          >
-            <el-icon class="nav-icon" :size="17">
-              <component :is="item.icon" />
-            </el-icon>
-            <span v-show="!sidebarCollapsed" class="nav-label">{{ item.label }}</span>
+        <section v-for="group in navGroups" :key="group.label" class="nav-group">
+          <h3 v-show="!sidebarCollapsed" class="nav-group-label">{{ group.label }}</h3>
+          <div class="nav-items-stack">
+            <button
+              v-for="item in group.items"
+              :key="item.name"
+              type="button"
+              class="nav-item"
+              :class="{ active: isNavActive(item) }"
+              :aria-current="isNavActive(item) ? 'page' : undefined"
+              @click="onMenuSelect(item.name)"
+              :title="item.label"
+            >
+              <el-icon class="nav-icon" :size="18">
+                <component :is="item.icon" />
+              </el-icon>
+              <span v-show="!sidebarCollapsed" class="nav-label-group">
+                <span class="nav-label-main">{{ item.label }}</span>
+                <span class="nav-label-sub">{{ item.sublabel }}</span>
+              </span>
+            </button>
           </div>
-        </div>
+        </section>
       </nav>
 
-      <!-- 底部：设置 -->
+      <!-- 侧栏底部：AI 状态 + 用户名片 + 设置 -->
       <div class="sidebar-footer">
+        <!-- AI 模型状态药丸 -->
+        <div v-show="!sidebarCollapsed" class="ai-status-pill" :class="{ disabled: settingsStore.ai_backend === 'none' }">
+          <span class="ai-dot-pulse" v-if="settingsStore.ai_backend !== 'none'" />
+          <span class="ai-status-text">{{ aiStatusText }}</span>
+        </div>
+
+        <!-- 律师名片 -->
         <div
-          class="nav-item"
+          v-show="!sidebarCollapsed"
+          class="user-profile-card"
+          @click="onMenuSelect('settings')"
+        >
+          <div class="user-avatar">
+            {{ profileStore.name?.trim()?.slice(0, 1) || 'W' }}
+          </div>
+          <div class="user-info">
+            <span class="user-name">{{ profileStore.name?.trim() || 'Lawyer Wang' }}</span>
+            <span class="user-role">{{ profileStore.practice_areas?.[0] || 'Senior Partner' }}</span>
+          </div>
+        </div>
+
+        <!-- 设置项 -->
+        <button
+          type="button"
+          class="nav-item settings-item"
           :class="{ active: route.name === 'settings' }"
           @click="onMenuSelect('settings')"
-          title="设置"
+          title="Settings / 设置"
         >
-          <el-icon class="nav-icon" :size="17"><Setting /></el-icon>
-          <span v-show="!sidebarCollapsed" class="nav-label">设置</span>
-        </div>
+          <el-icon class="nav-icon" :size="18"><Setting /></el-icon>
+          <span v-show="!sidebarCollapsed" class="nav-label-main">Settings</span>
+        </button>
       </div>
     </aside>
 
-    <!-- ═══ 右侧主区 ═══ -->
+    <!-- ═══ 右侧主工作区 ═══ -->
     <div class="app-main">
-      <!-- 顶栏 -->
+      <!-- 顶栏 (Stitch UI 64px Topbar with Backdrop Blur) -->
       <header class="topbar">
         <div class="topbar-left">
-          <button class="icon-btn" @click="toggleSidebar" title="折叠/展开侧栏">
-            <el-icon :size="16">
+          <button class="sidebar-toggle-btn" @click="toggleSidebar" title="折叠/展开侧栏">
+            <el-icon :size="17">
               <Expand v-if="sidebarCollapsed" />
               <Fold v-else />
             </el-icon>
           </button>
 
-          <!-- 今日概览统计 -->
-          <div class="today-stats">
-            <div class="ts-item" @click="router.push({ name: 'calendar' })">
-              <span class="ts-dot danger" />
-              <span class="ts-value">{{ todayStats.hardSchedule }}</span>
-              <span class="ts-label">硬性日程</span>
-            </div>
-            <div class="ts-item" @click="router.push({ name: 'tasks', query: { tab: 'today' } })">
-              <span class="ts-dot warning" />
-              <span class="ts-value">{{ todayStats.dueToday }}</span>
-              <span class="ts-label">今日到期</span>
-            </div>
-            <div class="ts-item" @click="router.push({ name: 'tasks', query: { tab: 'waiting' } })">
-              <span class="ts-dot gray" />
-              <span class="ts-value">{{ todayStats.waitingOverdue }}</span>
-              <span class="ts-label">等待超时</span>
-            </div>
-            <div class="ts-item" @click="router.push({ name: 'cases' })">
-              <span class="ts-dot success" />
-              <span class="ts-value">{{ todayStats.needReview }}</span>
-              <span class="ts-label">需回顾</span>
-            </div>
+          <!-- 全局搜索框 -->
+          <div class="search-trigger" @click="showGlobalSearch = true">
+            <el-icon class="search-icon" :size="16"><Search /></el-icon>
+            <span class="search-placeholder">Search matters, tasks, laws... (CMD+K)</span>
+            <span class="kbd-badge">⌘K</span>
           </div>
         </div>
 
         <div class="topbar-right">
-          <!-- 全局搜索 -->
-          <div class="topbar-search">
-            <el-icon :size="14"><Search /></el-icon>
-            <input placeholder="搜索案件、任务、法条…" />
-            <span class="kbd-hint">⌘K</span>
+          <!-- 浏览器预览模式标识 -->
+          <div v-if="isBrowserPreview" class="browser-preview-pill" title="当前在纯浏览器环境运行，数据由 Mock 驱动">
+            <span class="preview-dot" />
+            <span class="preview-text">Mock 预览</span>
           </div>
 
-          <!-- 捕获按钮 -->
-          <div class="capture-wrap">
-            <button class="btn-primary capture-btn" @click="showCaptureMenu = !showCaptureMenu">
-              <el-icon :size="14"><Plus /></el-icon>
-              <span>捕获</span>
-            </button>
-            <div v-if="showCaptureMenu" class="capture-menu" @mouseleave="showCaptureMenu = false">
-              <div class="capture-item" @click="openCapture('task')">+ 任务</div>
-              <div class="capture-item" @click="openCapture('event')">+ 日程</div>
-              <div class="capture-item" @click="openCapture('note')">+ 笔记</div>
-              <div class="capture-item" @click="openCapture('quick')">+ 速记</div>
-            </div>
-          </div>
+          <!-- 快捷新建任务 -->
+          <button class="btn-secondary" @click="openCreateTask">
+            <el-icon :size="15"><Finished /></el-icon>
+            <span>+ Task</span>
+          </button>
 
-          <AIStatusBadge />
+          <!-- 快速统一捕获 -->
+          <button class="btn-primary" @click="openUnifiedCapture('auto')">
+            <el-icon :size="15"><Plus /></el-icon>
+            <span>+ Capture</span>
+            <span class="shortcut-tag">⌘I</span>
+          </button>
         </div>
       </header>
 
-      <!-- 内容区 -->
-      <div class="content-area">
-        <!-- 页面标题 + 模块 Tab -->
-        <div v-if="moduleTabs.length > 0" class="content-tabs">
-          <div
-            v-for="tab in moduleTabs"
-            :key="tab.key"
-            :class="['tab-item', { active: activeTab === tab.key }]"
-            @click="onTabChange(tab.key)"
-          >
-            {{ tab.label }}
-          </div>
-        </div>
-
-        <main class="content-scroll">
-          <router-view />
-        </main>
-      </div>
+      <!-- 主体内容滚动区 -->
+      <main class="content-scroll">
+        <router-view />
+      </main>
     </div>
   </div>
 
-  <!-- 全局浮层 -->
+  <!-- 全局浮层与对话框 -->
   <ReminderToast />
   <ReminderBanner />
   <DecisionReviewNotice />
   <OverdueMorningBrief />
   <OnboardingWizard v-model="showOnboarding" @dismiss="onOnboardingDismiss" />
-
-  <!-- 快速捕获对话框 -->
-  <el-dialog v-model="showQuickCapture" :title="quickCaptureTitle" width="480" append-to-body class="quick-capture-dialog">
-    <el-input
-      v-model="quickCaptureText"
-      type="textarea"
-      :rows="4"
-      :placeholder="quickCaptureType === 'task' ? '输入任务，开头可加 今天/明天/下周X 自动设日期…' : '有什么想法、材料、待办？先记下来，稍后厘清…'"
-      @keydown.enter.ctrl.exact.prevent="saveQuickCapture"
-    />
-    <template #footer>
-      <el-button @click="showQuickCapture = false">取消</el-button>
-      <el-button
-        type="primary"
-        :loading="quickCaptureSaving"
-        :disabled="!quickCaptureText.trim()"
-        @click="saveQuickCapture"
-      >
-        {{ quickCaptureType === 'task' ? '创建任务' : quickCaptureType === 'event' ? '创建日程' : '捕获到收件箱' }}
-      </el-button>
-    </template>
-  </el-dialog>
-
-  <!-- ⌘K 全局搜索（A1-6） -->
+  <UnifiedCaptureDialog v-model="showUnifiedCapture" :initial-action="captureInitialAction" />
   <GlobalSearch v-model="showGlobalSearch" />
 </template>
 
 <style scoped>
 /* ═══════════════════════════════════════════════════════════
-   布局骨架
+   Stitch UI Shell Layout
    ═══════════════════════════════════════════════════════════ */
 .app-shell {
   display: flex;
-  height: 100vh;
-  background: #F6F7F9;
+  height: 100dvh;
+  width: 100vw;
+  background: var(--c-bg-page);
   color: var(--c-text);
-  font-size: 13px;
-}
-
-/* ── 侧栏 ─────────────────────────────────────────────── */
-.app-sidebar {
-  width: 200px;
-  min-width: 200px;
-  background: #FFFFFF;
-  border-right: 1px solid #E0E3E9;
-  display: flex;
-  flex-direction: column;
-  transition: width var(--motion-base) ease, min-width 0.2s ease;
+  font-family: var(--font-family);
   overflow: hidden;
 }
 
-.app-sidebar.collapsed {
-  width: 56px;
-  min-width: 56px;
+/* ── 侧栏 (240px 稳固侧栏) ────────────────────────────────── */
+.app-sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--c-bg-sidebar);
+  border-right: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  transition: width var(--motion-base) var(--ease-out), min-width var(--motion-base) var(--ease-out);
+  overflow: hidden;
+  z-index: 50;
+  user-select: none;
 }
 
+.app-sidebar.collapsed {
+  width: 68px;
+  min-width: 68px;
+}
+
+/* 品牌区 */
 .sidebar-brand {
-  height: 52px;
+  height: 64px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--c-border-light);
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--c-border);
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.brand-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
+.brand-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--c-radius-lg);
   background: var(--c-primary);
-  color: #fff;
   display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 14px;
+  place-content: center;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
-.brand-name {
+.brand-grid-icon {
+  display: grid;
+  grid-template-columns: repeat(2, 6px);
+  grid-template-rows: repeat(2, 6px);
+  gap: 3px;
+}
+
+.grid-cell {
+  width: 6px;
+  height: 6px;
+  border: 1.5px solid var(--c-primary-contrast);
+  border-radius: 1px;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-title {
   font-size: 15px;
   font-weight: 700;
-  color: var(--c-text);
-  letter-spacing: -0.2px;
-  white-space: nowrap;
+  color: var(--c-primary);
+  letter-spacing: -0.3px;
 }
 
+.brand-subtitle {
+  font-size: 10px;
+  color: var(--c-text-secondary);
+  margin-top: 1px;
+}
+
+/* 导航组 */
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .nav-group {
-  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
 }
 
 .nav-group-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--c-text-secondary);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  padding: 10px 10px 4px;
-  white-space: nowrap;
+  padding: 0 12px 6px;
+  margin: 0;
+}
+
+.nav-items-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 6px;
+  gap: 12px;
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: var(--c-radius-lg);
   cursor: pointer;
   color: var(--c-text-regular);
-  transition: all var(--motion-fast)  ease;
-  position: relative;
-  white-space: nowrap;
-  margin-bottom: 1px;
+  transition: all var(--motion-fast) var(--ease-out);
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
 }
 
 .nav-item:hover {
@@ -587,33 +513,127 @@ function onMenuSelect(name) {
 }
 
 .nav-item.active {
-  background: #EDF1F8;
+  background: var(--c-bg-selected);
   color: var(--c-primary);
-  font-weight: 500;
-}
-
-.nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  background: var(--c-primary);
-  border-radius: 0 2px 2px 0;
+  font-weight: 600;
 }
 
 .nav-icon {
   flex-shrink: 0;
 }
 
-.nav-label {
-  font-size: 13px;
+.nav-label-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
 }
 
+.nav-label-main {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nav-label-sub {
+  font-size: 11px;
+  color: var(--c-text-secondary);
+  opacity: 0.8;
+}
+
+.nav-item.active .nav-label-sub {
+  color: var(--c-primary);
+  opacity: 0.7;
+}
+
+/* 侧栏底部 */
 .sidebar-footer {
-  padding: 8px;
-  border-top: 1px solid var(--c-border-light);
+  padding: 12px;
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--c-bg-sidebar);
+}
+
+.ai-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--c-radius-full);
+  background: var(--bg-success-weak);
+  border: 1px solid color-mix(in srgb, var(--status-success) 20%, transparent);
+}
+
+.ai-dot-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-success);
+  flex-shrink: 0;
+}
+
+.ai-status-text {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--status-success);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.user-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--c-radius-lg);
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+
+.user-profile-card:hover {
+  background: var(--c-bg-hover);
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role {
+  font-size: 10.5px;
+  color: var(--slate-gray-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-item {
+  height: 34px;
+  padding: 0 10px;
 }
 
 /* ── 主区 ─────────────────────────────────────────────── */
@@ -622,31 +642,37 @@ function onMenuSelect(name) {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100dvh;
+  background: var(--c-bg-page);
 }
 
 /* ── 顶栏 ─────────────────────────────────────────────── */
 .topbar {
-  height: 52px;
-  background: #FFFFFF;
-  border-bottom: 1px solid #E0E3E9;
+  height: 64px;
+  background: var(--c-bg-topbar);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--c-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 28px;
   gap: 16px;
   flex-shrink: 0;
+  z-index: 40;
 }
 
 .topbar-left {
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-width: 0;
+  gap: 14px;
+  flex: 1;
+  max-width: 480px;
 }
 
-.icon-btn {
-  width: 30px;
-  height: 30px;
+.sidebar-toggle-btn {
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   display: grid;
   place-items: center;
@@ -655,199 +681,183 @@ function onMenuSelect(name) {
   border: none;
   background: transparent;
   transition: background var(--motion-fast);
-  flex-shrink: 0;
 }
 
-.icon-btn:hover {
+.sidebar-toggle-btn:hover {
   background: var(--c-bg-hover);
-}
-
-/* 今日概览 */
-.today-stats {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.ts-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background var(--motion-fast);
-}
-
-.ts-item:hover {
-  background: var(--c-bg-hover);
-}
-
-.ts-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.ts-dot.danger { background: var(--c-danger); }
-.ts-dot.warning { background: var(--c-warning); }
-.ts-dot.gray { background: var(--c-text-secondary); }
-.ts-dot.success { background: var(--c-success); }
-
-.ts-value {
-  font-size: 14px;
-  font-weight: 600;
   color: var(--c-text);
 }
 
-.ts-label {
-  font-size: 11px;
-  color: var(--c-text-secondary);
+.search-trigger {
+  flex: 1;
+  height: 36px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-out);
+}
+
+.search-trigger:hover {
+  border-color: var(--c-primary);
+  background: var(--c-bg-card);
+}
+
+.search-icon {
+  color: var(--slate-gray-light);
+}
+
+.search-placeholder {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--slate-gray-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.kbd-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--slate-gray-light);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--c-bg-subtle);
 }
 
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
 }
 
-.topbar-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #F6F7F9;
-  border: 1px solid #E0E3E9;
-  border-radius: 6px;
-  padding: 5px 10px;
-  color: var(--c-text-secondary);
-  width: 220px;
-  transition: all var(--motion-fast) var(--ease-out);
-}
-
-.topbar-search:focus-within {
-  border-color: var(--c-primary);
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(62, 92, 154, 0.1);
-}
-
-.topbar-search input {
-  border: none;
-  outline: none;
-  flex: 1;
-  background: transparent;
-  font-size: 12.5px;
-  color: var(--c-text);
-  font-family: inherit;
-}
-
-.kbd-hint {
-  font-size: 10px;
-  color: var(--c-text-secondary);
-  border: 1px solid #E0E3E9;
-  border-radius: 4px;
-  padding: 1px 5px;
-  background: #fff;
-  font-family: 'SF Mono', Menlo, monospace;
-  white-space: nowrap;
-}
-
-/* 捕获按钮 */
-.capture-wrap {
-  position: relative;
-}
-
-.btn-primary {
+.browser-preview-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
-  border-radius: 6px;
-  background: var(--c-primary);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  font-size: 12.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: #ca8a04;
+  font-size: 11px;
   font-weight: 500;
-  font-family: inherit;
-  transition: background var(--motion-fast);
-}
-
-.btn-primary:hover {
-  background: #334D82;
-}
-
-.capture-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  background: #fff;
-  border: 1px solid #E0E3E9;
-  border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(31, 36, 48, 0.12);
-  padding: 4px;
-  z-index: 200;
-  min-width: 120px;
-}
-
-.capture-item {
-  padding: 7px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--c-text-regular);
-  cursor: pointer;
-  transition: background var(--motion-fast);
-}
-
-.capture-item:hover {
-  background: #EDF1F8;
-  color: var(--c-primary);
-}
-
-/* ── 内容区 ───────────────────────────────────────────── */
-.content-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.content-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 8px 16px 0;
-  background: #F6F7F9;
+  user-select: none;
   flex-shrink: 0;
 }
 
-.tab-item {
-  padding: 6px 14px;
-  border-radius: 6px 6px 0 0;
-  font-size: 12.5px;
+.preview-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #eab308;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.6);
+}
+
+.preview-text {
+  letter-spacing: 0.2px;
+}
+
+.btn-secondary {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
   color: var(--c-text-regular);
-  cursor: pointer;
+  font-size: 12.5px;
   font-weight: 500;
-  transition: all var(--motion-fast) var(--ease-out);
-  border-bottom: 2px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--motion-fast);
 }
 
-.tab-item:hover {
+.btn-secondary:hover {
+  background: var(--c-bg-hover);
   color: var(--c-text);
-  background: #fff;
+  border-color: var(--c-border-strong);
 }
 
-.tab-item.active {
-  color: var(--c-primary);
-  background: #fff;
-  border-bottom-color: var(--c-primary);
+.btn-primary {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--motion-fast);
 }
 
+.btn-primary:hover {
+  background: var(--c-primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.shortcut-tag {
+  font-size: 10px;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+/* ── 浏览器预览 Mock 水印 ─────────────────────────────────────────── */
+.mock-watermark {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--c-warning);
+  color: var(--c-text-inverse);
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+/* ── 页面主体滚动 ─────────────────────────────────────────── */
 .content-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  min-height: 0;
+  overflow-x: hidden;
+  background: var(--c-bg-page);
+}
+
+@media (max-width: 900px) {
+  .app-sidebar:not(.collapsed) {
+    width: 68px;
+    min-width: 68px;
+  }
+  .app-sidebar:not(.collapsed) .brand-copy,
+  .app-sidebar:not(.collapsed) .nav-group-label,
+  .app-sidebar:not(.collapsed) .nav-label-group,
+  .app-sidebar:not(.collapsed) .ai-status-pill,
+  .app-sidebar:not(.collapsed) .user-profile-card,
+  .app-sidebar:not(.collapsed) .settings-item .nav-label-main {
+    display: none;
+  }
 }
 </style>

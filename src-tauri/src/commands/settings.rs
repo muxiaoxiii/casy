@@ -19,8 +19,8 @@ pub async fn get_settings() -> Result<HashMap<String, serde_json::Value>, String
         for row in rows {
             let (key, value_str) = row?;
             // 尝试解析为 JSON，失败则存为字符串
-            let value: serde_json::Value = serde_json::from_str(&value_str)
-                .unwrap_or(serde_json::Value::String(value_str));
+            let value: serde_json::Value =
+                serde_json::from_str(&value_str).unwrap_or(serde_json::Value::String(value_str));
             map.insert(key, value);
         }
         Ok(map)
@@ -72,11 +72,38 @@ pub async fn import_holidays_json(json_path: String) -> Result<serde_json::Value
 #[tauri::command]
 pub async fn get_holidays_summary() -> Result<serde_json::Value, String> {
     run_blocking(move || {
-        let cal = crate::deadline::holidays::HolidayCalendar::builtin();
+        let conn = db::open_db()?;
+        let cal = db::get_setting(&conn, "holidays_json")
+            .ok()
+            .flatten()
+            .and_then(|value| {
+                crate::deadline::holidays::HolidayCalendar::from_json_str(&value).ok()
+            })
+            .unwrap_or_else(crate::deadline::holidays::HolidayCalendar::builtin);
         Ok(serde_json::json!({
             "holidaysCount": cal.holidays_count(),
             "workdaysCount": cal.workdays_count(),
             "yearRange": cal.year_range(),
+        }))
+    })
+    .await
+}
+
+/// 获取日历展示用的年度法定节假日与调休工作日。
+#[tauri::command]
+pub async fn get_holiday_calendar(year: i32) -> Result<serde_json::Value, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let cal = db::get_setting(&conn, "holidays_json")
+            .ok()
+            .flatten()
+            .and_then(|value| {
+                crate::deadline::holidays::HolidayCalendar::from_json_str(&value).ok()
+            })
+            .unwrap_or_else(crate::deadline::holidays::HolidayCalendar::builtin);
+        Ok(serde_json::json!({
+            "year": year,
+            "entries": cal.entries_for_year(year),
         }))
     })
     .await
@@ -91,30 +118,26 @@ pub async fn get_holidays_summary() -> Result<serde_json::Value, String> {
 pub async fn list_folder_templates() -> Result<Vec<FolderTemplateOutput>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, name, case_type, is_builtin, directories_json, file_naming_json, created_at
+        let mut stmt = conn.prepare(
+            "SELECT id, name, case_type, is_builtin, directories_json, file_naming_json, created_at
                  FROM case_folder_templates ORDER BY is_builtin DESC, name",
-            )
-            ?;
-        let rows = stmt
-            .query_map([],                     |row| {
-                        Ok(FolderTemplateOutput {
-                            id: row.get::<_, String>(0)?,
-                            name: row.get::<_, String>(1)?,
-                            case_type: row.get::<_, String>(2)?,
-                            is_builtin: row.get::<_, i32>(3)?,
-                            directories: serde_json::from_str::<serde_json::Value>(
-                                &row.get::<_, String>(4).unwrap_or_default(),
-                            )
-                            .unwrap_or(serde_json::Value::Array(vec![])),
-                            file_naming: row
-                                .get::<_, Option<String>>(5)?
-                                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-                            created_at: row.get::<_, Option<String>>(6)?,
-                        })
-                    })
-            ?;
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(FolderTemplateOutput {
+                id: row.get::<_, String>(0)?,
+                name: row.get::<_, String>(1)?,
+                case_type: row.get::<_, String>(2)?,
+                is_builtin: row.get::<_, i32>(3)?,
+                directories: serde_json::from_str::<serde_json::Value>(
+                    &row.get::<_, String>(4).unwrap_or_default(),
+                )
+                .unwrap_or(serde_json::Value::Array(vec![])),
+                file_naming: row
+                    .get::<_, Option<String>>(5)?
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                created_at: row.get::<_, Option<String>>(6)?,
+            })
+        })?;
         let mut templates = Vec::new();
         for row in rows {
             templates.push(row?);
@@ -129,28 +152,26 @@ pub async fn list_folder_templates() -> Result<Vec<FolderTemplateOutput>, String
 pub async fn get_folder_template(template_id: String) -> Result<FolderTemplateOutput, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, name, case_type, is_builtin, directories_json, file_naming_json, created_at
+        let mut stmt = conn.prepare(
+            "SELECT id, name, case_type, is_builtin, directories_json, file_naming_json, created_at
                  FROM case_folder_templates WHERE id = ?1",
-            )
-            ?;
-        let result = stmt.query_row(rusqlite::params![template_id],                     |row| {
-                        Ok(FolderTemplateOutput {
-                            id: row.get::<_, String>(0)?,
-                            name: row.get::<_, String>(1)?,
-                            case_type: row.get::<_, String>(2)?,
-                            is_builtin: row.get::<_, i32>(3)?,
-                            directories: serde_json::from_str::<serde_json::Value>(
-                                &row.get::<_, String>(4).unwrap_or_default(),
-                            )
-                            .unwrap_or(serde_json::Value::Array(vec![])),
-                            file_naming: row
-                                .get::<_, Option<String>>(5)?
-                                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
-                            created_at: row.get::<_, Option<String>>(6)?,
-                        })
-                    })?;
+        )?;
+        let result = stmt.query_row(rusqlite::params![template_id], |row| {
+            Ok(FolderTemplateOutput {
+                id: row.get::<_, String>(0)?,
+                name: row.get::<_, String>(1)?,
+                case_type: row.get::<_, String>(2)?,
+                is_builtin: row.get::<_, i32>(3)?,
+                directories: serde_json::from_str::<serde_json::Value>(
+                    &row.get::<_, String>(4).unwrap_or_default(),
+                )
+                .unwrap_or(serde_json::Value::Array(vec![])),
+                file_naming: row
+                    .get::<_, Option<String>>(5)?
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                created_at: row.get::<_, Option<String>>(6)?,
+            })
+        })?;
         Ok(result)
     })
     .await
@@ -261,21 +282,18 @@ pub async fn save_folder_template(data: FolderTemplateInput) -> Result<String, S
 pub async fn delete_folder_template(template_id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let is_builtin: i32 = conn
-            .query_row(
-                "SELECT is_builtin FROM case_folder_templates WHERE id = ?1",
-                rusqlite::params![template_id],
-                |row| row.get(0),
-            )
-            ?;
+        let is_builtin: i32 = conn.query_row(
+            "SELECT is_builtin FROM case_folder_templates WHERE id = ?1",
+            rusqlite::params![template_id],
+            |row| row.get(0),
+        )?;
         if is_builtin == 1 {
             return Err(anyhow::anyhow!("不能删除内置模板"));
         }
         conn.execute(
             "DELETE FROM case_folder_templates WHERE id = ?1",
             rusqlite::params![template_id],
-        )
-        ?;
+        )?;
         Ok(())
     })
     .await
@@ -306,11 +324,7 @@ pub async fn get_folder_naming_settings() -> Result<FolderNamingSettingsOutput, 
             }
         }
         // 转强类型输出：缺省键 → None（序列化为 null，前端 ?? 默认值消费）
-        let get = |k: &str| {
-            map.get(k)
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        };
+        let get = |k: &str| map.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
         Ok(FolderNamingSettingsOutput {
             folder_naming_date_format: get("folder_naming_date_format"),
             folder_naming_case_no_format: get("folder_naming_case_no_format"),
@@ -327,7 +341,10 @@ pub async fn save_folder_naming_settings(data: FolderNamingSettingsInput) -> Res
         let conn = db::open_db()?;
         for (key, val) in [
             ("folder_naming_date_format", data.folder_naming_date_format),
-            ("folder_naming_case_no_format", data.folder_naming_case_no_format),
+            (
+                "folder_naming_case_no_format",
+                data.folder_naming_case_no_format,
+            ),
             ("folder_naming_file_format", data.folder_naming_file_format),
         ] {
             if let Some(val_str) = val {

@@ -7,6 +7,7 @@ interface CalendarState {
   loading: boolean
   currentYear: number
   currentMonth: number
+  holidayEntries: any[]
 }
 
 export const useCalendarStore = defineStore('calendar', {
@@ -15,6 +16,7 @@ export const useCalendarStore = defineStore('calendar', {
     loading: false,
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth() + 1,
+    holidayEntries: [],
   }),
 
   getters: {
@@ -26,14 +28,37 @@ export const useCalendarStore = defineStore('calendar', {
       }
       return map
     },
+    isWorkday: (state) => {
+      return (dateStr: string) => {
+        // format: YYYY-MM-DD
+        const entry = state.holidayEntries.find(h => h.date === dateStr)
+        if (entry) {
+          return entry.type === 'workday'
+        }
+        // If not explicitly holiday/workday, fallback to weekend check
+        const d = new Date(dateStr)
+        const day = d.getDay()
+        return day !== 0 && day !== 6
+      }
+    }
   },
 
   actions: {
+    async loadHolidays(year: number): Promise<void> {
+      const result = await casyContext.calendar.holidays(year)
+      if (result.ok && result.data) {
+        this.holidayEntries = (result.data as any).entries || []
+      }
+    },
+
     async loadEvents(year?: number, month?: number): Promise<void> {
       this.loading = true
       if (year) this.currentYear = year
       if (month) this.currentMonth = month
-      const result = await casyContext.calendar.events(this.currentYear, this.currentMonth)
+      const p1 = casyContext.calendar.events(this.currentYear, this.currentMonth)
+      const p2 = this.holidayEntries.length === 0 ? this.loadHolidays(this.currentYear) : Promise.resolve()
+      
+      const [result] = await Promise.all([p1, p2])
       if (result.ok && result.data) {
         this.events = result.data
       }

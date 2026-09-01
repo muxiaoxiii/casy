@@ -88,10 +88,11 @@ pub fn analyze_task_durations(conn: &rusqlite::Connection) -> Result<Vec<TaskDur
     let mut stmt = conn.prepare(
         "SELECT task_name, estimated_minutes, actual_minutes
          FROM tasks
-         WHERE completed = 1 AND estimated_minutes > 0 AND actual_minutes > 0"
+         WHERE completed = 1 AND estimated_minutes > 0 AND actual_minutes > 0",
     )?;
 
-    let mut pattern_map: std::collections::HashMap<String, Vec<(f64, f64)>> = std::collections::HashMap::new();
+    let mut pattern_map: std::collections::HashMap<String, Vec<(f64, f64)>> =
+        std::collections::HashMap::new();
 
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -114,7 +115,11 @@ pub fn analyze_task_durations(conn: &rusqlite::Connection) -> Result<Vec<TaskDur
         .map(|(pattern, values)| {
             let avg_est = values.iter().map(|(e, _)| e).sum::<f64>() / values.len() as f64;
             let avg_act = values.iter().map(|(_, a)| a).sum::<f64>() / values.len() as f64;
-            let accuracy = if avg_est > 0.0 { (avg_est / avg_act).min(2.0) } else { 0.0 };
+            let accuracy = if avg_est > 0.0 {
+                (avg_est / avg_act).min(2.0)
+            } else {
+                0.0
+            };
             TaskDurationStats {
                 task_pattern: pattern,
                 avg_estimated: avg_est,
@@ -135,19 +140,19 @@ pub fn analyze_activity_patterns(conn: &rusqlite::Connection) -> Result<Vec<Acti
          FROM task_events
          WHERE event_type = 'completed'
          GROUP BY hour
-         ORDER BY hour"
+         ORDER BY hour",
     )?;
 
     let mut patterns = Vec::new();
-    let total: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM task_events WHERE event_type = 'completed'",
-        [],
-        |r| r.get(0),
-    ).unwrap_or(1);
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM task_events WHERE event_type = 'completed'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(1);
 
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, i32>(0)?, row.get::<_, i64>(1)?))
-    })?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, i32>(0)?, row.get::<_, i64>(1)?)))?;
 
     for row in rows {
         let (hour, count) = row?;
@@ -188,7 +193,11 @@ pub fn analyze_delay_patterns(conn: &rusqlite::Connection) -> Result<Vec<DelayPa
 
     for row in rows {
         let (track, total, delayed, avg_delay) = row?;
-        let delay_rate = if total > 0 { delayed as f64 / total as f64 } else { 0.0 };
+        let delay_rate = if total > 0 {
+            delayed as f64 / total as f64
+        } else {
+            0.0
+        };
         patterns.push(DelayPattern {
             case_type: track,
             avg_delay_days: avg_delay,
@@ -204,10 +213,11 @@ pub fn analyze_delay_patterns(conn: &rusqlite::Connection) -> Result<Vec<DelayPa
 /// 生成完整学习分析
 pub fn generate_learning_analysis(conn: &rusqlite::Connection) -> Result<LearningAnalysis> {
     // 上次校准信息（持久化在 settings 表）
-    let last_cal: Option<serde_json::Value> = crate::db::get_setting(conn, "learning_last_calibration")
-        .ok()
-        .flatten()
-        .and_then(|s| serde_json::from_str(&s).ok());
+    let last_cal: Option<serde_json::Value> =
+        crate::db::get_setting(conn, "learning_last_calibration")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok());
     let calibrated_task_count = last_cal
         .as_ref()
         .and_then(|v| v["calibratedCount"].as_i64())
@@ -233,9 +243,7 @@ pub fn generate_learning_analysis(conn: &rusqlite::Connection) -> Result<Learnin
 
 /// 按任务模式 + 上下文分组，统计已完成任务的 avg(actual) vs avg(estimated)
 /// 只保留样本数 >= 2 的组
-fn group_duration_avgs(
-    conn: &rusqlite::Connection,
-) -> Result<LearningCalibrationMap> {
+fn group_duration_avgs(conn: &rusqlite::Connection) -> Result<LearningCalibrationMap> {
     let mut stmt = conn.prepare(
         "SELECT task_name, context, estimated_minutes, actual_minutes
          FROM tasks
@@ -257,7 +265,10 @@ fn group_duration_avgs(
     for row in rows {
         let (name, context, est, actual) = row?;
         let pattern = extract_task_pattern(&name);
-        groups.entry((pattern, context)).or_default().push((est, actual));
+        groups
+            .entry((pattern, context))
+            .or_default()
+            .push((est, actual));
     }
 
     // (pattern, context) -> (avg_est, avg_actual, sample_count)
@@ -302,7 +313,9 @@ fn plan_calibration(
     for row in rows {
         let (id, name, context, est) = row?;
         let key = (extract_task_pattern(&name), context);
-        let Some(&(_, avg_act, _)) = groups.get(&key) else { continue };
+        let Some(&(_, avg_act, _)) = groups.get(&key) else {
+            continue;
+        };
 
         let need_calibration = match est {
             None => true,

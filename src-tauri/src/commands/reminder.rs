@@ -83,8 +83,8 @@ impl ReminderEngine {
     pub fn check_and_trigger(&self, conn: &Connection) -> Result<Vec<ReminderLogEntry>> {
         let rules = load_enabled_rules(conn)?;
         let today = db::today();
-        let today_dt =
-            NaiveDate::parse_from_str(&today, "%Y-%m-%d").unwrap_or_else(|_| chrono::Local::now().date_naive());
+        let today_dt = NaiveDate::parse_from_str(&today, "%Y-%m-%d")
+            .unwrap_or_else(|_| chrono::Local::now().date_naive());
 
         let mut triggered = Vec::new();
 
@@ -207,8 +207,7 @@ fn check_deadline_rules(
             );
 
             let level = compute_level(days_diff, false);
-            let channels: Vec<String> =
-                serde_json::from_str(&rule.channels).unwrap_or_default();
+            let channels: Vec<String> = serde_json::from_str(&rule.channels).unwrap_or_default();
 
             for channel in &channels {
                 let cal_ctx = CalendarJobCtx {
@@ -283,8 +282,7 @@ fn check_hearing_rules(
             );
 
             let level = compute_level(days_diff, false);
-            let channels: Vec<String> =
-                serde_json::from_str(&rule.channels).unwrap_or_default();
+            let channels: Vec<String> = serde_json::from_str(&rule.channels).unwrap_or_default();
 
             for channel in &channels {
                 let cal_ctx = CalendarJobCtx {
@@ -369,8 +367,7 @@ fn check_task_rules(
             );
 
             let level = compute_level(days_diff, rule.trigger_type == "task_overdue");
-            let channels: Vec<String> =
-                serde_json::from_str(&rule.channels).unwrap_or_default();
+            let channels: Vec<String> = serde_json::from_str(&rule.channels).unwrap_or_default();
 
             for channel in &channels {
                 let cal_ctx = CalendarJobCtx {
@@ -476,7 +473,17 @@ fn dispatch_reminder_at(
 
     let log_id = db::new_id();
 
-    let result = send_via_channel(conn, rule_id, case_id, task_id, Some(&log_id), channel, message, level, cal_ctx);
+    let result = send_via_channel(
+        conn,
+        rule_id,
+        case_id,
+        task_id,
+        Some(&log_id),
+        channel,
+        message,
+        level,
+        cal_ctx,
+    );
 
     let status = match result {
         Ok(_) => "sent",
@@ -529,17 +536,17 @@ fn send_via_channel(
     match channel {
         "local" => send_local_notification(message, task_id, reminder_log_id),
         "system" => send_system_notification(message),
-        "calendar" => dispatch_calendar_channel(conn, rule_id, case_id, message, level, cal_ctx, None),
+        "calendar" => {
+            dispatch_calendar_channel(conn, rule_id, case_id, message, level, cal_ctx, None)
+        }
         "feishu_message" => {
             // 审计 P1#2：同步等待发送结果——成功才算 sent，失败/未配置记 failed
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(send_feishu_reminder_async_generic(message))
+            tauri::async_runtime::block_on(send_feishu_reminder_async_generic(message))
                 .map_err(|e| anyhow::anyhow!("{e}"))
         }
         "feishu_task" => {
             // 审计 P1#2：同步等待创建结果
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(send_feishu_task_async_generic(message))
+            tauri::async_runtime::block_on(send_feishu_task_async_generic(message))
                 .map_err(|e| anyhow::anyhow!("{e}"))
         }
         _ => Ok(()),
@@ -702,7 +709,9 @@ fn dispatch_due_local_jobs(conn: &Connection) -> Result<Vec<ReminderLogEntry>> {
         // entity_type='task' 时 entity_id 即 task_id；case_id 无法从作业还原，记 NULL
         let task_id = (entity_type == "task").then_some(entity_id.as_str());
 
-        let result = send_via_channel(conn, &rule_id, None, None, None, &channel, &message, &level, None);
+        let result = send_via_channel(
+            conn, &rule_id, None, None, None, &channel, &message, &level, None,
+        );
 
         let (job_status, last_error) = match &result {
             Ok(_) => ("sent", None),
@@ -775,8 +784,12 @@ fn dispatch_calendar_channel(
         return send_local_notification(message, None, None);
     };
 
-    let Some(dtstart) = super::caldav::parse_due_datetime(&ctx.due_date, ctx.due_time.as_deref()) else {
-        log::warn!("[提醒-日历] 无法解析截止日期 {}，回退本地提醒", ctx.due_date);
+    let Some(dtstart) = super::caldav::parse_due_datetime(&ctx.due_date, ctx.due_time.as_deref())
+    else {
+        log::warn!(
+            "[提醒-日历] 无法解析截止日期 {}，回退本地提醒",
+            ctx.due_date
+        );
         return send_local_notification(message, None, None);
     };
 
@@ -857,7 +870,9 @@ pub(crate) fn sync_task_reminder_calendar(
         [],
         |r| r.get(0),
     ).ok();
-    let Some(rule_id) = rule_id else { return Ok(()); };
+    let Some(rule_id) = rule_id else {
+        return Ok(());
+    };
 
     // 幂等：复用已存在的 task calendar job（UID = job_id）
     let existing: Option<String> = conn.query_row(
@@ -876,7 +891,15 @@ pub(crate) fn sync_task_reminder_calendar(
     let message = format!("任务: {}\n截止日期: {}", task_name, due_date);
 
     // level：任务提醒默认 R2（明确），交接到外部日历由服务商按时推送
-    dispatch_calendar_channel(conn, &rule_id, case_id, &message, "R2", Some(&cal_ctx), existing.as_deref())?;
+    dispatch_calendar_channel(
+        conn,
+        &rule_id,
+        case_id,
+        &message,
+        "R2",
+        Some(&cal_ctx),
+        existing.as_deref(),
+    )?;
     log::info!("[提醒-日历] 任务 {} 提醒已交接（设置即同步）", task_name);
     Ok(())
 }
@@ -896,20 +919,18 @@ fn masked_calendar_summary(conn: &Connection, case_id: Option<&str>, title: &str
 
     if let Some(cid) = case_id {
         if !mask {
-            if let Ok(name) = conn.query_row(
-                "SELECT case_name FROM cases WHERE id = ?1",
-                [cid],
-                |r| r.get::<_, String>(0),
-            ) {
+            if let Ok(name) =
+                conn.query_row("SELECT case_name FROM cases WHERE id = ?1", [cid], |r| {
+                    r.get::<_, String>(0)
+                })
+            {
                 return format!("{}：{}", name, title);
             }
         } else {
             let internal_no: Option<String> = conn
-                .query_row(
-                    "SELECT internal_no FROM cases WHERE id = ?1",
-                    [cid],
-                    |r| r.get::<_, Option<String>>(0),
-                )
+                .query_row("SELECT internal_no FROM cases WHERE id = ?1", [cid], |r| {
+                    r.get::<_, Option<String>>(0)
+                })
                 .ok()
                 .flatten();
             if let Some(no) = internal_no.filter(|s| !s.trim().is_empty()) {
@@ -942,7 +963,13 @@ fn already_sent(
                AND date(sent_at) >= date(?2, ?5)
                AND (case_id = ?3 OR (?3 IS NULL AND case_id IS NULL))
                AND (task_id = ?4 OR (?4 IS NULL AND task_id IS NULL))",
-            params![rule_id, db::today(), case_id, task_id, format!("-{} days", days)],
+            params![
+                rule_id,
+                db::today(),
+                case_id,
+                task_id,
+                format!("-{} days", days)
+            ],
             |row| row.get(0),
         )?,
         None => {
@@ -965,17 +992,24 @@ fn already_sent(
 // 通道实现
 // ============================================================
 
-pub(crate) fn send_local_notification(message: &str, task_id: Option<&str>, reminder_log_id: Option<&str>) -> Result<()> {
+pub(crate) fn send_local_notification(
+    message: &str,
+    task_id: Option<&str>,
+    reminder_log_id: Option<&str>,
+) -> Result<()> {
     // 向前端 emit 事件（弹提醒面板，带实体上下文供反馈回收），并记录日志
     log::info!("[提醒-本地弹窗] {}", message.replace('\n', " | "));
 
     if let Some(handle) = crate::get_app_handle() {
-        let _ = handle.emit("reminder:triggered", serde_json::json!({
-            "message": message,
-            "at": crate::db::now_local(),
-            "taskId": task_id,
-            "reminderLogId": reminder_log_id,
-        }));
+        let _ = handle.emit(
+            "reminder:triggered",
+            serde_json::json!({
+                "message": message,
+                "at": crate::db::now_local(),
+                "taskId": task_id,
+                "reminderLogId": reminder_log_id,
+            }),
+        );
     }
 
     // macOS 系统通知（无论前端是否打开都可见）
@@ -1499,7 +1533,10 @@ pub async fn get_deadline_warnings_with_levels() -> Result<Vec<DeadlineWarning>,
                 ReminderLevel::R1 => format!("{} 天后到期：{}", days_left, deadline_name),
                 ReminderLevel::R2 => format!("明天到期：{}（{}）", deadline_name, case_name),
                 ReminderLevel::R3 => format!("今天到期：{}（{}）", deadline_name, case_name),
-                ReminderLevel::R4 => format!("已逾期 {} 天：{}（{}）", -days_left, deadline_name, case_name),
+                ReminderLevel::R4 => format!(
+                    "已逾期 {} 天：{}（{}）",
+                    -days_left, deadline_name, case_name
+                ),
             };
 
             warnings.push(DeadlineWarning {
@@ -1650,8 +1687,11 @@ mod tests {
     #[test]
     fn test_deadline_before_interval_trigger() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_name) VALUES ('c1', '测试案件')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_name) VALUES ('c1', '测试案件')",
+            [],
+        )
+        .unwrap();
         let today = chrono::Local::now().date_naive();
         let rule = test_rule("deadline_before", 3);
 
@@ -1678,8 +1718,11 @@ mod tests {
     #[test]
     fn test_deadline_before_window_dedup_no_daily_bombardment() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_name) VALUES ('c1', '测试案件')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_name) VALUES ('c1', '测试案件')",
+            [],
+        )
+        .unwrap();
         let today = chrono::Local::now().date_naive();
         let rule = test_rule("deadline_before", 3);
 
@@ -1726,8 +1769,11 @@ mod tests {
     #[test]
     fn test_deadline_on_and_after_semantics() {
         let conn = setup_test_db();
-        conn.execute("INSERT INTO cases (id, case_name) VALUES ('c1', '测试案件')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_name) VALUES ('c1', '测试案件')",
+            [],
+        )
+        .unwrap();
         let today = chrono::Local::now().date_naive();
 
         // deadline_on：到期日已到或已过（含离线错过的当天提醒）
@@ -1738,8 +1784,11 @@ mod tests {
         assert_eq!(triggered[0].level.as_deref(), Some("R4"), "逾期应为 R4");
 
         // deadline_after：逾期天数 >= trigger_value 才触发
-        conn.execute("INSERT INTO cases (id, case_name) VALUES ('c2', '测试案件2')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_name) VALUES ('c2', '测试案件2')",
+            [],
+        )
+        .unwrap();
         let today_plus = |id: &str, case: &str, days: i64| {
             let due = (today + chrono::Duration::days(days))
                 .format("%Y-%m-%d")
@@ -1825,8 +1874,11 @@ mod tests {
         // 无画像数据 → 默认 9-21
         assert_eq!(work_hours(&conn), (9, 21));
         // 画像损坏 → 默认 9-21
-        conn.execute("INSERT INTO settings (key, value) VALUES ('lawyer_profile', 'not-json')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('lawyer_profile', 'not-json')",
+            [],
+        )
+        .unwrap();
         assert_eq!(work_hours(&conn), (9, 21));
         // 有画像 → 用画像时段
         conn.execute(
@@ -1843,8 +1895,15 @@ mod tests {
         let night = dt(2026, 8, 19, 23); // 默认 9-21 时段外
 
         let entry = dispatch_reminder_at(
-            &conn, "rule-1", Some("c1"), None, "test_channel", "测试消息", "R1",
-            Some(&test_cal_ctx()), night,
+            &conn,
+            "rule-1",
+            Some("c1"),
+            None,
+            "test_channel",
+            "测试消息",
+            "R1",
+            Some(&test_cal_ctx()),
+            night,
         )
         .unwrap();
 
@@ -1864,7 +1923,11 @@ mod tests {
 
         // 延迟日志写入（sent_at 非空，供 already_sent 同日去重）
         let log_status: String = conn
-            .query_row("SELECT status FROM reminder_log WHERE id = ?1", params![entry.id], |r| r.get(0))
+            .query_row(
+                "SELECT status FROM reminder_log WHERE id = ?1",
+                params![entry.id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(log_status, "deferred");
 
@@ -1889,8 +1952,15 @@ mod tests {
         let night = dt(2026, 8, 19, 23);
 
         let entry = dispatch_reminder_at(
-            &conn, "rule-1", Some("c1"), None, "test_channel", "到期提醒", "R3",
-            Some(&test_cal_ctx()), night,
+            &conn,
+            "rule-1",
+            Some("c1"),
+            None,
+            "test_channel",
+            "到期提醒",
+            "R3",
+            Some(&test_cal_ctx()),
+            night,
         )
         .unwrap();
 
@@ -1907,8 +1977,15 @@ mod tests {
         let daytime = dt(2026, 8, 19, 10); // 时段内
 
         let entry = dispatch_reminder_at(
-            &conn, "rule-1", Some("c1"), None, "test_channel", "测试消息", "R1",
-            Some(&test_cal_ctx()), daytime,
+            &conn,
+            "rule-1",
+            Some("c1"),
+            None,
+            "test_channel",
+            "测试消息",
+            "R1",
+            Some(&test_cal_ctx()),
+            daytime,
         )
         .unwrap();
 

@@ -6,7 +6,7 @@ use super::{row_get_string, row_get_string_or};
 
 /// 案件数据结构
 #[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Case {
     pub id: String,
     pub track: String,
@@ -228,9 +228,14 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
     // 分页
     let page = filter.page.unwrap_or(1).max(1);
     let per_page = filter.per_page.unwrap_or(50).min(200);
-    sql.push_str(&format!(" LIMIT {} OFFSET {}", per_page, (page - 1) * per_page));
+    sql.push_str(&format!(
+        " LIMIT {} OFFSET {}",
+        per_page,
+        (page - 1) * per_page
+    ));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        params_vec.iter().map(|p| p.as_ref()).collect();
 
     // 查询总数
     let total: i64 = conn.query_row(&count_sql, param_refs.as_slice(), |r| r.get(0))?;
@@ -286,21 +291,60 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
                  ?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,
                  ?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,?53,?54)",
         params![
-            case.id, case.track, case.case_name, case.case_no, case.internal_no, case.cause_action,
-            case.client_name, case.our_role, case.opponent_name, case.opponent_role,
-            case.opponent_firm, case.opponent_agent, case.court, case.judge_panel, case.clerk,
-            case.attorneys, case.case_level, case.case_progress, case.case_result,
-            case.patent_name, case.patent_app_no, case.procedure_type,
-            case.filing_date, case.complaint_received_date, case.trial_date, case.trial2_date,
-            case.trial3_date, case.verdict_type, case.verdict_date, case.stay_date, case.relief_deadline,
-            case.petitioner_first_invalid, case.petitioner_supp_deadline, case.petitioner_submit_date,
-            case.petitioner_received_date, case.petitioner_reply_deadline,
-            case.patentee_received_date, case.patentee_statement_deadline, case.patentee_received_supp_date,
-            case.patentee_supp_deadline, case.patentee_submit_supp_date,
-            case.case_route, case.civil_status, case.invalidation_status, case.admin_status,
-            case.invalidation_decision_date, case.invalidation_decision_type,
-            case.admin_filing_date, case.admin_verdict_date, case.admin_trial2_date,
-            case.folder_path, case.notes, case.created_at, case.updated_at,
+            case.id,
+            case.track,
+            case.case_name,
+            case.case_no,
+            case.internal_no,
+            case.cause_action,
+            case.client_name,
+            case.our_role,
+            case.opponent_name,
+            case.opponent_role,
+            case.opponent_firm,
+            case.opponent_agent,
+            case.court,
+            case.judge_panel,
+            case.clerk,
+            case.attorneys,
+            case.case_level,
+            case.case_progress,
+            case.case_result,
+            case.patent_name,
+            case.patent_app_no,
+            case.procedure_type,
+            case.filing_date,
+            case.complaint_received_date,
+            case.trial_date,
+            case.trial2_date,
+            case.trial3_date,
+            case.verdict_type,
+            case.verdict_date,
+            case.stay_date,
+            case.relief_deadline,
+            case.petitioner_first_invalid,
+            case.petitioner_supp_deadline,
+            case.petitioner_submit_date,
+            case.petitioner_received_date,
+            case.petitioner_reply_deadline,
+            case.patentee_received_date,
+            case.patentee_statement_deadline,
+            case.patentee_received_supp_date,
+            case.patentee_supp_deadline,
+            case.patentee_submit_supp_date,
+            case.case_route,
+            case.civil_status,
+            case.invalidation_status,
+            case.admin_status,
+            case.invalidation_decision_date,
+            case.invalidation_decision_type,
+            case.admin_filing_date,
+            case.admin_verdict_date,
+            case.admin_trial2_date,
+            case.folder_path,
+            case.notes,
+            case.created_at,
+            case.updated_at,
         ],
     )?;
     Ok(())
@@ -312,19 +356,37 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
     let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
     let fields = [
-        ("caseName", "case_name"), ("caseNo", "case_no"), ("internalNo", "internal_no"),
-        ("causeAction", "cause_action"), ("clientName", "client_name"), ("ourRole", "our_role"),
-        ("opponentName", "opponent_name"), ("opponentRole", "opponent_role"),
-        ("opponentFirm", "opponent_firm"), ("opponentAgent", "opponent_agent"),
-        ("court", "court"), ("judgePanel", "judge_panel"), ("clerk", "clerk"),
-        ("attorneys", "attorneys"), ("caseLevel", "case_level"), ("caseProgress", "case_progress"),
-        ("caseResult", "case_result"), ("patentName", "patent_name"), ("patentAppNo", "patent_app_no"),
-        ("procedureType", "procedure_type"), ("filingDate", "filing_date"),
-        ("complaintReceivedDate", "complaint_received_date"), ("trialDate", "trial_date"),
-        ("trial2Date", "trial2_date"), ("trial3Date", "trial3_date"),
-        ("verdictType", "verdict_type"), ("verdictDate", "verdict_date"),
-        ("stayDate", "stay_date"), ("reliefDeadline", "relief_deadline"),
-        ("notes", "notes"), ("track", "track"),
+        ("caseName", "case_name"),
+        ("caseNo", "case_no"),
+        ("internalNo", "internal_no"),
+        ("causeAction", "cause_action"),
+        ("clientName", "client_name"),
+        ("ourRole", "our_role"),
+        ("opponentName", "opponent_name"),
+        ("opponentRole", "opponent_role"),
+        ("opponentFirm", "opponent_firm"),
+        ("opponentAgent", "opponent_agent"),
+        ("court", "court"),
+        ("judgePanel", "judge_panel"),
+        ("clerk", "clerk"),
+        ("attorneys", "attorneys"),
+        ("caseLevel", "case_level"),
+        ("caseProgress", "case_progress"),
+        ("caseResult", "case_result"),
+        ("patentName", "patent_name"),
+        ("patentAppNo", "patent_app_no"),
+        ("procedureType", "procedure_type"),
+        ("filingDate", "filing_date"),
+        ("complaintReceivedDate", "complaint_received_date"),
+        ("trialDate", "trial_date"),
+        ("trial2Date", "trial2_date"),
+        ("trial3Date", "trial3_date"),
+        ("verdictType", "verdict_type"),
+        ("verdictDate", "verdict_date"),
+        ("stayDate", "stay_date"),
+        ("reliefDeadline", "relief_deadline"),
+        ("notes", "notes"),
+        ("track", "track"),
         ("completedText", "completed_text"),
         ("petitionerFirstInvalid", "petitioner_first_invalid"),
         ("petitionerSuppDeadline", "petitioner_supp_deadline"),
@@ -373,7 +435,8 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
     sql.push_str(&format!(" WHERE id = ?{}", param_idx));
     params_vec.push(Box::new(id.to_string()));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        params_vec.iter().map(|p| p.as_ref()).collect();
     conn.execute(&sql, param_refs.as_slice())?;
 
     get_case(conn, id)
@@ -389,7 +452,7 @@ pub fn delete_case(conn: &Connection, id: &str) -> Result<()> {
 pub fn search_cases(conn: &Connection, query: &str) -> Result<Vec<Case>> {
     let mut stmt = conn.prepare(
         "SELECT c.* FROM cases_fts f JOIN cases c ON c.rowid = f.rowid
-         WHERE cases_fts MATCH ?1 ORDER BY rank LIMIT 50"
+         WHERE cases_fts MATCH ?1 ORDER BY rank LIMIT 50",
     )?;
     let cases = stmt
         .query_map(params![query], row_to_case)?
@@ -411,7 +474,7 @@ pub fn active_cases(conn: &Connection) -> Result<Vec<Case>> {
 /// 按客户分组统计
 pub fn case_counts_by_client(conn: &Connection) -> Result<Vec<(String, i64)>> {
     let mut stmt = conn.prepare(
-        "SELECT client_name, COUNT(*) FROM cases GROUP BY client_name ORDER BY COUNT(*) DESC"
+        "SELECT client_name, COUNT(*) FROM cases GROUP BY client_name ORDER BY COUNT(*) DESC",
     )?;
     let rows = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
@@ -421,9 +484,8 @@ pub fn case_counts_by_client(conn: &Connection) -> Result<Vec<(String, i64)>> {
 
 /// 按轨道分组统计
 pub fn case_counts_by_track(conn: &Connection) -> Result<Vec<(String, i64)>> {
-    let mut stmt = conn.prepare(
-        "SELECT track, COUNT(*) FROM cases GROUP BY track ORDER BY COUNT(*) DESC"
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT track, COUNT(*) FROM cases GROUP BY track ORDER BY COUNT(*) DESC")?;
     let rows = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -431,16 +493,28 @@ pub fn case_counts_by_track(conn: &Connection) -> Result<Vec<(String, i64)>> {
 }
 
 /// 计算案件期限紧急度：red=3天内到期, yellow=14天内到期
-fn compute_deadline_urgency(conn: &Connection, case_ids: &[&str]) -> std::collections::HashMap<String, String> {
+fn compute_deadline_urgency(
+    conn: &Connection,
+    case_ids: &[&str],
+) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     if case_ids.is_empty() {
         return map;
     }
 
-    let today = chrono::Local::now().naive_local().date().format("%Y-%m-%d").to_string();
+    let today = chrono::Local::now()
+        .naive_local()
+        .date()
+        .format("%Y-%m-%d")
+        .to_string();
 
     // 查询每个案件最近的未完成期限
-    let placeholders: String = case_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect::<Vec<_>>().join(",");
+    let placeholders: String = case_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         "SELECT case_id, MIN(due_date) as nearest_due
          FROM case_deadlines
@@ -456,7 +530,8 @@ fn compute_deadline_urgency(conn: &Connection, case_ids: &[&str]) -> std::collec
     }
     params_vec.push(Box::new(today.clone()));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        params_vec.iter().map(|p| p.as_ref()).collect();
 
     if let Ok(mut stmt) = conn.prepare(&sql) {
         if let Ok(rows) = stmt.query_map(param_refs.as_slice(), |row| {

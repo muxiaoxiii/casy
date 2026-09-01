@@ -51,13 +51,21 @@ pub fn generate_ics(event: &CalendarEvent) -> String {
     let dtstart = if event.all_day {
         event.dtstart.format("%Y%m%d").to_string()
     } else {
-        format!("{}T{}", event.dtstart.format("%Y%m%d"), event.dtstart.format("%H%M%S"))
+        format!(
+            "{}T{}",
+            event.dtstart.format("%Y%m%d"),
+            event.dtstart.format("%H%M%S")
+        )
     };
 
     let dtend = if event.all_day {
         event.dtend.format("%Y%m%d").to_string()
     } else {
-        format!("{}T{}", event.dtend.format("%Y%m%d"), event.dtend.format("%H%M%S"))
+        format!(
+            "{}T{}",
+            event.dtend.format("%Y%m%d"),
+            event.dtend.format("%H%M%S")
+        )
     };
 
     let now = chrono::Local::now().format("%Y%m%dT%H%M%S");
@@ -185,8 +193,16 @@ pub async fn send_ics_invitation(
         event.summary,
         event.dtstart.format("%Y-%m-%d %H:%M"),
         event.dtend.format("%Y-%m-%d %H:%M"),
-        event.location.as_deref().map(|l| format!("地点：{}", l)).unwrap_or_default(),
-        event.description.as_deref().map(|d| format!("说明：{}", d)).unwrap_or_default(),
+        event
+            .location
+            .as_deref()
+            .map(|l| format!("地点：{}", l))
+            .unwrap_or_default(),
+        event
+            .description
+            .as_deref()
+            .map(|d| format!("说明：{}", d))
+            .unwrap_or_default(),
     );
 
     let email_content = format!(
@@ -306,7 +322,10 @@ impl SmtpStream {
                         .build()
                         .context("创建 TLS 连接器失败")?,
                 );
-                let tls = connector.connect(host, tcp).await.context("STARTTLS 握手失败")?;
+                let tls = connector
+                    .connect(host, tcp)
+                    .await
+                    .context("STARTTLS 握手失败")?;
                 Ok(SmtpStream::Tls(tls))
             }
             Self::Tls(_) => Ok(self),
@@ -376,8 +395,11 @@ async fn smtp_session(config: &SmtpConfig, to_email: &str, content: &[u8]) -> Re
     }
 
     // AUTH PLAIN
-    let auth_token = base64_encode(format!("\0{}\0{}", config.username, config.password).as_bytes());
-    stream.write_line(&format!("AUTH PLAIN {}", auth_token)).await?;
+    let auth_token =
+        base64_encode(format!("\0{}\0{}", config.username, config.password).as_bytes());
+    stream
+        .write_line(&format!("AUTH PLAIN {}", auth_token))
+        .await?;
     let (code, resp) = stream.read_response().await?;
     expect_code(code, &[235], &resp, "AUTH PLAIN")?;
 
@@ -388,7 +410,9 @@ async fn smtp_session(config: &SmtpConfig, to_email: &str, content: &[u8]) -> Re
     let (code, resp) = stream.read_response().await?;
     expect_code(code, &[250], &resp, "MAIL FROM")?;
 
-    stream.write_line(&format!("RCPT TO:<{}>", to_email)).await?;
+    stream
+        .write_line(&format!("RCPT TO:<{}>", to_email))
+        .await?;
     let (code, resp) = stream.read_response().await?;
     expect_code(code, &[250, 251], &resp, "RCPT TO")?;
 
@@ -449,10 +473,7 @@ fn base64_encode(data: &[u8]) -> String {
 /// 生成日程提醒邮件（非 ICS 邀请，纯文本提醒）
 // 预留：邮件提醒通道（R 级别邮件模板）
 #[allow(dead_code)]
-pub fn generate_reminder_email(
-    event: &CalendarEvent,
-    days_until: i64,
-) -> (String, String) {
+pub fn generate_reminder_email(event: &CalendarEvent, days_until: i64) -> (String, String) {
     let subject = if days_until == 0 {
         format!("今日日程: {}", event.summary)
     } else if days_until == 1 {
@@ -471,14 +492,21 @@ pub fn generate_reminder_email(
         event.summary,
         event.dtstart.format("%Y-%m-%d %H:%M"),
         event.dtend.format("%Y-%m-%d %H:%M"),
-        event.location.as_deref().map(|l| format!("地点：{}", l)).unwrap_or_default(),
-        event.description.as_deref().map(|d| format!("说明：{}", d)).unwrap_or_default(),
+        event
+            .location
+            .as_deref()
+            .map(|l| format!("地点：{}", l))
+            .unwrap_or_default(),
+        event
+            .description
+            .as_deref()
+            .map(|d| format!("说明：{}", d))
+            .unwrap_or_default(),
         days_until,
     );
 
     (subject, body)
 }
-
 
 // ============================================================
 // Tauri 命令
@@ -502,19 +530,15 @@ fn load_smtp_config() -> Result<SmtpConfig> {
         .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 服务器，请前往设置页配置（smtp_host）"))?;
     let user = get("smtp_user")
         .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 用户名，请前往设置页配置（smtp_user）"))?;
-    let port: u16 = get("smtp_port")
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(465);
+    let port: u16 = get("smtp_port").and_then(|p| p.parse().ok()).unwrap_or(465);
 
     // 密码：优先 keychain，回退 settings 表
-    let password = crate::credentials::get_credential(
-        crate::credentials::CredentialType::SmtpPassword,
-        &user,
-    )
-    .ok()
-    .flatten()
-    .or_else(|| get("smtp_pass"))
-    .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 密码，请前往设置页配置（smtp_pass）"))?;
+    let password =
+        crate::credentials::get_credential(crate::credentials::CredentialType::SmtpPassword, &user)
+            .ok()
+            .flatten()
+            .or_else(|| get("smtp_pass"))
+            .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 密码，请前往设置页配置（smtp_pass）"))?;
 
     Ok(SmtpConfig {
         smtp_server: host,
@@ -532,7 +556,12 @@ fn parse_start_time(start_iso: &str) -> Result<NaiveDateTime> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_iso) {
         return Ok(dt.naive_local());
     }
-    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+    ] {
         if let Ok(dt) = NaiveDateTime::parse_from_str(start_iso, fmt) {
             return Ok(dt);
         }

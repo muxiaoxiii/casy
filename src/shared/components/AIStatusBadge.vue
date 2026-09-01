@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '../../stores/settings'
 import { Cpu, ArrowRight } from '@element-plus/icons-vue'
+import { tauriCallSafe } from '../../core/tauriBridge'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
@@ -53,10 +54,9 @@ function handleClick() {
 onMounted(async () => {
   // 获取今日 AI 调用次数（如果后端支持）
   try {
-    const { tauriCallSafe } = await import('../../core/tauriBridge')
-    const result = await tauriCallSafe('get_ai_usage_today', {})
+    const result = await tauriCallSafe('get_ai_usage', {})
     if (result.ok && result.data) {
-      todayUsed.value = result.data.used || 0
+      todayUsed.value = result.data.usedToday || 0
     }
   } catch {
     // 后端未实现时静默失败

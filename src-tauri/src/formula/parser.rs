@@ -41,20 +41,13 @@ fn is_ident_start(c: char) -> bool {
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
-    recognize(pair(
-        take_while1(is_ident_start),
-        take_while(is_ident_char),
-    ))(input)
+    recognize(pair(take_while1(is_ident_start), take_while(is_ident_char)))(input)
 }
 
 // ── Literals ──────────────────────────────────────────────────
 
 fn parse_string_literal(input: &str) -> IResult<&str, Expr> {
-    let (input, s) = delimited(
-        char('"'),
-        take_while(|c: char| c != '"'),
-        char('"'),
-    )(input)?;
+    let (input, s) = delimited(char('"'), take_while(|c: char| c != '"'), char('"'))(input)?;
     Ok((input, Expr::Literal(Value::String(s.to_string()))))
 }
 
@@ -129,14 +122,28 @@ fn parse_lookup_chain(input: &str) -> IResult<&str, Expr> {
     // optional .LISTCOMBINE()
     let (input, _) = opt(preceded(
         ws(char('.')),
-        pair(tag("LISTCOMBINE"), ws(delimited(char('('), take_while(|c: char| c != ')'), char(')')))),
+        pair(
+            tag("LISTCOMBINE"),
+            ws(delimited(
+                char('('),
+                take_while(|c: char| c != ')'),
+                char(')'),
+            )),
+        ),
     ))(input)?;
 
     // optional .CONTAIN(...) — treat as part of filter expression, already parsed
     // For now, we just skip if present
     let (input, _) = opt(preceded(
         ws(char('.')),
-        pair(tag("CONTAIN"), ws(delimited(char('('), take_while(|c: char| c != ')'), char(')')))),
+        pair(
+            tag("CONTAIN"),
+            ws(delimited(
+                char('('),
+                take_while(|c: char| c != ')'),
+                char(')'),
+            )),
+        ),
     ))(input)?;
 
     Ok((
@@ -372,8 +379,7 @@ mod tests {
 
     #[test]
     fn parse_cross_table_ref() {
-        let expr =
-            parse_formula("bitable::$table[tbl4fMNw2UJfXBgy].$field[fld6KMKs7x]").unwrap();
+        let expr = parse_formula("bitable::$table[tbl4fMNw2UJfXBgy].$field[fld6KMKs7x]").unwrap();
         match expr {
             Expr::CrossTableRef { table_id, field_id } => {
                 assert_eq!(table_id, "tbl4fMNw2UJfXBgy");
@@ -422,10 +428,8 @@ mod tests {
 
     #[test]
     fn parse_comparison_lt() {
-        let expr = parse_formula(
-            "bitable::$table[tblXrb7Y6c9i2o8D].$field[fldXapQ4bm]<TODAY()",
-        )
-        .unwrap();
+        let expr =
+            parse_formula("bitable::$table[tblXrb7Y6c9i2o8D].$field[fldXapQ4bm]<TODAY()").unwrap();
         match expr {
             Expr::Compare { op, .. } => assert_eq!(op, CmpOp::Lt),
             _ => panic!("Expected Compare, got {:?}", expr),
@@ -491,7 +495,8 @@ mod tests {
 
     #[test]
     fn parse_hearing_status_formula() {
-        let formula = "IF(bitable::$table[tblXrb7Y6c9i2o8D].$field[fldXapQ4bm]<TODAY(),\"已开\",\"待开\")";
+        let formula =
+            "IF(bitable::$table[tblXrb7Y6c9i2o8D].$field[fldXapQ4bm]<TODAY(),\"已开\",\"待开\")";
         let expr = parse_formula(formula).unwrap();
         match expr {
             Expr::Call { name, args } => {

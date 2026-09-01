@@ -1,53 +1,48 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import {
   completeTaskOptimistic, restoreTaskOptimistic,
-  deleteTaskOptimistic, snoozeTaskWithUndo, undoLast, canUndo
+  deleteTaskOptimistic, snoozeTaskWithUndo
 } from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
   Plus, Clock, Calendar, Star, Folder,
   ArrowRight, Delete, Edit, More, RefreshRight,
-  Box, List, Timer
+  Box, List, Timer, Files, Check, Search,
+  Menu, Grid, Collection, Select, Close, Location,
+  Opportunity, Warning, TrendCharts, CircleCheck
 } from '@element-plus/icons-vue'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
 import TodayResetDialog from '../components/TodayResetDialog.vue'
+import StateFeedback from '../../../shared/components/StateFeedback.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 import { registerShortcut } from '../../../shared/keyboard'
+import { parseWhen } from '../../../shared/nlp/parseWhen'
 
 // ============================================================
-// 原有状态（保留）
+// 1. 状态管理 (直连真实 SQLite 数据库)
 // ============================================================
 const tasks = ref([])
+const cases = ref([])
+const areas = ref([])
 const loading = ref(false)
-const showCreateDialog = ref(false)
-const showAreasDialog = ref(false)
 
-// Things 3 式快速捕获输入条
-const captureInput = ref('')
-const capturing = ref(false)
-const captureInputRef = ref(null)
+// 当前激活的标签页/透视
+// 'all' | 'inbox' | 'today' | 'upcoming' | 'multiday' | 'next' | 'waiting' | 'matrix' | 'bycase' | 'completed' | (customId)
+const activePerspective = ref('all')
 
-const newTask = ref({
-  taskName: '',
-  description: '',
-  deadline: '',
-  priority: 'normal',
-  caseId: '',
-  // GTD 新增字段
-  taskType: 'action',
-  startDate: '',
-  areaId: '',
-  context: '',
-})
+// 任务搜索与过滤
+const searchQuery = ref('')
+const selectedContextFilter = ref('all')
+const selectedCaseFilter = ref('all')
 
-// 任务编辑抽屉（保留）
+// 抽屉与详情编辑
 const showDrawer = ref(false)
 const editingTask = ref(null)
 const editForm = ref({
@@ -56,7 +51,6 @@ const editForm = ref({
   deadline: '',
   priority: 'normal',
   caseId: '',
-  // GTD 新增字段
   taskType: 'action',
   startDate: '',
   dueDate: '',
@@ -68,270 +62,238 @@ const editForm = ref({
   areaId: '',
   estimatedMinutes: null,
   startBucket: 'anytime',
-  // 时间块排程（设计哲学 §7.2）
-  timeBlock: '', // morning/afternoon/evening/night/flex
-  // A1-5 重复（kind 是 UI 拆解，rule 是落库串）
-  recurrenceRule: '',
-  recurrenceKind: '',
-  recurrenceWeekday: 1,
-  recurrenceMonthDay: 1,
 })
 
-/** rule 串 → 表单拆解字段 */
-function formFromRule(rule) {
-  const r = rule || ''
-  if (r === 'daily' || r === 'weekdays') return { recurrenceKind: r, recurrenceWeekday: 1, recurrenceMonthDay: 1 }
-  if (r.startsWith('weekly:')) return { recurrenceKind: '__weekly__', recurrenceWeekday: Number(r.split(':')[1]) || 1, recurrenceMonthDay: 1 }
-  if (r.startsWith('monthly:')) return { recurrenceKind: '__monthly__', recurrenceWeekday: 1, recurrenceMonthDay: Number(r.split(':')[1]) || 1 }
-  return { recurrenceKind: '', recurrenceWeekday: 1, recurrenceMonthDay: 1 }
-}
-
-/** 表单 → rule 串 */
-function ruleFromForm(f) {
-  if (f.recurrenceKind === 'daily' || f.recurrenceKind === 'weekdays') return f.recurrenceKind
-  if (f.recurrenceKind === '__weekly__') return `weekly:${f.recurrenceWeekday}`
-  if (f.recurrenceKind === '__monthly__') return `monthly:${f.recurrenceMonthDay || 1}`
-  return null
-}
-const savingTask = ref(false)
-const caseSearchQuery = ref('')
-const caseSearchResults = ref([])
-const searchingCases = ref(false)
-
-// ============================================================
-// GTD 新增状态
-// ============================================================
-const cases = ref([])
-const areas = ref([])
-
-// GTD 透视（纯透视工作台，无四象限模式）
-const activePerspective = ref('inbox')
-const tasksStore = useTasksStore()
-
-// 厘清对话框
-const showTriageDialog = ref(false)
-const triagingTask = ref(null)
-const triageForm = ref({
-  taskType: 'action',
-  caseId: '',
-  areaId: '',
-  startDate: '',
-  dueDate: '',
-  context: '',
-})
-
-// 时间日志对话框（设计哲学 §11.9：流畅记录实际耗时）
-const showTimeLogDialog = ref(false)
-const timeLogTask = ref(null)
-const timeLogMinutes = ref('')
-
-async function submitTimeLog() {
-  const task = timeLogTask.value
-  if (!task) return
-  const mins = timeLogMinutes.value ? parseInt(timeLogMinutes.value, 10) : null
-  showTimeLogDialog.value = false
-  timeLogTask.value = null
-  timeLogMinutes.value = ''
-  await completeTaskFlow(task, Number.isFinite(mins) && mins !== null ? mins : null)
-}
-
-function skipTimeLog() {
-  const task = timeLogTask.value
-  if (!task) return
-  showTimeLogDialog.value = false
-  timeLogTask.value = null
-  timeLogMinutes.value = ''
-  completeTaskFlow(task, null)
-}
-
-// 自定义透视管理（设计哲学 §5.2）
+// 弹窗状态
+const showCreateDialog = ref(false)
+const showAreasDialog = ref(false)
+const showTodayReset = ref(false)
 const showPerspectiveManager = ref(false)
 const editingPerspective = ref(null)
-const customPerspectives = computed(() => tasksStore.customPerspectives)
 
-// ============================================================
-// 原有常量（保留）
-// ============================================================
-const priorityOptions = [
-  { value: 'urgent_important', label: '重要紧急', color: '#f56c6c' },
-  { value: 'important', label: '重要不紧急', color: '#e6a23c' },
-  { value: 'urgent', label: '紧急不重要', color: '#409eff' },
-  { value: 'normal', label: '普通', color: '#909399' },
-]
+// 快速捕获输入条
+const captureInput = ref('')
+const capturing = ref(false)
+const captureInputRef = ref(null)
 
-const priorityLabels = {
-  urgent_important: '重要紧急',
-  important: '重要不紧急',
-  urgent: '紧急不重要',
-  normal: '普通',
-}
-
-// GTD 透视定义
-const perspectives = [
-  { key: 'inbox', label: '收件箱', icon: Box, color: '#9BA2AF', desc: '先捕获，稍后厘清' },
-  { key: 'today', label: '今天', icon: Calendar, color: '#B4554F', desc: '今日聚焦' },
-  { key: 'upcoming', label: '计划中', icon: Timer, color: '#3E5C9A', desc: '有 When 日期的任务' },
-  { key: 'next', label: '随时', icon: ArrowRight, color: '#4C8067', desc: '按上下文分组' },
-  { key: 'waiting', label: '等待', icon: Clock, color: '#B0823A', desc: '追踪委派' },
-  { key: 'review', label: '回顾', icon: RefreshRight, color: '#6C6A9C', desc: 'GTD Reflect' },
-  { key: 'someday', label: '某天', icon: Folder, color: '#9BA2AF', desc: '灵感池' },
-]
-
-// 任务类型选项
-const taskTypeOptions = [
-  { value: 'action', label: '行动' },
-  { value: 'waiting', label: '等待' },
-  { value: 'delegated', label: '委派' },
-  { value: 'someday', label: '某天' },
-]
-
-// 上下文选项
-const contextOptions = [
-  { value: 'office', label: '@办公室' },
-  { value: 'phone', label: '@电话' },
-  { value: 'court', label: '@法院' },
-  { value: 'computer', label: '@电脑' },
-  { value: 'outside', label: '@外出' },
-]
-
-// ============================================================
-// 计算属性
-// ============================================================
-
-// GTD 透视过滤
-const gtdTasks = computed(() => {
-  const today = new Date().toISOString().split('T')[0]
-  
-  switch (activePerspective.value) {
-    case 'inbox':
-      return tasks.value.filter(t => t.startBucket === 'inbox' && !t.completed)
-    
-    case 'next':
-      // 下一步行动：严格区分案件内/外（设计哲学 §5.2）
-      // - 有案件的 action：只有 blocked=0 的才算"下一步"
-      // - 无案件的 action：全部算"下一步"
-      return tasks.value.filter(t => {
-        if (t.completed || t.taskType !== 'action') return false
-        if (t.caseId) {
-          // 有案件：必须是 unlocked（blocked=0）
-          return t.blocked === 0
-        }
-        // 无案件：全部算下一步
-        return true
-      })
-
-    case 'upcoming':
-      return tasks.value.filter(t =>
-        !t.completed &&
-        t.taskType === 'action' &&
-        (t.startDate || t.dueDate || t.deadline)
-      ).sort((a, b) => {
-        const da = a.startDate || a.dueDate || a.deadline || '9999'
-        const db = b.startDate || b.dueDate || b.deadline || '9999'
-        return da.localeCompare(db)
-      })
-    
-    case 'waiting':
-      return tasks.value.filter(t => 
-        !t.completed && t.taskType === 'waiting'
-      )
-    
-    case 'today':
-      // 序时参考：今日重点（★）排在最前，其余按 todayIndex
-      return tasks.value.filter(t => 
-        !t.completed && 
-        (t.startBucket === 'today' || 
-         (t.startDate && t.startDate <= today))
-      ).sort((a, b) => ((b.isFocus || 0) - (a.isFocus || 0)) || ((a.todayIndex || 0) - (b.todayIndex || 0)))
-    
-    case 'review':
-      return tasks.value.filter(t => 
-        !t.completed && t.nextReviewDate && t.nextReviewDate <= today
-      )
-    
-    case 'someday':
-      return tasks.value.filter(t => 
-        !t.completed && t.startBucket === 'someday'
-      )
-    
-    default:
-      return tasks.value.filter(t => !t.completed)
-  }
-})
-
-// 案件分组（Headings）：随时/计划中按案件分组，其余透视单组平铺
-const gtdGroups = computed(() => {
-  const groups = new Map()
-  for (const t of gtdTasks.value) {
-    const key = t.caseId || '__none__'
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        caseId: t.caseId,
-        caseName: t.caseId ? getCaseName(t.caseId) || '' : '',
-        tasks: [],
-      })
-    }
-    groups.get(key).tasks.push(t)
-  }
-  return Array.from(groups.values()).sort((a, b) => {
-    if (!a.caseId && b.caseId) return 1
-    if (a.caseId && !b.caseId) return -1
-    return (a.caseName || '').localeCompare(b.caseName || '', 'zh')
-  })
-})
-
-const gtdSections = computed(() => {
-  const persp = activePerspective.value
-  if (persp === 'next' || persp === 'upcoming') {
-    return gtdGroups.value
-  }
-  return [{ key: '__flat__', caseId: null, caseName: '', tasks: gtdTasks.value, flat: true }]
-})
-
-// ── A1-3 Today 拖拽排序（vue-draggable-plus，today_index 字段已有）──
-const isTodayPerspective = computed(() => activePerspective.value === 'today')
-const reducedMotion =
-  typeof window !== 'undefined' &&
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-/**
- * 拖拽落位：乐观重排 todayIndex（0..n-1），保存失败回滚重拉。
- * gtdTasks 与 tasks.value 共享对象引用，直接改 todayIndex 即触发排序重算。
- */
-async function onTodayDragEnd(evt) {
-  const { oldIndex, newIndex } = evt
-  if (oldIndex === newIndex || oldIndex == null || newIndex == null) return
-  const list = gtdTasks.value.slice()
-  if (!list[oldIndex]) return
-  const [moved] = list.splice(oldIndex, 1)
-  list.splice(newIndex, 0, moved)
-
-  const changed = []
-  list.forEach((t, i) => {
-    if ((t.todayIndex || 0) !== i) {
-      t.todayIndex = i
-      changed.push({ id: t.id, todayIndex: i })
-    }
-  })
-  if (!changed.length) return
-
-  const results = await Promise.allSettled(
-    changed.map(c => casyContext.tasks.update(c))
-  )
-  const failed = results.some(
-    r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value && r.value.ok === false)
-  )
-  if (failed) {
-    ElMessage.warning('排序保存失败，已恢复原序')
-    await loadTasks()
-  }
-}
-
-// ── A1-4 子任务（parent_task_id 自引用）──
+// 子任务管理
 const expandedParents = ref(new Set())
 const newChildText = ref({})
 
+// Store
+const tasksStore = useTasksStore()
+const filtersStore = useFiltersStore()
+const customPerspectives = computed(() => tasksStore.customPerspectives)
+const savedFilters = computed(() => filtersStore.filters)
+
+let unregisterKeys = []
+
+// ============================================================
+// 2. 丰富全景透视标签定义 (Rich Perspectives)
+// ============================================================
+const perspectives = [
+  { key: 'all', label: '全部待办', icon: List, color: 'var(--c-primary)', desc: '全量待办任务工作台' },
+  { key: 'inbox', label: '收件箱', icon: Box, color: '#9BA2AF', desc: '未分类待厘清任务' },
+  { key: 'today', label: '今日专注', icon: Calendar, color: '#B4554F', desc: '今日必须推进的重点' },
+  { key: 'upcoming', label: '计划排期', icon: Timer, color: '#3E5C9A', desc: '有明确截止或开始日期的任务' },
+  { key: 'multiday', label: '跨天专项', icon: TrendCharts, color: '#6C6A9C', desc: '多日连续阶段性任务' },
+  { key: 'next', label: '随时行动', icon: ArrowRight, color: '#4C8067', desc: '无依赖可立即执行' },
+  { key: 'waiting', label: '等待追踪', icon: Clock, color: '#B0823A', desc: '等待对方回复或委派跟进' },
+  { key: 'matrix', label: '四象限', icon: Grid, color: '#E6A23C', desc: '重要与紧急度决策看板' },
+  { key: 'bycase', label: '按案件', icon: Folder, color: '#409EFF', desc: '按关联案件聚合分类' },
+  { key: 'completed', label: '已完成', icon: CircleCheck, color: '#67C23A', desc: '历史归档与复盘' },
+]
+
+const priorityOptions = [
+  { value: 'urgent_important', label: '重要且紧急 (第一象限)', color: '#f56c6c' },
+  { value: 'important', label: '重要不紧急 (第二象限)', color: '#e6a23c' },
+  { value: 'urgent', label: '紧急不重要 (第三象限)', color: '#409eff' },
+  { value: 'normal', label: '普通/不紧急不重要 (第四象限)', color: '#909399' },
+]
+
+const contextOptions = [
+  { value: 'office', label: '@办公室', icon: Location },
+  { value: 'phone', label: '@电话沟通', icon: Clock },
+  { value: 'court', label: '@法庭开庭', icon: Folder },
+  { value: 'computer', label: '@电脑起草', icon: Edit },
+  { value: 'outside', label: '@外出办理', icon: Location },
+]
+
+const snoozeOptions = [
+  { value: 'tonight', label: '今晚' },
+  { value: 'tomorrow', label: '明天' },
+  { value: 'weekend', label: '周末' },
+  { value: 'next_week', label: '下周' },
+]
+
+// ============================================================
+// 3. 统计计数计算 (Real Counts)
+// ============================================================
+const todayStr = computed(() => {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+})
+
+const gtdStats = computed(() => {
+  const today = todayStr.value
+  const uncompleted = tasks.value.filter(t => !t.completed)
+  const completedList = tasks.value.filter(t => !!t.completed)
+
+  return {
+    all: uncompleted.length,
+    inbox: uncompleted.filter(t => t.startBucket === 'inbox' || (!t.dueDate && !t.startDate && !t.caseId)).length,
+    today: uncompleted.filter(t => t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)).length,
+    upcoming: uncompleted.filter(t => t.dueDate || t.startDate || t.deadline).length,
+    multiday: uncompleted.filter(t => t.startDate && t.dueDate && t.startDate !== t.dueDate).length,
+    next: uncompleted.filter(t => t.taskType === 'action' || !t.taskType).length,
+    waiting: uncompleted.filter(t => t.taskType === 'waiting' || !!t.waitingFor).length,
+    matrix: uncompleted.length,
+    bycase: uncompleted.filter(t => !!t.caseId).length,
+    completed: completedList.length,
+  }
+})
+
+// ============================================================
+// 4. 当前透视任务流过滤 (Dynamic Filtering)
+// ============================================================
+const gtdTasks = computed(() => {
+  const today = todayStr.value
+  const q = searchQuery.value.trim().toLowerCase()
+  let list = []
+
+  switch (activePerspective.value) {
+    case 'all':
+      list = tasks.value.filter(t => !t.completed)
+      break
+
+    case 'inbox':
+      list = tasks.value.filter(t => !t.completed && (t.startBucket === 'inbox' || (!t.dueDate && !t.startDate && !t.caseId)))
+      break
+
+    case 'today':
+      list = tasks.value.filter(t => !t.completed && (t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)))
+      break
+
+    case 'upcoming':
+      list = tasks.value.filter(t => !t.completed && (t.dueDate || t.startDate || t.deadline))
+      list.sort((a, b) => (a.dueDate || a.startDate || '9999').localeCompare(b.dueDate || b.startDate || '9999'))
+      break
+
+    case 'multiday':
+      list = tasks.value.filter(t => !t.completed && t.startDate && t.dueDate && t.startDate !== t.dueDate)
+      break
+
+    case 'next':
+      list = tasks.value.filter(t => !t.completed && (t.taskType === 'action' || !t.taskType))
+      break
+
+    case 'waiting':
+      list = tasks.value.filter(t => !t.completed && (t.taskType === 'waiting' || !!t.waitingFor))
+      break
+
+    case 'completed':
+      list = tasks.value.filter(t => !!t.completed)
+      break
+
+    case 'matrix':
+    case 'bycase':
+      list = tasks.value.filter(t => !t.completed)
+      break
+
+    default:
+      // 自定义透视
+      list = tasksStore.getTasksByCustomPerspective(activePerspective.value)
+      break
+  }
+
+  // 搜索关键字过滤
+  if (q) {
+    list = list.filter(t => t.taskName?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || getCaseName(t.caseId)?.toLowerCase().includes(q))
+  }
+
+  // 上下文过滤
+  if (selectedContextFilter.value !== 'all') {
+    list = list.filter(t => t.context === selectedContextFilter.value)
+  }
+
+  // 案件过滤
+  if (selectedCaseFilter.value !== 'all') {
+    list = list.filter(t => t.caseId === selectedCaseFilter.value)
+  }
+
+  return list
+})
+
+// 案件分组视图
+const caseGroupSections = computed(() => {
+  const map = new Map()
+  const unassigned = []
+
+  for (const t of gtdTasks.value) {
+    if (t.caseId) {
+      if (!map.has(t.caseId)) {
+        map.set(t.caseId, {
+          caseId: t.caseId,
+          caseName: getCaseName(t.caseId) || '未知案件',
+          tasks: [],
+        })
+      }
+      map.get(t.caseId).tasks.push(t)
+    } else {
+      unassigned.push(t)
+    }
+  }
+
+  const list = Array.from(map.values())
+  if (unassigned.length) {
+    list.push({
+      caseId: '__unassigned__',
+      caseName: '律所通用 / 未指定案件',
+      tasks: unassigned,
+    })
+  }
+  return list
+})
+
+// 四象限看板数据
+const matrixQuadrants = computed(() => {
+  const uncompleted = tasks.value.filter(t => !t.completed)
+  return {
+    q1: {
+      key: 'urgent_important',
+      title: '重要且紧急 (Do First)',
+      desc: '诉讼举证截止、明日开庭准备、紧急保全',
+      color: '#f56c6c',
+      tasks: uncompleted.filter(t => t.priority === 'urgent_important'),
+    },
+    q2: {
+      key: 'important',
+      title: '重要不紧急 (Schedule)',
+      desc: '起草长篇辩护词、战略推演、客户深度维系',
+      color: '#e6a23c',
+      tasks: uncompleted.filter(t => t.priority === 'important' || (!t.priority && (t.startDate && t.dueDate && t.startDate !== t.dueDate))),
+    },
+    q3: {
+      key: 'urgent',
+      title: '紧急不重要 (Delegate)',
+      desc: '调取常规档案、法庭文书盖章送达、助理跟进',
+      color: '#409eff',
+      tasks: uncompleted.filter(t => t.priority === 'urgent' || t.taskType === 'waiting'),
+    },
+    q4: {
+      key: 'normal',
+      title: '普通 / 不紧急 (Someday)',
+      desc: '模板整理、行业合规资讯查阅、备忘归档',
+      color: '#909399',
+      tasks: uncompleted.filter(t => t.priority === 'normal' || !t.priority),
+    },
+  }
+})
+
+// 子任务映射
 const childrenMap = computed(() => {
   const m = new Map()
   for (const t of tasks.value) {
@@ -342,93 +304,21 @@ const childrenMap = computed(() => {
   return m
 })
 
-function toggleExpand(task) {
-  const s = expandedParents.value
-  if (s.has(task.id)) s.delete(task.id)
-  else s.add(task.id)
-}
-
-// ── 序时参考：今日重点 + 整理今天 ──
-const showTodayReset = ref(false)
-const todayAll = computed(() =>
-  tasks.value.filter(t => t.startBucket === 'today' && !t.completed)
-)
-const focusCount = computed(() => todayAll.value.filter(t => t.isFocus === 1).length)
-
-async function toggleFocus(task) {
-  const nv = task.isFocus ? 0 : 1
-  task.isFocus = nv // 乐观
-  const result = await casyContext.tasks.update({ id: task.id, isFocus: nv })
-  if (!result.ok) {
-    task.isFocus = nv ? 0 : 1
-    ElMessage.error(result.error || '操作失败')
-  }
-}
-
-async function addChild(parent) {
-  const name = (newChildText.value[parent.id] || '').trim()
-  if (!name) return
-  const result = await casyContext.tasks.create({
-    taskName: name,
-    parentId: parent.id,
-    startBucket: parent.startBucket || 'anytime',
-    dueDate: parent.dueDate || parent.deadline || null,
-    taskType: 'action',
-  })
-  if (result.ok) {
-    newChildText.value[parent.id] = ''
-    expandedParents.value.add(parent.id)
-    await loadTasks()
-  } else {
-    ElMessage.error(result.error || '子任务创建失败')
-  }
-}
-
-// GTD 统计
-const gtdStats = computed(() => {
-  const today = new Date().toISOString().split('T')[0]
-  return {
-    inbox: tasks.value.filter(t => t.startBucket === 'inbox' && !t.completed).length,
-    today: tasks.value.filter(t => !t.completed && (t.startBucket === 'today' || (t.startDate && t.startDate <= today))).length,
-    upcoming: tasks.value.filter(t => !t.completed && t.taskType === 'action' && (t.startDate || t.dueDate || t.deadline)).length,
-    next: tasks.value.filter(t => !t.completed && t.taskType === 'action' && (t.blocked === 0 || !t.caseId)).length,
-    waiting: tasks.value.filter(t => !t.completed && t.taskType === 'waiting').length,
-    review: tasks.value.filter(t => !t.completed && t.nextReviewDate && t.nextReviewDate <= today).length,
-    someday: tasks.value.filter(t => !t.completed && t.startBucket === 'someday').length,
-  }
-})
-
 // ============================================================
-// 生命周期
+// 5. 数据加载与持久化
 // ============================================================
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
   filtersStore.loadFilters('tasks')
-  // 从路由 query 恢复透视；未指定时沿用 store（首页入口可指定）
-  const urlParams = new URLSearchParams(window.location.search)
-  const perspective = urlParams.get('perspective')
-  if (perspective) {
-    activePerspective.value = perspective
-  } else if (tasksStore.activePerspective) {
-    activePerspective.value = tasksStore.activePerspective
-  }
-  // U-4：快捷键迁移至 KeyboardCenter
+
   unregisterKeys.push(
-    registerShortcut('meta+t', () => {
-      if (captureInputRef.value) captureInputRef.value.focus()
-    }, { description: '聚焦快速捕获' }),
-    registerShortcut('ctrl+t', () => {
-      if (captureInputRef.value) captureInputRef.value.focus()
-    }, { description: '聚焦快速捕获' }),
-    registerShortcut('meta+z', () => {
-      if (canUndo()) undoLast()
-    }, { description: '撤销完成/删除/稍后' }),
+    registerShortcut('meta+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
+    registerShortcut('ctrl+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' })
   )
 })
 
 onUnmounted(() => {
   unregisterKeys.forEach(fn => fn())
-  unregisterKeys = []
 })
 
 async function loadData() {
@@ -442,102 +332,118 @@ async function loadData() {
 }
 
 async function loadTasks() {
-  const result = await casyContext.tasks.list({ completed: false })
-  if (result.ok) {
-    tasks.value = result.data || []
+  // 加载包含已完成在内的全量任务以支持已完成归档透视
+  const result = await casyContext.tasks.list({})
+  if (result.ok && Array.isArray(result.data)) {
+    tasks.value = result.data
   }
 }
 
 async function loadCases() {
   const result = await casyContext.cases.list({})
-  if (result.ok) {
-    cases.value = result.data || []
+  if (result.ok && Array.isArray(result.data)) {
+    cases.value = result.data
   }
 }
 
 async function loadAreas() {
   const result = await casyContext.tasks.areas()
-  if (result.ok) {
-    areas.value = result.data || []
+  if (result.ok && Array.isArray(result.data)) {
+    areas.value = result.data
   }
 }
 
-// ============================================================
-// 原有函数（保留）
-// ============================================================
-// 点击圆圈直接完成/恢复（M-GTD-1 A0-1：一键完成，零弹窗）
-// ============================================================
-/** 当前透视列表的级联钩子：完成/删除后从视图移除，撤销时还原 */
-function makeListHooks(task) {
-  const idx = tasks.value.findIndex(t => t.id === task.id)
-  return {
-    remove: () => { if (idx >= 0) tasks.value.splice(idx, 1) },
-    restore: () => {
-      if (idx >= 0 && !tasks.value.some(t => t.id === task.id)) tasks.value.splice(idx, 0, task)
-    },
-  }
+function getCaseName(caseId) {
+  if (!caseId) return ''
+  const c = cases.value.find(item => item.id === caseId)
+  return c ? (c.caseName || c.caseNo) : ''
 }
 
-async function toggleComplete(task) {
-  if (!task.completed) {
-    // 默认一键完成；仅当设置 ask_actual_minutes=true 时保留旧的耗时记录弹窗
-    let askMinutes = false
-    try {
-      const s = await casyContext.settings.get()
-      const raw = s.ok && s.data ? s.data.ask_actual_minutes : false
-      askMinutes = raw === true || raw === 'true'
-    } catch { /* 设置读取失败按默认关闭处理 */ }
-
-    if (askMinutes) {
-      showTimeLogDialog.value = true
-      timeLogTask.value = task
-      timeLogMinutes.value = task.estimatedMinutes || ''
-      return
-    }
-    await completeTaskFlow(task, null)
-    return
-  }
-  // 恢复任务
-  const restored = await restoreTaskOptimistic(task)
-  if (restored) ElMessage.success('已恢复')
+function getAreaName(areaId) {
+  if (!areaId) return ''
+  const a = areas.value.find(item => item.id === areaId)
+  return a ? a.name : ''
 }
 
-/** 完成流程：乐观更新 + Undo 注册（供耗时弹窗路径复用） */
-async function completeTaskFlow(task, minutes) {
-  const done = await completeTaskOptimistic(task, {
-    actualMinutes: minutes,
-    hooks: makeListHooks(task),
-  })
-  if (done) ElMessage.success('已完成（⌘Z 可撤销）')
+// 切换透视
+function switchPerspective(key) {
+  activePerspective.value = key
+  tasksStore.activePerspective = key
 }
 
-async function deleteTask(task) {
-  // M-GTD-1 A0-3：去掉确认框，删除靠 ⌘Z 撤销兜底
-  const removed = await deleteTaskOptimistic(task, makeListHooks(task))
-  if (removed) ElMessage.success('已删除（⌘Z 可撤销）')
-}
+// 快速捕获任务
+async function quickCapture(isTodayOnly = false) {
+  const text = captureInput.value.trim()
+  if (!text || capturing.value) return
+  capturing.value = true
 
-async function createTask() {
-  if (!newTask.value.taskName.trim()) {
-    ElMessage.warning('请输入任务名称')
-    return
-  }
+  const { taskName, date, time } = parseWhen(text)
   const data = {
-    ...newTask.value,
-    startBucket: 'inbox', // 默认进收件箱
+    taskName: taskName || text,
+    startDate: date || (isTodayOnly ? todayStr.value : null),
+    dueDate: date || (isTodayOnly ? todayStr.value : null),
+    dueTime: time || null,
+    startBucket: isTodayOnly ? 'today' : (date ? 'anytime' : 'inbox'),
+    taskType: 'action',
+    priority: 'normal',
+    completed: 0,
   }
+
   const result = await casyContext.tasks.create(data)
+  capturing.value = false
   if (result.ok) {
-    ElMessage.success('任务已创建')
-    showCreateDialog.value = false
-    newTask.value = { 
-      taskName: '', description: '', deadline: '', priority: 'normal', caseId: '',
-      taskType: 'action', startDate: '', areaId: '', context: ''
-    }
+    ElMessage.success(`已记录任务：「${data.taskName}」`)
+    captureInput.value = ''
     await loadTasks()
+  } else {
+    ElMessage.error(result.error || '创建失败')
   }
 }
 
+function onCaptureKeydown(e) {
+  if (e.metaKey || e.ctrlKey) {
+    quickCapture(true)
+  } else {
+    quickCapture(false)
+  }
+}
+
+// 完成/取消完成任务
+async function toggleComplete(task) {
+  const newDone = !task.completed
+  await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  ElMessage.success(newDone ? '任务已完成' : '已恢复为待办')
+  await loadTasks()
+}
+
+// 更改任务象限优先级 (拖拽落位)
+async function onDropToQuadrant(e, priorityKey) {
+  e.preventDefault()
+  let task = null
+  if (e.dataTransfer) {
+    try {
+      task = JSON.parse(e.dataTransfer.getData('application/json'))
+    } catch {}
+  }
+  if (!task || !task.id) return
+
+  await casyContext.tasks.update({ id: task.id, priority: priorityKey })
+  ElMessage.success(`已将「${task.taskName}」移动至对应象限`)
+  await loadTasks()
+}
+
+function onDragStartTask(e, task) {
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/json', JSON.stringify(task))
+  }
+}
+
+function onDragOver(e) {
+  e.preventDefault()
+}
+
+// 打开编辑抽屉
 function openDrawer(task) {
   editingTask.value = task
   editForm.value = {
@@ -546,7 +452,6 @@ function openDrawer(task) {
     deadline: task.deadline || '',
     priority: task.priority || 'normal',
     caseId: task.caseId || '',
-    // GTD 字段
     taskType: task.taskType || 'action',
     startDate: task.startDate || '',
     dueDate: task.dueDate || task.deadline || '',
@@ -558,77 +463,76 @@ function openDrawer(task) {
     areaId: task.areaId || '',
     estimatedMinutes: task.estimatedMinutes || null,
     startBucket: task.startBucket || 'anytime',
-    timeBlock: task.timeBlock || '',
-    ...formFromRule(task.recurrenceRule),
   }
-  caseSearchQuery.value = ''
-  caseSearchResults.value = []
   showDrawer.value = true
 }
 
+// 保存任务编辑
 async function saveTask() {
   if (!editForm.value.taskName.trim()) {
     ElMessage.warning('请输入任务名称')
     return
   }
-  savingTask.value = true
+
   const data = {
     id: editingTask.value.id,
     ...editForm.value,
     flagged: editForm.value.flagged ? 1 : 0,
-    recurrenceRule: ruleFromForm(editForm.value),
   }
+
   const result = await casyContext.tasks.update(data)
-  savingTask.value = false
   if (result.ok) {
     ElMessage.success('任务已更新')
     showDrawer.value = false
     await loadTasks()
+  } else {
+    ElMessage.error(result.error || '保存失败')
   }
 }
 
-async function searchCases(query) {
-  if (!query || query.trim().length < 1) {
-    caseSearchResults.value = []
-    return
+// 删除任务
+async function deleteTask(task) {
+  try {
+    await ElMessageBox.confirm(`确定删除任务「${task.taskName}」吗？`, '删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await casyContext.tasks.remove(task.id)
+    ElMessage.success('已删除任务')
+    if (editingTask.value?.id === task.id) {
+      showDrawer.value = false
+    }
+    await loadTasks()
+  } catch {}
+}
+
+function toggleExpand(task) {
+  if (expandedParents.value.has(task.id)) {
+    expandedParents.value.delete(task.id)
+  } else {
+    expandedParents.value.add(task.id)
   }
-  searchingCases.value = true
-  const result = await casyContext.cases.search(query.trim())
-  searchingCases.value = false
-  if (result.ok) {
-    caseSearchResults.value = result.data || []
-  }
 }
 
-function selectCase(caseItem) {
-  editForm.value.caseId = caseItem.id
-  caseSearchQuery.value = caseItem.caseName || caseItem.case_name || ''
-  caseSearchResults.value = []
+async function addChild(parentTask) {
+  const text = (newChildText.value[parentTask.id] || '').trim()
+  if (!text) return
+
+  await casyContext.tasks.create({
+    taskName: text,
+    parentId: parentTask.id,
+    caseId: parentTask.caseId || null,
+    completed: 0,
+    startBucket: parentTask.startBucket || 'anytime',
+  })
+  newChildText.value[parentTask.id] = ''
+  expandedParents.value.add(parentTask.id)
+  ElMessage.success('已添加子任务')
+  await loadTasks()
 }
 
-function clearCaseSelection() {
-  editForm.value.caseId = ''
-  caseSearchQuery.value = ''
-  caseSearchResults.value = []
-}
-
-
-
-
-
-// ============================================================
-// GTD 新增函数
-// ============================================================
-// 切换透视
-function switchPerspective(key) {
-  activePerspective.value = key
-  // 同步到 store（首页入口可直达指定透视）
-  tasksStore.activePerspective = key
-  // 更新 URL
-  const url = new URL(window.location)
-  window.history.replaceState({}, '', url)
-}
-
+// 自定义透视操作
 function openCreatePerspective() {
   editingPerspective.value = null
   showPerspectiveManager.value = true
@@ -639,11 +543,10 @@ function handlePerspectiveCommand(command, perspective) {
     editingPerspective.value = perspective
     showPerspectiveManager.value = true
   } else if (command === 'delete') {
-    ElMessageBox.confirm('确定删除此透视？', '确认', {
-      type: 'warning',
-    }).then(() => {
+    ElMessageBox.confirm('确定删除此透视？', '确认', { type: 'warning' }).then(() => {
       tasksStore.deleteCustomPerspective(perspective.id)
       ElMessage.success('透视已删除')
+      activePerspective.value = 'all'
     }).catch(() => {})
   }
 }
@@ -663,1192 +566,970 @@ function handlePerspectiveSave(data) {
 function getCustomPerspectiveCount(perspectiveId) {
   return tasksStore.getTasksByCustomPerspective(perspectiveId).length
 }
-
-// ============================================================
-// 已保存筛选（设计哲学 §9：视图状态可保存复用，entity_type='tasks'）
-// ============================================================
-const filtersStore = useFiltersStore()
-const savedFilters = computed(() => filtersStore.filters)
-
-async function saveCurrentFilter() {
-  let name = ''
-  try {
-    const { value } = await ElMessageBox.prompt('为当前视图状态命名', '保存筛选', {
-      confirmButtonText: '保存',
-      cancelButtonText: '取消',
-      inputPlaceholder: '如：GTD-等待、四象限总览',
-    })
-    name = (value || '').trim()
-  } catch {
-    return // 用户取消
-  }
-  if (!name) return
-  const result = await filtersStore.saveFilter({
-    module: 'tasks',
-    name,
-    filter: { perspective: activePerspective.value },
-  })
-  if (result.ok) {
-    ElMessage.success('筛选已保存')
-  } else {
-    ElMessage.error(result.error || '保存失败')
-  }
-}
-
-function applySavedFilter(sf) {
-  const f = sf.filter || {}
-  // 历史筛选可能带旧 viewMode 字段：一律收敛到 GTD 透视
-  if (f.perspective && f.perspective !== activePerspective.value) switchPerspective(f.perspective)
-}
-
-async function deleteSavedFilter(sf) {
-  const result = await filtersStore.deleteFilter(sf.id)
-  if (result.ok) {
-    ElMessage.success('已删除')
-  } else {
-    ElMessage.error(result.error || '删除失败')
-  }
-}
-
-// 厘清任务
-function openTriage(task) {
-  triagingTask.value = task
-  triageForm.value = {
-    taskType: task.taskType || 'action',
-    caseId: task.caseId || '',
-    areaId: task.areaId || '',
-    startDate: task.startDate || '',
-    dueDate: task.dueDate || task.deadline || '',
-    dueTime: task.dueTime || '',
-    context: task.context || '',
-  }
-  showTriageDialog.value = true
-}
-
-async function submitTriage() {
-  if (!triagingTask.value) return
-  
-  const data = {
-    id: triagingTask.value.id,
-    taskType: triageForm.value.taskType,
-    caseId: triageForm.value.caseId || null,
-    areaId: triageForm.value.areaId || null,
-    startDate: triageForm.value.startDate || null,
-    dueDate: triageForm.value.dueDate || null,
-    dueTime: triageForm.value.dueTime || null,
-    context: triageForm.value.context || null,
-    startBucket: triageForm.value.taskType === 'someday' ? 'someday' : 'anytime',
-  }
-  
-  const result = await casyContext.tasks.update(data)
-  if (result.ok) {
-    ElMessage.success('已厘清')
-    showTriageDialog.value = false
-    await loadTasks()
-  }
-}
-
-// 移动到今日
-async function moveToToday(task) {
-  const result = await casyContext.tasks.update({
-    id: task.id,
-    startBucket: 'today',
-    todayIndex: gtdStats.value.today,
-  })
-  if (result.ok) {
-    ElMessage.success('已移至今日')
-    await loadTasks()
-  }
-}
-
-// 标记为等待
-async function markAsWaiting(task) {
-  const result = await casyContext.tasks.update({
-    id: task.id,
-    taskType: 'waiting',
-  })
-  if (result.ok) {
-    ElMessage.success('已标记为等待')
-    await loadTasks()
-  }
-}
-
-// 获取案件名称
-function getCaseName(caseId) {
-  const c = cases.value.find(c => c.id === caseId)
-  return c ? c.caseName : ''
-}
-
-// 获取领域名称
-function getAreaName(areaId) {
-  const a = areas.value.find(a => a.id === areaId)
-  return a ? a.name : ''
-}
-
-
-
-
-
-
-
-
-
-// 催办功能
-function openFollowUp(task) {
-  // 打开编辑抽屉，聚焦到跟进日期
-  openDrawer(task)
-  // 可以设置一个标志，让编辑抽屉知道是催办操作
-  // 这里简单处理，直接打开编辑抽屉
-}
-
-// 稍后提醒选项（设计哲学 §5.4：推迟任务并记录 snoozed 行为事件）
-const snoozeOptions = [
-  { value: 'tonight', label: '今晚' },
-  { value: 'tomorrow', label: '明天' },
-  { value: 'weekend', label: '周末' },
-  { value: 'next_week', label: '下周' },
-]
-
-async function snoozeTask(task, option) {
-  const label = snoozeOptions.find(o => o.value === option)?.label || option
-  // M-GTD-1：撤销快照原日期字段；不再整表重拉
-  await snoozeTaskWithUndo(task, option, label)
-}
-
-// ============================================================
-// Things 3 式快速捕获（自然语言解析）
-// ============================================================
-function toDateStr(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return y + '-' + m + '-' + day
-}
-
-function todayStr() {
-  return toDateStr(new Date())
-}
-
-// ============================================================
-// 快速捕获（自然语言解析 · M-GTD-1 A0-5 统一走 shared/nlp/parseWhen）
-// ============================================================
-import { parseWhen, bucketForDate } from '../../../shared/nlp/parseWhen'
-
-/**
- * 解析快速捕获文本（唯一实现见 src/shared/nlp/parseWhen.ts）
- * 支持：今天/明天/后天/大后天/周X/下周X/N天后/N周后/MM-DD
- *      + HH:MM / X点[半|整] / 下午3点半 等时间词（time 现在真正写入 dueTime）
- * 返回 { taskName, startDate, dueDate, dueTime, startBucket }；
- * startBucket 恒为合法枚举（修复了旧实现写入 'upcoming' 违反 CHECK 约束的问题）。
- */
-function parseCaptureText(raw) {
-  const { taskName, date, time } = parseWhen(raw)
-  return {
-    taskName,
-    startDate: date,
-    dueDate: date,
-    dueTime: time,
-    startBucket: bucketForDate(date),
-  }
-}
-
-// 回车快速捕获；Ctrl/Cmd+回车直接进今日
-async function quickCapture(forceToday = false) {
-  const text = captureInput.value.trim()
-  if (!text || capturing.value) return
-  const parsed = parseCaptureText(text)
-  capturing.value = true
-  let data
-  if (forceToday) {
-    data = {
-      taskName: parsed ? parsed.taskName : text,
-      startDate: todayStr(),
-      dueDate: todayStr(),
-      dueTime: parsed?.dueTime || null,
-      startBucket: 'today',
-      taskType: 'action',
-    }
-  } else if (parsed && parsed.startDate) {
-    data = {
-      taskName: parsed.taskName,
-      startDate: parsed.startDate,
-      dueDate: parsed.dueDate,
-      dueTime: parsed.dueTime || null,
-      startBucket: parsed.startBucket,
-      taskType: 'action',
-    }
-  } else {
-    // 解析失败或仅时间词：标题=原文，进收件箱
-    data = {
-      taskName: text,
-      startBucket: 'inbox',
-      taskType: 'action',
-    }
-  }
-  const result = await casyContext.tasks.create(data)
-  capturing.value = false
-  if (result.ok) {
-    ElMessage.success('已捕获')
-    captureInput.value = ''
-    await loadTasks()
-  }
-}
-
-function onCaptureKeydown(e) {
-  e.preventDefault()
-  if (e.ctrlKey || e.metaKey) quickCapture(true)
-  else quickCapture(false)
-}
-
-// ============================================================
-// Review 回顾闭环
-// ============================================================
-// 下周日的日期（今天为周日则取 7 天后）
-function nextSundayStr() {
-  const d = new Date()
-  const day = d.getDay()
-  const diff = (7 - day) % 7 || 7
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff)
-  return toDateStr(target)
-}
-
-// 标记已回顾：lastReviewDate=今天，nextReviewDate=下周日
-async function markReviewed(task) {
-  const result = await casyContext.tasks.update({
-    id: task.id,
-    lastReviewDate: todayStr(),
-    nextReviewDate: nextSundayStr(),
-  })
-  if (result.ok) {
-    ElMessage.success('已标记回顾')
-    await loadTasks()
-  }
-}
-
-// ============================================================
-// 快捷键
-// ============================================================
-let unregisterKeys = []
-
-
 </script>
 
 <template>
-  <div class="tasks-page">
-    <!-- 工具栏 -->
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <h3>任务管理</h3>
-        <span class="shortcut-hint">Ctrl/Cmd+T 快速捕获</span>
+  <div class="stitch-tasks-workspace">
+    <!-- ═══ 1. 顶部 Header 栏 ═══ -->
+    <div class="tasks-top-header">
+      <div class="header-titles">
+        <h1 class="tasks-heading">任务管理工作台</h1>
+        <span class="tasks-sub-hint">支持全景视角、四象限决策看板、GTD 流程与跨天专项排期</span>
       </div>
-      
-      <div class="toolbar-right">
-        <!-- 已保存筛选（设计哲学 §9） -->
-        <el-dropdown v-if="savedFilters.length > 0" trigger="click">
-          <el-button size="small">
-            已存筛选
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item v-for="sf in savedFilters" :key="sf.id">
-                <div class="saved-filter-item" @click="applySavedFilter(sf)">
-                  <span>{{ sf.name }}</span>
-                  <el-button size="small" type="danger" text @click.stop="deleteSavedFilter(sf)">删除</el-button>
-                </div>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button size="small" text type="primary" @click="saveCurrentFilter">保存筛选</el-button>
-        <el-button size="small" text @click="showAreasDialog = true">领域</el-button>
-        <el-button v-if="activePerspective === 'today'" size="small" type="warning" plain @click="showTodayReset = true">
-          整理今天{{ todayAll.length > 5 ? ' · ' + todayAll.length : '' }}
-        </el-button>
 
-        <el-button type="primary" size="small" @click="showCreateDialog = true">
-          <el-icon><Plus /></el-icon>
-          新建任务
-        </el-button>
+      <div class="header-actions">
+        <!-- 快速搜索 -->
+        <div class="task-search-box">
+          <el-icon class="search-icon" :size="14"><Search /></el-icon>
+          <input v-model="searchQuery" placeholder="搜索任务名称、案件、备注..." class="search-real-input" />
+          <el-icon v-if="searchQuery" class="clear-icon" :size="12" @click="searchQuery = ''"><Close /></el-icon>
+        </div>
+
+        <button class="btn-action-ghost" @click="showAreasDialog = true">
+          <el-icon :size="14"><Folder /></el-icon>
+          <span>领域</span>
+        </button>
+
+        <button class="btn-action-primary" @click="showCreateDialog = true">
+          <el-icon :size="14"><Plus /></el-icon>
+          <span>新建任务</span>
+        </button>
       </div>
     </div>
 
-    <!-- Things 3 式快速捕获条（常驻，无弹窗） -->
-    <div class="capture-bar">
-      <!-- U-3 自绘捕获输入：原生 input + 语义图标（替代 el-input） -->
-      <div class="capture-field" :class="{ disabled: capturing }">
-        <el-icon class="capture-prefix"><Plus /></el-icon>
-        <input
-          ref="captureInputRef"
-          v-model="captureInput"
-          class="capture-input-native"
-          placeholder="快速捕获：输入任务，回车进收件箱，Ctrl/Cmd+回车进今日"
-          :disabled="capturing"
-          @keydown.enter="onCaptureKeydown"
-        />
-      </div>
-      <div class="capture-hint">
-        <span>回车快速捕获</span>
-        <span class="capture-hint-divider">·</span>
-        <span>Ctrl/Cmd+回车直接进今日</span>
-      </div>
-    </div>
-
-    <!-- GTD 透视标签（唯一视图模式） -->
-    <div class="perspective-tabs">
-      <!-- 内置透视 -->
-      <div
+    <!-- ═══ 2. 丰富全景透视标签栏 (Full Dynamic Perspective Tabs) ═══ -->
+    <div class="perspective-tabs-scroll-bar">
+      <!-- 基础内置与全景标签 -->
+      <button
         v-for="p in perspectives"
         :key="p.key"
-        :class="['tab-item', { active: activePerspective === p.key }]"
+        class="perspective-tab-pill"
+        :class="{ active: activePerspective === p.key }"
         @click="switchPerspective(p.key)"
+        :title="p.desc"
       >
-        <el-icon :size="14"><component :is="p.icon" /></el-icon>
-        <span class="tab-label">{{ p.label }}</span>
-        <span class="tab-count" :style="{ backgroundColor: p.color }">
-          {{ gtdStats[p.key] }}
+        <el-icon :size="14" class="tab-icon"><component :is="p.icon" /></el-icon>
+        <span class="tab-title">{{ p.label }}</span>
+        <span class="tab-badge" :style="{ backgroundColor: p.color }">
+          {{ gtdStats[p.key] ?? 0 }}
         </span>
-      </div>
-      
+      </button>
+
       <!-- 自定义透视 -->
       <div
         v-for="cp in customPerspectives"
         :key="cp.id"
-        :class="['tab-item', 'custom-perspective', { active: activePerspective === cp.id }]"
+        class="perspective-tab-pill custom"
+        :class="{ active: activePerspective === cp.id }"
         @click="switchPerspective(cp.id)"
       >
-        <span class="tab-icon">{{ cp.icon || '📋' }}</span>
-        <span class="tab-label">{{ cp.name }}</span>
-        <span class="tab-count" :style="{ backgroundColor: cp.color || '#409eff' }">
+        <el-icon :size="14"><Files /></el-icon>
+        <span class="tab-title">{{ cp.name }}</span>
+        <span class="tab-badge" :style="{ backgroundColor: cp.color || '#409eff' }">
           {{ getCustomPerspectiveCount(cp.id) }}
         </span>
         <el-dropdown trigger="click" @command="(cmd) => handlePerspectiveCommand(cmd, cp)" @click.stop>
-          <el-icon class="perspective-more"><More /></el-icon>
+          <el-icon class="more-icon"><More /></el-icon>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="edit">
-                <el-icon><Edit /></el-icon> 编辑
-              </el-dropdown-item>
-              <el-dropdown-item command="delete" divided>
-                <el-icon><Delete /></el-icon> 删除
-              </el-dropdown-item>
+              <el-dropdown-item command="edit"><el-icon><Edit /></el-icon> 编辑</el-dropdown-item>
+              <el-dropdown-item command="delete" divided><el-icon><Delete /></el-icon> 删除</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
-      
-      <!-- 创建透视按钮 -->
-      <div class="tab-item create-perspective" @click="openCreatePerspective">
+
+      <!-- 新建自定义透视 -->
+      <button class="perspective-tab-pill create-btn" @click="openCreatePerspective">
         <el-icon :size="14"><Plus /></el-icon>
-        <span class="tab-label">新建透视</span>
+        <span>新建透视</span>
+      </button>
+    </div>
+
+    <!-- ═══ 3. 快速自然语言捕获栏 ═══ -->
+    <div class="capture-bar-wrapper">
+      <div class="capture-real-box">
+        <el-icon class="cap-icon" :size="16"><Plus /></el-icon>
+        <input
+          ref="captureInputRef"
+          v-model="captureInput"
+          placeholder="记下新待办… (Enter 快速保存，⌘+Enter 直达今日，支持“明天下午3点 @法庭 #张三案”)"
+          class="cap-input"
+          @keydown.enter="onCaptureKeydown"
+        />
+        <div class="cap-right-btns">
+          <button v-if="captureInput.trim()" class="btn-cap-submit" @click="quickCapture(false)">
+            添加待办
+          </button>
+        </div>
       </div>
     </div>
-    <!-- 加载骨架 -->
-    <!-- 加载骨架 -->
-    <div v-if="loading" class="skeleton-wrapper">
-      <el-skeleton :rows="6" animated>
-        <template #template>
-          <div class="skeleton-rows">
-            <div v-for="i in 6" :key="i" class="skeleton-task-row">
-              <el-skeleton-item variant="circle" style="width: 18px; height: 18px;" />
-              <el-skeleton-item variant="text" style="width: 60%; height: 16px;" />
-              <el-skeleton-item variant="text" style="width: 20%; height: 16px;" />
+
+    <!-- ═══ 4. 主工作区分发渲染 (根据当前激活 Tab 渲染专属视图) ═══ -->
+
+    <!-- A. 四象限决策看板 (Matrix View) -->
+    <div v-if="activePerspective === 'matrix'" class="matrix-board-grid">
+      <div
+        v-for="(quad, qKey) in matrixQuadrants"
+        :key="qKey"
+        class="quadrant-card"
+        @dragover="onDragOver"
+        @drop="onDropToQuadrant($event, quad.key)"
+      >
+        <div class="quad-header" :style="{ borderTopColor: quad.color }">
+          <div>
+            <h3 class="quad-title" :style="{ color: quad.color }">{{ quad.title }}</h3>
+            <p class="quad-sub">{{ quad.desc }}</p>
+          </div>
+          <span class="quad-count-pill">{{ quad.tasks.length }}</span>
+        </div>
+
+        <div class="quad-tasks-list">
+          <div
+            v-for="task in quad.tasks"
+            :key="task.id"
+            class="quad-task-item"
+            draggable="true"
+            @dragstart="onDragStartTask($event, task)"
+            @click="openDrawer(task)"
+          >
+            <button class="quad-check-btn" :class="{ checked: task.completed }" @click.stop="toggleComplete(task)">
+              <el-icon v-if="task.completed" :size="11"><Check /></el-icon>
+            </button>
+            <div class="quad-task-info">
+              <strong class="quad-task-name">{{ task.taskName }}</strong>
+              <div class="quad-task-meta">
+                <span v-if="task.caseId" class="q-case">{{ getCaseName(task.caseId) }}</span>
+                <span v-if="task.dueDate" class="q-due">{{ task.dueDate }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="!quad.tasks.length" class="quad-empty">
+            <span>暂无此类任务 · 可拖拽任务落入此象限</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B. 按案件分组视图 (By Matter View) -->
+    <div v-else-if="activePerspective === 'bycase'" class="case-groups-stream">
+      <div v-for="cg in caseGroupSections" :key="cg.caseId" class="case-group-card">
+        <div class="cg-header">
+          <div class="cg-title-row">
+            <el-icon class="cg-icon"><Folder /></el-icon>
+            <h3 class="cg-title">{{ cg.caseName }}</h3>
+          </div>
+          <span class="cg-count-tag">{{ cg.tasks.length }} 项待办</span>
+        </div>
+
+        <div class="cg-tasks-list">
+          <TaskRow
+            v-for="task in cg.tasks"
+            :key="task.id"
+            :task="task"
+            :perspective="activePerspective"
+            :snooze-options="snoozeOptions"
+            :resolve-case-name="getCaseName"
+            :resolve-area-name="getAreaName"
+            :has-children="childrenMap.has(task.id)"
+            :expanded="expandedParents.has(task.id)"
+            @toggle="toggleComplete"
+            @open="openDrawer"
+            @delete="deleteTask"
+            @toggle-expand="toggleExpand"
+          />
+        </div>
+      </div>
+      <StateFeedback
+        v-if="loading || !caseGroupSections.length"
+        :state="loading ? 'loading' : 'empty'"
+        empty-text="暂无案件相关待办"
+      />
+    </div>
+
+    <!-- C. 常规待办 / GTD / 跨天 / 已完成列表视图 -->
+    <div v-else class="tasks-main-list-card">
+      <div class="list-section-header">
+        <div class="lsh-left">
+          <h2 class="lsh-title">
+            {{ perspectives.find(p => p.key === activePerspective)?.label || '任务列表' }}
+          </h2>
+          <span class="lsh-sub">{{ perspectives.find(p => p.key === activePerspective)?.desc || '' }}</span>
+        </div>
+        <span class="lsh-badge">{{ gtdTasks.length }} 项</span>
+      </div>
+
+      <div class="task-rows-stack">
+        <template v-for="task in gtdTasks" :key="task.id">
+          <TaskRow
+            :task="task"
+            :perspective="activePerspective"
+            :snooze-options="snoozeOptions"
+            :resolve-case-name="getCaseName"
+            :resolve-area-name="getAreaName"
+            :has-children="childrenMap.has(task.id)"
+            :expanded="expandedParents.has(task.id)"
+            @toggle="toggleComplete"
+            @open="openDrawer"
+            @delete="deleteTask"
+            @toggle-expand="toggleExpand"
+          />
+
+          <!-- 展开子任务 -->
+          <div v-if="expandedParents.has(task.id)" class="subtasks-container">
+            <div
+              v-for="child in (childrenMap.get(task.id) || [])"
+              :key="'sub-' + child.id"
+              class="subtask-row"
+            >
+              <button class="sub-check-btn" :class="{ checked: child.completed }" @click.stop="toggleComplete(child)">
+                <el-icon v-if="child.completed" :size="10"><Check /></el-icon>
+              </button>
+              <span class="sub-name" :class="{ struck: child.completed }">{{ child.taskName }}</span>
+              <el-icon class="sub-del-icon" @click="deleteTask(child)"><Delete /></el-icon>
+            </div>
+
+            <div class="subtask-add-row">
+              <input
+                v-model="newChildText[task.id]"
+                placeholder="+ 添加子步骤/待办，按 Enter 提交"
+                class="subtask-input"
+                @keyup.enter="addChild(task)"
+              />
             </div>
           </div>
         </template>
-      </el-skeleton>
+
+        <StateFeedback
+          v-if="loading || !gtdTasks.length"
+          :state="loading ? 'loading' : 'empty'"
+          :empty-text="activePerspective === 'completed' ? '暂无已完成归档记录' : '当前视角下暂无任务，输入上方输入框快速记录'"
+        />
+      </div>
     </div>
 
-    <!-- GTD 透视视图（唯一视图，无四象限） -->
-    <div v-else class="gtd-view">
-      <!-- 空状态 -->
-      <div v-if="gtdTasks.length === 0" class="empty-state">
-        <el-icon :size="48" color="#C0C4CC"><component :is="perspectives.find(p => p.key === activePerspective)?.icon || List" /></el-icon>
-        <p>{{ activePerspective === 'inbox' ? '收件箱为空，一切井然有序' : '暂无任务' }}</p>
-        <el-button v-if="activePerspective === 'inbox'" type="primary" @click="showCreateDialog = true">
-          捕获第一个任务
-        </el-button>
+    <!-- ═══ 5. 任务编辑详情抽屉 (Task Detail Drawer) ═══ -->
+    <el-drawer
+      v-model="showDrawer"
+      title="任务详细信息"
+      size="480px"
+      destroy-on-close
+    >
+      <div v-if="editingTask" class="drawer-body">
+        <div class="form-item">
+          <label>任务名称</label>
+          <input v-model="editForm.taskName" class="form-input" placeholder="输入任务名称..." />
+        </div>
+
+        <div class="form-row">
+          <div class="form-item">
+            <label>开始日期 (Do When)</label>
+            <input v-model="editForm.startDate" type="date" class="form-input" />
+          </div>
+          <div class="form-item">
+            <label>截止日期 (Deadline)</label>
+            <input v-model="editForm.dueDate" type="date" class="form-input" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-item">
+            <label>四象限优先级</label>
+            <select v-model="editForm.priority" class="form-select">
+              <option v-for="po in priorityOptions" :key="po.value" :value="po.value">
+                {{ po.label }}
+              </option>
+            </select>
+          </div>
+          <div class="form-item">
+            <label>预估工时 (分钟)</label>
+            <input v-model.number="editForm.estimatedMinutes" type="number" min="0" step="15" class="form-input" />
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>关联案件 (Matter)</label>
+          <select v-model="editForm.caseId" class="form-select">
+            <option value="">（无关联案件）</option>
+            <option v-for="c in cases" :key="c.id" :value="c.id">
+              {{ c.caseName || c.caseNo }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-item">
+          <label>上下文场景 (Context)</label>
+          <div class="context-pill-group">
+            <button
+              v-for="ctx in contextOptions"
+              :key="ctx.value"
+              class="ctx-pill-btn"
+              :class="{ active: editForm.context === ctx.value }"
+              @click="editForm.context = (editForm.context === ctx.value ? '' : ctx.value)"
+            >
+              {{ ctx.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>备注与案情要点</label>
+          <textarea v-model="editForm.description" rows="4" class="form-textarea" placeholder="记录事项细节、会见要点或草案说明..." />
+        </div>
       </div>
 
-      <!-- 任务列表：随时/计划中按案件分组（Headings），其余透视平铺 -->
-      <template v-else>
-        <div v-for="section in gtdSections" :key="section.key" class="task-group">
-          <!-- 分组小节标题 -->
-          <div v-if="!section.flat" class="group-header">
-            <el-icon :size="13"><Folder /></el-icon>
-            <span class="group-name">{{ section.caseName || '无案件' }}</span>
-            <span class="group-count">{{ section.tasks.length }}</span>
-          </div>
-
-          <!-- Today 透视：可拖拽排序（today_index 落库）；其余透视普通容器 -->
-          <component
-            :is="isTodayPerspective ? VueDraggable : 'div'"
-            class="task-list"
-            :class="{ 'today-draggable': isTodayPerspective }"
-            :list="isTodayPerspective ? section.tasks : undefined"
-            :animation="isTodayPerspective ? (reducedMotion ? 0 : 180) : undefined"
-            ghost-class="drag-ghost"
-            @end="onTodayDragEnd"
-          >
-            <TaskRow
-              v-for="task in section.tasks"
-              :key="task.id"
-              :task="task"
-              :perspective="activePerspective"
-              :snooze-options="snoozeOptions"
-              :resolve-case-name="getCaseName"
-              :resolve-area-name="getAreaName"
-              :has-children="childrenMap.has(task.id)"
-              :expanded="expandedParents.has(task.id)"
-              :focusable="activePerspective === 'today'"
-              @toggle="toggleComplete"
-              @toggle-focus="toggleFocus"
-              @open="openDrawer"
-              @triage="openTriage"
-              @move-today="moveToToday"
-              @mark-waiting="markAsWaiting"
-              @snooze="snoozeTask"
-              @delete="deleteTask"
-              @reviewed="markReviewed"
-              @follow-up="openFollowUp"
-              @toggle-expand="toggleExpand"
-            />
-            <!-- A1-4 子任务区：展开后内联渲染 + 快速添加 -->
-            <template v-if="expandedParents.has(task.id)">
-              <div
-                v-for="child in (childrenMap.get(task.id) || [])"
-                :key="'sub-' + child.id"
-                class="subtask-wrap"
-              >
-                <TaskRow
-                  :task="child"
-                  :perspective="activePerspective"
-                  :snooze-options="snoozeOptions"
-                  :resolve-case-name="getCaseName"
-                  :resolve-area-name="getAreaName"
-                  @toggle="toggleComplete"
-                  @open="openDrawer"
-                  @delete="deleteTask"
-                  @snooze="snoozeTask"
-                />
-              </div>
-              <div class="subtask-add">
-                <el-input
-                  v-model="newChildText[task.id]"
-                  size="small"
-                  placeholder="+ 子任务，回车添加"
-                  @keyup.enter="addChild(task)"
-                />
-              </div>
-            </template>
-          </component>
-        </div>
-      </template>
-    </div>
-
-    <!-- 新建任务弹窗（增强版） -->
-    <el-dialog v-model="showCreateDialog" title="新建任务" width="560">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="任务名称" required>
-          <el-input v-model="newTask.taskName" placeholder="记下你脑中的想法..." />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="newTask.description" type="textarea" :rows="2" />
-        </el-form-item>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="任务类型" style="flex: 1;">
-            <el-select v-model="newTask.taskType" style="width: 100%">
-              <el-option v-for="opt in taskTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="优先级" style="flex: 1;">
-            <el-select v-model="newTask.priority" style="width: 100%">
-              <el-option v-for="opt in priorityOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
-          </el-form-item>
-        </div>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="开始日期" style="flex: 1;">
-            <el-date-picker v-model="newTask.startDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="截止日期" style="flex: 1;">
-            <el-date-picker v-model="newTask.deadline" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-        </div>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="关联案件" style="flex: 1;">
-            <el-select v-model="newTask.caseId" placeholder="选择案件" clearable filterable style="width: 100%">
-              <el-option v-for="c in cases" :key="c.id" :label="c.caseName" :value="c.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="领域" style="flex: 1;">
-            <el-select v-model="newTask.areaId" placeholder="选择领域" clearable style="width: 100%">
-              <el-option v-for="a in areas" :key="a.id" :label="a.name" :value="a.id" />
-            </el-select>
-          </el-form-item>
-        </div>
-        
-        <el-form-item label="上下文">
-          <el-select v-model="newTask.context" placeholder="选择上下文" clearable style="width: 100%">
-            <el-option v-for="opt in contextOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-      </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="createTask">创建</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 厘清对话框 -->
-    <el-dialog v-model="showTriageDialog" title="厘清任务" width="560" :close-on-click-modal="false">
-      <!-- 任务预览 -->
-      <div v-if="triagingTask" class="triage-preview">
-        <div class="triage-preview-header">
-          <strong>{{ triagingTask.taskName }}</strong>
-          <span v-if="triagingTask.flagged === 1" class="triage-flagged">
-            <el-icon color="#F59E0B"><Star /></el-icon>
-          </span>
-        </div>
-        <p v-if="triagingTask.description" class="triage-description">{{ triagingTask.description }}</p>
-        <div class="triage-meta">
-          <span v-if="triagingTask.deadline" class="triage-deadline">
-            <el-icon><Calendar /></el-icon>
-            {{ formatDate(triagingTask.deadline) }}
-          </span>
-          <span v-if="triagingTask.estimatedMinutes" class="triage-estimated">
-            <el-icon><Timer /></el-icon>
-            {{ triagingTask.estimatedMinutes }}分钟
-          </span>
-        </div>
-      </div>
-      
-      <el-divider />
-      
-      <el-form :model="triageForm" label-position="top" size="small">
-        <el-form-item label="这是什么？">
-          <div class="triage-type-cards">
-            <div 
-              v-for="opt in taskTypeOptions" 
-              :key="opt.value"
-              :class="['triage-type-card', { active: triageForm.taskType === opt.value }]"
-              @click="triageForm.taskType = opt.value"
-            >
-              <div class="type-icon">
-                <el-icon v-if="opt.value === 'action'"><ArrowRight /></el-icon>
-                <el-icon v-else-if="opt.value === 'waiting'"><Clock /></el-icon>
-                <el-icon v-else-if="opt.value === 'delegated'"><Folder /></el-icon>
-                <el-icon v-else><Folder /></el-icon>
-              </div>
-              <div class="type-label">{{ opt.label }}</div>
-              <div class="type-desc">
-                <span v-if="opt.value === 'action'">需要我亲自做</span>
-                <span v-else-if="opt.value === 'waiting'">等待他人完成</span>
-                <span v-else-if="opt.value === 'delegated'">已委派给他人</span>
-                <span v-else>暂不处理</span>
-              </div>
-            </div>
+        <div class="drawer-footer">
+          <button class="btn-danger-del" @click="deleteTask(editingTask)">
+            <el-icon><Delete /></el-icon>
+            <span>删除</span>
+          </button>
+          <div class="drawer-right-btns">
+            <button class="btn-cancel" @click="showDrawer = false">取消</button>
+            <button class="btn-primary" @click="saveTask">保存修改</button>
           </div>
-        </el-form-item>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="关联案件" style="flex: 1;">
-            <el-select v-model="triageForm.caseId" placeholder="选择案件" clearable filterable style="width: 100%">
-              <el-option v-for="c in cases" :key="c.id" :label="c.caseName" :value="c.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="领域" style="flex: 1;">
-            <el-select v-model="triageForm.areaId" placeholder="选择领域" clearable style="width: 100%">
-              <el-option v-for="a in areas" :key="a.id" :label="a.name" :value="a.id" />
-            </el-select>
-          </el-form-item>
         </div>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="开始日期" style="flex: 1;">
-            <el-date-picker v-model="triageForm.startDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="截止日期" style="flex: 1;">
-            <el-date-picker v-model="triageForm.dueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-          <el-form-item v-if="triageForm.dueDate" label="时间点" style="flex: 1;">
-            <el-time-select v-model="triageForm.dueTime" start="00:00" step="00:30" end="23:30" placeholder="具体时间" style="width: 100%" />
-          </el-form-item>
-        </div>
-        
-        <el-form-item label="上下文">
-          <el-select v-model="triageForm.context" placeholder="选择上下文" clearable style="width: 100%">
-            <el-option v-for="opt in contextOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <el-button @click="showTriageDialog = false">取消</el-button>
-        <el-button type="primary" @click="submitTriage">确认</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 任务编辑抽屉（增强版） -->
-    <el-drawer v-model="showDrawer" title="编辑任务" direction="rtl" size="480px">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="任务名称" required>
-          <el-input v-model="editForm.taskName" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="editForm.description" type="textarea" :rows="3" />
-        </el-form-item>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="任务类型" style="flex: 1;">
-            <el-select v-model="editForm.taskType" style="width: 100%">
-              <el-option v-for="opt in taskTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="优先级" style="flex: 1;">
-            <el-select v-model="editForm.priority" style="width: 100%">
-              <el-option v-for="opt in priorityOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
-          </el-form-item>
-        </div>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="开始日期" style="flex: 1;">
-            <el-date-picker v-model="editForm.startDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="截止日期" style="flex: 1;">
-            <el-date-picker v-model="editForm.dueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-          <el-form-item v-if="editForm.dueDate" label="时间点" style="flex: 1;">
-            <el-time-select v-model="editForm.dueTime" start="00:00" step="00:30" end="23:30" placeholder="具体时间" style="width: 100%" />
-          </el-form-item>
-        </div>
-        
-        <div v-if="editForm.taskType === 'waiting'" style="display: flex; gap: 12px;">
-          <el-form-item label="等待谁" style="flex: 1;">
-            <el-input v-model="editForm.waitingFor" placeholder="法院/对方/客户" />
-          </el-form-item>
-          <el-form-item label="跟进日期" style="flex: 1;">
-            <el-date-picker v-model="editForm.followUpDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-          </el-form-item>
-        </div>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="关联案件" style="flex: 1;">
-            <el-select v-model="editForm.caseId" placeholder="选择案件" clearable filterable style="width: 100%">
-              <el-option v-for="c in cases" :key="c.id" :label="c.caseName" :value="c.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="领域" style="flex: 1;">
-            <el-select v-model="editForm.areaId" placeholder="选择领域" clearable style="width: 100%">
-              <el-option v-for="a in areas" :key="a.id" :label="a.name" :value="a.id" />
-            </el-select>
-          </el-form-item>
-        </div>
-        
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="上下文" style="flex: 1;">
-            <el-select v-model="editForm.context" placeholder="选择上下文" clearable style="width: 100%">
-              <el-option v-for="opt in contextOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="预估时间" style="flex: 1;">
-            <el-input-number v-model="editForm.estimatedMinutes" :min="0" :max="480" placeholder="分钟" style="width: 100%" />
-          </el-form-item>
-        </div>
-        
-        <el-form-item label="时间桶">
-          <el-select v-model="editForm.startBucket" style="width: 100%">
-            <el-option label="收件箱" value="inbox" />
-            <el-option label="随时" value="anytime" />
-            <el-option label="今日" value="today" />
-            <el-option label="某天" value="someday" />
-          </el-select>
-        </el-form-item>
-
-        <!-- A1-5 重复任务最小集 -->
-        <el-form-item label="重复">
-          <div style="display: flex; gap: 8px; width: 100%;">
-            <el-select v-model="editForm.recurrenceKind" clearable placeholder="不重复" style="flex: 1;">
-              <el-option label="每天" value="daily" />
-              <el-option label="工作日" value="weekdays" />
-              <el-option label="每周…" value="__weekly__" />
-              <el-option label="每月…" value="__monthly__" />
-            </el-select>
-            <el-select
-              v-if="editForm.recurrenceKind === '__weekly__'"
-              v-model="editForm.recurrenceWeekday"
-              placeholder="周几"
-              style="width: 120px;"
-            >
-              <el-option v-for="(n, i) in weekDays" :key="n" :label="'周' + n" :value="i + 1" />
-            </el-select>
-            <el-input-number
-              v-if="editForm.recurrenceKind === '__monthly__'"
-              v-model="editForm.recurrenceMonthDay"
-              :min="1"
-              :max="31"
-              placeholder="几号"
-              style="width: 120px;"
-            />
-          </div>
-        </el-form-item>
-
-        <!-- 时间块排程（设计哲学 §7.2） -->
-        <el-form-item label="时间块">
-          <el-select v-model="editForm.timeBlock" clearable placeholder="选择时间块（可选）" style="width: 100%">
-            <el-option label="🌅 上午 (08:00-12:00)" value="morning" />
-            <el-option label="☀️ 下午 (12:00-18:00)" value="afternoon" />
-            <el-option label="🌙 晚上 (18:00-22:00)" value="evening" />
-            <el-option label="🌃 深夜 (22:00-06:00)" value="night" />
-            <el-option label="🔄 弹性（任意时间）" value="flex" />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item>
-          <el-checkbox v-model="editForm.flagged">标记为重要</el-checkbox>
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <el-button @click="showDrawer = false">取消</el-button>
-        <el-button type="primary" :loading="savingTask" @click="saveTask">保存</el-button>
       </template>
     </el-drawer>
-    
-    <!-- 透视管理对话框 -->
+
+    <!-- 弹窗组件 -->
+    <AreasDialog v-model="showAreasDialog" />
     <PerspectiveManager
-      v-model:visible="showPerspectiveManager"
+      v-model="showPerspectiveManager"
       :perspective="editingPerspective"
       @save="handlePerspectiveSave"
     />
-    
-    <!-- 时间日志轻量弹窗（设计哲学 §11.9：流畅记录实际耗时） -->
-    <el-dialog
-      v-model="showTimeLogDialog"
-      title="记录耗时"
-      width="360px"
-      :show-close="false"
-      :close-on-click-modal="false"
-      append-to-body
-    >
-      <div style="text-align: center; padding: 8px 0;">
-        <p style="margin: 0 0 16px; color: #666; font-size: 14px;">
-          「{{ timeLogTask?.taskName }}」用了多久？
-        </p>
-        <el-input-number
-          v-model="timeLogMinutes"
-          :min="1"
-          :max="480"
-          placeholder="分钟"
-          style="width: 160px;"
-          size="large"
-          @keydown.enter="submitTimeLog"
-        />
-        <p v-if="timeLogTask?.estimatedMinutes" style="margin: 8px 0 0; font-size: 12px; color: #999;">
-          预估 {{ timeLogTask.estimatedMinutes }} 分钟
-        </p>
-      </div>
-      <template #footer>
-        <el-button text @click="skipTimeLog">跳过</el-button>
-        <el-button type="primary" @click="submitTimeLog">完成</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- A1-2 领域管理 -->
-    <AreasDialog v-model="showAreasDialog" @changed="loadAreas" />
-
-    <!-- 序时参考：整理今天 -->
-    <TodayResetDialog v-model="showTodayReset" :tasks="todayAll" @changed="loadTasks" />
   </div>
 </template>
 
 <style scoped>
-.tasks-page {
-  padding: 16px;
+/* ═══════════════════════════════════════════════════════════
+   Stitch Unified Task Management Styles
+   ═══════════════════════════════════════════════════════════ */
+.stitch-tasks-workspace {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--c-text);
+  font-family: var(--font-family);
+  min-height: calc(100vh - 80px);
 }
 
-.toolbar {
+/* ── 1. 顶部 Header ───────────────────────────────────────── */
+.tasks-top-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
-.toolbar-left {
+.tasks-heading {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  margin: 0;
+}
+
+.tasks-sub-hint {
+  font-size: 12px;
+  color: var(--slate-gray-light);
+  margin-top: 2px;
+  display: block;
+}
+
+.header-actions {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+.task-search-box {
+  position: relative;
+  width: 260px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--slate-gray-light);
+}
+
+.clear-icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--slate-gray-light);
+  cursor: pointer;
+}
+
+.search-real-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 28px 0 30px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  font-size: 12px;
+  outline: none;
+  color: var(--c-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.search-real-input:focus { border-color: var(--c-primary); }
+
+.btn-action-ghost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+  color: var(--c-text-regular);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-action-ghost:hover { background: var(--c-bg-hover); color: var(--c-text); }
+
+.btn-action-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--c-radius-lg);
+  border: none;
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── 2. 丰富全景透视标签栏 ───────────────────────────────── */
+.perspective-tabs-scroll-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.perspective-tab-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--motion-fast);
+}
+
+.perspective-tab-pill:hover {
+  background: var(--c-bg-hover);
+  color: var(--c-text);
+}
+
+.perspective-tab-pill.active {
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  font-weight: 700;
+  border-color: color-mix(in srgb, var(--c-primary) 30%, transparent);
+}
+
+.tab-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: #fff;
+}
+
+.perspective-tab-pill.create-btn {
+  border: 1px dashed var(--c-border);
+  color: var(--slate-gray-light);
+}
+
+.perspective-tab-pill.create-btn:hover {
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+}
+
+.more-icon {
+  margin-left: 2px;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.more-icon:hover { opacity: 1; }
+
+/* ── 3. 自然语言捕获栏 ───────────────────────────────────── */
+.capture-bar-wrapper {
+  margin-bottom: 4px;
+}
+
+.capture-real-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  padding: 0 16px;
+  height: 42px;
+  box-shadow: var(--shadow-sm);
+}
+
+.capture-real-box:focus-within {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-primary) 20%, transparent);
+}
+
+.cap-icon { color: var(--slate-gray-light); }
+
+.cap-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--c-text);
+}
+
+.btn-cap-submit {
+  padding: 4px 12px;
+  border-radius: var(--c-radius);
+  border: none;
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── 4. A. 四象限看板 ────────────────────────────────────── */
+.matrix-board-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.quadrant-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 280px;
+}
+
+.quad-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-top: 3.5px solid transparent;
+  padding-top: 8px;
+}
+
+.quad-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.quad-sub {
+  font-size: 11px;
+  color: var(--slate-gray-light);
+  margin: 2px 0 0;
+}
+
+.quad-count-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--c-bg-subtle);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.quad-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.quad-task-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-page);
+  cursor: grab;
+  transition: all var(--motion-fast);
+}
+
+.quad-task-item:hover {
+  background: var(--c-bg-hover);
+  border-color: var(--c-primary);
+  transform: translateY(-1px);
+}
+
+.quad-check-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--c-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.quad-check-btn.checked {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+
+.quad-task-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.quad-task-name {
+  font-size: 12.5px;
+  color: var(--c-text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quad-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  margin-top: 2px;
+}
+
+.q-case { color: var(--c-primary); }
+.q-due { color: var(--slate-gray-light); font-family: var(--font-mono); }
+
+.quad-empty {
+  padding: 30px 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+}
+
+/* ── 4. B. 按案件分组 ────────────────────────────────────── */
+.case-groups-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.case-group-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.toolbar-left h3 {
+.cg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.cg-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cg-icon { color: var(--c-primary); }
+
+.cg-title {
+  font-size: 15px;
+  font-weight: 700;
   margin: 0;
-  font-size: 16px;
+}
+
+.cg-count-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-gray-light);
+}
+
+.cg-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── 4. C. 常规列表卡片 ──────────────────────────────────── */
+.tasks-main-list-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.list-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.lsh-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.lsh-sub {
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+  margin-top: 2px;
+  display: block;
+}
+
+.lsh-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.task-rows-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.subtasks-container {
+  margin-left: 28px;
+  padding-left: 12px;
+  border-left: 2px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -2px;
+  margin-bottom: 6px;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--c-bg-page);
+  border-radius: var(--c-radius);
+  font-size: 12px;
+}
+
+.sub-check-btn {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1.5px solid var(--c-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+.sub-check-btn.checked {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+
+.sub-name { flex: 1; }
+.sub-name.struck { text-decoration: line-through; color: var(--slate-gray-light); }
+
+.sub-del-icon {
+  font-size: 12px;
+  color: var(--slate-gray-light);
+  cursor: pointer;
+}
+
+.sub-del-icon:hover { color: var(--status-risk); }
+
+.subtask-input {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--c-radius);
+  padding: 4px 8px;
+  font-size: 11.5px;
+  outline: none;
+}
+
+.empty-placeholder {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--slate-gray-light);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── 5. 抽屉样式 ─────────────────────────────────────────── */
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.form-item label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-heading);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--c-radius);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-page);
+  color: var(--c-text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--c-primary);
+}
+
+.context-pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ctx-pill-btn {
+  padding: 4px 10px;
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-page);
+  color: var(--c-text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.ctx-pill-btn.active {
+  background: var(--c-primary-light);
+  border-color: var(--c-primary);
+  color: var(--c-primary);
   font-weight: 600;
 }
 
-.shortcut-hint {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  background: var(--gray-50);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.toolbar-right {
+.drawer-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-/* 已保存筛选下拉项 */
-.saved-filter-item {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  min-width: 140px;
+  width: 100%;
 }
 
-/* GTD 透视标签 */
-.perspective-tabs {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
-  padding: 6px;
-  background: #FFFFFF;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.tab-item {
+.btn-danger-del {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all var(--motion-base) var(--ease-out);
-  color: var(--c-text-regular);
-  font-size: 13px;
-}
-
-.tab-item:hover {
-  background: var(--gray-50);
-}
-
-.tab-item.active {
-  background: #EFF6FF;
-  color: #2563EB;
-}
-
-/* 自定义透视样式 */
-.tab-item.custom-perspective {
-  position: relative;
-}
-
-.tab-item.custom-perspective .tab-icon {
-  font-size: 14px;
-}
-
-.tab-item.custom-perspective .perspective-more {
-  margin-left: 4px;
-  opacity: 0;
-  transition: opacity var(--motion-base);
+  border-radius: var(--c-radius-lg);
+  border: 1px solid var(--status-risk);
+  background: var(--bg-risk-weak);
+  color: var(--status-risk);
+  font-size: 12px;
   cursor: pointer;
 }
 
-.tab-item.custom-perspective:hover .perspective-more {
-  opacity: 1;
-}
-
-.tab-item.create-perspective {
-  border: 1px dashed #d0d0d0;
-  color: var(--gray-400);
-  cursor: pointer;
-}
-
-.tab-item.create-perspective:hover {
-  border-color: #409eff;
-  color: #409eff;
-}
-
-.tab-label {
-  font-weight: 500;
-}
-
-.tab-count {
-  font-size: 11px;
-  color: #FFFFFF;
-  padding: 1px 5px;
-  border-radius: 8px;
-  min-width: 16px;
-  text-align: center;
-}
-
-/* 骨架 */
-.skeleton-wrapper {
-  margin-top: 16px;
-}
-
-.skeleton-rows {
+.drawer-right-btns {
   display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
-.skeleton-task-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-/* 快速捕获条（Things 3 式） */
-.capture-field {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #fff;
+.btn-cancel {
+  padding: 6px 14px;
+  border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
-  border-radius: 6px;
-  padding: 0 12px;
-  height: 36px;
-  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
-}
-.capture-field:focus-within {
-  border-color: var(--c-primary, var(--c-primary));
-  box-shadow: 0 0 0 2px rgba(62, 92, 154, 0.12);
-}
-.capture-field.disabled { opacity: 0.6; }
-.capture-prefix { color: var(--c-text-secondary); font-size: 14px; }
-.capture-input-native {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 14px;
+  background: var(--c-bg-subtle);
   color: var(--c-text);
-}
-.capture-input-native::placeholder { color: var(--c-text-secondary); }
-
-.capture-bar {
-  margin-bottom: 12px;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.capture-bar .el-input__wrapper {
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 1px var(--c-border) inset;
-}
-
-.capture-bar .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px var(--c-primary) inset, 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.capture-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  padding-left: 4px;
-}
-
-.capture-hint-divider {
-  color: #D4D4D8;
-}
-
-/* GTD 分组小节（Headings） */
-.task-group {
-  margin-bottom: 16px;
-}
-
-.group-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  margin-bottom: 8px;
+.btn-primary {
+  padding: 6px 16px;
+  border-radius: var(--c-radius-lg);
+  border: none;
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
   font-size: 12px;
   font-weight: 600;
-  color: var(--c-primary);
-  border-bottom: 1px solid #EEF0F4;
-}
-
-.group-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-count {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--c-text-secondary);
-  background: var(--gray-50);
-  padding: 1px 6px;
-  border-radius: 8px;
-}
-
-
-
-
-/* GTD 视图 */
-.gtd-view {
-  min-height: 400px;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 300px;
-  color: var(--c-text-secondary);
-}
-
-.empty-state p {
-  margin: 12px 0;
-  font-size: 14px;
-}
-
-
-/* A1-4 子任务：缩进与快速添加 */
-.subtask-wrap { padding-left: 30px; }
-.subtask-add { padding: 2px 0 4px 34px; }
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* A1-3 Today 拖拽：ghost 半透明 + 抓取光标（动画时长由 :animation 按 reduced-motion 传入；仅 Today 视图可拖） */
-.drag-ghost {
-  opacity: 0.35;
-}
-.today-draggable .task-card {
-  cursor: grab;
-}
-.today-draggable .task-card:active {
-  cursor: grabbing;
-}
-
-
-
-
-
-
-
-
-/* 内部绿色圆：scale(0)→scale(1) 弹性填充 */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/* Review 回顾闭环 */
-
-/* 厘清预览 */
-.triage-preview {
-  padding: 16px;
-  background: var(--gray-50);
-  border-radius: 8px;
-}
-
-.triage-preview-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.triage-preview-header strong {
-  flex: 1;
-  font-size: 15px;
-  color: var(--c-text);
-}
-
-.triage-flagged {
-  color: #F59E0B;
-}
-
-.triage-description {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--c-text-regular);
-}
-
-.triage-meta {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-.triage-deadline,
-.triage-estimated {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* 厘清类型卡片 */
-.triage-type-cards {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.triage-type-card {
-  padding: 12px;
-  border: 2px solid var(--c-border);
-  border-radius: 8px;
   cursor: pointer;
-  transition: all var(--motion-base) var(--ease-out);
-  text-align: center;
-}
-
-.triage-type-card:hover {
-  border-color: #409EFF;
-  background: #F0F7FF;
-}
-
-.triage-type-card.active {
-  border-color: #409EFF;
-  background: #EFF6FF;
-}
-
-.type-icon {
-  margin-bottom: 8px;
-  color: #409EFF;
-}
-
-.type-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-text);
-  margin-bottom: 4px;
-}
-
-.type-desc {
-  font-size: 12px;
-  color: var(--c-text-secondary);
 }
 </style>

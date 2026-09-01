@@ -33,6 +33,7 @@ regex = "1"
 dirs = "5"
 uuid = { version = "1", features = ["v4"] }
 rust_xlsxwriter = "0.80"
+calamine = "0.26"
 zip = "0.6"
 base64 = "0.22"
 csv = "1"
@@ -55,6 +56,8 @@ futures-util = "0.3"
 
 # AI 后端
 async-trait = "0.1"
+# llama-cpp-2 = "0.1" # OvisOCR2 推理 (Phase 3) - Requires cmake to build
+# pdfium-render = "0.8" # PDF 转图片 (Phase 3)
 
 # OCR（可选）
 rusty-tesseract = "1.1"
@@ -73,6 +76,11 @@ screenshots = "0.6"
 # 剪贴板监听
 arboard = "3"
 specta = { version = "1.0.5", features = ["export"] }
+pdf-extract = "0.12.0"
+lopdf = "0.36.0"
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 default = ["custom-protocol"]

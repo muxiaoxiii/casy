@@ -20,7 +20,7 @@ pub trait RecordContext {
 
     /// Execute a lookup: query a foreign table with a filter, extract a column, return array.
     /// Used for FILTER + LISTCOMBINE patterns.
-#[allow(dead_code)]
+    #[allow(dead_code)]
     fn execute_lookup(
         &self,
         table_id: &str,
@@ -49,17 +49,14 @@ impl SimpleRecordContext {
 
 impl RecordContext for SimpleRecordContext {
     fn get_field(&self, field_id: &str) -> Value {
-        self.fields
-            .get(field_id)
-            .cloned()
-            .unwrap_or(Value::Null)
+        self.fields.get(field_id).cloned().unwrap_or(Value::Null)
     }
 
     fn get_cross_table_field(&self, _table_id: &str, _field_id: &str) -> Option<Value> {
         None
     }
 
-#[allow(dead_code)]
+    #[allow(dead_code)]
     fn execute_lookup(
         &self,
         _table_id: &str,
@@ -90,9 +87,9 @@ impl FormulaEvaluator {
 
             Expr::FieldRef { field_id } => Ok(ctx.get_field(field_id)),
 
-            Expr::CrossTableRef { table_id, field_id } => {
-                Ok(ctx.get_cross_table_field(table_id, field_id).unwrap_or(Value::Null))
-            }
+            Expr::CrossTableRef { table_id, field_id } => Ok(ctx
+                .get_cross_table_field(table_id, field_id)
+                .unwrap_or(Value::Null)),
 
             Expr::Call { name, args } => self.eval_call(name, args, ctx),
 
@@ -557,10 +554,7 @@ mod tests {
         );
         let v = eval_str("WORKDAY(start, -1)", &ctx);
         // -1 workday from Monday = Friday 2026-08-07
-        assert_eq!(
-            v,
-            Value::Date(NaiveDate::from_ymd_opt(2026, 8, 7).unwrap())
-        );
+        assert_eq!(v, Value::Date(NaiveDate::from_ymd_opt(2026, 8, 7).unwrap()));
     }
 
     #[test]

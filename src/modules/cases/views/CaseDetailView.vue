@@ -3,18 +3,19 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import CaseFilesPanel from '../components/CaseFilesPanel.vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
   ArrowLeft, Edit, Calendar, Finished, Document,
   Folder, Collection, Clock, Warning, Check,
-  Plus, More, Connection, Timer, Bell
+  Plus, CaretRight, Connection, Timer, Lock, CircleCheck
 } from '@element-plus/icons-vue'
 import {
   CIVIL_STATUS_LABELS,
   INVALIDATION_STATUS_LABELS,
   ADMIN_STATUS_LABELS,
-  CASE_ROUTE_LABELS,
 } from '../../../types'
+import EmptyState from '../../../shared/components/EmptyState.vue'
+import AddRelationDialog from '../components/AddRelationDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,13 +26,37 @@ const router = useRouter()
 const caseData = ref(null)
 const loading = ref(false)
 const tasks = ref([])
+const hearings = ref([])
 const timeline = ref([])
 const knowledge = ref([])
 const files = ref([])
+const relatedCases = ref([])
+const activeTab = ref('overview') // overview | hearings | tasks | tracks | files | timeline | fields
 
 // 编辑状态
 const editingGoal = ref(false)
 const goalInput = ref('')
+
+// 庭审弹窗与表单
+const showHearingDialog = ref(false)
+const hearingForm = ref({
+  id: '',
+  hearingName: '开庭/口审',
+  hearingDate: '',
+  court: '',
+  venue: '',
+  judges: '',
+  caseLevel: '',
+  contactInfo: '',
+  actualStatus: '待开庭',
+})
+
+// 全量字段就地编辑
+const editingFields = ref(false)
+const fieldsForm = ref({})
+
+// 关联案件弹窗
+const showAddRelationDialog = ref(false)
 
 // ============================================================
 // 计算属性
@@ -47,88 +72,76 @@ const caseTypeLabel = computed(() => {
   return types[caseData.value?.caseType] || '探索型'
 })
 
-const caseTypeColor = computed(() => {
-  const colors = {
-    computational: '#409EFF',
-    exploratory: '#8B5CF6',
-    growth: '#10B981',
-  }
-  return colors[caseData.value?.caseType] || '#8B5CF6'
-})
-
 const trackBadges = computed(() => {
   if (!caseData.value) return []
-  
   const badges = []
-  const route = caseData.value.caseRoute || ''
-  
-  // 民事诉讼状态颜色映射
-  const civilStatusColors = {
-    intake: '#6B7280',
-    filed: '#3B82F6',
-    pre_hearing: '#F59E0B',
-    in_trial: '#8B5CF6',
-    settled: '#10B981',
-    awaiting_verdict: '#F59E0B',
-    verdict_issued: '#EF4444',
-    appeal_period: '#F59E0B',
-    second_instance: '#8B5CF6',
-    second_verdict: '#EF4444',
-    retrial: '#8B5CF6',
-    enforcement: '#10B981',
-    suspended: '#6B7280',
-    closed: '#10B981',
-  }
-  
-  // 专利无效状态颜色映射
-  const invalidationStatusColors = {
-    preparing: '#6B7280',
-    filed: '#3B82F6',
-    pre_oral: '#F59E0B',
-    oral_done: '#8B5CF6',
-    awaiting_decision: '#F59E0B',
-    decision_issued: '#EF4444',
-  }
-  
-  // 行政诉讼状态颜色映射
-  const adminStatusColors = {
-    filed: '#3B82F6',
-    pre_hearing: '#F59E0B',
-    in_trial: '#8B5CF6',
-    awaiting_verdict: '#F59E0B',
-    verdict_issued: '#EF4444',
-    second_instance: '#8B5CF6',
-    closed: '#10B981',
-  }
-  
-  if (route.includes('民事诉讼') && caseData.value.civilStatus) {
+  const routeStr = caseData.value.caseRoute || ''
+
+  if ((routeStr.includes('专利无效') || caseData.value.invalidationStatus) && caseData.value.invalidationStatus) {
     badges.push({
-      track: '民事诉讼',
-      status: caseData.value.civilStatus,
-      label: CIVIL_STATUS_LABELS[caseData.value.civilStatus] || caseData.value.civilStatus,
-      color: civilStatusColors[caseData.value.civilStatus] || '#6B7280',
-    })
-  }
-  
-  if (route.includes('专利无效') && caseData.value.invalidationStatus) {
-    badges.push({
-      track: '专利无效',
+      track: '专利无效轨',
       status: caseData.value.invalidationStatus,
       label: INVALIDATION_STATUS_LABELS[caseData.value.invalidationStatus] || caseData.value.invalidationStatus,
-      color: invalidationStatusColors[caseData.value.invalidationStatus] || '#6B7280',
+      tagClass: 'tag purple',
     })
   }
-  
-  if (route.includes('行政诉讼') && caseData.value.adminStatus) {
+
+  if ((routeStr.includes('民事诉讼') || caseData.value.civilStatus) && caseData.value.civilStatus) {
     badges.push({
-      track: '行政诉讼',
+      track: '民事诉讼轨',
+      status: caseData.value.civilStatus,
+      label: CIVIL_STATUS_LABELS[caseData.value.civilStatus] || caseData.value.civilStatus,
+      tagClass: 'tag blue',
+    })
+  }
+
+  if ((routeStr.includes('行政诉讼') || caseData.value.adminStatus) && caseData.value.adminStatus) {
+    badges.push({
+      track: '行政诉讼轨',
       status: caseData.value.adminStatus,
       label: ADMIN_STATUS_LABELS[caseData.value.adminStatus] || caseData.value.adminStatus,
-      color: adminStatusColors[caseData.value.adminStatus] || '#6B7280',
+      tagClass: 'tag amber',
     })
   }
-  
+
   return badges
+})
+
+const smartTags = computed(() => {
+  if (!caseData.value) return []
+  const tags = []
+  const allTracks = new Set()
+  if (caseData.value.track) allTracks.add(caseData.value.track)
+  if (caseData.value.rawTrack) allTracks.add(caseData.value.rawTrack)
+  
+  let hasCivil = false
+  let hasCriminal = false
+  
+  const checkTrack = (t) => {
+    if (!t) return
+    const tl = t.toLowerCase()
+    if (tl.includes('civil') || tl.includes('民事')) hasCivil = true
+    if (tl.includes('criminal') || tl.includes('刑事')) hasCriminal = true
+  }
+  
+  checkTrack(caseData.value.track)
+  checkTrack(caseData.value.rawTrack)
+  
+  relatedCases.value.forEach(rc => {
+    if (rc.track) {
+      allTracks.add(rc.track)
+      checkTrack(rc.track)
+    }
+  })
+  
+  if (allTracks.size > 1 || relatedCases.value.length > 0) {
+    tags.push({ label: '多轨并行', class: 'tag gradient-purple' })
+  }
+  if (hasCivil && hasCriminal) {
+    tags.push({ label: '民刑交织', class: 'tag gradient-red' })
+  }
+  
+  return tags
 })
 
 const taskStats = computed(() => {
@@ -140,13 +153,12 @@ const taskStats = computed(() => {
     const due = t.dueDate || t.deadline
     return due && due < new Date().toISOString().split('T')[0]
   }).length
-  
+
   return { total, completed, pending, overdue }
 })
 
 const nextAction = computed(() => {
-  // 找到第一个 blocked=0 的任务
-  return tasks.value.find(t => !t.completed && t.blocked === 0 && t.taskType === 'action')
+  return tasks.value.find(t => !t.completed && t.blocked === 0 && t.taskType === 'action') || null
 })
 
 // 顺序项目统计
@@ -154,22 +166,15 @@ const sequentialTasks = computed(() => {
   return tasks.value.filter(t => t.sequential).sort((a, b) => a.sequenceOrder - b.sequenceOrder)
 })
 
-const sequentialTotalCount = computed(() => {
-  return sequentialTasks.value.length
-})
-
-const sequentialCompletedCount = computed(() => {
-  return sequentialTasks.value.filter(t => t.completed).length
-})
+const sequentialTotalCount = computed(() => sequentialTasks.value.length)
+const sequentialCompletedCount = computed(() => sequentialTasks.value.filter(t => t.completed).length)
 
 const sequentialCompletionRate = computed(() => {
   if (sequentialTotalCount.value === 0) return 0
-  return Math.round(sequentialCompletedCount.value / sequentialTotalCount.value * 100)
+  return Math.round((sequentialCompletedCount.value / sequentialTotalCount.value) * 100)
 })
 
-// ============================================================
-// 案件类型差异化指标（get_case_type_metrics，加载失败静默隐藏）
-// ============================================================
+// 案件类型差异化指标
 const typeMetrics = ref(null)
 
 const metricsCaseType = computed(() => {
@@ -182,7 +187,6 @@ const metricsTypeLabel = computed(() => {
   return labels[metricsCaseType.value]
 })
 
-/** 比率字段可能为 0-1 或 0-100，统一转百分比文本 */
 function percentText(v) {
   if (v == null) return '—'
   const p = v <= 1 ? v * 100 : v
@@ -196,11 +200,13 @@ async function loadCaseData() {
   loading.value = true
   await Promise.all([
     loadCase(),
+    loadHearings(),
     loadTasks(),
     loadTimeline(),
     loadKnowledge(),
     loadFiles(),
     loadTypeMetrics(),
+    loadRelations(),
   ])
   loading.value = false
 }
@@ -222,6 +228,13 @@ async function loadCase() {
   }
 }
 
+async function loadHearings() {
+  const result = await casyContext.cases.listHearings(caseId.value)
+  if (result.ok) {
+    hearings.value = result.data || []
+  }
+}
+
 async function loadTasks() {
   const result = await casyContext.tasks.list({ caseId: caseId.value })
   if (result.ok) {
@@ -236,15 +249,29 @@ async function loadTimeline() {
   }
 }
 
+async function loadRelations() {
+  const result = await casyContext.cases.relations(caseId.value)
+  if (result.ok) {
+    relatedCases.value = result.data || []
+  }
+}
+
+async function handleRelationAdded() {
+  // 当添加关系并且可能合并数据后，重新加载关联关系以及可能受影响的列表（文件、任务等）
+  loadRelations()
+  loadFiles()
+  loadTasks()
+  loadHearings()
+}
+
 async function loadKnowledge() {
-  // 通过案件名称和类型搜索相关知识
   if (!caseData.value) return
   const searchTerms = [
     caseData.value.caseName,
     caseData.value.caseType,
     caseData.value.clientName,
   ].filter(Boolean).join(' ')
-  
+
   if (searchTerms) {
     const result = await casyContext.knowledge.search(searchTerms, 20)
     if (result.ok && result.data) {
@@ -269,13 +296,126 @@ function goBack() {
 
 async function saveGoal() {
   if (!caseData.value) return
-  
   const result = await casyContext.cases.update(caseId.value, { caseGoal: goalInput.value })
-  
   if (result.ok) {
     caseData.value.caseGoal = goalInput.value
     editingGoal.value = false
-    ElMessage.success('已保存')
+    ElMessage.success('案件目标已保存')
+  }
+}
+
+// 庭审 CRUD 操作
+function openAddHearing() {
+  hearingForm.value = {
+    id: '',
+    hearingName: '一审第' + (hearings.value.length + 1) + '次开庭',
+    hearingDate: '',
+    court: caseData.value?.court || '',
+    venue: '',
+    judges: caseData.value?.judgePanel || '',
+    caseLevel: caseData.value?.caseLevel || '',
+    contactInfo: caseData.value?.clerk || '',
+    actualStatus: '待开庭',
+  }
+  showHearingDialog.value = true
+}
+
+function openEditHearing(h) {
+  hearingForm.value = {
+    id: h.id,
+    hearingName: h.hearingName || h.hearingRecord || '开庭/口审',
+    hearingDate: h.hearingDate,
+    court: h.court || '',
+    venue: h.venue || '',
+    judges: h.judges || '',
+    caseLevel: h.caseLevel || '',
+    contactInfo: h.contactInfo || '',
+    actualStatus: h.actualStatus || '待开庭',
+  }
+  showHearingDialog.value = true
+}
+
+async function saveHearing() {
+  if (!hearingForm.value.hearingDate) {
+    ElMessage.warning('请选择开庭/口审时间')
+    return
+  }
+  if (hearingForm.value.id) {
+    const res = await casyContext.cases.updateHearing(hearingForm.value.id, {
+      hearingName: hearingForm.value.hearingName,
+      hearingDate: hearingForm.value.hearingDate,
+      court: hearingForm.value.court,
+      venue: hearingForm.value.venue,
+      judges: hearingForm.value.judges,
+      caseLevel: hearingForm.value.caseLevel,
+      contactInfo: hearingForm.value.contactInfo,
+      actualStatus: hearingForm.value.actualStatus,
+    })
+    if (res.ok) {
+      ElMessage.success('庭审排期已更新')
+      showHearingDialog.value = false
+      await loadHearings()
+      await loadCase()
+    } else {
+      ElMessage.error(res.error || '更新失败')
+    }
+  } else {
+    const res = await casyContext.cases.createHearing({
+      caseId: caseId.value,
+      hearingName: hearingForm.value.hearingName,
+      hearingDate: hearingForm.value.hearingDate,
+      court: hearingForm.value.court,
+      venue: hearingForm.value.venue,
+      judges: hearingForm.value.judges,
+      caseLevel: hearingForm.value.caseLevel,
+      contactInfo: hearingForm.value.contactInfo,
+      actualStatus: hearingForm.value.actualStatus,
+    })
+    if (res.ok) {
+      ElMessage.success('已添加开庭/口审排期')
+      showHearingDialog.value = false
+      await loadHearings()
+      await loadCase()
+    } else {
+      ElMessage.error(res.error || '创建失败')
+    }
+  }
+}
+
+async function deleteHearing(h) {
+  const res = await casyContext.cases.deleteHearing(h.id)
+  if (res.ok) {
+    ElMessage.success('庭审记录已删除')
+    await loadHearings()
+  } else {
+    ElMessage.error(res.error || '删除失败')
+  }
+}
+
+async function toggleHearingStatus(h) {
+  const nextStatus = h.actualStatus === '已开庭' ? '待开庭' : '已开庭'
+  const res = await casyContext.cases.updateHearing(h.id, { actualStatus: nextStatus })
+  if (res.ok) {
+    h.actualStatus = nextStatus
+    ElMessage.success(`开庭状态已变更为: ${nextStatus}`)
+  }
+}
+
+// 全量字段就地编辑
+function startEditFields() {
+  if (!caseData.value) return
+  fieldsForm.value = { ...caseData.value }
+  editingFields.value = true
+}
+
+async function saveFields() {
+  const res = await casyContext.cases.update(caseId.value, fieldsForm.value)
+  if (res.ok) {
+    ElMessage.success('案件属性字段已保存')
+    editingFields.value = false
+    await loadCase()
+  } else {
+    ElMessage.error(res.error || '保存失败')
   }
 }
 
@@ -284,30 +424,28 @@ async function toggleTaskComplete(task) {
   if (result.ok) {
     task.completed = task.completed ? 0 : 1
     ElMessage.success(task.completed ? '已完成' : '已恢复')
-    
-    // 如果是顺序项目，解锁下一个任务
     if (task.completed && task.sequential) {
       await unlockNextTask(task)
     }
+    await loadTasks()
   }
 }
 
 async function unlockNextTask(completedTask) {
-  // 找到 sequence_order 大于当前任务的下一个任务
-  const nextTask = tasks.value.find(t => 
-    t.caseId === caseId.value && 
-    t.sequential && 
-    t.blocked && 
+  const nextTask = tasks.value.find(t =>
+    t.caseId === caseId.value &&
+    t.sequential &&
+    t.blocked &&
     t.sequenceOrder > completedTask.sequenceOrder
   )
-  
+
   if (nextTask) {
     await casyContext.tasks.update({
       id: nextTask.id,
       blocked: 0,
     })
     nextTask.blocked = 0
-    ElMessage.success(`已解锁：${nextTask.taskName}`)
+    ElMessage.success(`已解锁后续步骤：${nextTask.taskName}`)
   }
 }
 
@@ -319,49 +457,21 @@ function addNewTask() {
   router.push({ name: 'tasks', query: { capture: 'task', caseId: caseId.value } })
 }
 
-// ============================================================
-// 工具函数
-// ============================================================
 function formatDate(dateStr) {
   if (!dateStr) return ''
   const date = new Date(dateStr)
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
-function isOverdue(task) {
-  const due = task.dueDate || task.deadline
-  return due && due < new Date().toISOString().split('T')[0]
-}
-
-function getTaskTypeLabel(type) {
-  const labels = { action: '行动', waiting: '等待', delegated: '委派', someday: '某天' }
-  return labels[type] || type
-}
-
-function getTaskTypeColor(type) {
-  const colors = { action: '#409EFF', waiting: '#E6A23C', delegated: '#909399', someday: '#909399' }
-  return colors[type] || '#909399'
-}
-
-// 跳转到客户视图
-function goToClient(clientName) {
-  // 这里假设有一个客户视图路由，实际需要根据项目路由结构来实现
-  // 暂时使用简单的alert，后续可以改为router.push
-  ElMessage.info(`跳转到客户: ${clientName}`)
-  // router.push({ name: 'client', query: { name: clientName } })
-}
-
-// ============================================================
-// 生命周期
-// ============================================================
+let unsubscribeUpdated = null
 onMounted(() => {
   loadCaseData()
-  // K-3② 真实消费者：案件更新事件 → 时间线刷新（emit 已下沉 service 层，
-  // 人在视图层编辑与 AI 工具调用触发的是同一事件流）
   unsubscribeUpdated = casyContext.on('case:updated', (payload) => {
-    const p = (payload || {})
+    const p = payload || {}
     if (!p.id || p.id === caseId.value) {
       loadTimeline()
+      loadCase()
+      loadHearings()
     }
   })
 })
@@ -370,832 +480,1461 @@ watch(caseId, () => {
   loadCaseData()
 })
 
-let unsubscribeUpdated = null
 onUnmounted(() => {
   if (unsubscribeUpdated) unsubscribeUpdated()
 })
 </script>
 
 <template>
-  <div class="case-detail" v-loading="loading">
-    <!-- 顶部导航 -->
+  <div class="case-detail-container" v-loading="loading">
+    <!-- 顶部返回导航 -->
     <div class="detail-header">
-      <el-button @click="goBack" :icon="ArrowLeft" text>返回案件列表</el-button>
+      <button class="btn-back" @click="goBack">
+        <el-icon :size="14"><ArrowLeft /></el-icon>
+        返回案件列表
+      </button>
     </div>
 
-    <!-- 案件概要 -->
-    <div class="case-summary" v-if="caseData">
-      <div class="summary-main">
-        <div class="summary-title">
-          <h1>{{ caseData.caseName }}</h1>
-          <el-tag v-if="caseData.caseNo" size="small">{{ caseData.caseNo }}</el-tag>
+    <!-- ═══ 案件概要 Hero Card ═══ -->
+    <div v-if="caseData" class="case-hero-card">
+      <div class="hero-left">
+        <h1 class="case-title">{{ caseData.caseName }}</h1>
+        <div class="case-subtitle">
+          <span v-if="caseData.caseNo" class="sub-item mono">{{ caseData.caseNo }}</span>
+          <span v-if="caseData.patentNo" class="sub-item mono">{{ caseData.patentNo }}</span>
+          <span v-if="caseData.clientName" class="sub-item">客户：{{ caseData.clientName }}</span>
+          <span v-if="caseData.court" class="sub-item">受理机构：{{ caseData.court }}</span>
         </div>
-        
-        <div class="summary-meta">
-          <span class="meta-item clickable" @click="goToClient(caseData.clientName)">
-            <el-icon><Folder /></el-icon>
-            {{ caseData.clientName }}
+        <div class="hero-tags">
+          <span v-for="b in trackBadges" :key="b.track" :class="b.tagClass">
+            {{ b.track }} · {{ b.label }}
           </span>
-          <span class="meta-item" v-if="caseData.court">
-            <el-icon><Connection /></el-icon>
-            {{ caseData.court }}
+          <span v-for="t in smartTags" :key="t.label" :class="t.class">
+            {{ t.label }}
           </span>
-          <span class="meta-item case-type" :style="{ color: caseTypeColor }">
-            <el-icon><Collection /></el-icon>
-            {{ caseTypeLabel }}
-          </span>
+          <span class="tag solid-blue">{{ caseTypeLabel }}</span>
         </div>
-        
-        <!-- 轨道徽章 -->
-        <div class="track-badges" v-if="trackBadges.length > 0">
-          <div 
-            v-for="badge in trackBadges" 
-            :key="badge.track"
-            class="track-badge"
-            :style="{ borderColor: badge.color, color: badge.color }"
-          >
-            {{ badge.track }}: {{ badge.label }}
+      </div>
+
+      <!-- 进度环 (5/8) -->
+      <div class="hero-donut-wrap">
+        <div class="donut-outer">
+          <div class="donut-inner">
+            <span class="donut-num">{{ taskStats.completed }}/{{ taskStats.total || 0 }}</span>
+            <span class="donut-sub">推进率</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 项目总览 -->
-    <div class="section" v-if="caseData">
-      <div class="section-header">
-        <h2>项目总览</h2>
+    <!-- ═══ 下一步行动 Hero Card（原则一：顺序项目唯一入口） ═══ -->
+    <div v-if="nextAction" class="next-card">
+      <div class="play" @click="openTaskEdit(nextAction)">
+        <el-icon :size="14" color="#FFFFFF"><CaretRight /></el-icon>
       </div>
-      
-      <div class="project-overview">
-        <!-- 案件目标 -->
-        <div class="overview-item goal">
-          <div class="item-header">
-            <span class="item-label">案件目标</span>
-            <el-button 
-              v-if="!editingGoal" 
-              text 
-              size="small" 
-              @click="editingGoal = true"
+      <div class="info">
+        <div class="n">{{ nextAction.taskName }}</div>
+        <div class="s">
+          当前唯一可推进 · 完成后自动解锁后续步骤
+          <template v-if="nextAction.estimatedMinutes"> · 预计 {{ nextAction.estimatedMinutes }} 分钟</template>
+        </div>
+      </div>
+      <button class="btn-sm primary" @click="openTaskEdit(nextAction)">开始</button>
+      <button class="btn-sm" @click="toggleTaskComplete(nextAction)">完成</button>
+    </div>
+
+    <!-- ═══ 详情 Tab 切换栏 ═══ -->
+    <div class="detail-tabs">
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'overview' }"
+        @click="activeTab = 'overview'"
+      >
+        项目总览
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'hearings' }"
+        @click="activeTab = 'hearings'"
+      >
+        开庭口审 · {{ hearings.length }}
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'tasks' }"
+        @click="activeTab = 'tasks'"
+      >
+        任务待办 · {{ tasks.length }}
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'tracks' }"
+        @click="activeTab = 'tracks'"
+      >
+        关联程序 · 多轨
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'files' }"
+        @click="activeTab = 'files'"
+      >
+        案卷 · {{ files.length }}
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'timeline' }"
+        @click="activeTab = 'timeline'"
+      >
+        动态轨迹 · {{ timeline.length }}
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'fields' }"
+        @click="activeTab = 'fields'"
+      >
+        全量属性与字段
+      </span>
+    </div>
+
+    <!-- ═══ Tab 1: 项目总览 ═══ -->
+    <div v-if="activeTab === 'overview'" class="tab-pane">
+      <div class="overview-grid">
+        <!-- 左列：里程碑与目标 -->
+        <div class="card">
+          <div class="ch">
+            <span class="t">里程碑与顺序项目</span>
+            <span class="s">{{ sequentialCompletedCount }}/{{ sequentialTotalCount }} 步完成</span>
+          </div>
+          <div class="sep"></div>
+
+          <!-- 案件目标 -->
+          <div class="goal-box">
+            <div class="goal-header">
+              <span class="goal-label">案件目标</span>
+              <button v-if="!editingGoal" class="btn-text" @click="editingGoal = true">编辑</button>
+            </div>
+            <div v-if="editingGoal" class="goal-edit">
+              <input
+                v-model="goalInput"
+                class="goal-input"
+                placeholder="概括本案核心目标..."
+                @keyup.enter="saveGoal"
+              />
+              <div class="goal-ops">
+                <button class="btn-sm" @click="editingGoal = false">取消</button>
+                <button class="btn-sm primary" @click="saveGoal">保存</button>
+              </div>
+            </div>
+            <div v-else class="goal-text">
+              {{ caseData?.caseGoal || '点击编辑设置案件核心目标' }}
+            </div>
+          </div>
+
+          <!-- 顺序步骤序列 -->
+          <div v-if="sequentialTasks.length" class="seq-list">
+            <div
+              v-for="task in sequentialTasks"
+              :key="task.id"
+              class="seq-item"
+              :class="{
+                done: task.completed,
+                locked: task.blocked,
+                active: !task.completed && !task.blocked,
+              }"
             >
-              编辑
-            </el-button>
-          </div>
-          
-          <div v-if="editingGoal" class="goal-edit">
-            <el-input
-              v-model="goalInput"
-              placeholder="30字内概括案件目标..."
-              maxlength="30"
-              show-word-limit
-              @keyup.enter="saveGoal"
-            />
-            <div class="goal-actions">
-              <el-button size="small" @click="editingGoal = false">取消</el-button>
-              <el-button size="small" type="primary" @click="saveGoal">保存</el-button>
+              <div class="seq-check" @click="toggleTaskComplete(task)">
+                <el-icon v-if="task.completed" :size="12"><Check /></el-icon>
+                <el-icon v-else-if="task.blocked" :size="12"><Lock /></el-icon>
+              </div>
+              <div class="seq-content" @click="openTaskEdit(task)">
+                <span class="seq-name">{{ task.taskName }}</span>
+                <span v-if="task.blocked" class="seq-hint">等待前置步骤完成</span>
+              </div>
+              <span v-if="task.completed" class="tag green">已完成</span>
+              <span v-else-if="task.blocked" class="tag text-3">已锁定</span>
+              <span v-else class="tag solid-blue">当前推进</span>
             </div>
           </div>
-          
-          <div v-else class="goal-display">
-            {{ caseData.caseGoal || '点击编辑设置案件目标' }}
-          </div>
-        </div>
-        
-        <!-- 任务统计 -->
-        <div class="overview-item stats">
-          <div class="item-label">任务统计</div>
-          <div class="stats-grid">
-            <div class="stat">
-              <span class="stat-value">{{ taskStats.total }}</span>
-              <span class="stat-label">总计</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value">{{ taskStats.pending }}</span>
-              <span class="stat-label">待办</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value">{{ taskStats.completed }}</span>
-              <span class="stat-label">完成</span>
-            </div>
-            <div class="stat" v-if="taskStats.overdue > 0">
-              <span class="stat-value overdue">{{ taskStats.overdue }}</span>
-              <span class="stat-label">逾期</span>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 进度环 -->
-        <div class="overview-item progress">
-          <div class="item-label">项目进度</div>
-          <div class="progress-ring">
-            <el-progress
-              type="circle"
-              :percentage="taskStats.total > 0 ? Math.round(taskStats.completed / taskStats.total * 100) : 0"
-              :width="80"
-              :stroke-width="8"
-              color="#4C8067"
-            />
-          </div>
-        </div>
-
-        <!-- 案件类型差异化指标（加载失败静默隐藏） -->
-        <div class="overview-item type-metrics" v-if="typeMetrics">
-          <div class="item-label">{{ metricsTypeLabel }}指标</div>
-          <div class="metrics-rows">
-            <template v-if="metricsCaseType === 'computational'">
-              <div class="metric-row">
-                <span class="metric-label">期限内按时完成率</span>
-                <span class="metric-value">{{ percentText(typeMetrics.onTimeRate) }}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">当前逾期</span>
-                <span class="metric-value" :class="{ 'metric-danger': (typeMetrics.overdueCount || 0) > 0 }">
-                  {{ typeMetrics.overdueCount ?? 0 }}
-                </span>
-              </div>
-            </template>
-            <template v-else-if="metricsCaseType === 'exploratory'">
-              <div class="metric-row">
-                <span class="metric-label">近 90 天阶段推进</span>
-                <span class="metric-value">{{ typeMetrics.trackTransitions90d ?? 0 }} 次</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">顺序项目解锁进度</span>
-                <span class="metric-value">{{ typeMetrics.blockedResolved ?? 0 }}/{{ typeMetrics.blockedTotal ?? 0 }}</span>
-              </div>
-            </template>
-            <template v-else-if="metricsCaseType === 'growth'">
-              <div class="metric-row">
-                <span class="metric-label">近 30 天活跃天数</span>
-                <span class="metric-value">{{ typeMetrics.activeDays30d ?? 0 }} 天</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">连续无活动</span>
-                <span class="metric-value" :class="{ 'metric-warn': (typeMetrics.inactiveStreakDays || 0) > 3 }">
-                  {{ typeMetrics.inactiveStreakDays ?? 0 }} 天
-                </span>
-              </div>
-            </template>
-            <template v-else>
-              <div class="metric-row">
-                <span class="metric-label">完成率</span>
-                <span class="metric-value">{{ percentText(typeMetrics.completionRate) }}</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">逾期</span>
-                <span class="metric-value" :class="{ 'metric-danger': (typeMetrics.overdueCount || 0) > 0 }">
-                  {{ typeMetrics.overdueCount ?? 0 }}
-                </span>
-              </div>
-            </template>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 下一步行动 -->
-    <div class="section next-action-section" v-if="nextAction">
-      <div class="section-header">
-        <h2>下一步行动</h2>
-        <el-button 
-          type="success" 
-          size="small" 
-          @click.stop="toggleTaskComplete(nextAction)"
-          class="complete-action-btn"
-        >
-          <el-icon><Check /></el-icon>
-          完成
-        </el-button>
-      </div>
-      
-      <div class="next-action-card" @click="openTaskEdit(nextAction)">
-        <div class="action-check" @click.stop="toggleTaskComplete(nextAction)">
-          <el-icon color="#C0C4CC"><CircleCheck /></el-icon>
-        </div>
-        
-        <div class="action-content">
-          <div class="action-title">{{ nextAction.taskName }}</div>
-          <div class="action-meta">
-            <span v-if="nextAction.dueDate || nextAction.deadline" class="meta-item" :class="{ overdue: isOverdue(nextAction) }">
-              <el-icon><Calendar /></el-icon>
-              {{ formatDate(nextAction.dueDate || nextAction.deadline) }}
-            </span>
-            <span v-if="nextAction.estimatedMinutes" class="meta-item">
-              <el-icon><Timer /></el-icon>
-              {{ nextAction.estimatedMinutes }}分钟
-            </span>
-            <span v-if="nextAction.context" class="meta-item context">
-              @{{ nextAction.context }}
-            </span>
-          </div>
-        </div>
-        
-        <el-icon color="#A1A1AA"><ArrowRight /></el-icon>
-      </div>
-    </div>
-
-    <!-- 顺序项目列表 -->
-    <div class="section" v-if="tasks.filter(t => t.sequential).length > 0">
-      <div class="section-header">
-        <h2>项目流程</h2>
-        <div class="sequential-progress">
-          <el-progress 
-            :percentage="sequentialCompletionRate" 
-            :stroke-width="8"
-            :show-text="false"
-            color="#67C23A"
+          <EmptyState
+            v-else
+            type="tasks"
+            compact
+            title="暂无顺序项目步骤"
+            description="可在任务管理中为本案添加阶段步骤"
           />
-          <span class="progress-text">{{ sequentialCompletedCount }}/{{ sequentialTotalCount }}</span>
         </div>
-        <el-button text size="small" @click="addNewTask">
-          <el-icon><Plus /></el-icon>
-          添加步骤
-        </el-button>
-      </div>
-      
-      <div class="sequential-tasks">
-        <div
-          v-for="task in tasks.filter(t => t.sequential).sort((a, b) => a.sequenceOrder - b.sequenceOrder)"
-          :key="task.id"
-          :class="['sequential-task', { 
-            completed: task.completed, 
-            blocked: task.blocked,
-            current: !task.completed && !task.blocked 
-          }]"
-        >
-          <div class="task-check" @click="toggleTaskComplete(task)">
-            <el-icon v-if="task.completed" color="#67C23A"><Check /></el-icon>
-            <el-icon v-else-if="task.blocked" color="#C0C4CC"><Lock /></el-icon>
-            <el-icon v-else color="#C0C4CC"><CircleCheck /></el-icon>
-          </div>
-          
-          <div class="task-content" @click="openTaskEdit(task)">
-            <span class="task-name">{{ task.taskName }}</span>
-            <span v-if="task.blocked" class="blocked-hint">等待前置步骤完成</span>
-          </div>
-          
-          <div class="task-status">
-            <el-tag v-if="task.completed" type="success" size="small">已完成</el-tag>
-            <el-tag v-else-if="task.blocked" type="info" size="small">已锁定</el-tag>
-            <el-tag v-else type="primary" size="small">进行中</el-tag>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- 三轨状态 -->
-    <div class="section" v-if="trackBadges.length > 0">
-      <div class="section-header">
-        <h2>案件状态</h2>
-      </div>
-      
-      <div class="track-status">
-        <div 
-          v-for="badge in trackBadges" 
-          :key="badge.track"
-          class="track-card"
-        >
-          <div class="track-header" :style="{ borderBottomColor: badge.color }">
-            <span class="track-name">{{ badge.track }}</span>
+        <!-- 右列：统计与指标 -->
+        <div class="vstack">
+          <!-- 任务统计 -->
+          <div class="card">
+            <div class="ch">
+              <span class="t">任务统计</span>
+              <span class="s">全案看板</span>
+            </div>
+            <div class="sep"></div>
+            <div class="task-stats-row">
+              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+                <span class="num">{{ taskStats.total }}</span>
+                <span class="lbl">总计</span>
+              </div>
+              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+                <span class="num">{{ taskStats.pending }}</span>
+                <span class="lbl">待办</span>
+              </div>
+              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+                <span class="num text-success">{{ taskStats.completed }}</span>
+                <span class="lbl">已完成</span>
+              </div>
+              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+                <span class="num" :class="{ 'text-danger': taskStats.overdue > 0 }">{{ taskStats.overdue }}</span>
+                <span class="lbl">逾期</span>
+              </div>
+            </div>
           </div>
-          
-          <div class="track-body">
-            <div class="status-badge" :style="{ backgroundColor: badge.color + '20', color: badge.color }">
-              {{ badge.label }}
+
+          <!-- 差异化指标卡片 -->
+          <div v-if="typeMetrics" class="card">
+            <div class="ch">
+              <span class="t">{{ metricsTypeLabel }}效能指标</span>
+            </div>
+            <div class="sep"></div>
+            <div class="metrics-list">
+              <template v-if="metricsCaseType === 'computational'">
+                <div class="m-row">
+                  <span class="m-k">按时完成率</span>
+                  <span class="m-v">{{ percentText(typeMetrics.onTimeRate) }}</span>
+                </div>
+                <div class="m-row">
+                  <span class="m-k">逾期项</span>
+                  <span class="m-v text-danger">{{ typeMetrics.overdueCount ?? 0 }}</span>
+                </div>
+              </template>
+              <template v-else-if="metricsCaseType === 'exploratory'">
+                <div class="m-row">
+                  <span class="m-k">阶段推进</span>
+                  <span class="m-v">{{ typeMetrics.trackTransitions90d ?? 0 }} 次</span>
+                </div>
+                <div class="m-row">
+                  <span class="m-k">顺序解锁</span>
+                  <span class="m-v">{{ typeMetrics.blockedResolved ?? 0 }}/{{ typeMetrics.blockedTotal ?? 0 }}</span>
+                </div>
+              </template>
+              <template v-else>
+                <div class="m-row">
+                  <span class="m-k">总完成率</span>
+                  <span class="m-v">{{ percentText(typeMetrics.completionRate) }}</span>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 关联资源快速跳转 -->
+          <div class="card">
+            <div class="ch">
+              <span class="t">关联资源</span>
+            </div>
+            <div class="sep"></div>
+            <div class="resource-links">
+              <div class="res-item" @click="activeTab = 'files'">
+                <el-icon :size="16" class="res-ico blue"><Folder /></el-icon>
+                <span class="res-name">卷宗文件</span>
+                <span class="res-count">{{ files.length }}</span>
+              </div>
+              <div class="res-item" @click="router.push({ name: 'knowledge' })">
+                <el-icon :size="16" class="res-ico purple"><Collection /></el-icon>
+                <span class="res-name">关联知识</span>
+                <span class="res-count">{{ knowledge.length }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 关联案件快速跳转 -->
+          <div class="card" v-if="relatedCases.length > 0 || true">
+            <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+              <span class="t">关联案件 ({{ relatedCases.length }})</span>
+              <el-button link type="primary" size="small" @click="showAddRelationDialog = true">
+                <el-icon><Plus /></el-icon> 添加关联
+              </el-button>
+            </div>
+            <div class="sep"></div>
+            <div class="related-cases-list">
+              <div 
+                v-for="rc in relatedCases" 
+                :key="rc.relationId"
+                class="related-case-item"
+                @click="router.push({ name: 'caseDetail', params: { id: rc.caseId } })"
+                style="cursor: pointer; padding: 12px; margin-bottom: 8px; background: var(--bg-hover); border-radius: 6px; display: flex; flex-direction: column; gap: 4px;"
+              >
+                <span style="font-size: 13px; font-weight: 500; color: var(--text-1);">{{ rc.caseName }}</span>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span class="tag sm" style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary);">{{ rc.track }}</span>
+                  <span class="tag sm" style="background: var(--bg-card); color: var(--text-3); border: 1px solid var(--border-light);">{{ rc.relationType }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 关联资源 -->
-    <div class="section">
-      <div class="section-header">
-        <h2>关联资源</h2>
-      </div>
-      
-      <div class="resources-grid">
-        <!-- 任务 -->
-        <div class="resource-card" @click="router.push({ name: 'tasks', query: { caseId: caseId } })">
-          <el-icon :size="24" color="#E6A23C"><Finished /></el-icon>
-          <div class="resource-info">
-            <span class="resource-count">{{ taskStats.pending }}</span>
-            <span class="resource-label">待办任务</span>
-          </div>
+    <!-- ═══ Tab 2: 三轨状态 ═══ -->
+    <div v-if="activeTab === 'tracks'" class="tab-pane">
+      <div class="card">
+        <div class="ch">
+          <span class="t">三轨并行状态机</span>
+          <span class="s">专利无效 / 民事诉讼 / 行政诉讼</span>
         </div>
-        
-        <!-- 文件 -->
-        <div class="resource-card">
-          <el-icon :size="24" color="#409EFF"><Folder /></el-icon>
-          <div class="resource-info">
-            <span class="resource-count">{{ files.length }}</span>
-            <span class="resource-label">案卷文件</span>
-          </div>
-        </div>
-        
-        <!-- 知识 -->
-        <div class="resource-card">
-          <el-icon :size="24" color="#8B5CF6"><Collection /></el-icon>
-          <div class="resource-info">
-            <span class="resource-count">{{ knowledge.length }}</span>
-            <span class="resource-label">关联知识</span>
+        <div class="sep"></div>
+        <div class="tracks-container">
+          <div v-for="b in trackBadges" :key="b.track" class="track-panel">
+            <div class="track-panel-header">
+              <span class="tp-title">{{ b.track }}</span>
+              <span :class="b.tagClass">{{ b.label }}</span>
+            </div>
+            <div class="track-stepper">
+              <div class="tp-step active">
+                <span class="tp-dot"></span>
+                <span class="tp-name">立案/受理</span>
+              </div>
+              <div class="tp-line"></div>
+              <div class="tp-step active">
+                <span class="tp-dot"></span>
+                <span class="tp-name">审理推进</span>
+              </div>
+              <div class="tp-line"></div>
+              <div class="tp-step">
+                <span class="tp-dot muted"></span>
+                <span class="tp-name">裁决/判决</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 案卷管理（index-v2 精装版 · 文件夹同步） -->
-    <div class="section">
-      <div class="section-header">
-        <h2>案卷管理</h2>
-      </div>
+    <!-- ═══ Tab 3: 案卷管理 ═══ -->
+    <div v-if="activeTab === 'files'" class="tab-pane">
       <CaseFilesPanel :case-id="caseId" :case-no="caseData?.caseNo" />
     </div>
 
-    <!-- 动态轨迹 -->
-    <div class="section">
-      <div class="section-header">
-        <h2>动态轨迹</h2>
+    <!-- ═══ Tab 4: 动态轨迹 ═══ -->
+    <div v-if="activeTab === 'timeline'" class="tab-pane">
+      <div class="card">
+        <div class="ch">
+          <span class="t">动态轨迹</span>
+          <span class="s">案件生命周期全记录</span>
+        </div>
+        <div class="sep"></div>
+        <div v-if="timeline.length" class="timeline-stream">
+          <div v-for="(item, idx) in timeline" :key="idx" class="t-row">
+            <div class="t-date">{{ item.date || item.createdAt?.slice(5, 10) }}</div>
+            <div class="t-track"><div class="t-dot"></div></div>
+            <div class="t-body">
+              <div class="t-head">
+                <span class="t-title">{{ item.title || item.action || '动态' }}</span>
+                <span v-if="item.author" class="t-author">{{ item.author }}</span>
+              </div>
+              <div v-if="item.description" class="t-desc">{{ item.description }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-hint">暂无动态记录</div>
       </div>
-      
-      <div class="timeline" v-if="timeline.length > 0">
-        <div 
-          v-for="event in timeline.slice(0, 10)" 
-          :key="event.id"
-          class="timeline-item"
-        >
-          <div class="timeline-dot" :style="{ backgroundColor: event.color || '#409EFF' }"></div>
-          <div class="timeline-content">
-            <div class="timeline-title">{{ event.eventSummary }}</div>
-            <div class="timeline-date">{{ formatDate(event.eventDate) }}</div>
+    </div>
+    <!-- ═══ Tab: 开庭与口审排期 ═══ -->
+    <div v-if="activeTab === 'hearings'" class="tab-pane">
+      <div class="card">
+        <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <span class="t">开庭与口审排期记录</span>
+            <span class="s">历次出庭/口审信息沉淀 (共 {{ hearings.length }} 次)</span>
+          </div>
+          <button class="btn-sm primary" @click="openAddHearing">
+            <el-icon><Plus /></el-icon>
+            <span>添加开庭/口审</span>
+          </button>
+        </div>
+        <div class="sep"></div>
+
+        <div v-if="hearings.length" class="hearings-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 18%">庭审/口审轮次</th>
+                <th style="width: 16%">开庭时间</th>
+                <th style="width: 16%">审理法院/机构</th>
+                <th style="width: 14%">合议庭/法官</th>
+                <th style="width: 14%">法庭/地点</th>
+                <th style="width: 10%">状态</th>
+                <th style="width: 12%">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="h in hearings" :key="h.id">
+                <td>
+                  <strong>{{ h.hearingName || h.hearingRecord || '开庭/口审' }}</strong>
+                  <div v-if="h.caseLevel" class="text-xs text-text-muted">{{ h.caseLevel }}</div>
+                </td>
+                <td>
+                  <div class="font-mono text-primary font-semibold">{{ h.hearingDate }}</div>
+                </td>
+                <td>{{ h.court || caseData?.court || '—' }}</td>
+                <td>{{ h.judges || caseData?.judgePanel || '—' }}</td>
+                <td>{{ h.venue || '—' }}</td>
+                <td>
+                  <el-tag
+                    :type="h.actualStatus === '已开庭' ? 'success' : 'warning'"
+                    size="small"
+                    style="cursor: pointer"
+                    @click="toggleHearingStatus(h)"
+                  >
+                    {{ h.actualStatus || '待开庭' }}
+                  </el-tag>
+                </td>
+                <td>
+                  <div class="row-ops">
+                    <button class="btn-text" @click="openEditHearing(h)">编辑</button>
+                    <button class="btn-text text-danger" @click="deleteHearing(h)">删除</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <EmptyState
+          v-else
+          type="calendar"
+          compact
+          title="暂无开庭排期"
+          description="点击右上角「添加开庭/口审」录入庭审信息"
+        />
+      </div>
+    </div>
+
+    <!-- ═══ Tab: 任务与待办事项 ═══ -->
+    <div v-if="activeTab === 'tasks'" class="tab-pane">
+      <div class="card">
+        <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <span class="t">本案关联任务与待办</span>
+            <span class="s">{{ taskStats.completed }}/{{ taskStats.total }} 项已完成</span>
+          </div>
+          <button class="btn-sm primary" @click="addNewTask">
+            <el-icon><Plus /></el-icon>
+            <span>添加任务</span>
+          </button>
+        </div>
+        <div class="sep"></div>
+
+        <div v-if="tasks.length" class="tasks-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 8%">状态</th>
+                <th style="width: 36%">任务名称与详情</th>
+                <th style="width: 14%">优先级</th>
+                <th style="width: 16%">截止日期</th>
+                <th style="width: 14%">责任人</th>
+                <th style="width: 12%">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in tasks" :key="t.id" :class="{ 'row-done': t.completed }">
+                <td>
+                  <el-checkbox
+                    :model-value="Boolean(t.completed)"
+                    @change="toggleTaskComplete(t)"
+                  />
+                </td>
+                <td>
+                  <div class="task-title" :class="{ done: t.completed }">{{ t.taskName }}</div>
+                  <div v-if="t.description" class="task-desc">{{ t.description }}</div>
+                </td>
+                <td>
+                  <el-tag
+                    v-if="t.priority === 'urgent_important'"
+                    type="danger"
+                    size="small"
+                  >
+                    紧急且重要
+                  </el-tag>
+                  <el-tag
+                    v-else-if="t.priority === 'important'"
+                    type="warning"
+                    size="small"
+                  >
+                    重要
+                  </el-tag>
+                  <el-tag
+                    v-else-if="t.priority === 'urgent'"
+                    type="danger"
+                    size="small"
+                  >
+                    紧急
+                  </el-tag>
+                  <el-tag v-else size="small" type="info">普通</el-tag>
+                </td>
+                <td>
+                  <span class="font-mono text-xs">{{ t.deadline || t.dueDate || '—' }}</span>
+                </td>
+                <td>{{ t.assignee || '—' }}</td>
+                <td>
+                  <div class="row-ops">
+                    <button class="btn-text" @click="openTaskEdit(t)">编辑</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <EmptyState
+          v-else
+          type="tasks"
+          compact
+          title="本案暂无关联任务"
+          description="点击右上角「添加任务」创建办案待办"
+        />
+      </div>
+    </div>
+
+    <!-- ═══ Tab: 全量属性与字段 ═══ -->
+    <div v-if="activeTab === 'fields'" class="tab-pane">
+      <div class="card">
+        <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <span class="t">全量案件字段与多维属性</span>
+            <span class="s">支持查看与就地编辑本案全部基础及扩展字段属性</span>
+          </div>
+          <div>
+            <button v-if="!editingFields" class="btn-sm primary" @click="startEditFields">
+              <el-icon><Edit /></el-icon>
+              <span>编辑所有属性</span>
+            </button>
+            <div v-else class="goal-ops">
+              <button class="btn-sm" @click="editingFields = false">取消</button>
+              <button class="btn-sm primary" @click="saveFields">保存全部修改</button>
+            </div>
+          </div>
+        </div>
+        <div class="sep"></div>
+
+        <div v-if="caseData" class="fields-grid-layout">
+          <!-- 核心标识与案由 -->
+          <div class="field-item">
+            <label class="field-label">案件名称 (caseName):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.caseName" size="small" />
+            <div v-else class="field-val font-semibold">{{ caseData.caseName || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">法院案号 (caseNo):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.caseNo" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.caseNo || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">内部编号/流水号 (internalNo):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.internalNo" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.internalNo || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">案由/纠纷类型 (causeAction):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.causeAction" size="small" />
+            <div v-else class="field-val">{{ caseData.causeAction || '—' }}</div>
+          </div>
+
+          <!-- 当事人与代理人 -->
+          <div class="field-item">
+            <label class="field-label">委托方/客户 (clientName):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.clientName" size="small" />
+            <div v-else class="field-val">{{ caseData.clientName || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">相对方/对方当事人 (opponentName):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.opponentName" size="small" />
+            <div v-else class="field-val">{{ caseData.opponentName || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">我方诉讼地位 (ourRole):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.ourRole" size="small" />
+            <div v-else class="field-val">{{ caseData.ourRole || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">对方诉讼地位 (opponentRole):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.opponentRole" size="small" />
+            <div v-else class="field-val">{{ caseData.opponentRole || '—' }}</div>
+          </div>
+
+          <!-- 机构与人员 -->
+          <div class="field-item">
+            <label class="field-label">审理法院/机构 (court):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.court" size="small" />
+            <div v-else class="field-val">{{ caseData.court || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">承办法官/合议庭 (judgePanel):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.judgePanel" size="small" />
+            <div v-else class="field-val">{{ caseData.judgePanel || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">书记员/联系方式 (clerk):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.clerk" size="small" />
+            <div v-else class="field-val">{{ caseData.clerk || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">负责律师/团队 (attorneys):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.attorneys" size="small" />
+            <div v-else class="field-val">{{ caseData.attorneys || '—' }}</div>
+          </div>
+
+          <!-- 关键节点时间 -->
+          <div class="field-item">
+            <label class="field-label">接案/立案日期 (filingDate):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.filingDate" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.filingDate || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">首期开庭时间 (trialDate):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.trialDate" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.trialDate || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">判决/裁判时间 (verdictDate):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.verdictDate" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.verdictDate || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">保全期限/开始时间 (stayDate):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.stayDate" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.stayDate || '—' }}</div>
+          </div>
+
+          <!-- 知识产权专属 -->
+          <div class="field-item">
+            <label class="field-label">涉案专利名称 (patentName):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.patentName" size="small" />
+            <div v-else class="field-val">{{ caseData.patentName || '—' }}</div>
+          </div>
+
+          <div class="field-item">
+            <label class="field-label">专利号/申请号 (patentNo / patentAppNo):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.patentNo" size="small" />
+            <div v-else class="field-val font-mono">{{ caseData.patentNo || '—' }}</div>
+          </div>
+
+          <!-- 备注与进展 -->
+          <div class="field-item full-width">
+            <label class="field-label">当前进展情况 (caseProgress):</label>
+            <el-input v-if="editingFields" v-model="fieldsForm.caseProgress" size="small" />
+            <div v-else class="field-val">{{ caseData.caseProgress || '—' }}</div>
+          </div>
+
+          <div class="field-item full-width">
+            <label class="field-label">办案附注与日志汇总 (notes):</label>
+            <el-input
+              v-if="editingFields"
+              v-model="fieldsForm.notes"
+              type="textarea"
+              :rows="3"
+              size="small"
+            />
+            <div v-else class="field-val" style="white-space: pre-wrap;">{{ caseData.notes || '—' }}</div>
           </div>
         </div>
       </div>
-      
-      <div v-else class="empty-timeline">
-        <el-icon :size="32" color="#C0C4CC"><Clock /></el-icon>
-        <p>暂无动态记录</p>
-      </div>
     </div>
+
+    <!-- 庭审排期新增/编辑弹窗 -->
+    <el-dialog
+      v-model="showHearingDialog"
+      :title="hearingForm.id ? '编辑开庭/口审排期' : '新增开庭/口审排期'"
+      width="540px"
+      destroy-on-close
+    >
+      <el-form label-width="110px" size="small">
+        <el-form-item label="庭审轮次/名称" required>
+          <el-input v-model="hearingForm.hearingName" placeholder="例如: 一审第一次开庭 / 口头审理" />
+        </el-form-item>
+        <el-form-item label="开庭/口审时间" required>
+          <el-date-picker
+            v-model="hearingForm.hearingDate"
+            type="date"
+            placeholder="选择日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="审理法院/机构">
+          <el-input v-model="hearingForm.court" placeholder="审理法院名称" />
+        </el-form-item>
+        <el-form-item label="法庭/地点">
+          <el-input v-model="hearingForm.venue" placeholder="例如: 第五法庭 / 线上腾讯会议" />
+        </el-form-item>
+        <el-form-item label="承办法官/合议庭">
+          <el-input v-model="hearingForm.judges" placeholder="法官姓名" />
+        </el-form-item>
+        <el-form-item label="案件阶段/审级">
+          <el-input v-model="hearingForm.caseLevel" placeholder="例如: 一审 / 二审 / 阶段" />
+        </el-form-item>
+        <el-form-item label="书记员/联系方式">
+          <el-input v-model="hearingForm.contactInfo" placeholder="联系电话或书记员姓名" />
+        </el-form-item>
+        <el-form-item label="出庭状态">
+          <el-radio-group v-model="hearingForm.actualStatus">
+            <el-radio value="待开庭">待开庭</el-radio>
+            <el-radio value="已开庭">已开庭</el-radio>
+            <el-radio value="已取消/改期">已取消/改期</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="showHearingDialog = false">取消</el-button>
+        <el-button type="primary" size="small" @click="saveHearing">保存</el-button>
+      </template>
+    </el-dialog>
+    <AddRelationDialog
+      v-model="showAddRelationDialog"
+      :currentCaseId="caseId"
+      @relation-added="handleRelationAdded"
+    />
   </div>
 </template>
 
 <style scoped>
-.case-detail {
-  padding: 20px;
-  max-width: 1200px;
+/* ============================================================
+   案件详情 · Slate 设计规范
+   ============================================================ */
+.case-detail-container {
+  max-width: 1320px;
   margin: 0 auto;
+  padding: 16px 20px 32px;
 }
 
-/* 顶部导航 */
 .detail-header {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
-/* 案件概要 */
-.case-summary {
-  background: #FFFFFF;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 20px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.summary-title {
-  display: flex;
+.btn-back {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.summary-title h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-
-.summary-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: 6px;
+  background: transparent;
+  border: none;
   font-size: 13px;
-  color: var(--c-text-regular);
-}
-
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.case-type {
-  font-weight: 500;
-}
-
-.track-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.track-badge {
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: 1px solid;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-/* 区块通用 */
-.section {
-  background: #FFFFFF;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 20px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.section-header h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-
-/* 项目总览 */
-.project-overview {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 20px;
-}
-
-.overview-item {
-  padding: 16px;
-  background: #FAFAFA;
-  border-radius: 8px;
-}
-
-.item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.item-label {
-  font-size: 12px;
   color: var(--c-text-secondary);
-  margin-bottom: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color var(--motion-fast) var(--ease-out);
 }
 
-.goal-display {
-  font-size: 14px;
-  color: var(--c-text);
-  min-height: 40px;
+.btn-back:hover {
+  color: var(--c-primary);
 }
 
-.goal-edit {
+/* ── 案件概要 Hero ─────────────────────────────────────────── */
+.case-hero-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.hero-left {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
-.goal-actions {
+.case-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  letter-spacing: -0.2px;
+  margin: 0;
+}
+
+.case-subtitle {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--c-text-secondary);
 }
 
-/* 统计 */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+.sub-item.mono {
+  font-family: var(--font-mono);
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.hero-donut-wrap {
+  flex-shrink: 0;
+}
+
+.donut-outer {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: conic-gradient(var(--c-primary) 65%, var(--gray-200) 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.donut-inner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--c-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.donut-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--c-primary);
+  line-height: 1;
+}
+
+.donut-sub {
+  font-size: 8px;
+  color: var(--c-text-secondary);
+  transform: scale(0.9);
+}
+
+/* ── 下一步行动 Hero ───────────────────────────────────────── */
+.next-card {
+  display: flex;
+  align-items: center;
   gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--c-radius-lg);
+  background: var(--c-primary-light);
+  border: 1px solid var(--c-primary-lighter);
+  margin-bottom: 14px;
 }
 
-.stat {
-  text-align: center;
+.next-card .play {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
-.stat-value {
-  display: block;
-  font-size: 20px;
+.next-card .info {
+  flex: 1;
+  min-width: 0;
+}
+
+.next-card .info .n {
+  font-size: 13px;
   font-weight: 600;
   color: var(--c-text);
 }
 
-.stat-value.overdue {
-  color: #F56C6C;
+.next-card .info .s {
+  font-size: 11.5px;
+  color: var(--c-primary);
+  margin-top: 2px;
 }
 
-.stat-label {
+/* ── Detail Tabs ───────────────────────────────────────────── */
+.detail-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 16px;
+  padding-bottom: 0;
+}
+
+.dtab {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-regular);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all var(--motion-fast) var(--ease-out);
+}
+
+.dtab:hover {
+  color: var(--c-text);
+}
+
+.dtab.active {
+  color: var(--c-primary);
+  border-bottom-color: var(--c-primary);
+  font-weight: 600;
+}
+
+/* ── Tab Pane ──────────────────────────────────────────────── */
+.tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.vstack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── 卡片 ──────────────────────────────────────────────────── */
+.card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card .ch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card .ch .t {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-heading);
+}
+
+.card .ch .s {
   font-size: 11px;
   color: var(--c-text-secondary);
 }
 
-/* 进度环 */
-.progress-ring {
-  display: flex;
-  justify-content: center;
+.card .sep {
+  height: 1px;
+  background: var(--c-border-light);
+  margin: 10px 0;
 }
 
-/* 案件类型差异化指标 */
-.metrics-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* ── 目标框 ────────────────────────────────────────────────── */
+.goal-box {
+  background: var(--gray-50);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--c-radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
 }
 
-.metric-row {
+.goal-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
-
-.metric-label {
-  color: var(--c-text-regular);
-}
-
-.metric-value {
-  font-weight: 600;
-  color: var(--c-text);
-}
-
-.metric-danger {
-  color: var(--c-danger);
-}
-
-.metric-warn {
-  color: var(--c-warning);
-}
-
-/* 下一步行动 */
-.next-action-section {
-  background: #EFF6FF;
-}
-
-.next-action-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: #FFFFFF;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: box-shadow var(--motion-base);
-}
-
-.next-action-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.action-check {
-  cursor: pointer;
-}
-
-.action-content {
-  flex: 1;
-}
-
-.action-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-text);
   margin-bottom: 4px;
 }
 
-.action-meta {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
+.goal-label {
+  font-size: 11px;
+  font-weight: 600;
   color: var(--c-text-secondary);
 }
 
-/* 顺序项目 */
-.sequential-tasks {
+.btn-text {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  color: var(--c-primary);
+  cursor: pointer;
+}
+
+.goal-text {
+  font-size: 12.5px;
+  color: var(--c-text);
+  line-height: 1.5;
+}
+
+.goal-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius);
+  font-size: 12px;
+  outline: none;
+  background: #fff;
+}
+
+.goal-ops {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ── 顺序步骤列表 ──────────────────────────────────────────── */
+.seq-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
-.sequential-task {
+.seq-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  background: #FAFAFA;
-  border-radius: 8px;
-  transition: all var(--motion-base) var(--ease-out);
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--c-radius);
+  background: var(--c-surface);
+  transition: all var(--motion-fast) var(--ease-out);
 }
 
-.sequential-task.current {
-  background: #EFF6FF;
-  border-left: 3px solid #409EFF;
+.seq-item.active {
+  border-color: var(--c-primary-lighter);
+  background: var(--c-primary-light);
 }
 
-.sequential-task.blocked {
-  opacity: 0.6;
+.seq-item.locked {
+  opacity: 0.65;
 }
 
-.sequential-task.completed {
-  opacity: 0.5;
-}
-
-.task-check {
+.seq-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--gray-300);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
-.task-content {
+.seq-item.done .seq-check {
+  background: var(--c-success);
+  border-color: var(--c-success);
+  color: #fff;
+}
+
+.seq-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   cursor: pointer;
+  min-width: 0;
 }
 
-.task-name {
-  font-size: 14px;
+.seq-name {
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--c-text);
 }
 
-.blocked-hint {
-  display: block;
-  font-size: 12px;
+.seq-hint {
+  font-size: 10.5px;
+  color: var(--c-text-secondary);
+}
+
+/* ── 任务统计格子 ──────────────────────────────────────────── */
+.task-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  background: var(--gray-50);
+  border-radius: var(--c-radius);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.stat-cell:hover {
+  background: var(--c-bg-hover);
+}
+
+.stat-cell .num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+}
+
+.stat-cell .lbl {
+  font-size: 10.5px;
   color: var(--c-text-secondary);
   margin-top: 2px;
 }
 
-/* 轨道状态 */
-.track-status {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+/* ── 指标行 ────────────────────────────────────────────────── */
+.metrics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.track-card {
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  overflow: hidden;
+.m-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
 }
 
-.track-header {
-  padding: 12px;
-  border-bottom: 2px solid;
-  background: #FAFAFA;
+.m-k {
+  color: var(--c-text-regular);
 }
 
-.track-name {
-  font-size: 14px;
-  font-weight: 500;
+.m-v {
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+/* ── 资源链接 ──────────────────────────────────────────────── */
+.resource-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.res-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--c-radius);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.res-item:hover {
+  background: var(--c-bg-hover);
+}
+
+.res-name {
+  flex: 1;
+  font-size: 12.5px;
   color: var(--c-text);
 }
 
-.track-body {
-  padding: 16px;
+.res-count {
+  font-size: 11px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-mono);
 }
 
-.status-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-}
+.res-ico.blue { color: var(--c-primary); }
+.res-ico.purple { color: var(--c-info); }
 
-/* 关联资源 */
-.resources-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.resource-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: #FAFAFA;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all var(--motion-base) var(--ease-out);
-}
-
-.resource-card:hover {
-  background: var(--gray-50);
-}
-
-.resource-info {
+/* ── 三轨状态 ──────────────────────────────────────────────── */
+.tracks-container {
   display: flex;
   flex-direction: column;
+  gap: 14px;
 }
 
-.resource-count {
-  font-size: 18px;
+.track-panel {
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--c-radius);
+  padding: 12px 14px;
+}
+
+.track-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.tp-title {
+  font-size: 13px;
   font-weight: 600;
   color: var(--c-text);
 }
 
-.resource-label {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-/* 动态轨迹 */
-.timeline {
-  position: relative;
-  padding-left: 20px;
-}
-
-.timeline::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--c-border);
-}
-
-.timeline-item {
-  position: relative;
-  padding-bottom: 16px;
-  padding-left: 16px;
-}
-
-.timeline-dot {
-  position: absolute;
-  left: -14px;
-  top: 4px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.timeline-title {
-  font-size: 13px;
-  color: var(--c-text);
-  margin-bottom: 2px;
-}
-
-.timeline-date {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-.empty-timeline {
+.track-stepper {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 40px;
+  gap: 10px;
+}
+
+.tp-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
   color: var(--c-text-secondary);
 }
 
-.empty-timeline p {
-  margin: 8px 0 0;
-  font-size: 13px;
-}
-
-/* 新增样式 */
-.clickable {
-  cursor: pointer;
-  transition: color var(--motion-base);
-}
-
-.clickable:hover {
-  color: #409EFF;
-  text-decoration: underline;
-}
-
-.complete-action-btn {
+.tp-step.active {
+  color: var(--c-text);
   font-weight: 500;
 }
 
-.sequential-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  margin: 0 16px;
+.tp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-primary);
 }
 
-.progress-text {
-  font-size: 12px;
-  color: var(--gray-500);
+.tp-dot.muted {
+  background: var(--gray-300);
+}
+
+.tp-line {
+  flex: 1;
+  height: 1px;
+  background: var(--c-border);
+}
+
+/* ── 动态轨迹时间线 ────────────────────────────────────────── */
+.timeline-stream {
+  display: flex;
+  flex-direction: column;
+}
+
+.t-row {
+  display: flex;
+  gap: 12px;
+  min-height: 38px;
+}
+
+.t-date {
+  width: 48px;
+  font-size: 11px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-mono);
+  text-align: right;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.t-track {
+  width: 12px;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.t-track::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--c-border);
+}
+
+.t-row:first-child .t-track::before { top: 6px; }
+.t-row:last-child .t-track::before { height: 6px; }
+
+.t-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  margin-top: 6px;
+  z-index: 1;
+}
+
+.t-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+}
+
+.t-summary {
+  font-size: 12.5px;
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+.t-detail {
+  font-size: 11px;
+  color: var(--c-text-secondary);
+}
+
+/* ── 药丸标签 ──────────────────────────────────────────────── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
-.context {
-  color: var(--gray-500);
-  background: #F3F4F6;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 12px;
+.tag.blue { background: var(--c-primary-light); color: var(--c-primary); }
+.tag.purple { background: var(--c-info-light); color: var(--c-info); }
+.tag.green { background: var(--c-success-light); color: var(--c-success); }
+.tag.amber { background: var(--c-warning-light); color: var(--c-warning); }
+.tag.red { background: var(--c-danger-light); color: var(--c-danger); }
+.tag.solid-blue { background: var(--c-primary); color: #fff; }
+.tag.text-3 { background: var(--gray-100); color: var(--c-text-secondary); }
+
+.btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--c-radius);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text-regular);
+  font-family: inherit;
+  transition: all var(--motion-fast) var(--ease-out);
+}
+
+.btn-sm:hover {
+  border-color: var(--gray-400);
+  color: var(--c-text);
+}
+
+.btn-sm.primary {
+  background: var(--c-primary);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn-sm.primary:hover {
+  background: var(--c-primary-hover);
+}
+
+.text-danger { color: var(--c-danger) !important; }
+.text-success { color: var(--c-success) !important; }
+
+/* ── 表格与列表布局 ────────────────────────────────────────── */
+.hearings-table-wrap,
+.tasks-table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.data-table th {
+  padding: 8px 12px;
+  background: var(--c-bg-subtle, #f8fafc);
+  color: var(--c-text-secondary, #64748b);
+  font-weight: 600;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 11.5px;
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--c-border-light, #f1f5f9);
+  vertical-align: middle;
+}
+
+.data-table tr:hover td {
+  background: var(--c-bg-hover, #f8fafc);
+}
+
+.data-table tr.row-done td {
+  opacity: 0.65;
+}
+
+.task-title {
+  font-weight: 500;
+  color: var(--c-text-main, #1e293b);
+}
+
+.task-title.done {
+  text-decoration: line-through;
+  color: var(--c-text-muted, #94a3b8);
+}
+
+.task-desc {
+  font-size: 11px;
+  color: var(--c-text-muted, #64748b);
+  margin-top: 2px;
+}
+
+.row-ops {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── 全量字段网格编辑 ──────────────────────────────────────── */
+.fields-grid-layout {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px 24px;
+}
+
+.field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--c-text-secondary, #64748b);
+}
+
+.field-val {
+  font-size: 13px;
+  color: var(--c-text-main, #1e293b);
+  padding: 4px 0;
+  min-height: 24px;
 }
 </style>

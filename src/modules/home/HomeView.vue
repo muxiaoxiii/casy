@@ -1,69 +1,163 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
-  Calendar,
+  CaretRight,
+  ChatDotRound,
+  Message,
+  Document,
+  ArrowRight,
   Clock,
   Warning,
-  Document,
-  List,
-  Bell,
-  Timer,
-  RefreshRight,
-  CircleCheck,
-  Star,
+  Finished,
+  Refresh,
+  Reading,
+  Suitcase,
+  Folder,
+  CopyDocument,
+  Printer,
+  Close,
+  Calendar,
+  Compass,
+  Check,
+  Promotion,
+  Plus,
+  Open,
+  DataAnalysis,
+  Opportunity,
+  Opportunity as Sparkles,
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { casyContext } from '../../core/plugin/context'
 import { useCasesStore } from '../../stores/cases'
 import { useTasksStore } from '../../stores/tasks'
 import { useCalendarStore } from '../../stores/calendar'
 import { useProfileStore } from '../../stores/profile'
-import EmptyState from '../../shared/components/EmptyState.vue'
+import { useInboxStore } from '../../stores/inbox'
+import { useSettingsStore } from '../../stores/settings'
+import BriefingModal from '../../shared/components/BriefingModal.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const casesStore = useCasesStore()
 const tasksStore = useTasksStore()
 const calendarStore = useCalendarStore()
 const profileStore = useProfileStore()
+const inboxStore = useInboxStore()
+const settingsStore = useSettingsStore()
 
-// 早报问候语：有画像姓名时带称呼（如「早安，王律师 · 每日早报」）
-const greeting = computed(() => {
-  const name = profileStore.name?.trim()
-  return name ? `早安，${name}律师 · 每日早报` : '每日早报'
+// ============================================================
+// 日期与问候语
+// ============================================================
+const timeFilter = ref('today') // 'today' | 'week'
+
+const dateDisplay = computed(() => {
+  const now = new Date()
+  const month = now.getMonth() + 1
+  const date = now.getDate()
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  return `${month}月${date}日 ${dayNames[now.getDay()]}`
 })
 
-const today = new Date().toISOString().split('T')[0]
+const fullDateDisplay = computed(() => {
+  const now = new Date()
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const dayName = days[now.getDay()]
+  const monthName = months[now.getMonth()]
+  return `${dayName}, ${monthName} ${now.getDate()}, ${now.getFullYear()}`
+})
 
-// 分级预警（设计哲学 §11.2）
-const deadlineWarnings = ref([])
-
-async function loadDeadlineWarnings() {
-  const result = await casyContext.calendar.deadlineWarningsWithLevels()
-  if (result.ok && result.data) {
-    deadlineWarnings.value = result.data
-  }
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
+const today = localDateKey()
+
+const currentHour = new Date().getHours()
+const currentDay = new Date().getDay()
+const isMorning = computed(() => currentHour < 14) // Before 14:00 is Morning Planning, after is Evening Summary
+
+const isWeekStart = computed(() => {
+  const d = new Date()
+  const todayDay = d.getDay() === 0 ? 7 : d.getDay()
+  
+  // 判断本周剩余几天是否还有工作日
+  let hasWorkdayLeftThisWeek = false
+  for (let i = todayDay; i <= 7; i++) {
+    const checkDate = new Date(d)
+    checkDate.setDate(d.getDate() + (i - todayDay))
+    if (calendarStore.isWorkday(localDateKey(checkDate))) {
+      hasWorkdayLeftThisWeek = true
+      break
+    }
+  }
+  
+  // 如果本周已经没有工作日了，或者是周一到周三，视为新的一周的开始（计划期）
+  if (!hasWorkdayLeftThisWeek) return true
+  return todayDay >= 1 && todayDay <= 3
+})
+
+const weeklyDateRange = computed(() => {
+  const d = new Date()
+  const todayDay = d.getDay() === 0 ? 7 : d.getDay()
+  
+  // 节假日顺延机制：寻找最近的有效工作周
+  let hasWorkdayLeftThisWeek = false
+  for (let i = todayDay; i <= 7; i++) {
+    const checkDate = new Date(d)
+    checkDate.setDate(d.getDate() + (i - todayDay))
+    if (calendarStore.isWorkday(localDateKey(checkDate))) {
+      hasWorkdayLeftThisWeek = true
+      break
+    }
+  }
+
+  // 确定基准日期
+  const baseDate = new Date(d)
+  if (!hasWorkdayLeftThisWeek) {
+    // 顺延到下周一
+    baseDate.setDate(d.getDate() + (8 - todayDay))
+  }
+  
+  const day = baseDate.getDay()
+  const diffToMonday = day === 0 ? -6 : 1 - day
+  
+  const start = new Date(baseDate)
+  start.setDate(baseDate.getDate() + diffToMonday)
+  
+  const end = new Date(start)
+  end.setDate(start.getDate() + 6)
+  
+  return `${localDateKey(start).replace(/-/g, '.')} - ${localDateKey(end).replace(/-/g, '.')}`
+})
+
 onMounted(async () => {
-  profileStore.load()
   await Promise.all([
+    profileStore.load(),
+    settingsStore.load(),
     casesStore.loadDashboard(),
     tasksStore.loadTasks(),
+    casesStore.loadCases(),
+    inboxStore.loadItems(),
     calendarStore.loadEvents(new Date().getFullYear(), new Date().getMonth() + 1),
-    loadDeadlineWarnings(),
     loadBrief(),
-    loadHomeRecommendations(),
   ])
 })
 
 // ============================================================
-// 每日早报（后端规则版 Markdown，失败回退本地拼接）
+// 早报与周报弹窗控制
 // ============================================================
+const showDailyModal = ref(false)
+const showWeeklyModal = ref(false)
 const brief = ref(null)
 const briefDegraded = ref(false)
 const briefLoading = ref(false)
 
-/** get_today_brief 返回 smart_summaries 行；generate_daily_brief_cmd 返回 DailyBrief（markdown 字段） */
 function extractBriefContent(data) {
   return data?.content || data?.markdown || ''
 }
@@ -91,59 +185,14 @@ async function regenerateBrief() {
   if (result.ok && result.data && extractBriefContent(result.data)) {
     brief.value = result.data
     briefDegraded.value = false
+    ElMessage.success('早报已重新生成')
   } else {
     briefDegraded.value = true
   }
 }
 
-/** 极简 Markdown 渲染：标题/列表/加粗（不引入新依赖） */
-function renderMarkdown(md) {
-  if (!md) return ''
-  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  let html = ''
-  let inList = false
-  for (const line of md.split('\n')) {
-    const t = line.trim()
-    if (t.startsWith('- ') || t.startsWith('* ')) {
-      if (!inList) { html += '<ul>'; inList = true }
-      html += `<li>${inline(t.slice(2))}</li>`
-      continue
-    }
-    if (inList) { html += '</ul>'; inList = false }
-    if (!t) continue
-    if (t.startsWith('### ')) html += `<h5>${inline(t.slice(4))}</h5>`
-    else if (t.startsWith('## ')) html += `<h4>${inline(t.slice(3))}</h4>`
-    else if (t.startsWith('# ')) html += `<h3>${inline(t.slice(2))}</h3>`
-    else html += `<p>${inline(t)}</p>`
-  }
-  if (inList) html += '</ul>'
-  return html
-}
-
 // ============================================================
-// 智能推荐：优先消费 get_today_recommendations，失败回退本地排序
-// ============================================================
-const homeRecommendations = ref([])
-
-async function loadHomeRecommendations() {
-  const result = await casyContext.calendar.todayRecommendations()
-  if (result.ok && result.data?.recommendations?.length) {
-    homeRecommendations.value = result.data.recommendations.slice(0, 3)
-  }
-}
-
-// ============================================================
-// 硬性日程：今天的 hearing/deadline 类型日历事件
-// ============================================================
-const todayEvents = computed(() => {
-  return calendarStore.events
-    .filter(e => e.date === today && (e.type === 'hearing' || e.type === 'deadline'))
-    .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
-})
-
-// ============================================================
-// 下一步行动：最紧急的 5 个未完成 action 任务
+// 下一步行动 (Focused Next Action)
 // ============================================================
 const priorityOrder = {
   urgent_important: 0,
@@ -160,1058 +209,1251 @@ const nextActionTasks = computed(() => {
       const pa = priorityOrder[a.priority] ?? 4
       const pb = priorityOrder[b.priority] ?? 4
       if (pa !== pb) return pa - pb
-      // 有截止日期的优先
       if (a.dueDate && !b.dueDate) return -1
       if (!a.dueDate && b.dueDate) return 1
       if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
       return 0
     })
-    .slice(0, 5)
 })
 
-// ============================================================
-// 等待跟进：等待超过 3 天的 waiting 任务
-// ============================================================
-const waitingOverdueTasks = computed(() => {
-  const threeDaysAgo = new Date()
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-  const cutoff = threeDaysAgo.toISOString().split('T')[0]
-  return tasksStore.waitingTasks.filter(t => {
-    if (!t.followUpDate) return false
-    return t.followUpDate <= cutoff
-  })
-})
-
-// ============================================================
-// 逾期任务
-// ============================================================
-const overdueTasks = computed(() => {
-  return tasksStore.pendingTasks
-    .filter(t => t.isOverdue === 1)
-    .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
-})
-
-// ============================================================
-// 今日到期任务数
-// ============================================================
-const dueTodayCount = computed(() => {
-  return tasksStore.pendingTasks.filter(t => t.dueDate === today).length
-})
-
-// ============================================================
-// 最近活动
-// ============================================================
-const recentActivities = computed(() => {
-  return (casesStore.dashboard.recentActivities || []).slice(0, 5)
-})
-
-// ============================================================
-// 优先级标签
-// ============================================================
-function priorityLabel(priority) {
-  const map = {
-    urgent_important: '紧急重要',
-    urgent: '紧急',
-    important: '重要',
-    high: '高',
-    normal: '普通',
-    low: '低',
+const primaryNextAction = computed(() => {
+  if (isMorning.value) {
+    return nextActionTasks.value.length > 0 ? nextActionTasks.value[0] : null
+  } else {
+    // Evening: return the highest priority completed task
+    const completedTasks = tasksStore.tasks.filter(t => t.completed === 1)
+    return completedTasks.length > 0 ? completedTasks[completedTasks.length - 1] : null
   }
-  return map[priority] || '普通'
-}
+})
 
-function priorityClass(priority) {
-  if (priority === 'urgent_important' || priority === 'urgent') return 'tag-red'
-  if (priority === 'important' || priority === 'high') return 'tag-amber'
-  return 'tag-default'
-}
+// 情绪价值文案种子库 (空状态语录) - 用于 Dashboard 回退
+const emptyStateSeeds = [
+  {
+    taskName: '当前无焦点任务',
+    description: '您的待办列表处于清空状态。去喝杯咖啡，或者主动找点案源开拓一下吧！',
+    caseName: '系统状态',
+    caseCode: 'SYSTEM'
+  },
+  {
+    taskName: '享受当下的宁静',
+    description: '今天没有任何紧急硬性任务在追赶你，保持这种良好的节奏，享受清醒的头脑。',
+    caseName: '身心管理',
+    caseCode: 'ZEN'
+  },
+  {
+    taskName: '一切尽在掌握中',
+    description: '当前暂无焦点待办任务，您可以把精力留给深度思考、案卷沉淀与战略筹划。',
+    caseName: '状态播报',
+    caseCode: 'CLEAR'
+  },
+  {
+    taskName: '给自己放个短假',
+    description: '没有永远打不完的仗，既然今天没有紧迫的焦点任务，不如提前规划一下本周的长期目标。',
+    caseName: '精力恢复',
+    caseCode: 'REST'
+  },
+  {
+    taskName: '静水流深，厚积薄发',
+    description: '手头暂无紧急火情。不妨整理一下过去的案卷文档，看看有哪些经验可以沉淀到您的专属知识库。',
+    caseName: '知识沉淀',
+    caseCode: 'BUILD'
+  }
+]
 
-// ============================================================
-// 日程类型标签
-// ============================================================
-function eventTypeLabel(type) {
-  return type === 'hearing' ? '开庭/口审' : '期限'
-}
-
-function eventTypeClass(type) {
-  return type === 'hearing' ? 'tag-red' : 'tag-amber'
-}
-
-// ============================================================
-// 活动类型图标
-// ============================================================
-const activityIcons = {
-  log: Document,
-  hearing: Calendar,
-  task: CircleCheck,
-}
-
-// ============================================================
-// 计算等待天数
-// ============================================================
-function getWaitingDays(followUpDate) {
-  if (!followUpDate) return 0
-  const follow = new Date(followUpDate)
+const displayNextAction = computed(() => {
+  if (primaryNextAction.value) return primaryNextAction.value
   const now = new Date()
-  return Math.max(0, Math.ceil((now.getTime() - follow.getTime()) / (1000 * 60 * 60 * 24)))
+  const start = new Date(now.getFullYear(), 0, 0)
+  const diff = now.getTime() - start.getTime()
+  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24))
+  return emptyStateSeeds[dayOfYear % emptyStateSeeds.length]
+})
+
+function openNextActionMatter(task) {
+  if (!task) return
+  if (task.caseId) {
+    router.push({ name: 'cases', query: { selected: task.caseId } })
+  } else {
+    router.push({ name: 'tasks' })
+  }
 }
 
 // ============================================================
-// 计算逾期天数
+// 1. 硬日程排期 (Hard Schedule - 法庭庭审 / 绝限日程)
 // ============================================================
-function getOverdueDays(dueDate) {
-  if (!dueDate) return 0
-  const due = new Date(dueDate)
-  const now = new Date()
-  return Math.max(0, Math.ceil((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)))
+const hardScheduleItems = computed(() => {
+  const events = calendarStore.events || []
+  
+  // Morning: Today's events. Evening: Tomorrow's events.
+  const targetDate = new Date()
+  if (!isMorning.value) {
+    targetDate.setDate(targetDate.getDate() + 1)
+  }
+  const targetDateStr = localDateKey(targetDate)
+
+  const targetEvents = events.filter(e => e.date === targetDateStr || e.startDate === targetDateStr)
+
+  return targetEvents.map(e => ({
+    id: e.id,
+    time: e.startTime || '09:30 AM',
+    court: e.location || '第二审判法庭',
+    title: e.title || e.name || '法庭审理程序',
+    track: e.track || 'Civil Track',
+    judge: e.judge || '审判长主审',
+    risk: e.priority === 'high' || e.priority === 'urgent',
+    timeRemaining: isMorning.value ? '今日排期' : '明日排期'
+  }))
+})
+
+// ============================================================
+// 2. 今日承诺事项 (Today's Commitments)
+// ============================================================
+const todayCommitments = computed(() => {
+  const list = tasksStore.pendingTasks.filter(t => t.startBucket === 'today' || t.dueDate === today)
+  return list.map(t => ({
+    id: t.id,
+    title: t.taskName,
+    caseName: t.caseName || t.caseId || '重点在办案件',
+    category: t.category || (t.isClient ? 'Client' : 'Internal'),
+    overdue: t.dueDate && t.dueDate < today,
+    completed: t.status === 'completed' || t.status === 'done',
+    task: t,
+  }))
+})
+
+async function toggleCommitment(item) {
+  if (item.task) {
+    await tasksStore.toggleTask(item.id)
+    item.completed = !item.completed
+  } else {
+    item.completed = !item.completed
+  }
 }
 
 // ============================================================
-// 勾选完成任务
+// 3. 等待跟进监视器 (Waitlist Items)
 // ============================================================
-async function toggleTask(task) {
-  await tasksStore.toggleTask(task.id)
-}
+const waitlistItems = computed(() => {
+  const waitingTasks = tasksStore.waitingTasks || []
+  return waitingTasks.slice(0, 4).map(t => ({
+    id: t.id,
+    title: t.taskName,
+    elapsedText: t.followUpDate ? `${Math.ceil((new Date().getTime() - new Date(t.followUpDate).getTime()) / (1000*3600*24))}d elapsed` : 'Waiting',
+    percent: 50,
+    submittedText: t.startDate ? `Started ${t.startDate}` : '',
+    expectedText: t.dueDate ? `Expected ${t.dueDate}` : '',
+  }))
+})
 
 // ============================================================
-// 导航
+// 4. 精力负荷与容量 (Energy & Capacity)
 // ============================================================
-function goToCalendar() {
-  router.push({ name: 'calendar' })
-}
+const totalEstimatedMinutes = computed(() => {
+  const todayTasksList = tasksStore.pendingTasks.filter(t => t.startBucket === 'today' || t.dueDate === today)
+  return todayTasksList.reduce((sum, t) => sum + (t.estimatedMinutes || 45), 0)
+})
 
-function goToTasks(perspective) {
-  tasksStore.activePerspective = perspective || 'today'
-  router.push({ name: 'tasks' })
-}
+const committedHours = computed(() => {
+  const hours = (totalEstimatedMinutes.value / 60).toFixed(1)
+  return hours
+})
 
-function goToCase(id) {
-  router.push({ name: 'case-detail', params: { id } })
+const totalCapacityHours = 8.5
+const capacityPercent = computed(() => {
+  const val = (Number(committedHours.value) / totalCapacityHours) * 100
+  return Math.min(100, Math.max(10, Math.round(val)))
+})
+
+const freeSpaceHours = computed(() => {
+  const free = Math.max(0, totalCapacityHours - Number(committedHours.value)).toFixed(1)
+  return `${free}h`
+})
+
+// ============================================================
+// 5. 红线与统计指标
+// ============================================================
+const redlineItems = computed(() => {
+  if (isMorning.value) {
+    return tasksStore.pendingTasks
+      .filter(t => t.dueDate && (t.dueDate === today || t.dueDate < today))
+      .map(t => ({
+        id: t.id,
+        title: t.taskName,
+        caseTitle: t.caseName || '重点案件',
+        timeText: t.dueDate < today ? '已逾期' : '今日到期',
+      }))
+  } else {
+    // Evening: show completed items or newly collected inbox items
+    const completedToday = tasksStore.tasks.filter(t => t.completed === 1).slice(0, 5)
+    return completedToday.map(t => ({
+        id: t.id,
+        title: t.taskName,
+        caseTitle: t.caseName || '已完成事项',
+        timeText: '今日完成',
+    }))
+  }
+})
+
+const waitingCount = computed(() => tasksStore.waitingTasks.length || 0)
+const expiringCount = computed(() => redlineItems.value.length || 0)
+const hardCount = computed(() => hardScheduleItems.value.length || 0)
+
+const completedTasksCount = computed(() => tasksStore.tasks.filter(t => t.completed === 1).length)
+const totalCases = computed(() => casesStore.cases?.length || 0)
+
+// 动态智能建议（基于真实任务、绝限与日历数据聚合）
+const dynamicRecommendations = computed(() => {
+  const recs = []
+  const urgentTasks = tasksStore.pendingTasks.filter(t => t.dueDate && (t.dueDate <= today || t.priority === 'urgent_important'))
+  if (urgentTasks.length > 0) {
+    const t = urgentTasks[0]
+    recs.push({
+      id: `rec-urgent-${t.id}`,
+      text: `检测到任务<strong>「${t.taskName}」</strong>（${t.caseName || '重点专案'}）需要处理，建议优先安排推进。`,
+      actionLabel: '前往办理',
+      targetTask: t,
+    })
+  }
+
+  const waitingOverdue = tasksStore.waitingTasks.filter(t => t.followUpDate && t.followUpDate <= today)
+  if (waitingOverdue.length > 0) {
+    const w = waitingOverdue[0]
+    recs.push({
+      id: `rec-wait-${w.id}`,
+      text: `外部等待事项<strong>「${w.taskName}」</strong>已到跟进时间，建议核实对方反馈。`,
+      actionLabel: '跟进处理',
+      targetTask: w,
+    })
+  }
+
+  if (hardScheduleItems.value.length > 0) {
+    const h = hardScheduleItems.value[0]
+    recs.push({
+      id: `rec-hearing-${h.id}`,
+      text: `排期提醒：<strong>「${h.title}」</strong>（${h.time} · ${h.court}），建议核对出庭卷宗。`,
+      actionLabel: '查看日历',
+      targetTask: null,
+    })
+  }
+
+  if (recs.length === 0) {
+    recs.push({
+      id: 'rec-clear',
+      text: '当前暂无紧急到期任务，各项诉讼事项平稳进行中。可整理卷宗或沉淀知识至专属智库。',
+      actionLabel: '前往智库',
+      targetTask: null,
+    })
+  }
+
+  return recs.slice(0, 2)
+})
+
+// AI 自我进化反馈记录
+async function handleRecAction(rec, decision) {
+  if (decision === 'accept') {
+    if (rec.targetTask) {
+      openNextActionMatter(rec.targetTask)
+    } else if (rec.id.includes('hearing')) {
+      router.push('/calendar')
+    } else {
+      router.push('/knowledge')
+    }
+  }
+  await casyContext.ai.recordDecision({
+    entityType: 'recommendation',
+    entityId: rec.id,
+    decisionType: 'recommend_today',
+    decision: decision,
+  })
+  ElMessage.success(decision === 'accept' ? '已采纳建议' : '已忽略该建议')
 }
 </script>
 
 <template>
-  <div class="dashboard">
-    <!-- 每日早报 AI 横幅（设计哲学 §11.3，后端规则版 Markdown） -->
-    <div class="ai-banner">
-      <span class="ai-dot" :style="{ background: briefDegraded ? '#B0823A' : '#4C8067' }"></span>
-      <div class="ai-banner-content">
-        <strong>{{ greeting }}</strong>
-        <template v-if="briefDegraded">
-          <span class="ai-banner-summary">
-            昨日完成 {{ tasksStore.taskStats?.completed || 0 }} 项 ·
-            今日 {{ todayEvents.length }} 场硬性日程 ·
-            {{ waitingOverdueTasks.length }} 条等待超 3 天 ·
-            {{ overdueTasks.length }} 项逾期
+  <div class="today-page-container">
+    <!-- ═══ 顶部日期、状态指标与报表入口 ═══ -->
+    <header class="today-hero-header">
+      <div class="header-left">
+        <h1 class="header-date-title">{{ fullDateDisplay }}</h1>
+        <div class="header-status-chips">
+          <span class="status-chip chip-risk">
+            <span class="dot dot-risk"></span>
+            <span>Hard {{ hardCount }}</span>
           </span>
-          <span class="ai-banner-degraded">AI/报表不可用，已显示本地汇总</span>
-        </template>
-        <span v-else-if="brief?.title" class="ai-banner-summary">{{ brief.title }}</span>
-        <span v-else class="ai-banner-summary">早报生成中…</span>
-      </div>
-      <el-button
-        size="small"
-        text
-        :loading="briefLoading"
-        @click="regenerateBrief"
-      >
-        重新生成
-      </el-button>
-      <span class="ai-banner-time">{{ briefDegraded ? '本地汇总' : (briefTime || '规则版') }}</span>
-    </div>
-
-    <!-- 早报正文（Markdown 渲染） -->
-    <div v-if="!briefDegraded && briefContent" class="brief-body" v-html="renderMarkdown(briefContent)"></div>
-
-    <!-- 分级预警横幅 R1-R4（设计哲学 §11.2） -->
-    <div v-if="deadlineWarnings.length > 0" class="deadline-warnings">
-      <div
-        v-for="w in deadlineWarnings.slice(0, 4)"
-        :key="w.deadlineId"
-        class="warning-item"
-        :class="'level-' + w.level.toLowerCase()"
-        @click="goToCase(w.caseId)"
-      >
-        <span class="warning-dot" :style="{ background: w.levelColor }" />
-        <span class="warning-level">{{ w.level }}</span>
-        <span class="warning-msg">{{ w.message }}</span>
-        <span class="warning-case">{{ w.caseName }}</span>
-      </div>
-    </div>
-
-    <!-- 今日要点统计卡片 -->
-    <div class="summary-bar">
-      <div class="summary-card" @click="goToCalendar">
-        <div class="summary-icon icon-red">
-          <el-icon :size="20"><Calendar /></el-icon>
-        </div>
-        <div class="summary-body">
-          <div class="summary-value">{{ todayEvents.length }}</div>
-          <div class="summary-label">硬性日程</div>
+          <span class="status-chip chip-warn">
+            <span class="dot dot-warn"></span>
+            <span>Expiring {{ expiringCount }}</span>
+          </span>
+          <span class="status-chip chip-info">
+            <span class="dot dot-info"></span>
+            <span>Waiting {{ waitingCount }}</span>
+          </span>
         </div>
       </div>
 
-      <div class="summary-card" @click="goToTasks('today')">
-        <div class="summary-icon icon-amber">
-          <el-icon :size="20"><Clock /></el-icon>
-        </div>
-        <div class="summary-body">
-          <div class="summary-value">{{ dueTodayCount }}</div>
-          <div class="summary-label">今日到期</div>
-        </div>
-      </div>
+      <div class="header-actions-group">
+        <!-- 今日早报按钮 -->
+        <button
+          class="btn-report-trigger"
+          title="打开今日秩序早报/晚报"
+          @click="showDailyModal = true"
+        >
+          <el-icon :size="16"><Reading /></el-icon>
+          <span>{{ isMorning ? t('home.greeting_morning') : t('home.greeting_evening') }}</span>
+        </button>
 
-      <div class="summary-card" @click="goToTasks('waiting')">
-        <div class="summary-icon icon-amber">
-          <el-icon :size="20"><Timer /></el-icon>
-        </div>
-        <div class="summary-body">
-          <div class="summary-value">{{ waitingOverdueTasks.length }}</div>
-          <div class="summary-label">等待超时</div>
-        </div>
-      </div>
+        <!-- 周报/周复盘按钮 -->
+        <button
+          class="btn-report-trigger"
+          title="打开每周复盘与综合分析"
+          @click="showWeeklyModal = true"
+        >
+          <el-icon :size="16"><DataAnalysis /></el-icon>
+          <span>{{ isWeekStart ? t('home.greeting_week_start') : t('home.greeting_week_end') }}</span>
+        </button>
 
-      <div class="summary-card" @click="goToTasks('review')">
-        <div class="summary-icon icon-default">
-          <el-icon :size="20"><RefreshRight /></el-icon>
-        </div>
-        <div class="summary-body">
-          <div class="summary-value">{{ tasksStore.taskStats.review }}</div>
-          <div class="summary-label">需回顾</div>
-        </div>
+        <!-- 查看日历 -->
+        <button
+          class="btn-report-trigger sub"
+          title="前往排期日历"
+          @click="router.push('/calendar')"
+        >
+          <el-icon :size="16"><Calendar /></el-icon>
+          <span>{{ t('home.calendar_shortcut') }}</span>
+        </button>
       </div>
-    </div>
+    </header>
 
-    <!-- 主内容区：两栏布局 -->
-    <div class="main-grid">
-      <!-- 左栏：硬性日程 -->
-      <div class="panel">
-        <div class="panel-header">
-          <el-icon><Calendar /></el-icon>
-          <span>硬性日程（今日）</span>
-        </div>
-        <div class="panel-body">
-          <template v-if="todayEvents.length">
-            <div
-              v-for="event in todayEvents"
-              :key="event.id"
-              class="schedule-item"
-            >
-              <span class="schedule-time" :class="eventTypeClass(event.type)">
-                {{ eventTypeLabel(event.type) }}
-              </span>
-              <span class="schedule-title">{{ event.title }}</span>
-              <el-tag
-                v-if="event.caseId"
-                size="small"
-                :type="event.type === 'hearing' ? 'danger' : 'warning'"
-                @click.stop="goToCase(event.caseId)"
-                class="schedule-case-tag"
-              >
-                查看案件
-              </el-tag>
+    <!-- ═══ 主内容区：双栏 8 + 4 架构 (Stitch v4.5) ═══ -->
+    <div class="today-grid-layout">
+      <!-- ── 左侧 8 栏：核心办案执行流 ── -->
+      <div class="main-column-left">
+        <!-- 1. Hard Schedule (法庭开庭与硬日程) -->
+        <section class="section-block">
+          <div class="section-title-row">
+            <div class="title-with-icon">
+              <el-icon class="icon-primary"><Compass /></el-icon>
+              <h2 class="sec-heading">{{ t('home.hard_schedule') }}</h2>
             </div>
-          </template>
-          <EmptyState v-else type="calendar" compact title="今天没有硬性日程" description="好好享受空档，或从收件箱厘清一件要事" />
-        </div>
-      </div>
+            <span class="count-badge">{{ t('home.hard_schedule_count', { count: hardScheduleItems.length }) }}</span>
+          </div>
 
-      <!-- 右栏：下一步行动 -->
-      <div class="panel">
-        <div class="panel-header">
-          <el-icon><List /></el-icon>
-          <span>下一步行动</span>
-        </div>
-        <div class="panel-body">
-          <template v-if="nextActionTasks.length">
+          <div class="hard-schedule-card-list">
             <div
-              v-for="task in nextActionTasks"
-              :key="task.id"
-              class="task-item"
+              v-for="item in hardScheduleItems"
+              :key="item.id"
+              class="hard-schedule-row group"
             >
-              <el-checkbox
-                :model-value="false"
-                @change="toggleTask(task)"
-                class="task-check"
-              />
-              <div class="task-content">
-                <div class="task-name">{{ task.taskName }}</div>
-                <div class="task-meta">
-                  <span v-if="task.caseId" class="task-case" @click="goToCase(task.caseId)">
-                    {{ task.caseId }}
-                  </span>
-                  <span v-if="task.dueDate" class="task-due" :class="{ 'text-red': task.dueDate < today }">
-                    {{ task.dueDate }}
-                  </span>
+              <div class="time-col">
+                <span class="time-text">{{ item.time }}</span>
+                <span class="time-sub" :class="{ 'text-risk': item.risk }">
+                  {{ item.timeRemaining || item.court }}
+                </span>
+              </div>
+
+              <div class="info-col">
+                <div class="title-line">
+                  <span v-if="item.risk" class="dot-indicator risk"></span>
+                  <span v-else class="dot-indicator safe"></span>
+                  <strong class="matter-title">{{ item.title }}</strong>
+                </div>
+                <div class="meta-line">
+                  <span class="track-tag">{{ item.track }}</span>
+                  <span class="judge-text">{{ item.court }} · {{ item.judge }}</span>
                 </div>
               </div>
-              <el-tag
-                size="small"
-                :class="priorityClass(task.priority)"
-              >
-                {{ priorityLabel(task.priority) }}
-              </el-tag>
+
+              <div class="action-col">
+                <button
+                  class="btn-icon-jump"
+                  title="查看详情"
+                  @click="router.push('/calendar')"
+                >
+                  <el-icon><Open /></el-icon>
+                </button>
+              </div>
             </div>
-          </template>
-          <div v-else class="empty-state">
-            <el-icon :size="32" class="empty-icon"><CircleCheck /></el-icon>
-            <span>所有任务已完成</span>
           </div>
-        </div>
+        </section>
+
+        <!-- 2. Today's Commitments (今日承诺 / 待办事项) -->
+        <section class="section-block">
+          <div class="section-title-row">
+            <div class="title-with-icon">
+              <el-icon class="icon-primary"><Finished /></el-icon>
+              <h2 class="sec-heading">{{ t('home.today_commitments') }}</h2>
+            </div>
+            <span class="count-badge">{{ t('home.commitments_unresolved', { count: todayCommitments.filter(c => !c.completed).length }) }}</span>
+          </div>
+
+          <div class="commitments-list">
+            <div
+              v-for="c in todayCommitments"
+              :key="c.id"
+              class="commitment-item"
+              :class="{ 'is-completed': c.completed, 'is-overdue': c.overdue && !c.completed }"
+              @click="toggleCommitment(c)"
+            >
+              <input
+                type="checkbox"
+                class="custom-chk"
+                :checked="c.completed"
+                @click.stop="toggleCommitment(c)"
+              />
+              <div class="commitment-info">
+                <div class="commitment-title-row">
+                  <span class="c-title">{{ c.title }}</span>
+                  <span v-if="c.overdue && !c.completed" class="badge-overdue">OVERDUE</span>
+                </div>
+                <span class="c-case">{{ c.caseName }}</span>
+              </div>
+              <span class="c-category-chip" :class="c.category.toLowerCase()">
+                {{ c.category }}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. Waitlist (等待跟进 / 外部回执) -->
+        <section class="section-block">
+          <div class="section-title-row">
+            <div class="title-with-icon">
+              <el-icon class="icon-discovery"><Clock /></el-icon>
+              <h2 class="sec-heading">{{ t('home.waitlist') }}</h2>
+            </div>
+            <span class="count-badge">{{ t('home.waitlist_count', { count: waitlistItems.length }) }}</span>
+          </div>
+
+          <div class="waitlist-grid">
+            <div
+              v-for="w in waitlistItems"
+              :key="w.id"
+              class="waitlist-card"
+            >
+              <div class="wl-left-accent"></div>
+              <div class="wl-content">
+                <div class="wl-head">
+                  <strong class="wl-title">{{ w.title }}</strong>
+                  <span class="wl-elapsed">{{ w.elapsedText }}</span>
+                </div>
+                <div class="wl-progress-track">
+                  <div class="wl-progress-fill" :style="{ width: `${w.percent}%` }"></div>
+                </div>
+                <div class="wl-foot">
+                  <span>{{ w.submittedText }}</span>
+                  <span>{{ w.expectedText }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <!-- 等待跟进（有数据才显示） -->
-      <div v-if="waitingOverdueTasks.length" class="panel">
-        <div class="panel-header">
-          <el-icon><Timer /></el-icon>
-          <span>等待跟进</span>
-          <el-tag size="small" type="warning" class="header-tag">
-            {{ waitingOverdueTasks.length }}
-          </el-tag>
+      <!-- ── 右侧 4 栏：重点聚焦、智能建议与精力容量 ── -->
+      <div class="side-column-right">
+        <!-- 1. Focused Next Action 卡片 (高对比度深蓝) -->
+        <div class="next-action-card">
+          <div class="na-header">
+            <span class="na-kicker">NEXT ACTION</span>
+            <span class="na-code" v-if="displayNextAction.caseCode">{{ displayNextAction.caseCode }}</span>
+          </div>
+
+          <h3 class="na-title">{{ displayNextAction.taskName }}</h3>
+          <p class="na-desc">{{ displayNextAction.description }}</p>
+
+          <div class="na-actions">
+            <button
+              class="btn-na-open"
+              @click="openNextActionMatter(displayNextAction)"
+            >
+              <el-icon><Promotion /></el-icon>
+              <span>{{ t('home.enter_workspace') }}</span>
+            </button>
+          </div>
         </div>
-        <div class="panel-body">
-          <div
-            v-for="task in waitingOverdueTasks"
-            :key="task.id"
-            class="task-item"
-          >
-            <div class="task-content">
-              <div class="task-name">{{ task.taskName }}</div>
-              <div class="task-meta">
-                <span v-if="task.waitingFor" class="task-waiting-for">
-                  等 {{ task.waitingFor }}
-                </span>
-                <span class="task-waiting-days">
-                  已等 {{ getWaitingDays(task.followUpDate) }} 天
-                </span>
-                <span v-if="task.caseId" class="task-case" @click="goToCase(task.caseId)">
-                  {{ task.caseId }}
-                </span>
+
+        <!-- 2. Smart Recommendations (智能建议 / AI) -->
+        <div class="smart-recs-card">
+          <div class="recs-head">
+            <div class="recs-title-left">
+              <el-icon class="icon-sparkle"><Sparkles /></el-icon>
+              <span class="recs-title">{{ t('home.smart_recs') }}</span>
+            </div>
+            <span class="recs-ai-tag">AI</span>
+          </div>
+
+          <div class="recs-body">
+            <div
+              v-for="rec in dynamicRecommendations"
+              :key="rec.id"
+              class="rec-item"
+            >
+              <span class="rec-dot"></span>
+              <div class="rec-content">
+                <p v-html="rec.text"></p>
+                <div class="rec-actions">
+                  <button class="btn-rec-action accept" @click="handleRecAction(rec, 'accept')">{{ rec.actionLabel }}</button>
+                  <button class="btn-rec-action dismiss" @click="handleRecAction(rec, 'reject')">忽略</button>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 逾期追踪（有数据才显示） -->
-      <div v-if="overdueTasks.length" class="panel">
-        <div class="panel-header">
-          <el-icon><Warning /></el-icon>
-          <span>逾期追踪</span>
-          <el-tag size="small" type="danger" class="header-tag">
-            {{ overdueTasks.length }}
-          </el-tag>
-        </div>
-        <div class="panel-body">
-          <div
-            v-for="task in overdueTasks"
-            :key="task.id"
-            class="task-item"
-          >
-            <el-checkbox
-              :model-value="false"
-              @change="toggleTask(task)"
-              class="task-check"
-            />
-            <div class="task-content">
-              <div class="task-name">{{ task.taskName }}</div>
-              <div class="task-meta">
-                <span v-if="task.caseId" class="task-case" @click="goToCase(task.caseId)">
-                  {{ task.caseId }}
-                </span>
-              </div>
-            </div>
-            <span class="overdue-badge">
-              逾期 {{ getOverdueDays(task.dueDate) }} 天
-            </span>
+        <!-- 3. 精力负荷与容量 (Energy & Capacity) -->
+        <div class="capacity-meter-card">
+          <div class="cap-head">
+            <span class="cap-title">{{ t('home.energy_capacity') }}</span>
+            <span class="cap-metric-val">{{ committedHours }} / {{ totalCapacityHours }}h</span>
+          </div>
+
+          <div class="cap-bar-track">
+            <div
+              class="cap-bar-fill"
+              :style="{ width: `${capacityPercent}%` }"
+              :class="{ 'cap-over': capacityPercent > 85 }"
+            ></div>
+          </div>
+
+          <div class="cap-foot-info">
+            <span class="cap-free">{{ t('home.capacity_free') }}<strong>{{ freeSpaceHours }}</strong></span>
+            <span class="cap-percent">{{ t('home.capacity_percent', { percent: capacityPercent }) }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 智能推荐（优先后端推荐，回退本地规则排序 · 设计哲学 §11.6） -->
-    <div class="panel reco-panel">
-      <div class="panel-header">
-        <el-icon><Star /></el-icon>
-        <span>智能推荐 · 今日 {{ homeRecommendations.length || nextActionTasks.length }} 件事</span>
-        <span class="reco-badge">{{ homeRecommendations.length ? '推荐引擎' : '规则排序' }}</span>
-      </div>
-      <div class="panel-body">
-        <template v-if="homeRecommendations.length">
-          <div
-            v-for="(rec, idx) in homeRecommendations"
-            :key="rec.taskId"
-            class="reco-item"
-            @click="router.push({ name: 'tasks', query: { edit: rec.taskId } })"
-          >
-            <span class="reco-order">{{ idx + 1 }}</span>
-            <div class="reco-content">
-              <div class="reco-title">{{ rec.taskName }}</div>
-              <div class="reco-why">
-                {{ rec.reason }}
-                <template v-if="rec.estimatedMinutes"> · 预估 {{ rec.estimatedMinutes }} 分钟</template>
-              </div>
-            </div>
-          </div>
-        </template>
-        <template v-else>
-          <div
-            v-for="(task, idx) in nextActionTasks.slice(0, 3)"
-            :key="task.id"
-            class="reco-item"
-            @click="router.push({ name: 'tasks', query: { edit: task.id } })"
-          >
-            <span class="reco-order">{{ idx + 1 }}</span>
-            <div class="reco-content">
-              <div class="reco-title">{{ task.taskName }}</div>
-              <div class="reco-why">
-                {{ task.caseId ? `关联：${task.caseId}` : '无案件关联' }}
-                {{ task.dueDate ? ` · 截止 ${task.dueDate}` : '' }}
-              </div>
-            </div>
-          </div>
-        </template>
-        <div v-if="!homeRecommendations.length && nextActionTasks.length === 0" class="empty-state" style="padding: 16px">
-          <span>暂无推荐</span>
-        </div>
-      </div>
-    </div>
+    <!-- ═══ 弹出式早报模态框 ═══ -->
+    <BriefingModal
+      v-model:visible="showDailyModal"
+      type="daily"
+      :style-variant="settingsStore.daily_brief_style || 'gazette'"
+      :content="briefContent"
+      :loading="briefLoading"
+      :next-action="displayNextAction"
+      :redlines="redlineItems"
+      :hearings="hardScheduleItems"
+      :metrics="{
+        committedHours,
+        freeSpaceHours,
+        waitingCount,
+        completedCount: completedTasksCount,
+        totalCases: totalCases,
+      }"
+      @regenerate="regenerateBrief"
+    />
 
-    <!-- 底部统计一行（退居角落，不是主角） -->
-    <div class="statline">
-      <div class="st">
-        <span class="sv">{{ casesStore.cases.length }}</span>
-        <span class="sk">活跃案件</span>
-      </div>
-      <div class="st">
-        <span class="sv">{{ waitingOverdueTasks.length }}</span>
-        <span class="sk">等待中</span>
-      </div>
-      <div class="st">
-        <span class="sv">{{ tasksStore.taskStats?.completed || 0 }}</span>
-        <span class="sk">已完成</span>
-      </div>
-      <div class="st">
-        <span class="sv" style="color: #B4554F">{{ overdueTasks.length }}</span>
-        <span class="sk">逾期</span>
-      </div>
-    </div>
-
-    <!-- 最近活动 -->
-    <div class="panel activity-panel">
-      <div class="panel-header">
-        <el-icon><Bell /></el-icon>
-        <span>最近活动</span>
-      </div>
-      <div class="panel-body">
-        <template v-if="recentActivities.length">
-          <div
-            v-for="act in recentActivities"
-            :key="act.id"
-            class="activity-item"
-            @click="act.caseId && goToCase(act.caseId)"
-          >
-            <span class="activity-icon-wrap">
-              <el-icon :size="14">
-                <component :is="activityIcons[act.eventType] || Document" />
-              </el-icon>
-            </span>
-            <span class="activity-time">{{ act.eventDate }}</span>
-            <span class="activity-summary">{{ act.eventSummary }}</span>
-          </div>
-        </template>
-        <div v-else class="empty-state">
-          <el-icon :size="32" class="empty-icon"><Document /></el-icon>
-          <span>暂无最近活动</span>
-        </div>
-      </div>
-    </div>
+    <!-- ═══ 弹出式周报模态框 ═══ -->
+    <BriefingModal
+      v-model:visible="showWeeklyModal"
+      type="weekly"
+      :style-variant="settingsStore.weekly_report_style || 'dossier'"
+      :date-range="weeklyDateRange"
+      :next-action="displayNextAction"
+      :redlines="redlineItems"
+      :hearings="hardScheduleItems"
+      :metrics="{
+        committedHours,
+        freeSpaceHours,
+        waitingCount,
+        completedCount: completedTasksCount,
+        totalCases: totalCases,
+      }"
+    />
   </div>
 </template>
 
 <style scoped>
-/* ============================================================
-   视觉 Token
-   ============================================================ */
-:root {
-  --c-primary: var(--c-primary);
-  --c-bg: #FAFAFA;
-  --c-surface: #FFFFFF;
-  --c-text: var(--c-text);
-  --c-text-secondary: var(--c-text-regular);
-  --c-text-muted: var(--c-text-secondary);
-  --c-red: #EF4444;
-  --c-amber: #F59E0B;
-  --c-green: #10B981;
-  --c-purple: #8B5CF6;
-  --radius-card: 8px;
-  --radius-btn: 6px;
-}
-
-/* ============================================================
-   Layout
-   ============================================================ */
-.dashboard {
-  max-width: 1200px;
+/* ═══════════════════════════════════════════════════════════
+   Today View (Stitch UI v4.5 Layout & Styling)
+   ═══════════════════════════════════════════════════════════ */
+.today-page-container {
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 20px;
-  background: var(--c-bg);
-  min-height: 100%;
-}
-
-/* ============================================================
-   Summary Bar
-   ============================================================ */
-.summary-bar {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.summary-card {
+  padding: 24px 32px 48px;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: var(--c-surface);
-  border-radius: var(--radius-card);
-  cursor: pointer;
-  transition:
-    transform var(--motion-fast) var(--ease-out),
-    box-shadow var(--motion-fast) var(--ease-out);
+  flex-direction: column;
+  gap: 28px;
 }
 
-.summary-card:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-
-.summary-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+/* ── 顶部日期与操作栏 ── */
+.today-hero-header {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.icon-red {
-  background: #FEF2F2;
-  color: var(--c-red);
-}
-
-.icon-amber {
-  background: #FFFBEB;
-  color: var(--c-amber);
-}
-
-.icon-default {
-  background: var(--gray-50);
-  color: var(--c-text-muted);
-}
-
-.summary-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--c-text);
-  line-height: 1;
-}
-
-.summary-label {
-  font-size: 12px;
-  color: var(--c-text-muted);
-  margin-top: 2px;
-}
-
-/* ============================================================
-   Main Grid (2 columns)
-   ============================================================ */
-.main-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-/* ============================================================
-   Panel
-   ============================================================ */
-.panel {
-  background: var(--c-surface);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--c-text);
-  border-bottom: 1px solid var(--gray-50);
-}
-
-.panel-header .el-icon {
-  color: var(--c-text-muted);
-}
-
-.header-tag {
-  margin-left: auto;
-}
-
-.panel-body {
-  padding: 8px 0;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-/* ============================================================
-   Schedule Items
-   ============================================================ */
-.schedule-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  transition: background var(--motion-fast);
-}
-
-.schedule-item:hover {
-  background: #FAFAFA;
-}
-
-.schedule-time {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-.tag-red {
-  background: #FEF2F2;
-  color: var(--c-red);
-}
-
-.tag-amber {
-  background: #FFFBEB;
-  color: var(--c-amber);
-}
-
-.tag-default {
-  background: var(--gray-50);
-  color: var(--c-text-muted);
-}
-
-.schedule-title {
-  flex: 1;
-  font-size: 13px;
-  color: var(--c-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.schedule-case-tag {
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-/* ============================================================
-   Task Items
-   ============================================================ */
-.task-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 16px;
-  transition: background var(--motion-fast);
-}
-
-.task-item:hover {
-  background: #FAFAFA;
-}
-
-.task-check {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.task-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.task-name {
-  font-size: 13px;
-  color: var(--c-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-meta {
-  display: flex;
-  gap: 8px;
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--c-text-muted);
+  align-items: flex-end;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--c-border);
+  padding-bottom: 20px;
+  gap: 20px;
   flex-wrap: wrap;
 }
 
-.task-case {
-  cursor: pointer;
-  color: var(--c-primary);
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.task-case:hover {
-  text-decoration: underline;
+.header-date-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  letter-spacing: -0.3px;
+  margin: 0;
 }
 
-.task-due {
-  color: var(--c-text-muted);
-}
-
-.task-due.text-red {
-  color: var(--c-red);
-}
-
-.task-waiting-for {
+.header-status-chips {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
   color: var(--c-text-secondary);
 }
 
-.task-waiting-days {
-  color: var(--c-amber);
+.status-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* ============================================================
-   Overdue Badge
-   ============================================================ */
-.overdue-badge {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #FEF2F2;
-  color: var(--c-red);
-  font-weight: 500;
-  flex-shrink: 0;
-  white-space: nowrap;
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
 }
+.dot-risk { background: var(--status-risk); }
+.dot-warn { background: var(--status-warning); }
+.dot-info { background: var(--status-discovery); }
 
-/* ============================================================
-   Activity Panel
-   ============================================================ */
-.activity-panel {
-  margin-bottom: 0;
-}
-
-.activity-item {
+.header-actions-group {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+}
+
+.btn-report-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--c-radius-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+  color: var(--c-text);
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--motion-fast);
+}
+
+.btn-report-trigger:hover {
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+  background: var(--c-primary-light);
+}
+
+.btn-report-trigger.sub {
+  color: var(--c-text-secondary);
+}
+
+/* ── 主栅格布局 (8 + 4 架构) ── */
+.today-grid-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 28px;
+}
+
+@media (min-width: 1024px) {
+  .today-grid-layout {
+    grid-template-columns: 8fr 4fr;
+  }
+}
+
+/* ── 左栏 ── */
+.main-column-left {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.section-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-primary { color: var(--c-primary); font-size: 18px; }
+.icon-discovery { color: var(--status-discovery); font-size: 18px; }
+
+.sec-heading {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  margin: 0;
+}
+
+.count-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-gray-light);
+  background: var(--c-bg-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 1. Hard Schedule */
+.hard-schedule-card-list {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.hard-schedule-row {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--c-border-light);
   transition: background var(--motion-fast);
 }
 
-.activity-item:hover {
-  background: #FAFAFA;
+.hard-schedule-row:last-child {
+  border-bottom: none;
 }
 
-.activity-icon-wrap {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--gray-50);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text-muted);
-  flex-shrink: 0;
+.hard-schedule-row:hover {
+  background: var(--c-bg-hover);
 }
 
-.activity-time {
-  font-size: 12px;
-  color: var(--c-text-muted);
-  flex-shrink: 0;
-  min-width: 48px;
-}
-
-.activity-summary {
-  font-size: 13px;
-  color: var(--c-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ============================================================
-   Empty State
-   ============================================================ */
-.empty-state {
+.time-col {
+  width: 90px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-  color: var(--c-text-muted);
-  font-size: 13px;
-  gap: 8px;
-}
-
-.empty-icon {
-  color: var(--c-green);
-}
-
-/* ============================================================
-   智能推荐
-   ============================================================ */
-.reco-panel {
-  margin-bottom: 0;
-}
-
-.reco-badge {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--c-text-muted);
-  font-weight: 400;
-}
-
-.reco-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: 6px;
-  border: 1px solid #E0E3E9;
-  margin-bottom: 8px;
-  background: var(--c-surface);
-  cursor: pointer;
-  transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
-}
-
-.reco-item:hover {
-  border-color: #C3CFE3;
-  background: #EDF1F8;
-}
-
-.reco-order {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: #EDF1F8;
-  color: var(--c-primary);
-  font-size: 12px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
+  padding-right: 14px;
+  border-right: 1px solid var(--c-border-light);
   flex-shrink: 0;
 }
 
-.reco-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.reco-title {
-  font-size: 13px;
-  font-weight: 500;
+.time-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
   color: var(--c-text);
 }
 
-.reco-why {
+.time-sub {
   font-size: 11px;
-  color: var(--c-text-secondary);
-  margin-top: 1px;
+  color: var(--slate-gray-light);
+  margin-top: 2px;
 }
 
-/* ============================================================
-   底部统计一行
-   ============================================================ */
-.statline {
-  display: flex;
-  gap: 0;
-  background: var(--c-surface);
-  border: 1px solid #E0E3E9;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-top: 16px;
+.text-risk {
+  color: var(--status-risk) !important;
+  font-weight: 600;
 }
 
-.st {
+.info-col {
   flex: 1;
-  padding: 12px 16px;
-  border-right: 1px solid #E0E3E9;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.st:last-child {
-  border-right: none;
-}
-
-.sv {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: var(--c-text);
-}
-
-.sk {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-}
-
-/* ============================================================
-   分级预警横幅 R1-R4
-   ============================================================ */
-.deadline-warnings {
+  padding-left: 16px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 14px;
 }
 
-.warning-item {
+.title-line {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
 
-.warning-item.level-r1 {
-  background: #F6F7F9;
-  color: var(--c-text-regular);
-}
-
-.warning-item.level-r2 {
-  background: #F7F1E3;
-  color: #7A5B24;
-}
-
-.warning-item.level-r3,
-.warning-item.level-r4 {
-  background: #F6EDEC;
-  color: var(--c-danger);
-}
-
-.warning-dot {
+.dot-indicator {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.warning-level {
+.dot-indicator.risk { background: var(--status-risk); }
+.dot-indicator.safe { background: var(--status-warning); }
+
+.matter-title {
+  font-size: 13.5px;
   font-weight: 600;
-  font-size: 11px;
-  min-width: 20px;
+  color: var(--c-text-heading);
 }
 
-.warning-msg {
-  flex: 1;
-}
-
-.warning-case {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  flex-shrink: 0;
-}
-
-/* ============================================================
-   每日早报 AI 横幅
-   ============================================================ */
-.ai-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  background: var(--c-surface);
-  border: 1px solid #E0E3E9;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 12.5px;
-  color: var(--c-text-regular);
-}
-
-.ai-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--c-success);
-  flex-shrink: 0;
-}
-
-.ai-banner-content {
-  flex: 1;
+.meta-line {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-gray-light);
 }
 
-.ai-banner-content strong {
-  color: var(--c-text);
+.track-tag {
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10.5px;
   font-weight: 600;
 }
 
-.ai-banner-summary {
-  color: var(--c-text-secondary);
+.action-col {
+  margin-left: 8px;
 }
 
-.ai-banner-time {
+.btn-icon-jump {
+  background: transparent;
+  border: none;
+  color: var(--slate-gray-light);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all var(--motion-fast);
+}
+
+.btn-icon-jump:hover {
+  background: var(--c-bg-subtle);
+  color: var(--c-primary);
+}
+
+/* 2. Today's Commitments */
+.commitments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.commitment-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+
+.commitment-item:hover {
+  border-color: var(--c-border-strong);
+}
+
+.commitment-item.is-overdue {
+  background: var(--bg-risk-weak);
+  border-color: color-mix(in srgb, var(--status-risk) 25%, transparent);
+}
+
+.commitment-item.is-completed .c-title {
+  text-decoration: line-through;
+  color: var(--slate-gray-light);
+}
+
+.custom-chk {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--c-primary);
+  cursor: pointer;
+}
+
+.commitment-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.commitment-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.c-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text);
+}
+
+.badge-overdue {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  background: var(--status-risk);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.c-case {
+  font-size: 11.5px;
+  color: var(--slate-gray-light);
+}
+
+.c-category-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--c-bg-subtle);
+  color: var(--slate-gray-light);
+}
+
+.c-category-chip.client {
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  font-weight: 600;
+}
+
+/* 3. Waitlist */
+.waitlist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.waitlist-card {
+  position: relative;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.wl-left-accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--status-discovery);
+}
+
+.wl-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 4px;
+}
+
+.wl-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.wl-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text-heading);
+}
+
+.wl-elapsed {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--slate-gray-light);
+}
+
+.wl-progress-track {
+  height: 4px;
+  background: var(--c-bg-page);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 2px 0;
+}
+
+.wl-progress-fill {
+  height: 100%;
+  background: var(--status-discovery);
+  border-radius: 2px;
+}
+
+.wl-foot {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-gray-light);
+}
+
+/* ── 右栏 (4 栏) ── */
+.side-column-right {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 1. Next Action Card (深蓝高对比度) */
+.next-action-card {
+  background: var(--c-primary);
+  color: var(--c-primary-contrast, #ffffff);
+  border-radius: var(--c-radius-xl);
+  padding: 20px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.na-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.na-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  opacity: 0.85;
+}
+
+.na-code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.na-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.4;
+  color: #ffffff;
+}
+
+.na-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.85;
+  margin: 0;
+  color: #ffffff;
+}
+
+.na-actions {
+  margin-top: 4px;
+}
+
+.btn-na-open {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #ffffff;
+  color: var(--c-primary);
+  border: none;
+  border-radius: var(--c-radius-md);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-na-open:hover {
+  background: #f1f5f9;
+  transform: translateY(-1px);
+}
+
+/* 2. Smart Recommendations */
+.smart-recs-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--c-border-light);
+}
+
+.recs-title-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-sparkle {
+  color: var(--status-success);
+  font-size: 16px;
+}
+
+.recs-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+}
+
+.recs-ai-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+}
+
+.recs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rec-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.rec-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-content p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-regular);
+  margin: 0;
+}
+
+.rec-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-rec-action {
   font-size: 11px;
-  color: var(--c-text-secondary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+
+.btn-rec-action.accept {
+  color: var(--c-primary);
+  border-color: var(--c-primary);
+}
+
+.btn-rec-action.accept:hover {
+  background: var(--c-primary-light);
+}
+
+.btn-rec-action.dismiss:hover {
+  background: var(--c-bg-hover);
+}
+
+.rec-dot {
+  width: 6px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-success);
+  margin-top: 6px;
   flex-shrink: 0;
 }
 
-.ai-banner-degraded {
-  font-size: 11px;
-  color: var(--c-warning);
-  background: #F7F1E3;
-  border: 1px solid #E4D3A8;
-  border-radius: 4px;
-  padding: 1px 8px;
-}
-
-/* 早报正文（Markdown 渲染） */
-.brief-body {
-  margin: -6px 0 14px;
-  background: var(--c-surface);
-  border: 1px solid #E0E3E9;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: 12.5px;
+.rec-item p {
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--c-text-regular);
-  max-height: 220px;
-  overflow-y: auto;
-  line-height: 1.7;
+  margin: 0;
 }
 
-.brief-body :deep(h3),
-.brief-body :deep(h4),
-.brief-body :deep(h5) {
-  margin: 8px 0 4px;
-  font-size: 13px;
-  font-weight: 600;
+/* 3. Energy & Capacity */
+.capacity-meter-card {
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cap-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cap-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-text-heading);
+}
+
+.cap-metric-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-primary);
+}
+
+.cap-bar-track {
+  height: 6px;
+  background: var(--c-bg-page);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cap-bar-fill {
+  height: 100%;
+  background: var(--c-primary);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.cap-bar-fill.cap-over {
+  background: var(--status-warning);
+}
+
+.cap-foot-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--slate-gray-light);
+}
+
+.cap-free strong {
   color: var(--c-text);
-}
-
-.brief-body :deep(p) {
-  margin: 2px 0;
-}
-
-.brief-body :deep(ul) {
-  margin: 2px 0;
-  padding-left: 18px;
 }
 </style>

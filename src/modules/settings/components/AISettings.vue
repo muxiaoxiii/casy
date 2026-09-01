@@ -1,47 +1,52 @@
 <script setup>
-import { computed } from 'vue'
-import { useSettingsStore } from '../../../stores/settings'
+import { onMounted } from 'vue'
+import { useAiSettingsStore } from '../../../stores/aiSettings'
+import { AI_PROMPTS } from '../../../core/prompts'
 
-const store = useSettingsStore()
+const aiStore = useAiSettingsStore()
 
-const modeOptions = [
-  { value: 'none', label: '规则匹配（无需 AI）' },
-  { value: 'ollama', label: 'Ollama 本地模型' },
-  { value: 'openai', label: 'OpenAI API' },
-]
+onMounted(() => {
+  aiStore.load()
+})
 </script>
 
 <template>
   <div class="ai-settings">
-    <h4>AI 设置</h4>
-    <el-form label-width="100px" size="small">
-      <el-form-item label="AI 模式">
-        <el-select v-model="store.ai_mode" style="width: 100%">
-          <el-option v-for="opt in modeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item v-if="store.ai_mode !== 'none'" label="后端">
-        <el-select v-model="store.ai_backend" style="width: 100%">
-          <el-option label="Ollama" value="ollama" />
+    <h4>AI 大模型配置 (Copilot & 推荐系统)</h4>
+    <p style="font-size: 12px; color: #666; margin-bottom: 16px;">
+      设置您的大模型服务商。推荐使用 DeepSeek 或 OpenAI。系统会自动利用该配置来驱动收件箱的意图识别、早报总结以及文书的 AI 辅助撰写。
+    </p>
+    
+    <el-form label-position="top" size="default">
+      <el-form-item label="服务商 (Provider)">
+        <el-select v-model="aiStore.provider" style="width: 100%">
+          <el-option label="DeepSeek" value="deepseek" />
           <el-option label="OpenAI" value="openai" />
+          <el-option label="Local (Ollama)" value="local" />
         </el-select>
       </el-form-item>
 
-      <el-form-item v-if="store.ai_mode !== 'none'" label="API 地址">
-        <el-input v-model="store.ai_api_url" placeholder="http://localhost:11434" />
+      <el-form-item label="API Base URL">
+        <el-input v-model="aiStore.baseUrl" placeholder="https://api.deepseek.com/v1" />
       </el-form-item>
 
-      <el-form-item v-if="store.ai_backend === 'openai'" label="API Key">
-        <el-input v-model="store.ai_api_key" type="password" show-password />
+      <el-form-item label="API Key" v-if="aiStore.provider !== 'local'">
+        <el-input v-model="aiStore.apiKey" type="password" show-password placeholder="sk-..." />
       </el-form-item>
 
-      <el-form-item v-if="store.ai_mode !== 'none'" label="模型">
-        <el-input v-model="store.ai_model" placeholder="qwen2.5:14b" />
+      <el-form-item label="Model">
+        <el-input v-model="aiStore.model" placeholder="deepseek-chat" />
       </el-form-item>
 
-      <el-form-item label="每日限制">
-        <el-input-number v-model="store.ai_daily_limit" :min="0" :max="1000" />
+      <el-form-item label="System Prompt (系统人设设定)">
+        <el-input 
+          v-model="aiStore.systemPrompt" 
+          type="textarea" 
+          rows="5"
+        />
+        <div style="margin-top: 8px; font-size: 12px; color: #999;">
+          若需重置系统人设，可点击 <a href="javascript:void(0)" @click="aiStore.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认</a>。
+        </div>
       </el-form-item>
     </el-form>
   </div>
@@ -50,10 +55,12 @@ const modeOptions = [
 <style scoped>
 .ai-settings {
   padding: 8px 0;
+  max-width: 600px;
 }
 h4 {
-  margin: 0 0 16px;
-  font-size: 14px;
+  margin: 0 0 8px;
+  font-size: 16px;
   font-weight: 600;
+  color: var(--c-text-heading);
 }
 </style>

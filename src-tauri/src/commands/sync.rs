@@ -12,17 +12,13 @@ pub async fn test_webdav_connection(
     username: String,
     password: String,
 ) -> Result<String, String> {
-    run_blocking(move || {
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let client = sync::webdav::WebDavClient::new(&url, &username, &password)?;
-            match client.head("").await {
-                Ok(_) => Ok("连接成功".into()),
-                Err(e) => Ok(format!("连接失败: {}", e)),
-            }
-        })
-    })
-    .await
+    let client =
+        sync::webdav::WebDavClient::new(&url, &username, &password).map_err(|e| e.to_string())?;
+    client
+        .head("")
+        .await
+        .map_err(|e| format!("连接失败: {}", e))?;
+    Ok("连接成功".into())
 }
 
 /// WebDAV 同步：启动时检查
@@ -32,20 +28,16 @@ pub async fn webdav_startup_sync(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
-    run_blocking(move || {
-        let db_path = crate::db::get_db_path();
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            // 从 settings 读取上次同步的 ETag
-            let conn = crate::db::open_db()?;
-            let local_etag = crate::db::get_setting(&conn, "webdav_last_etag")
-                .ok()
-                .flatten();
-            sync::startup_sync(&url, &username, &password, &db_path, local_etag.as_deref())
-                .await
-        })
-    })
-    .await
+    let db_path = crate::db::get_db_path();
+    let local_etag = {
+        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+        crate::db::get_setting(&conn, "webdav_last_etag")
+            .ok()
+            .flatten()
+    };
+    sync::startup_sync(&url, &username, &password, &db_path, local_etag.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// WebDAV 同步：手动推送
@@ -55,28 +47,24 @@ pub async fn webdav_push(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
-    run_blocking(move || {
-        let db_path = crate::db::get_db_path();
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let result = sync::manual_sync_push(&url, &username, &password, &db_path)
-                .await?;
+    let db_path = crate::db::get_db_path();
+    let result = sync::manual_sync_push(&url, &username, &password, &db_path)
+        .await
+        .map_err(|e| e.to_string())?;
 
-            // 保存同步后的 ETag
-            if let Some(etag) = &result.remote_etag {
-                let conn = crate::db::open_db()?;
-                crate::db::set_setting(&conn, "webdav_last_etag", etag)?;
-                crate::db::set_setting(
-                    &conn,
-                    "webdav_last_sync_at",
-                    &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                )?;
-            }
+    // 保存同步后的 ETag
+    if let Some(etag) = &result.remote_etag {
+        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
+        crate::db::set_setting(
+            &conn,
+            "webdav_last_sync_at",
+            &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
-            Ok(result)
-        })
-    })
-    .await
+    Ok(result)
 }
 
 /// WebDAV 同步：手动拉取
@@ -86,28 +74,24 @@ pub async fn webdav_pull(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
-    run_blocking(move || {
-        let db_path = crate::db::get_db_path();
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let result = sync::manual_sync_pull(&url, &username, &password, &db_path)
-                .await?;
+    let db_path = crate::db::get_db_path();
+    let result = sync::manual_sync_pull(&url, &username, &password, &db_path)
+        .await
+        .map_err(|e| e.to_string())?;
 
-            // 保存同步后的 ETag
-            if let Some(etag) = &result.remote_etag {
-                let conn = crate::db::open_db()?;
-                crate::db::set_setting(&conn, "webdav_last_etag", etag)?;
-                crate::db::set_setting(
-                    &conn,
-                    "webdav_last_sync_at",
-                    &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                )?;
-            }
+    // 保存同步后的 ETag
+    if let Some(etag) = &result.remote_etag {
+        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
+        crate::db::set_setting(
+            &conn,
+            "webdav_last_sync_at",
+            &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
-            Ok(result)
-        })
-    })
-    .await
+    Ok(result)
 }
 
 /// 冲突解决：保留本地版本
@@ -117,22 +101,17 @@ pub async fn webdav_resolve_keep_local(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
-    run_blocking(move || {
-        let db_path = crate::db::get_db_path();
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let result = sync::resolve_keep_local(&url, &username, &password, &db_path)
-                .await?;
+    let db_path = crate::db::get_db_path();
+    let result = sync::resolve_keep_local(&url, &username, &password, &db_path)
+        .await
+        .map_err(|e| e.to_string())?;
 
-            if let Some(etag) = &result.remote_etag {
-                let conn = crate::db::open_db()?;
-                crate::db::set_setting(&conn, "webdav_last_etag", etag)?;
-            }
+    if let Some(etag) = &result.remote_etag {
+        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
+    }
 
-            Ok(result)
-        })
-    })
-    .await
+    Ok(result)
 }
 
 /// 冲突解决：保留远程版本
@@ -142,22 +121,17 @@ pub async fn webdav_resolve_keep_remote(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
-    run_blocking(move || {
-        let db_path = crate::db::get_db_path();
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let result = sync::resolve_keep_remote(&url, &username, &password, &db_path)
-                .await?;
+    let db_path = crate::db::get_db_path();
+    let result = sync::resolve_keep_remote(&url, &username, &password, &db_path)
+        .await
+        .map_err(|e| e.to_string())?;
 
-            if let Some(etag) = &result.remote_etag {
-                let conn = crate::db::open_db()?;
-                crate::db::set_setting(&conn, "webdav_last_etag", etag)?;
-            }
+    if let Some(etag) = &result.remote_etag {
+        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
+    }
 
-            Ok(result)
-        })
-    })
-    .await
+    Ok(result)
 }
 
 // ============================================================
@@ -174,15 +148,15 @@ pub async fn configure_feishu(app_id: String, app_secret: String) -> Result<Stri
     .await
 }
 
-/// 测试飞书连通性
+/// 测试飞书连通性（支持直接传入临时 App ID / Secret 或读取已持久化凭据）
 #[tauri::command]
-pub async fn test_feishu_connection() -> Result<String, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        sync::feishu::test_feishu_connection_inner()
-            .await
-            .map_err(|e| e.to_string())
-    })
+pub async fn test_feishu_connection(
+    app_id: Option<String>,
+    app_secret: Option<String>,
+) -> Result<String, String> {
+    sync::feishu::test_feishu_connection_inner(app_id, app_secret)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 从飞书拉取数据到本地
@@ -191,12 +165,9 @@ pub async fn sync_feishu_pull(
     app_token: String,
     table_id: String,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        sync::feishu::sync_feishu_pull_inner(&app_token, &table_id)
-            .await
-            .map_err(|e| e.to_string())
-    })
+    sync::feishu::sync_feishu_pull_inner(&app_token, &table_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 本地数据推送到飞书
@@ -205,12 +176,9 @@ pub async fn sync_feishu_push(
     app_token: String,
     table_id: String,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        sync::feishu::sync_feishu_push_inner(&app_token, &table_id)
-            .await
-            .map_err(|e| e.to_string())
-    })
+    sync::feishu::sync_feishu_push_inner(&app_token, &table_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 获取飞书同步状态信息
@@ -219,6 +187,7 @@ pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
         let configured = sync::feishu::is_feishu_configured();
+        let app_id = sync::feishu::load_feishu_credentials().ok().map(|(id, _)| id);
         let last_pull_at = sync::feishu::get_sync_metadata(&conn, "feishu_last_pull_at")
             .ok()
             .flatten();
@@ -240,6 +209,7 @@ pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
 
         Ok(serde_json::json!({
             "configured": configured,
+            "appId": app_id,
             "lastPullAt": last_pull_at,
             "lastPushAt": last_push_at,
             "lastPullCount": last_pull_count,
@@ -253,10 +223,7 @@ pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
 
 /// 保存飞书表格配置（app_token 和 table_id）
 #[tauri::command]
-pub async fn configure_feishu_table(
-    app_token: String,
-    table_id: String,
-) -> Result<String, String> {
+pub async fn configure_feishu_table(app_token: String, table_id: String) -> Result<String, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
         sync::feishu::update_sync_metadata(&conn, "feishu_app_token", &app_token)?;
@@ -278,12 +245,8 @@ pub async fn set_feishu_auto_push(enabled: bool) -> Result<String, String> {
 
     // 保存设置
     let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-    sync::feishu::update_sync_metadata(
-        &conn,
-        "feishu_auto_push_enabled",
-        &enabled.to_string(),
-    )
-    .map_err(|e| e.to_string())?;
+    sync::feishu::update_sync_metadata(&conn, "feishu_auto_push_enabled", &enabled.to_string())
+        .map_err(|e| e.to_string())?;
 
     Ok(format!(
         "飞书自动推送已{}",
@@ -313,13 +276,10 @@ pub async fn trigger_feishu_push() -> Result<String, String> {
 /// 获取飞书多维表格中所有表的列表
 #[tauri::command]
 pub async fn feishu_list_tables(app_token: String) -> Result<serde_json::Value, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        let tables = sync::feishu::list_bitable_tables(&app_token)
-            .await
-            .map_err(|e| e.to_string())?;
-        serde_json::to_value(&tables).map_err(|e| e.to_string())
-    })
+    let tables = sync::feishu::list_bitable_tables(&app_token)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&tables).map_err(|e| e.to_string())
 }
 
 /// 获取指定表的所有字段定义
@@ -328,13 +288,10 @@ pub async fn feishu_list_fields(
     app_token: String,
     table_id: String,
 ) -> Result<serde_json::Value, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        let fields = sync::feishu::list_bitable_fields(&app_token, &table_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        serde_json::to_value(&fields).map_err(|e| e.to_string())
-    })
+    let fields = sync::feishu::list_bitable_fields(&app_token, &table_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&fields).map_err(|e| e.to_string())
 }
 
 /// 获取指定表的记录（分页）
@@ -344,13 +301,10 @@ pub async fn feishu_list_records(
     table_id: String,
     page_token: String,
 ) -> Result<serde_json::Value, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        let page = sync::feishu::list_bitable_records(&app_token, &table_id, &page_token)
-            .await
-            .map_err(|e| e.to_string())?;
-        serde_json::to_value(&page).map_err(|e| e.to_string())
-    })
+    let page = sync::feishu::list_bitable_records(&app_token, &table_id, &page_token)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&page).map_err(|e| e.to_string())
 }
 
 // ============================================================
@@ -386,18 +340,13 @@ pub async fn feishu_compare_table(
     local_table: String,
 ) -> Result<SchemaDiff, String> {
     // 1. 获取飞书字段
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    let feishu_fields = rt
-        .block_on(async {
-            sync::feishu::list_bitable_fields(&app_token, &table_id)
-                .await
-                .map_err(|e| e.to_string())
-        })?;
+    let feishu_fields = sync::feishu::list_bitable_fields(&app_token, &table_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 2. 获取本地表列
     let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-    let local_columns = get_local_table_columns(&conn, &local_table)
-        .map_err(|e| e.to_string())?;
+    let local_columns = get_local_table_columns(&conn, &local_table).map_err(|e| e.to_string())?;
 
     // 3. 建立列名到类型的映射（忽略 id, created_at, updated_at 等系统列）
     let system_columns = ["id", "feishu_record_id", "created_at", "updated_at"];
@@ -588,25 +537,24 @@ pub async fn feishu_compare_records(
     match_field: String,
 ) -> Result<RecordDiff, String> {
     // 1. 获取飞书记录
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    let feishu_records = rt
-        .block_on(async {
-            sync::feishu::list_all_bitable_records(&app_token, &table_id, 20)
-                .await
-                .map_err(|e| e.to_string())
-        })?;
+    let feishu_records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 20)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 2. 获取本地记录
     let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-    let local_records = get_local_records(&conn, &local_table, &match_field)
-        .map_err(|e| e.to_string())?;
+    let local_records =
+        get_local_records(&conn, &local_table, &match_field).map_err(|e| e.to_string())?;
 
     // 3. 以 match_field 为键比较
     let mut local_map: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
     for (id, match_val, row_json) in &local_records {
         if !match_val.is_empty() {
-            local_map.insert(match_val.clone(), serde_json::json!({"id": id, "fields": row_json}));
+            local_map.insert(
+                match_val.clone(),
+                serde_json::json!({"id": id, "fields": row_json}),
+            );
         }
     }
 
@@ -736,33 +684,15 @@ pub async fn feishu_save_mappings(mappings_json: serde_json::Value) -> Result<St
                 .as_str()
                 .map(|s| s.to_string())
                 .unwrap_or_else(crate::db::new_id);
-            let connection_id = mapping["connectionId"]
-                .as_str()
-                .unwrap_or("default");
-            let feishu_table_id = mapping["feishuTableId"]
-                .as_str()
-                .unwrap_or("");
-            let feishu_field_id = mapping["feishuFieldId"]
-                .as_str()
-                .unwrap_or("");
-            let feishu_field_name = mapping["feishuFieldName"]
-                .as_str()
-                .unwrap_or("");
-            let feishu_field_type = mapping["feishuFieldType"]
-                .as_i64()
-                .unwrap_or(1) as i32;
-            let local_table = mapping["localTable"]
-                .as_str()
-                .unwrap_or("");
-            let local_column = mapping["localColumn"]
-                .as_str()
-                .unwrap_or("");
-            let transform_rule = mapping["transformRule"]
-                .as_str()
-                .map(|s| s.to_string());
-            let sync_direction = mapping["syncDirection"]
-                .as_str()
-                .unwrap_or("bidirectional");
+            let connection_id = mapping["connectionId"].as_str().unwrap_or("default");
+            let feishu_table_id = mapping["feishuTableId"].as_str().unwrap_or("");
+            let feishu_field_id = mapping["feishuFieldId"].as_str().unwrap_or("");
+            let feishu_field_name = mapping["feishuFieldName"].as_str().unwrap_or("");
+            let feishu_field_type = mapping["feishuFieldType"].as_i64().unwrap_or(1) as i32;
+            let local_table = mapping["localTable"].as_str().unwrap_or("");
+            let local_column = mapping["localColumn"].as_str().unwrap_or("");
+            let transform_rule = mapping["transformRule"].as_str().map(|s| s.to_string());
+            let sync_direction = mapping["syncDirection"].as_str().unwrap_or("bidirectional");
             let is_formula = mapping["isFormula"].as_i64().unwrap_or(0);
             let is_link = mapping["isLink"].as_i64().unwrap_or(0);
             let is_lookup = mapping["isLookup"].as_i64().unwrap_or(0);
@@ -804,37 +734,33 @@ pub async fn feishu_get_mappings(
 ) -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, connection_id, feishu_table_id, feishu_field_id, feishu_field_name,
+        let mut stmt = conn.prepare(
+            "SELECT id, connection_id, feishu_table_id, feishu_field_id, feishu_field_name,
                  feishu_field_type, local_table, local_column, transform_rule, sync_direction,
                  is_formula, is_link, is_lookup
                  FROM feishu_field_mappings
                  WHERE connection_id = ?1 AND feishu_table_id = ?2",
-            )?;
+        )?;
 
-        let rows = stmt
-            .query_map(rusqlite::params![connection_id, table_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>(0)?,
-                    "connectionId": row.get::<_, String>(1)?,
-                    "feishuTableId": row.get::<_, String>(2)?,
-                    "feishuFieldId": row.get::<_, String>(3)?,
-                    "feishuFieldName": row.get::<_, String>(4)?,
-                    "feishuFieldType": row.get::<_, i32>(5)?,
-                    "localTable": row.get::<_, String>(6)?,
-                    "localColumn": row.get::<_, String>(7)?,
-                    "transformRule": row.get::<_, Option<String>>(8)?,
-                    "syncDirection": row.get::<_, String>(9)?,
-                    "isFormula": row.get::<_, i32>(10)?,
-                    "isLink": row.get::<_, i32>(11)?,
-                    "isLookup": row.get::<_, i32>(12)?,
-                }))
-            })?;
+        let rows = stmt.query_map(rusqlite::params![connection_id, table_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "connectionId": row.get::<_, String>(1)?,
+                "feishuTableId": row.get::<_, String>(2)?,
+                "feishuFieldId": row.get::<_, String>(3)?,
+                "feishuFieldName": row.get::<_, String>(4)?,
+                "feishuFieldType": row.get::<_, i32>(5)?,
+                "localTable": row.get::<_, String>(6)?,
+                "localColumn": row.get::<_, String>(7)?,
+                "transformRule": row.get::<_, Option<String>>(8)?,
+                "syncDirection": row.get::<_, String>(9)?,
+                "isFormula": row.get::<_, i32>(10)?,
+                "isLink": row.get::<_, i32>(11)?,
+                "isLookup": row.get::<_, i32>(12)?,
+            }))
+        })?;
 
-        let mappings: Vec<serde_json::Value> = rows
-            .filter_map(|r| r.ok())
-            .collect();
+        let mappings: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
 
         Ok(serde_json::to_value(&mappings)?)
     })
@@ -853,38 +779,34 @@ pub async fn feishu_import_all(
     local_table: String,
     mappings: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
+    // 获取所有飞书记录
+    let records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
+        .await
+        .map_err(|e| e.to_string())?;
 
-        // 获取所有飞书记录
-        let records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
-            .await
-            .map_err(|e| e.to_string())?;
+    let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+    let mut result = ImportResult {
+        total: records.len(),
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        errors: Vec::new(),
+    };
 
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        let mut result = ImportResult {
-            total: records.len(),
-            created: 0,
-            updated: 0,
-            skipped: 0,
-            errors: Vec::new(),
-        };
-
-        for record in &records {
-            match import_record(&conn, &local_table, record, &mappings) {
-                Ok(action) => match action.as_str() {
-                    "created" => result.created += 1,
-                    "updated" => result.updated += 1,
-                    _ => result.skipped += 1,
-                },
-                Err(e) => {
-                    result.errors.push(format!("{}: {}", record.record_id, e));
-                }
+    for record in &records {
+        match import_record(&conn, &local_table, record, &mappings) {
+            Ok(action) => match action.as_str() {
+                "created" => result.created += 1,
+                "updated" => result.updated += 1,
+                _ => result.skipped += 1,
+            },
+            Err(e) => {
+                result.errors.push(format!("{}: {}", record.record_id, e));
             }
         }
+    }
 
-        Ok(result)
-    })
+    Ok(result)
 }
 
 /// 选择性导入：只导入指定的记录
@@ -896,43 +818,39 @@ pub async fn feishu_import_selected(
     record_ids: Vec<String>,
     mappings: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
+    // 获取所有记录（飞书 API 不支持按 record_id 过滤）
+    let all_records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
+        .await
+        .map_err(|e| e.to_string())?;
 
-        // 获取所有记录（飞书 API 不支持按 record_id 过滤）
-        let all_records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
-            .await
-            .map_err(|e| e.to_string())?;
+    let selected: Vec<_> = all_records
+        .iter()
+        .filter(|r| record_ids.contains(&r.record_id))
+        .collect();
 
-        let selected: Vec<_> = all_records
-            .iter()
-            .filter(|r| record_ids.contains(&r.record_id))
-            .collect();
+    let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+    let mut result = ImportResult {
+        total: selected.len(),
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        errors: Vec::new(),
+    };
 
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        let mut result = ImportResult {
-            total: selected.len(),
-            created: 0,
-            updated: 0,
-            skipped: 0,
-            errors: Vec::new(),
-        };
-
-        for record in &selected {
-            match import_record(&conn, &local_table, record, &mappings) {
-                Ok(action) => match action.as_str() {
-                    "created" => result.created += 1,
-                    "updated" => result.updated += 1,
-                    _ => result.skipped += 1,
-                },
-                Err(e) => {
-                    result.errors.push(format!("{}: {}", record.record_id, e));
-                }
+    for record in &selected {
+        match import_record(&conn, &local_table, record, &mappings) {
+            Ok(action) => match action.as_str() {
+                "created" => result.created += 1,
+                "updated" => result.updated += 1,
+                _ => result.skipped += 1,
+            },
+            Err(e) => {
+                result.errors.push(format!("{}: {}", record.record_id, e));
             }
         }
+    }
 
-        Ok(result)
-    })
+    Ok(result)
 }
 
 /// 增量导入：只导入指定时间之后修改的记录
@@ -944,56 +862,45 @@ pub async fn feishu_import_incremental(
     since_timestamp: String,
     mappings: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-
-        // 解析时间
-        let since_dt = chrono::NaiveDateTime::parse_from_str(
-            &since_timestamp,
-            "%Y-%m-%d %H:%M:%S",
-        )
+    // 解析时间
+    let since_dt = chrono::NaiveDateTime::parse_from_str(&since_timestamp, "%Y-%m-%d %H:%M:%S")
         .map_err(|e| format!("时间格式错误: {}", e))?;
-        let since_ms = since_dt.and_utc().timestamp_millis();
+    let since_ms = since_dt.and_utc().timestamp_millis();
 
-        // 获取所有记录
-        let all_records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
-            .await
-            .map_err(|e| e.to_string())?;
+    // 获取所有记录
+    let all_records = sync::feishu::list_all_bitable_records(&app_token, &table_id, 100)
+        .await
+        .map_err(|e| e.to_string())?;
 
-        // 过滤增量
-        let incremental: Vec<_> = all_records
-            .iter()
-            .filter(|r| {
-                r.last_modified_time
-                    .map(|t| t > since_ms)
-                    .unwrap_or(false)
-            })
-            .collect();
+    // 过滤增量
+    let incremental: Vec<_> = all_records
+        .iter()
+        .filter(|r| r.last_modified_time.map(|t| t > since_ms).unwrap_or(false))
+        .collect();
 
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        let mut result = ImportResult {
-            total: incremental.len(),
-            created: 0,
-            updated: 0,
-            skipped: 0,
-            errors: Vec::new(),
-        };
+    let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+    let mut result = ImportResult {
+        total: incremental.len(),
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        errors: Vec::new(),
+    };
 
-        for record in &incremental {
-            match import_record(&conn, &local_table, record, &mappings) {
-                Ok(action) => match action.as_str() {
-                    "created" => result.created += 1,
-                    "updated" => result.updated += 1,
-                    _ => result.skipped += 1,
-                },
-                Err(e) => {
-                    result.errors.push(format!("{}: {}", record.record_id, e));
-                }
+    for record in &incremental {
+        match import_record(&conn, &local_table, record, &mappings) {
+            Ok(action) => match action.as_str() {
+                "created" => result.created += 1,
+                "updated" => result.updated += 1,
+                _ => result.skipped += 1,
+            },
+            Err(e) => {
+                result.errors.push(format!("{}: {}", record.record_id, e));
             }
         }
+    }
 
-        Ok(result)
-    })
+    Ok(result)
 }
 
 /// 导入结果
@@ -1039,15 +946,9 @@ fn parse_mappings(json: &serde_json::Value) -> Result<Vec<MappingEntry>, String>
 
     for m in arr {
         mappings.push(MappingEntry {
-            feishu_field_name: m["feishuFieldName"]
-                .as_str()
-                .unwrap_or("")
-                .to_string(),
+            feishu_field_name: m["feishuFieldName"].as_str().unwrap_or("").to_string(),
             feishu_field_type: m["feishuFieldType"].as_i64().unwrap_or(1) as i32,
-            local_column: m["localColumn"]
-                .as_str()
-                .unwrap_or("")
-                .to_string(),
+            local_column: m["localColumn"].as_str().unwrap_or("").to_string(),
             sync_direction: m["syncDirection"]
                 .as_str()
                 .unwrap_or("bidirectional")
@@ -1094,10 +995,8 @@ fn import_record(
         let feishu_val = record.fields.get(&mapping.feishu_field_name);
         if let Some(val) = feishu_val {
             if !val.is_null() {
-                let str_val = sync::feishu::extract_field_value_as_string(
-                    val,
-                    mapping.feishu_field_type,
-                );
+                let str_val =
+                    sync::feishu::extract_field_value_as_string(val, mapping.feishu_field_type);
                 if let Some(sv) = str_val {
                     col_values.push((mapping.local_column.clone(), sv));
                 }
@@ -1124,7 +1023,8 @@ fn import_record(
                 .map(|(_, v)| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>)
                 .collect();
             params.push(Box::new(local_id.clone()));
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|p| p.as_ref()).collect();
             conn.execute(&sql, param_refs.as_slice())?;
 
             // 更新 sync_map
@@ -1133,7 +1033,10 @@ fn import_record(
                  remote_updated = ?2 WHERE remote_id = ?3 AND remote_source = 'feishu'",
                 rusqlite::params![
                     crate::db::now_local(),
-                    record.last_modified_time.map(|t| t.to_string()).unwrap_or_default(),
+                    record
+                        .last_modified_time
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
                     record.record_id,
                 ],
             )?;
@@ -1171,7 +1074,8 @@ fn import_record(
         }
         params.push(Box::new(crate::db::now_local()));
         params.push(Box::new(crate::db::now_local()));
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         // 先检查 feishu_record_id 列是否存在
         let has_feishu_col = get_local_table_columns(conn, local_table)
@@ -1184,11 +1088,14 @@ fn import_record(
                 .iter()
                 .map(|s| s.to_string())
                 .chain(all_cols.iter().cloned())
-                .chain(["created_at".to_string(), "updated_at".to_string()].iter().cloned())
+                .chain(
+                    ["created_at".to_string(), "updated_at".to_string()]
+                        .iter()
+                        .cloned(),
+                )
                 .collect();
-            let simple_placeholders: Vec<String> = (1..=simple_cols.len())
-                .map(|i| format!("?{}", i))
-                .collect();
+            let simple_placeholders: Vec<String> =
+                (1..=simple_cols.len()).map(|i| format!("?{}", i)).collect();
             let simple_sql = format!(
                 "INSERT INTO {} ({}) VALUES ({})",
                 local_table,
@@ -1219,7 +1126,10 @@ fn import_record(
                 local_table,
                 local_id,
                 record.record_id,
-                record.last_modified_time.map(|t| t.to_string()).unwrap_or_default(),
+                record
+                    .last_modified_time
+                    .map(|t| t.to_string())
+                    .unwrap_or_default(),
                 crate::db::now_local(),
             ],
         )?;
@@ -1240,24 +1150,21 @@ pub async fn feishu_sync_pull(
     local_table: String,
     mappings_json: serde_json::Value,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
-        let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
-            .into_iter()
-            .map(|m| sync::feishu::SyncMappingEntry {
-                feishu_field_name: m.feishu_field_name,
-                feishu_field_type: m.feishu_field_type,
-                local_column: m.local_column,
-                sync_direction: m.sync_direction,
-                is_formula: m.is_formula,
-                is_link: m.is_link,
-            })
-            .collect();
-        sync::feishu::sync_table_pull(&app_token, &table_id, &local_table, &sync_mappings)
-            .await
-            .map_err(|e| e.to_string())
-    })
+    let mappings = parse_mappings(&mappings_json)?;
+    let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
+        .into_iter()
+        .map(|m| sync::feishu::SyncMappingEntry {
+            feishu_field_name: m.feishu_field_name,
+            feishu_field_type: m.feishu_field_type,
+            local_column: m.local_column,
+            sync_direction: m.sync_direction,
+            is_formula: m.is_formula,
+            is_link: m.is_link,
+        })
+        .collect();
+    sync::feishu::sync_table_pull(&app_token, &table_id, &local_table, &sync_mappings)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 通用 Push：将本地变更推送到飞书（基于映射配置）
@@ -1268,22 +1175,19 @@ pub async fn feishu_sync_push(
     local_table: String,
     mappings_json: serde_json::Value,
 ) -> Result<sync::feishu::FeishuSyncReport, String> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        let mappings = parse_mappings(&mappings_json)?;
-        let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
-            .into_iter()
-            .map(|m| sync::feishu::SyncMappingEntry {
-                feishu_field_name: m.feishu_field_name,
-                feishu_field_type: m.feishu_field_type,
-                local_column: m.local_column,
-                sync_direction: m.sync_direction,
-                is_formula: m.is_formula,
-                is_link: m.is_link,
-            })
-            .collect();
-        sync::feishu::sync_table_push(&app_token, &table_id, &local_table, &sync_mappings)
-            .await
-            .map_err(|e| e.to_string())
-    })
+    let mappings = parse_mappings(&mappings_json)?;
+    let sync_mappings: Vec<sync::feishu::SyncMappingEntry> = mappings
+        .into_iter()
+        .map(|m| sync::feishu::SyncMappingEntry {
+            feishu_field_name: m.feishu_field_name,
+            feishu_field_type: m.feishu_field_type,
+            local_column: m.local_column,
+            sync_direction: m.sync_direction,
+            is_formula: m.is_formula,
+            is_link: m.is_link,
+        })
+        .collect();
+    sync::feishu::sync_table_push(&app_token, &table_id, &local_table, &sync_mappings)
+        .await
+        .map_err(|e| e.to_string())
 }

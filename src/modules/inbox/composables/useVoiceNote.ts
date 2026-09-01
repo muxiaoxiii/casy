@@ -93,7 +93,7 @@ export function useVoiceNote() {
       if (result.ok && result.data) {
         // 添加到收件箱
         await tauriCallSafe('add_inbox_item', {
-          sourceType: 'voice',
+          sourceType: 'note',
           title: `语音速记 ${new Date().toLocaleTimeString()}`,
           contentText: transcript.value || '（语音待转写）',
           sourcePath: result.data.path,

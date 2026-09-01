@@ -1,0 +1,97 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "edit": "编辑",
+    "delete": "删除",
+    "create": "创建",
+    "search": "搜索...",
+    "loading": "加载中...",
+    "success": "操作成功",
+    "error": "操作失败",
+    "ai_loading": "AI 思考中..."
+  },
+  "nav": {
+    "dashboard": "今日看板",
+    "cases": "专案管理",
+    "tasks": "事项跟进",
+    "inbox": "收件箱",
+    "calendar": "排期日历",
+    "knowledge": "专属智库",
+    "settings": "系统设置"
+  },
+  "home": {
+    "greeting_morning": "☀️ 晨间规划",
+    "greeting_evening": "🌙 晚间总结",
+    "greeting_week_start": "🚀 本周规划",
+    "greeting_week_end": "🏆 周末复盘",
+    "calendar_shortcut": "排期日历",
+    "hard_schedule": "法庭与硬日程",
+    "hard_schedule_count": "{count} 场排期",
+    "today_commitments": "今日待办事项",
+    "commitments_unresolved": "{count} 项未结",
+    "waitlist": "外部等待监视",
+    "waitlist_count": "{count} 项跟进中",
+    "next_action": "NEXT ACTION",
+    "enter_workspace": "进入案件工作台",
+    "smart_recs": "办案智能建议",
+    "energy_capacity": "今日精力负荷",
+    "capacity_free": "弹性余量：",
+    "capacity_percent": "{percent}% 负荷"
+  },
+  "cases": {
+    "create_case": "创建新案件",
+    "client": "委托人",
+    "opponent": "对方当事人",
+    "court": "受理法院",
+    "tags": "标签",
+    "case_code": "案号",
+    "amount": "标的额",
+    "status": "状态"
+  },
+  "settings": {
+    "general": "常规设置",
+    "ai_model": "AI 引擎配置",
+    "appearance": "外观与样式",
+    "data_sync": "数据与同步",
+    "language": "系统语言 (Language)",
+    "holidays": "节假日管理",
+    "briefing_style": "早报/周报样式",
+    "api_key": "API 密钥 (API Key)",
+    "base_url": "接口地址 (Base URL)"
+  },
+  "inbox": {
+    "capture_placeholder": "在此输入灵感、法条、速记，或者拖入文件... (CMD+I)",
+    "clarify_task": "澄清任务",
+    "turn_action": "转为行动",
+    "wait": "等待 ⌘W",
+    "vault": "归档 ⌘R",
+    "sources": "来源",
+    "status": "状态",
+    "needs_clarify": "需要澄清"
+  },
+  "docs": {
+    "drafts": "草稿箱",
+    "templates": "文书模板",
+    "new_draft": "新建草稿",
+    "export_word": "导出 Word",
+    "draft_title": "草稿标题",
+    "word_count": "字数: {count}",
+    "last_saved": "最后保存:",
+    "status_draft": "草稿",
+    "status_final": "定稿",
+    "status_archived": "归档"
+  },
+  "editor": {
+    "ai_polish": "AI 润色",
+    "ai_continue": "AI 续写",
+    "task_list": "清单",
+    "table": "表格",
+    "align_left": "左对齐",
+    "align_center": "居中",
+    "insert_field": "字段",
+    "insert_law": "法条",
+    "insert_party": "当事人"
+  }
+}

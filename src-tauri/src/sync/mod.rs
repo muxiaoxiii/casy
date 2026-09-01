@@ -142,6 +142,14 @@ pub async fn manual_sync_push(
     // PUT 到临时路径
     let etag = client.put("casy.db.uploading", &data).await?;
 
+    // 上传密钥（如果存在）
+    if let Ok(key) = crate::db::get_or_create_encryption_key() {
+        let _ = client.put("casy.db.key.uploading", key.as_bytes()).await;
+        let _ = client
+            .move_resource("casy.db.key.uploading", "casy.db.key")
+            .await;
+    }
+
     // MOVE 到正式路径（原子操作）
     client.move_resource("casy.db.uploading", "casy.db").await?;
 
@@ -175,6 +183,24 @@ pub async fn manual_sync_pull(
 
     // GET 下载远程数据库
     let (data, etag) = client.get("casy.db").await?;
+
+    // GET 下载远程密钥（如果不报错，覆盖本地）
+    if let Ok((key_data, _)) = client.get("casy.db.key").await {
+        if let Ok(key_str) = String::from_utf8(key_data) {
+            let key = key_str.trim();
+            // 写入本地文件
+            let key_path = db_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join("casy.db.key");
+            let _ = std::fs::write(&key_path, key);
+
+            // 写入 keychain，避免系统优先读取旧随机密钥
+            // (注意：这里直接调用 db::keychain_set 可能需要 pub)
+            let _ = keyring::Entry::new("com.casy.db", "encryption-key")
+                .and_then(|e| e.set_password(key));
+        }
+    }
 
     // 写入临时文件
     let temp_local = db_path.with_extension("db.download");

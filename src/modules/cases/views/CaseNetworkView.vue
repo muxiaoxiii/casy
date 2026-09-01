@@ -12,10 +12,10 @@ const selectedCaseId = ref(null)
 
 // 关系类型映射
 const relationTypeMap = {
-  same_patent: { label: '同专利', color: '#409eff', icon: '📋' },
-  same_party: { label: '同客户', color: '#67c23a', icon: '👥' },
-  appeal_of: { label: '审级关联', color: '#e6a23c', icon: '⚖️' },
-  cross_reference: { label: '交叉引用', color: '#909399', icon: '🔗' },
+  same_patent: { label: '同专利', color: '#409eff' },
+  same_party: { label: '同客户', color: '#67c23a' },
+  appeal_of: { label: '审级关联', color: '#e6a23c' },
+  cross_reference: { label: '交叉引用', color: '#909399' },
 }
 
 // 加载所有案件
@@ -139,7 +139,7 @@ onMounted(async () => {
               v-for="(group, type) in groupedRelations"
               :key="type"
               :name="type"
-              :title="`${group.icon} ${group.label} (${group.relations.length})`"
+              :title="`${group.label} (${group.relations.length})`"
             >
               <el-empty v-if="group.relations.length === 0" description="暂无此类关系" :image-size="60" />
 

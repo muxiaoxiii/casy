@@ -1,42 +1,169 @@
 <template>
-  <div class="legal-editor">
-    <div class="editor-toolbar">
+  <div class="notion-legal-editor-shell" ref="editorContainer">
+    <!-- 左侧悬浮块手柄 (Block Gutter Handle) -->
+    <BlockActionHandle
+      :editor="editor"
+      :top="hoverHandleTop"
+      :visible="hoverHandleVisible"
+      @open-slash="openSlashAtCurrent"
+    />
+
+    <!-- Tiptap 编辑器核心内容区 -->
+    <editor-content
+      :editor="editor"
+      class="editor-content-area"
+      @mousemove="handleEditorMouseMove"
+      @mouseleave="hoverHandleVisible = false"
+      @contextmenu="handleContextMenu"
+      @drop="handleDrop"
+    />
+
+    <!-- 选中文字浮动格式栏 (Bubble Menu) -->
+    <bubble-menu
+      v-if="editor"
+      :editor="editor"
+      :tippy-options="{ duration: 150, zIndex: 99 }"
+      class="notion-bubble-menu"
+    >
       <button
-        @click="editor?.chain().focus().toggleBold().run()"
-        :class="{ active: editor?.isActive('bold') }"
-        title="粗体"
-      >B</button>
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive('bold') }"
+        title="加粗 (⌘B)"
+        @click="editor.chain().focus().toggleBold().run()"
+      >
+        <strong>B</strong>
+      </button>
+
       <button
-        @click="editor?.chain().focus().toggleItalic().run()"
-        :class="{ active: editor?.isActive('italic') }"
-        title="斜体"
-      >I</button>
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive('italic') }"
+        title="斜体 (⌘I)"
+        @click="editor.chain().focus().toggleItalic().run()"
+      >
+        <em>I</em>
+      </button>
+
       <button
-        @click="editor?.chain().focus().toggleUnderline().run()"
-        :class="{ active: editor?.isActive('underline') }"
-        title="下划线"
-      >U</button>
-      <span class="separator">|</span>
-      <button @click="editor?.chain().focus().toggleHeading({ level: 1 }).run()"
-        :class="{ active: editor?.isActive('heading', { level: 1 }) }">H1</button>
-      <button @click="editor?.chain().focus().toggleHeading({ level: 2 }).run()"
-        :class="{ active: editor?.isActive('heading', { level: 2 }) }">H2</button>
-      <button @click="editor?.chain().focus().toggleHeading({ level: 3 }).run()"
-        :class="{ active: editor?.isActive('heading', { level: 3 }) }">H3</button>
-      <span class="separator">|</span>
-      <button @click="editor?.chain().focus().toggleBulletList().run()"
-        :class="{ active: editor?.isActive('bulletList') }">• 列表</button>
-      <button @click="editor?.chain().focus().toggleOrderedList().run()"
-        :class="{ active: editor?.isActive('orderedList') }">1. 列表</button>
-      <span class="separator">|</span>
-      <button @click="editor?.chain().focus().undo().run()">撤销</button>
-      <button @click="editor?.chain().focus().redo().run()">重做</button>
-      <span class="separator">|</span>
-      <button @click="insertField" title="插入案件字段 {">{'{'}字段</button>
-      <button @click="insertLaw" title="插入法条 【">【法条</button>
-      <button @click="insertParty" title="插入当事人 @">@当事人</button>
-    </div>
-    <editor-content :editor="editor" class="editor-content" @contextmenu="handleContextMenu" />
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive('underline') }"
+        title="下划线 (⌘U)"
+        @click="editor.chain().focus().toggleUnderline().run()"
+      >
+        <u>U</u>
+      </button>
+
+      <button
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive('strike') }"
+        title="删除线"
+        @click="editor.chain().focus().toggleStrike().run()"
+      >
+        <s>S</s>
+      </button>
+
+      <button
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive('code') }"
+        title="行内代码"
+        @click="editor.chain().focus().toggleCode().run()"
+      >
+        <code>&lt;/&gt;</code>
+      </button>
+
+      <span class="bubble-divider"></span>
+
+      <button
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive({ textAlign: 'left' }) }"
+        title="居左对齐"
+        @click="editor.chain().focus().setTextAlign('left').run()"
+      >
+        <span>左</span>
+      </button>
+
+      <button
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive({ textAlign: 'center' }) }"
+        title="居中对齐"
+        @click="editor.chain().focus().setTextAlign('center').run()"
+      >
+        <span>中</span>
+      </button>
+
+      <button
+        type="button"
+        class="bubble-btn"
+        :class="{ active: editor.isActive({ textAlign: 'right' }) }"
+        title="居右对齐"
+        @click="editor.chain().focus().setTextAlign('right').run()"
+      >
+        <span>右</span>
+      </button>
+
+      <span class="bubble-divider"></span>
+
+      <button
+        type="button"
+        class="bubble-btn ai-btn"
+        title="AI 润色与术语转换"
+        @click="openAiCopilot('polish')"
+      >
+        <el-icon><MagicStick /></el-icon>
+        <span>AI 润色</span>
+      </button>
+    </bubble-menu>
+
+    <!-- 斜杠指令浮窗 (Notion Slash Commands) -->
+    <SlashCommandMenu
+      v-if="editor"
+      :editor="editor"
+      :visible="slashMenuVisible"
+      :position="slashMenuPos"
+      :case-data="caseData"
+      @close="slashMenuVisible = false"
+      @open-ai="openAiCopilot"
+      @open-law="insertLaw"
+      @open-knowledge="insertKnowledge"
+    />
+
+    <!-- AI Copilot 弹窗 -->
+    <el-dialog
+      v-model="copilotDialog.visible"
+      title="AI 智伴起草与润色 (Casy Copilot)"
+      width="520px"
+      append-to-body
+      destroy-on-close
+    >
+      <el-form label-position="top">
+        <el-form-item label="起草指令或修改要求">
+          <el-input
+            v-model="copilotDialog.prompt"
+            type="textarea"
+            rows="4"
+            placeholder="例如：请根据本案争议焦点起草一段质证意见，重点论述对方提交的证据不具备真实性与关联性..."
+          />
+        </el-form-item>
+        <el-form-item label="结合案件上下文">
+          <div class="ai-context-tag">
+            <el-icon><Briefcase /></el-icon>
+            <span>{{ caseData?.caseName ? `当前关联：${caseData.caseName} (${caseData.caseCode || caseData.caseNo || 'CIV'})` : '未关联具体案件（按通用法律逻辑处理）' }}</span>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="copilotDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="copilotDialog.generating" @click="generateWithAI">
+          {{ copilotDialog.generating ? '生成中...' : '生成并插入文书' }}
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 右键知识入库菜单 -->
     <Teleport to="body">
@@ -46,30 +173,33 @@
         :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
         @click.stop
       >
-        <div class="ctx-menu-header">📚 知识入库</div>
+        <div class="ctx-menu-header">
+          <el-icon :size="14"><Collection /></el-icon>
+          <span>沉淀至专属智库</span>
+        </div>
         <div class="ctx-menu-item" @click="captureAs('inspiration')">
-          <span class="ctx-icon">💡</span> 灵感记录
+          <el-icon class="ctx-icon" :size="14"><Opportunity /></el-icon> 灵感记录
         </div>
         <div class="ctx-menu-item" @click="captureAs('method')">
-          <span class="ctx-icon">📐</span> 工作方法
+          <el-icon class="ctx-icon" :size="14"><Memo /></el-icon> 办案方法
         </div>
         <div class="ctx-menu-item" @click="captureAs('reference')">
-          <span class="ctx-icon">📖</span> 参考资料
+          <el-icon class="ctx-icon" :size="14"><Reading /></el-icon> 参考资料 / 判例
         </div>
         <div class="ctx-menu-item" @click="captureAs('question')">
-          <span class="ctx-icon">❓</span> 待研究问题
+          <el-icon class="ctx-icon" :size="14"><QuestionFilled /></el-icon> 待研究焦点
         </div>
         <div class="ctx-menu-item" @click="captureAs('experience')">
-          <span class="ctx-icon">⭐</span> 经验总结
+          <el-icon class="ctx-icon" :size="14"><Medal /></el-icon> 胜诉经验总结
         </div>
         <div class="ctx-menu-item" @click="captureAs('log')">
-          <span class="ctx-icon">📝</span> 工作日志
+          <el-icon class="ctx-icon" :size="14"><Document /></el-icon> 庭审备忘日志
         </div>
       </div>
     </Teleport>
 
-    <!-- 标签输入弹窗 -->
-    <el-dialog v-model="captureDialog.visible" title="知识入库" width="480px" append-to-body>
+    <!-- 知识入库弹窗 -->
+    <el-dialog v-model="captureDialog.visible" title="沉淀到知识库" width="480px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="标题">
           <el-input v-model="captureDialog.title" placeholder="知识条目标题" />
@@ -88,19 +218,13 @@
           </el-select>
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="captureDialog.tags" placeholder="多个标签用逗号分隔" />
-        </el-form-item>
-        <el-form-item label="法律名称">
-          <el-input v-model="captureDialog.lawName" placeholder="如：专利法" />
-        </el-form-item>
-        <el-form-item label="条款号">
-          <el-input v-model="captureDialog.articleNo" placeholder="如：第65条" />
+          <el-input v-model="captureDialog.tags" placeholder="如：专利无效, 创造性, 质证" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="captureDialog.visible = false">取消</el-button>
         <el-button type="primary" :loading="captureDialog.capturing" @click="doCapture">
-          {{ captureDialog.capturing ? '入库中...' : '确认入库' }}
+          {{ captureDialog.capturing ? '入库中...' : '确认沉淀' }}
         </el-button>
       </template>
     </el-dialog>
@@ -108,16 +232,32 @@
 </template>
 
 <script setup>
-import { reactive, watch, onBeforeUnmount, onMounted } from 'vue'
+import { ref, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
+import { BubbleMenu } from '@tiptap/vue-3/menus'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
+import { Table } from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
+import Typography from '@tiptap/extension-typography'
+import TextAlign from '@tiptap/extension-text-align'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
+import {
+  Collection, Opportunity, Memo, Reading, QuestionFilled,
+  Medal, Document, MagicStick, Briefcase
+} from '@element-plus/icons-vue'
+import SlashCommandMenu from './SlashCommandMenu.vue'
+import BlockActionHandle from './BlockActionHandle.vue'
 import { CaseFieldSuggestion } from '../composables/caseFieldSuggestion.js'
 import { LegalProvisionSuggestion } from '../composables/legalProvisionSuggestion.js'
 import { PartyNameSuggestion } from '../composables/partyNameSuggestion.js'
+import { KnowledgeReferenceSuggestion } from '../composables/knowledgeReferenceSuggestion.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -129,10 +269,26 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'save', 'knowledge-captured'])
 
-// 右键菜单状态
-const contextMenu = reactive({ visible: false, x: 0, y: 0, selectedText: '' })
+const editorContainer = ref<HTMLElement | null>(null)
 
-// 捕获弹窗状态
+// ── 斜杠菜单状态 ──
+const slashMenuVisible = ref(false)
+const slashMenuPos = reactive({ x: 0, y: 0 })
+
+// ── 悬浮手柄状态 ──
+const hoverHandleVisible = ref(false)
+const hoverHandleTop = ref(0)
+
+// ── AI 对话框 ──
+const copilotDialog = reactive({
+  visible: false,
+  generating: false,
+  prompt: '',
+  type: 'draft',
+})
+
+// ── 右键菜单与知识入库 ──
+const contextMenu = reactive({ visible: false, x: 0, y: 0, selectedText: '' })
 const captureDialog = reactive({
   visible: false,
   capturing: false,
@@ -140,8 +296,6 @@ const captureDialog = reactive({
   title: '',
   category: 'reference',
   tags: '',
-  lawName: '',
-  articleNo: '',
 })
 
 const editor = useEditor({
@@ -151,52 +305,125 @@ const editor = useEditor({
       heading: { levels: [1, 2, 3] },
     }),
     Underline,
-    Placeholder.configure({ placeholder: '开始撰写... 输入 { 插入案件字段，【 插入法条，@ 插入当事人' }),
+    Typography,
+    TextAlign.configure({
+      types: ['heading', 'paragraph'],
+    }),
+    TaskList,
+    TaskItem.configure({
+      nested: true,
+    }),
+    Table.configure({
+      resizable: true,
+    }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    Placeholder.configure({
+      placeholder: '按「/」唤出 Notion 块菜单，或直接输入 Markdown 快速起草...',
+    }),
     CaseFieldSuggestion,
     LegalProvisionSuggestion,
     PartyNameSuggestion,
+    KnowledgeReferenceSuggestion,
   ],
   onUpdate: ({ editor }) => {
     const html = editor.getHTML()
     emit('update:modelValue', html)
+    checkForSlashTrigger()
   },
 })
 
-// 将案件数据存入 editor storage 供 suggestion 使用
-watch(() => props.caseData, (data) => {
-  if (editor.value) editor.value.storage.caseData = data
-}, { immediate: true })
-
-watch(() => props.allCases, (cases) => {
-  if (editor.value) editor.value.storage.allCases = cases
-}, { immediate: true })
-
-// 外部内容变化时同步到编辑器（但避免循环更新）
-watch(() => props.modelValue, (val) => {
-  if (editor.value && editor.value.getHTML() !== val) {
-    editor.value.commands.setContent(val, false)
+// 监听按键以激活 / 浮窗
+function checkForSlashTrigger() {
+  if (!editor.value) return
+  const { state } = editor.value
+  const { from } = state.selection
+  const textBefore = state.doc.textBetween(Math.max(0, from - 2), from, '\n')
+  
+  if (textBefore.endsWith('/')) {
+    const view = editor.value.view
+    const coords = view.coordsAtPos(from)
+    slashMenuPos.x = coords.left
+    slashMenuPos.y = coords.top
+    slashMenuVisible.value = true
   }
-})
+}
 
-function insertField() {
-  editor.value?.chain().focus().insertContent('{').run()
+// 块悬浮手柄位置探测
+function handleEditorMouseMove(e) {
+  if (!editor.value || !editorContainer.value) return
+  
+  const target = e.target?.closest?.('p, h1, h2, h3, ul, ol, blockquote, table, pre')
+  if (target && editorContainer.value.contains(target)) {
+    const containerRect = editorContainer.value.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    hoverHandleTop.value = targetRect.top - containerRect.top + editorContainer.value.scrollTop + 2
+    hoverHandleVisible.value = true
+  }
+}
+
+function openSlashAtCurrent() {
+  if (!editor.value) return
+  const { from } = editor.value.state.selection
+  const view = editor.value.view
+  const coords = view.coordsAtPos(from)
+  slashMenuPos.x = coords.left || 200
+  slashMenuPos.y = coords.top || 200
+  slashMenuVisible.value = true
 }
 
 function insertLaw() {
+  slashMenuVisible.value = false
   editor.value?.chain().focus().insertContent('【').run()
 }
 
-function insertParty() {
-  editor.value?.chain().focus().insertContent('@').run()
+function insertKnowledge() {
+  slashMenuVisible.value = false
+  emit('open-knowledge-drawer')
 }
 
-// ---- 右键知识入库 ----
+// ── AI Copilot ──
+function openAiCopilot(type = 'draft') {
+  slashMenuVisible.value = false
+  copilotDialog.type = type
+  if (type === 'polish') {
+    const selectedText = editor.value?.state.doc.textBetween(
+      editor.value.state.selection.from,
+      editor.value.state.selection.to,
+      ' '
+    )
+    copilotDialog.prompt = selectedText ? `请优化并润色以下段落，提升法言法语专业度：\n${selectedText}` : '请将选中文本润色为符合法庭提交标准的规范文书。'
+  } else {
+    copilotDialog.prompt = ''
+  }
+  copilotDialog.visible = true
+}
 
+async function generateWithAI() {
+  if (!copilotDialog.prompt.trim()) return
+  copilotDialog.generating = true
+
+  const prompt = `你是一名精通中国法律的资深诉讼律师与文书专家。请根据以下要求撰写或润色文书。直接输出格式规范的 HTML 段落（包含 <h2>, <h3>, <p>, <ul>, <blockquote> 等）：\n\n${copilotDialog.prompt}`
+  const result = await casyContext.ai.askAi(prompt, props.caseData)
+
+  copilotDialog.generating = false
+  if (result.ok && result.text) {
+    editor.value?.chain().focus().insertContent(result.text).run()
+    copilotDialog.visible = false
+    copilotDialog.prompt = ''
+    ElMessage.success('AI 内容已生成并插入')
+  } else {
+    ElMessage.error(result.error || 'AI 生成失败')
+  }
+}
+
+// ── 右键知识入库 ──
 function handleContextMenu(e) {
   if (!editor.value) return
   const { state } = editor.value
   const { from, to } = state.selection
-  if (from === to) return // 未选中文本，不拦截
+  if (from === to) return
 
   const selectedText = state.doc.textBetween(from, to, ' ')
   if (!selectedText.trim()) return
@@ -208,19 +435,38 @@ function handleContextMenu(e) {
   contextMenu.visible = true
 }
 
-function hideContextMenu() {
-  contextMenu.visible = false
+function handleDrop(e) {
+  const data = e.dataTransfer.getData('application/x-casy-reference')
+  if (!data) return
+  
+  e.preventDefault()
+  try {
+    const item = JSON.parse(data)
+    
+    // 获取拖拽释放位置
+    const coordinates = editor.value.view.posAtCoords({ left: e.clientX, top: e.clientY })
+    if (coordinates) {
+      editor.value.chain().focus().setTextSelection(coordinates.pos).run()
+    }
+    
+    if (item.type === 'knowledge' && editor.value.commands.insertBlockReference) {
+      editor.value.commands.insertBlockReference(item.id)
+    } else {
+      // 文件或其他类型，插入超链接或文本标识
+      editor.value.chain().focus().insertContent(` <a href="#" data-ref-id="${item.id}" data-ref-type="${item.type}">📄 [${item.item_type === 'file' ? '案卷' : '知识'}] ${item.title}</a> `).run()
+    }
+  } catch (err) {
+    console.error('Drop parsing error', err)
+  }
 }
 
 function captureAs(category) {
   captureDialog.text = contextMenu.selectedText
-  captureDialog.title = contextMenu.selectedText.substring(0, 50)
+  captureDialog.title = contextMenu.selectedText.substring(0, 40)
   captureDialog.category = category
   captureDialog.tags = ''
-  captureDialog.lawName = ''
-  captureDialog.articleNo = ''
   captureDialog.visible = true
-  hideContextMenu()
+  contextMenu.visible = false
 }
 
 async function doCapture() {
@@ -235,15 +481,12 @@ async function doCapture() {
     sourceType: 'editor',
     sourceId: props.sourceId || null,
     linkedCaseId: props.caseId || null,
-    lawName: captureDialog.lawName || null,
-    articleNo: captureDialog.articleNo || null,
     status: 'current',
   })
 
   captureDialog.capturing = false
-
   if (result.ok) {
-    ElMessage.success('知识已入库')
+    ElMessage.success('已沉淀至知识库')
     captureDialog.visible = false
     emit('knowledge-captured', result.data)
   } else {
@@ -251,181 +494,280 @@ async function doCapture() {
   }
 }
 
-// 全局点击关闭菜单
-function onDocumentClick() {
-  hideContextMenu()
+// 外部内容同步
+watch(() => props.modelValue, (val) => {
+  if (editor.value && editor.value.getHTML() !== val) {
+    editor.value.commands.setContent(val, { emitUpdate: false })
+  }
+})
+
+// 将案件数据存入 storage
+watch(() => props.caseData, (data) => {
+  if (editor.value) editor.value.storage.caseData = data
+}, { immediate: true })
+
+watch(() => props.allCases, (cases) => {
+  if (editor.value) editor.value.storage.allCases = cases
+}, { immediate: true })
+
+function onGlobalClick() {
+  contextMenu.visible = false
 }
 
 onMounted(() => {
-  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('click', onGlobalClick)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('click', onGlobalClick)
   editor.value?.destroy()
 })
 </script>
 
 <style scoped>
-.legal-editor {
+.notion-legal-editor-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  overflow: hidden;
+  background: var(--c-bg-card);
+  overflow-y: auto;
 }
 
-.editor-toolbar {
+.editor-content-area {
+  flex: 1;
+  padding: 48px 72px 120px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ── 选区浮动菜单 ── */
+.notion-bubble-menu {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 8px;
-  background: #fafafa;
-  border-bottom: 1px solid #e0e0e0;
-  flex-wrap: wrap;
-}
-
-.editor-toolbar button {
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  color: #333;
-  transition: all var(--motion-fast) var(--ease-out);
-}
-
-.editor-toolbar button:hover {
-  background: #ecf5ff;
-  border-color: #d9ecff;
-}
-
-.editor-toolbar button.active {
-  background: #409eff;
-  color: white;
-  border-color: #409eff;
-}
-
-.editor-toolbar .separator {
-  color: #ddd;
-  margin: 0 4px;
-  user-select: none;
-}
-
-.editor-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px;
-}
-
-/* TipTap 编辑器样式 */
-.editor-content :deep(.tiptap) {
-  outline: none;
-  min-height: 300px;
-  font-size: 15px;
-  line-height: 1.8;
-  color: #333;
-}
-
-.editor-content :deep(.tiptap p) {
-  margin: 0 0 8px;
-}
-
-.editor-content :deep(.tiptap h1) {
-  font-size: 24px;
-  margin: 16px 0 12px;
-}
-
-.editor-content :deep(.tiptap h2) {
-  font-size: 20px;
-  margin: 14px 0 10px;
-}
-
-.editor-content :deep(.tiptap h3) {
-  font-size: 17px;
-  margin: 12px 0 8px;
-}
-
-.editor-content :deep(.tiptap ul),
-.editor-content :deep(.tiptap ol) {
-  padding-left: 24px;
-  margin: 8px 0;
-}
-
-.editor-content :deep(.tiptap blockquote) {
-  border-left: 3px solid #409eff;
-  padding-left: 12px;
-  margin: 8px 0;
-  color: #666;
-}
-
-.editor-content :deep(.tiptap p.is-editor-empty:first-child::before) {
-  content: attr(data-placeholder);
-  float: left;
-  color: #adb5bd;
-  pointer-events: none;
-  height: 0;
-}
-
-/* 右键知识入库菜单 */
-.knowledge-context-menu {
-  position: fixed;
-  z-index: 9999;
-  background: #fff;
+  background: var(--c-bg-card);
   border: 1px solid var(--c-border);
-  border-radius: 8px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
-  padding: 4px 0;
-  min-width: 200px;
+  border-radius: var(--c-radius-lg);
+  padding: 4px 6px;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.ctx-menu-header {
-  padding: 8px 16px;
-  font-size: 12px;
-  color: var(--gray-400);
-  border-bottom: 1px solid #f0f0f0;
+.bubble-btn {
+  padding: 5px 8px;
+  border-radius: var(--c-radius-md);
+  border: none;
+  background: transparent;
+  color: var(--c-text-regular);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--motion-fast);
+}
+
+.bubble-btn:hover {
+  background: var(--c-bg-hover);
+  color: var(--c-text);
+}
+
+.bubble-btn.active {
+  background: var(--c-bg-selected);
+  color: var(--c-primary);
+  font-weight: 700;
+}
+
+.bubble-btn.ai-btn {
+  color: var(--c-primary);
   font-weight: 600;
 }
 
-.ctx-menu-item {
-  padding: 8px 16px;
-  font-size: 13px;
-  color: #303133;
+.bubble-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--c-border);
+  margin: 0 4px;
+}
+
+/* ── Tiptap 正文样式 ── */
+.editor-content-area :deep(.tiptap) {
+  outline: none;
+  min-height: 500px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--c-text);
+  font-family: var(--font-family);
+}
+
+.editor-content-area :deep(.tiptap p) {
+  margin: 0 0 10px;
+}
+
+.editor-content-area :deep(.tiptap h1) {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 32px 0 16px;
+  color: var(--c-text-heading);
+  letter-spacing: -0.5px;
+  border-bottom: 1px solid var(--c-border-light);
+  padding-bottom: 8px;
+}
+
+.editor-content-area :deep(.tiptap h2) {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 24px 0 12px;
+  color: var(--c-text-heading);
+}
+
+.editor-content-area :deep(.tiptap h3) {
+  font-size: 16.5px;
+  font-weight: 600;
+  margin: 18px 0 8px;
+  color: var(--c-text-heading);
+}
+
+.editor-content-area :deep(.tiptap ul),
+.editor-content-area :deep(.tiptap ol) {
+  padding-left: 24px;
+  margin: 10px 0;
+}
+
+.editor-content-area :deep(.tiptap li) {
+  margin-bottom: 4px;
+}
+
+/* 待办清单 */
+.editor-content-area :deep(.tiptap ul[data-type="taskList"]) {
+  list-style: none;
+  padding-left: 0;
+}
+
+.editor-content-area :deep(.tiptap li[data-type="taskItem"]) {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.editor-content-area :deep(.tiptap li[data-type="taskItem"] input[type="checkbox"]) {
+  margin-top: 5px;
   cursor: pointer;
+}
+
+/* Callout & 引用 */
+.editor-content-area :deep(.tiptap blockquote) {
+  border-left: 3px solid var(--c-primary);
+  padding: 10px 16px;
+  margin: 16px 0;
+  color: var(--c-text-secondary);
+  background: var(--c-bg-subtle);
+  border-radius: 0 var(--c-radius-lg) var(--c-radius-lg) 0;
+}
+
+.editor-content-area :deep(.tiptap blockquote.callout-box) {
+  border-left: 3px solid var(--status-warning);
+  background: var(--bg-warning-weak);
+  color: var(--c-text);
+  border-radius: var(--c-radius-lg);
+  padding: 12px 18px;
+}
+
+/* 表格 */
+.editor-content-area :deep(.tiptap table) {
+  border-collapse: collapse;
+  margin: 20px 0;
+  width: 100%;
+  table-layout: fixed;
+  border-radius: var(--c-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+}
+
+.editor-content-area :deep(.tiptap th) {
+  background: var(--c-bg-subtle);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  font-size: 13px;
+  color: var(--c-text-heading);
+}
+
+.editor-content-area :deep(.tiptap td) {
+  padding: 8px 12px;
+  border: 1px solid var(--c-border);
+  font-size: 13.5px;
+}
+
+.editor-content-area :deep(.tiptap hr) {
+  border: none;
+  border-top: 1px solid var(--c-border);
+  margin: 24px 0;
+}
+
+.ai-context-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--c-primary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--c-primary-light);
+}
+
+.capture-preview {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--c-bg-subtle);
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+}
+
+.knowledge-context-menu {
+  position: fixed;
+  width: 180px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 99999;
+}
+
+.ctx-menu-header {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-gray-light);
+  text-transform: uppercase;
+  padding: 6px 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ctx-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--c-text-regular);
+  cursor: pointer;
   transition: background var(--motion-fast);
 }
 
 .ctx-menu-item:hover {
-  background: #ecf5ff;
-  color: #409eff;
-}
-
-.ctx-menu-divider {
-  height: 1px;
-  background: #f0f0f0;
-  margin: 4px 0;
-}
-
-.ctx-icon {
-  font-size: 14px;
-}
-
-/* 捕获预览 */
-.capture-preview {
-  max-height: 120px;
-  overflow-y: auto;
-  padding: 8px 12px;
-  background: var(--gray-50);
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #606266;
-  white-space: pre-wrap;
-  word-break: break-all;
+  background: var(--c-bg-hover);
+  color: var(--c-text);
 }
 </style>
