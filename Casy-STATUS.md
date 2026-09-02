@@ -1,8 +1,10 @@
 # Casy 项目状态
 
-> **记录时间**: 2026-08-25 · **状态**: 🚀 **RC（发布候选）· 待 Dogfooding**
+> **记录时间**: 2026-09-01 · **状态**: 🚀 **RC（发布候选）· 待 Dogfooding**
 > **规划**: `docs/refactoring-plan.md` v1.7 · **上位哲学**: casy-design-philosophy.md v2.3
-> **基线**: main 工作区干净 · cargo test 106 ✓ · vue-tsc 0 ✓ · build ✓
+> **基线**: main 工作区干净 · cargo test 119+7 ✓ · vue-tsc 0 ✓ · build ✓
+> **最新批次**: 全球对标灵感落地（2026-09-01）—— Schema v20 · 10 项灵感全量实装 · bindings 115 类型 · CommandMap +45 契约
+> 详见 `docs/global-benchmark-inspirations-plan-2026-09-01.md` 与 `docs/global-benchmark-inspirations-walkthrough-2026-09-01.md`
 
 ---
 
@@ -17,11 +19,12 @@
 | A-UI 动效地基+优化轮 | ✅ | Motion Tokens；六表面自绘；令牌化 514 处；空状态/对话框节奏统一；KeyboardCenter |
 | B3/B1 内核收口 | ✅ | 确认策略上收；类型双轨合一；事件层激活；bindings 83 类型；错误码全域 |
 | B4 生产化 | 🔶 | R-1 身份/updater ✅ · R-3 CI ✅ · R-4 CSP/审计 ✅ · R-5 备份恢复 ✅ · R-6 崩溃日志 ✅ · R-7 合规文本 ✅ · R-2 签名 ⏸️ 待证书 |
+| 对标灵感落地（豁免冻结） | ✅ | AI Proposal Diff+@引用 · Defer Date · 通知中心 · 期限规则自定义+留痕 · 双链 · OCR+SmartRules · persons 对象 · 事实白板 |
 
 ## 二、当前形态
 
 - **架构**：cordis 式内核（Context/Service/Fiber）+ 单一数据通路 + AI 无特权通道（executeTool 强制确认 + audit_events 归因）
-- **Schema v17**：tasks(+parent/recurrence) / projects + case_legal_details（垂直拆表绞杀式阶段一）/ calendar_events
+- **Schema v20**：tasks(+parent/recurrence/defer_until) / projects + case_legal_details / calendar_events / notifications / links / persons+case_persons / smart_rules / whiteboards+fact_nodes / deadline_rule_audit
 - **类型安全**：specta 绑定 58 类型 + commandMap 契约注册表 + tauriCallSafe 双重载；动态命令余量 ~86（杂项盘点 63 个已分桶：可定型31/三态2/键袋18/核验2，随 DomainCommand 化消化）
 - **CI**：.github/workflows/ci.yml 三平台矩阵 + bindings 漂移校验 + tag 发布草稿
 

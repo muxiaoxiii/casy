@@ -1,0 +1,25 @@
+[package]
+name = "casy-doc-engine"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+
+[features]
+default = []
+models = ["dep:oar-ocr", "dep:oar-ocr-vl"]
+metal = ["models", "oar-ocr-vl/metal"]
+cuda = ["models", "oar-ocr-vl/cuda"]
+
+[dependencies]
+anyhow = "1"
+harumi = "1.19.0"
+hex = "0.4"
+image = "0.25"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+oar-ocr = { version = "0.9.2", optional = true }
+oar-ocr-vl = { version = "0.9.2", optional = true }
+
