@@ -13,6 +13,9 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6.5.2",
     "@element-plus/icons-vue": "^2.3.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
@@ -35,6 +38,7 @@
     "@tiptap/starter-kit": "^3.29",
     "@tiptap/suggestion": "^3.29",
     "@tiptap/vue-3": "^3.29",
+    "codemirror": "^6.0.2",
     "element-plus": "^2.14.3",
     "file-saver": "^2.0.5",
     "html-to-docx": "^1.8.0",
@@ -44,6 +48,9 @@
     "vue-draggable-plus": "^0.6.1",
     "vue-i18n": "^9.14.5",
     "vue-router": "^5.2.0"
+  },
+  "overrides": {
+    "image-size": "file:vendor/image-size"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
