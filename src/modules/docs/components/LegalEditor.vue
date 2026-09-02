@@ -14,6 +14,7 @@
       class="editor-content-area"
       @mousemove="handleEditorMouseMove"
       @mouseleave="hoverHandleVisible = false"
+      @click="handleEditorClick"
       @contextmenu="handleContextMenu"
       @drop="handleDrop"
     />
@@ -228,11 +229,20 @@
         </el-button>
       </template>
     </el-dialog>
+    <!-- 证据链接选择器（W4 双链） -->
+    <EvidenceLinkPicker
+      v-model="evidencePickerVisible"
+      :source-id="sourceId"
+      :case-id="caseId"
+      :all-cases="allCases"
+      @insert="insertEvidenceLink"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import StarterKit from '@tiptap/starter-kit'
@@ -254,6 +264,8 @@ import {
 } from '@element-plus/icons-vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import BlockActionHandle from './BlockActionHandle.vue'
+import EvidenceLinkPicker from './EvidenceLinkPicker.vue'
+import { EvidenceLink } from '../extensions/EvidenceLink'
 import { CaseFieldSuggestion } from '../composables/caseFieldSuggestion.js'
 import { LegalProvisionSuggestion } from '../composables/legalProvisionSuggestion.js'
 import { PartyNameSuggestion } from '../composables/partyNameSuggestion.js'
@@ -326,6 +338,7 @@ const editor = useEditor({
     LegalProvisionSuggestion,
     PartyNameSuggestion,
     KnowledgeReferenceSuggestion,
+    EvidenceLink,
   ],
   onUpdate: ({ editor }) => {
     const html = editor.getHTML()
@@ -417,6 +430,68 @@ async function generateWithAI() {
     ElMessage.error(result.error || 'AI 生成失败')
   }
 }
+
+// ── 证据链接（W4 双链） ──
+const router = useRouter()
+const evidencePickerVisible = ref(false)
+
+function openEvidenceLinkPicker() {
+  evidencePickerVisible.value = true
+}
+
+function insertEvidenceLink(attrs) {
+  if (!editor.value) return
+  editor.value.chain().focus().insertEvidenceLink(attrs).run()
+}
+
+// 点击证据链接：散发 CustomEvent（供其他模块监听）+ 默认路由跳转
+function handleEditorClick(e) {
+  const el = e.target?.closest?.('span[data-evidence-link]')
+  if (!el) return
+  e.preventDefault()
+  e.stopPropagation()
+  const detail = {
+    linkId: el.getAttribute('data-link-id') || null,
+    targetType: el.getAttribute('data-target-type'),
+    targetId: el.getAttribute('data-target-id'),
+    anchor: el.getAttribute('data-anchor') || null,
+    label: el.getAttribute('data-label') || el.textContent || null,
+    caseId: el.getAttribute('data-case-id') || null,
+  }
+  window.dispatchEvent(new CustomEvent('casy:evidence-link-activate', { detail }))
+  navigateEvidenceLink(detail)
+}
+
+function navigateEvidenceLink({ targetType, targetId, anchor, caseId }) {
+  if (!targetType || !targetId) return
+  switch (targetType) {
+    case 'file':
+      // 跳转案卷库并选中文件（select/anchor 为约定 query，files 视图按需消费）
+      if (caseId) {
+        router.push({
+          name: 'files',
+          params: { caseId },
+          query: { select: targetId, ...(anchor ? { anchor } : {}) },
+        })
+      } else {
+        ElMessage.warning('该文件链接缺少所属案件信息，无法定位案卷库')
+      }
+      break
+    case 'knowledge':
+      router.push({ name: 'knowledge', query: { select: targetId } })
+      break
+    case 'task':
+      router.push({ name: 'tasks', query: { edit: targetId } })
+      break
+    case 'case':
+      router.push({ name: 'case-detail', params: { id: targetId } })
+      break
+    default:
+      break
+  }
+}
+
+defineExpose({ openEvidenceLinkPicker })
 
 // ── 右键知识入库 ──
 function handleContextMenu(e) {
@@ -709,6 +784,76 @@ onBeforeUnmount(() => {
   border: none;
   border-top: 1px solid var(--c-border);
   margin: 24px 0;
+}
+
+/* ── 证据链接（W4 双链）：徽标 + 高亮锚文本 ── */
+.editor-content-area :deep(.tiptap .evidence-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 2px;
+  margin: 0 1px;
+  border-radius: var(--c-radius-md);
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: 1px dashed var(--c-primary);
+  transition: background var(--motion-fast) var(--ease-out);
+  user-select: none;
+}
+
+.editor-content-area :deep(.tiptap .evidence-link:hover) {
+  background: var(--c-bg-selected);
+  border-color: var(--c-primary);
+}
+
+.editor-content-area :deep(.tiptap .evidence-link)::before {
+  content: attr(data-badge);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--c-primary);
+  color: var(--c-bg-card);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* 类型着色：知识=绿、任务=橙、案件=中性 */
+.editor-content-area :deep(.tiptap .evidence-link--knowledge) {
+  background: var(--bg-success-weak);
+  color: var(--status-success);
+  border-bottom-color: var(--status-success);
+}
+.editor-content-area :deep(.tiptap .evidence-link--knowledge)::before {
+  background: var(--status-success);
+}
+.editor-content-area :deep(.tiptap .evidence-link--task) {
+  background: var(--bg-warning-weak);
+  color: var(--status-warning);
+  border-bottom-color: var(--status-warning);
+}
+.editor-content-area :deep(.tiptap .evidence-link--task)::before {
+  background: var(--status-warning);
+}
+.editor-content-area :deep(.tiptap .evidence-link--case) {
+  background: var(--c-bg-subtle);
+  color: var(--c-text-heading);
+  border-bottom-color: var(--c-text-secondary);
+}
+.editor-content-area :deep(.tiptap .evidence-link--case)::before {
+  background: var(--c-text-secondary);
+}
+
+.editor-content-area :deep(.tiptap .evidence-link.ProseMirror-selectednode) {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 1px;
 }
 
 .ai-context-tag {

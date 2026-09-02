@@ -42,7 +42,7 @@ onMounted(() => {
         <el-input 
           v-model="aiStore.systemPrompt" 
           type="textarea" 
-          rows="5"
+          :rows="5"
         />
         <div style="margin-top: 8px; font-size: 12px; color: #999;">
           若需重置系统人设，可点击 <a href="javascript:void(0)" @click="aiStore.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认</a>。

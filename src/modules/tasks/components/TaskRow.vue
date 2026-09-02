@@ -13,7 +13,7 @@
 import { computed } from 'vue'
 import {
   Check, Folder, Collection, Star, Calendar, Timer, Clock,
-  Lock, More, Edit, ArrowRight, Delete,
+  Lock, More, Edit, ArrowRight, Delete, AlarmClock, RefreshLeft,
 } from '@element-plus/icons-vue'
 import {
   isOverdue, formatDate, getWaitingDays,
@@ -37,6 +37,8 @@ export interface RowTask {
   followUpDate?: string | null
   context?: string | null
   nextReviewDate?: string | null
+  /** W2 推迟日（YYYY-MM-DD），未到期时今日/焦点透视隐藏 */
+  deferUntil?: string | null
   [key: string]: unknown
 }
 
@@ -66,6 +68,10 @@ const emit = defineEmits<{
   (e: 'follow-up', task: RowTask): void
   (e: 'toggle-expand', task: RowTask): void
   (e: 'toggle-focus', task: RowTask): void
+  /** W2：推迟到某日（父级弹出日期选择） */
+  (e: 'defer', task: RowTask): void
+  /** W2：提前结束推迟 */
+  (e: 'undefer', task: RowTask): void
 }>()
 
 const done = computed(() => props.task.completed === 1)
@@ -88,6 +94,16 @@ const timeRange = computed(() => {
   return `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}–${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
 })
 const focused = computed(() => props.task.isFocus === 1)
+
+/** W2：推迟中（deferUntil 晚于今天，本地日期字符串比较即可） */
+const todayStr = (() => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+})()
+const deferActive = computed(
+  () => !!props.task.deferUntil && props.task.deferUntil > todayStr
+)
 
 function caseName(id: string | null | undefined): string {
   return id && props.resolveCaseName ? props.resolveCaseName(id) : ''
@@ -199,6 +215,11 @@ function areaName(id: string | null | undefined): string {
           <el-icon><Lock /></el-icon>
           已锁定
         </span>
+
+        <span v-if="task.deferUntil" class="meta-item deferred" :class="{ active: deferActive }">
+          <el-icon><AlarmClock /></el-icon>
+          {{ deferActive ? `推迟至 ${formatDate(task.deferUntil)}` : `曾推迟至 ${formatDate(task.deferUntil)}` }}
+        </span>
       </div>
     </div>
 
@@ -210,6 +231,17 @@ function areaName(id: string | null | undefined): string {
           已回顾
         </el-button>
       </template>
+      <!-- W2：已推迟透视提供提前结束入口 -->
+      <el-button
+        v-if="perspective === 'deferred' && deferActive"
+        size="small"
+        plain
+        class="undefer-btn"
+        @click.stop="emit('undefer', task)"
+      >
+        <el-icon><RefreshLeft /></el-icon>
+        提前结束推迟
+      </el-button>
       <el-dropdown trigger="click">
         <el-button :icon="More" circle size="small" />
         <template #dropdown>
@@ -244,6 +276,16 @@ function areaName(id: string | null | undefined): string {
               @click="emit('snooze', task, s.value)"
             >
               稍后：{{ s.label }}
+            </el-dropdown-item>
+            <el-dropdown-item :icon="Calendar" divided @click="emit('defer', task)">
+              推迟到…
+            </el-dropdown-item>
+            <el-dropdown-item
+              v-if="task.deferUntil"
+              :icon="RefreshLeft"
+              @click="emit('undefer', task)"
+            >
+              提前结束推迟
             </el-dropdown-item>
             <el-dropdown-item :icon="Delete" divided @click="emit('delete', task)">删除</el-dropdown-item>
           </el-dropdown-menu>
@@ -428,6 +470,24 @@ function areaName(id: string | null | undefined): string {
   background: var(--c-bg-subtle);
   padding: 1px 5px;
   border-radius: 3px;
+}
+.meta-item.deferred { color: var(--gray-500); }
+.meta-item.deferred.active {
+  color: #5b7a9e;
+  background: color-mix(in srgb, #5b7a9e 12%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.undefer-btn {
+  margin-right: 8px;
+  font-size: 12px;
+  padding: 4px 10px;
+  --el-button-border-color: #5b7a9e;
+  --el-button-text-color: #5b7a9e;
+  --el-button-hover-border-color: #5b7a9e;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-hover-bg-color: #5b7a9e;
 }
 
 /* ── 操作区 ── */

@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import CaseFilesPanel from '../components/CaseFilesPanel.vue'
+import CasePersonsPanel from '../../persons/components/CasePersonsPanel.vue'
+import WhiteboardEntry from '../../whiteboard/components/WhiteboardEntry.vue'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft, Edit, Calendar, Finished, Document,
@@ -582,6 +584,20 @@ onUnmounted(() => {
       </span>
       <span
         class="dtab"
+        :class="{ active: activeTab === 'persons' }"
+        @click="activeTab = 'persons'"
+      >
+        实体对象
+      </span>
+      <span
+        class="dtab"
+        :class="{ active: activeTab === 'whiteboard' }"
+        @click="activeTab = 'whiteboard'"
+      >
+        事实白板
+      </span>
+      <span
+        class="dtab"
         :class="{ active: activeTab === 'timeline' }"
         @click="activeTab = 'timeline'"
       >
@@ -816,6 +832,16 @@ onUnmounted(() => {
     <!-- ═══ Tab 3: 案卷管理 ═══ -->
     <div v-if="activeTab === 'files'" class="tab-pane">
       <CaseFilesPanel :case-id="caseId" :case-no="caseData?.caseNo" />
+    </div>
+
+    <!-- ═══ Tab: 实体对象（W6 · Capacities 式单一事实源） ═══ -->
+    <div v-if="activeTab === 'persons'" class="tab-pane">
+      <CasePersonsPanel :case-id="caseId" />
+    </div>
+
+    <!-- ═══ Tab: 事实白板（W7 · LiquidText 式事实节点网络） ═══ -->
+    <div v-if="activeTab === 'whiteboard'" class="tab-pane">
+      <WhiteboardEntry :case-id="caseId" />
     </div>
 
     <!-- ═══ Tab 4: 动态轨迹 ═══ -->

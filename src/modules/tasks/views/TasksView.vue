@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import {
   completeTaskOptimistic, restoreTaskOptimistic,
@@ -12,7 +13,7 @@ import {
   ArrowRight, Delete, Edit, More, RefreshRight,
   Box, List, Timer, Files, Check, Search,
   Menu, Grid, Collection, Select, Close, Location,
-  Opportunity, Warning, TrendCharts, CircleCheck
+  Opportunity, Warning, TrendCharts, CircleCheck, AlarmClock
 } from '@element-plus/icons-vue'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
@@ -24,6 +25,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 import { registerShortcut } from '../../../shared/keyboard'
 import { parseWhen } from '../../../shared/nlp/parseWhen'
+import { tauriCall } from '../../../core/tauriBridge'
 
 // ============================================================
 // 1. 状态管理 (直连真实 SQLite 数据库)
@@ -62,6 +64,7 @@ const editForm = ref({
   areaId: '',
   estimatedMinutes: null,
   startBucket: 'anytime',
+  deferUntil: '',
 })
 
 // 弹窗状态
@@ -70,6 +73,12 @@ const showAreasDialog = ref(false)
 const showTodayReset = ref(false)
 const showPerspectiveManager = ref(false)
 const editingPerspective = ref(null)
+
+// W2 推迟到…对话框
+const showDeferDialog = ref(false)
+const deferTargetTask = ref(null)
+const deferDate = ref('')
+const deferSaving = ref(false)
 
 // 快速捕获输入条
 const captureInput = ref('')
@@ -83,6 +92,8 @@ const newChildText = ref({})
 // Store
 const tasksStore = useTasksStore()
 const filtersStore = useFiltersStore()
+const route = useRoute()
+const router = useRouter()
 const customPerspectives = computed(() => tasksStore.customPerspectives)
 const savedFilters = computed(() => filtersStore.filters)
 
@@ -99,6 +110,7 @@ const perspectives = [
   { key: 'multiday', label: '跨天专项', icon: TrendCharts, color: '#6C6A9C', desc: '多日连续阶段性任务' },
   { key: 'next', label: '随时行动', icon: ArrowRight, color: '#4C8067', desc: '无依赖可立即执行' },
   { key: 'waiting', label: '等待追踪', icon: Clock, color: '#B0823A', desc: '等待对方回复或委派跟进' },
+  { key: 'deferred', label: '已推迟', icon: AlarmClock, color: '#5B7A9E', desc: '推迟到未来日期的任务，到期自动回归' },
   { key: 'matrix', label: '四象限', icon: Grid, color: '#E6A23C', desc: '重要与紧急度决策看板' },
   { key: 'bycase', label: '按案件', icon: Folder, color: '#409EFF', desc: '按关联案件聚合分类' },
   { key: 'completed', label: '已完成', icon: CircleCheck, color: '#67C23A', desc: '历史归档与复盘' },
@@ -150,6 +162,7 @@ const gtdStats = computed(() => {
     multiday: uncompleted.filter(t => t.startDate && t.dueDate && t.startDate !== t.dueDate).length,
     next: uncompleted.filter(t => t.taskType === 'action' || !t.taskType).length,
     waiting: uncompleted.filter(t => t.taskType === 'waiting' || !!t.waitingFor).length,
+    deferred: uncompleted.filter(t => t.deferUntil && t.deferUntil > today).length,
     matrix: uncompleted.length,
     bycase: uncompleted.filter(t => !!t.caseId).length,
     completed: completedList.length,
@@ -174,7 +187,16 @@ const gtdTasks = computed(() => {
       break
 
     case 'today':
-      list = tasks.value.filter(t => !t.completed && (t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)))
+      // W2：今日专注隐藏未到期推迟任务（deferUntil > 今天才藏，到期当天自动回归）
+      list = tasks.value.filter(t => !t.completed
+        && (!t.deferUntil || t.deferUntil <= today)
+        && (t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)))
+      break
+
+    case 'deferred':
+      // W2 已推迟透视：deferUntil 未到期（未来日期）的未完成任务，按回归日升序
+      list = tasks.value.filter(t => !t.completed && t.deferUntil && t.deferUntil > today)
+      list.sort((a, b) => String(a.deferUntil).localeCompare(String(b.deferUntil)))
       break
 
     case 'upcoming':
@@ -311,6 +333,18 @@ onMounted(async () => {
   await loadData()
   filtersStore.loadFilters('tasks')
 
+  // 消费 ?edit=<taskId>（证据链接/通知中心跳转约定）：定位并打开任务抽屉
+  const editId = route.query.edit
+  if (editId) {
+    const target = tasks.value.find(t => t.id === editId)
+    if (target) {
+      openDrawer(target)
+    } else {
+      ElMessage.warning('未找到对应任务（可能已被删除）')
+    }
+    router.replace({ query: {} })
+  }
+
   unregisterKeys.push(
     registerShortcut('meta+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
     registerShortcut('ctrl+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' })
@@ -341,8 +375,10 @@ async function loadTasks() {
 
 async function loadCases() {
   const result = await casyContext.cases.list({})
-  if (result.ok && Array.isArray(result.data)) {
-    cases.value = result.data
+  if (result.ok) {
+    cases.value = Array.isArray(result.data)
+      ? result.data
+      : (Array.isArray(result.data?.items) ? result.data.items : [])
   }
 }
 
@@ -463,6 +499,18 @@ function openDrawer(task) {
     areaId: task.areaId || '',
     estimatedMinutes: task.estimatedMinutes || null,
     startBucket: task.startBucket || 'anytime',
+    deferUntil: task.deferUntil || '',
+  }
+  showDrawer.value = true
+}
+
+function openNewTask() {
+  editingTask.value = { id: null, taskName: '' }
+  editForm.value = {
+    taskName: '', description: '', deadline: '', priority: 'normal', caseId: '',
+    taskType: 'action', startDate: '', dueDate: '', dueTime: '', waitingFor: '',
+    followUpDate: '', context: '', flagged: false, areaId: '',
+    estimatedMinutes: null, startBucket: 'inbox', deferUntil: '',
   }
   showDrawer.value = true
 }
@@ -475,19 +523,55 @@ async function saveTask() {
   }
 
   const data = {
-    id: editingTask.value.id,
+    ...(editingTask.value.id ? { id: editingTask.value.id } : {}),
     ...editForm.value,
     flagged: editForm.value.flagged ? 1 : 0,
+    // 三态 PATCH：空串归一为 null（清除推迟日），非空走格式校验
+    deferUntil: editForm.value.deferUntil || null,
   }
 
-  const result = await casyContext.tasks.update(data)
+  const result = editingTask.value.id
+    ? await casyContext.tasks.update(data)
+    : await casyContext.tasks.create(data)
   if (result.ok) {
-    ElMessage.success('任务已更新')
+    ElMessage.success(editingTask.value.id ? '任务已更新' : '任务已创建')
     showDrawer.value = false
     await loadTasks()
   } else {
     ElMessage.error(result.error || '保存失败')
   }
+}
+
+async function moveTaskToday(task) {
+  const result = await casyContext.tasks.update({
+    id: task.id,
+    startBucket: 'today',
+    startDate: todayStr.value,
+  })
+  if (result.ok) {
+    ElMessage.success('已移至今日')
+    await loadTasks()
+  } else ElMessage.error(result.error || '操作失败')
+}
+
+async function markTaskWaiting(task) {
+  const result = await casyContext.tasks.update({ id: task.id, taskType: 'waiting' })
+  if (result.ok) {
+    ElMessage.success('已标记为等待')
+    await loadTasks()
+  } else ElMessage.error(result.error || '操作失败')
+}
+
+async function snoozeTask(task, option) {
+  const result = await casyContext.tasks.snooze(task.id, option)
+  if (result.ok) {
+    ElMessage.success('已稍后处理')
+    await loadTasks()
+  } else ElMessage.error(result.error || '操作失败')
+}
+
+function triageTask(task) {
+  openDrawer(task)
 }
 
 // 删除任务
@@ -505,6 +589,53 @@ async function deleteTask(task) {
     }
     await loadTasks()
   } catch {}
+}
+
+// ============================================================
+// W2 推迟到…（OmniFocus 式 Defer Date）
+// ============================================================
+function openDeferDialog(task) {
+  deferTargetTask.value = task
+  // 默认明天；已推迟任务回显当前推迟日
+  if (task.deferUntil) {
+    deferDate.value = task.deferUntil
+  } else {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    const p = (n) => String(n).padStart(2, '0')
+    deferDate.value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  }
+  showDeferDialog.value = true
+}
+
+function disablePastDates(date) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return date.getTime() < today.getTime()
+}
+
+async function confirmDefer() {
+  if (!deferTargetTask.value || !deferDate.value || deferSaving.value) return
+  deferSaving.value = true
+  const ok = await tauriCall('defer_task', {
+    taskId: deferTargetTask.value.id,
+    until: deferDate.value,
+  }, { errorMessage: '推迟失败' })
+  deferSaving.value = false
+  if (ok !== null) {
+    ElMessage.success(`已推迟至 ${formatDate(deferDate.value) || deferDate.value}，到期自动回归今日`)
+    showDeferDialog.value = false
+    deferTargetTask.value = null
+    await loadTasks()
+  }
+}
+
+async function undeferTask(task) {
+  const ok = await tauriCall('clear_task_defer', { taskId: task.id }, { errorMessage: '操作失败' })
+  if (ok !== null) {
+    ElMessage.success(`「${task.taskName}」已结束推迟`)
+    await loadTasks()
+  }
 }
 
 function toggleExpand(task) {
@@ -590,7 +721,7 @@ function getCustomPerspectiveCount(perspectiveId) {
           <span>领域</span>
         </button>
 
-        <button class="btn-action-primary" @click="showCreateDialog = true">
+        <button class="btn-action-primary" @click="openNewTask">
           <el-icon :size="14"><Plus /></el-icon>
           <span>新建任务</span>
         </button>
@@ -737,7 +868,13 @@ function getCustomPerspectiveCount(perspectiveId) {
             @toggle="toggleComplete"
             @open="openDrawer"
             @delete="deleteTask"
+            @triage="triageTask"
+            @move-today="moveTaskToday"
+            @mark-waiting="markTaskWaiting"
+            @snooze="snoozeTask"
             @toggle-expand="toggleExpand"
+            @defer="openDeferDialog"
+            @undefer="undeferTask"
           />
         </div>
       </div>
@@ -773,7 +910,13 @@ function getCustomPerspectiveCount(perspectiveId) {
             @toggle="toggleComplete"
             @open="openDrawer"
             @delete="deleteTask"
+            @triage="triageTask"
+            @move-today="moveTaskToday"
+            @mark-waiting="markTaskWaiting"
+            @snooze="snoozeTask"
             @toggle-expand="toggleExpand"
+            @defer="openDeferDialog"
+            @undefer="undeferTask"
           />
 
           <!-- 展开子任务 -->
@@ -804,7 +947,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         <StateFeedback
           v-if="loading || !gtdTasks.length"
           :state="loading ? 'loading' : 'empty'"
-          :empty-text="activePerspective === 'completed' ? '暂无已完成归档记录' : '当前视角下暂无任务，输入上方输入框快速记录'"
+          :empty-text="activePerspective === 'completed' ? '暂无已完成归档记录' : activePerspective === 'deferred' ? '暂无推迟中的任务，可在任务菜单选择「推迟到…」' : '当前视角下暂无任务，输入上方输入框快速记录'"
         />
       </div>
     </div>
@@ -812,7 +955,7 @@ function getCustomPerspectiveCount(perspectiveId) {
     <!-- ═══ 5. 任务编辑详情抽屉 (Task Detail Drawer) ═══ -->
     <el-drawer
       v-model="showDrawer"
-      title="任务详细信息"
+      :title="editingTask?.id ? '任务详细信息' : '新建任务（可直接关联案件）'"
       size="480px"
       destroy-on-close
     >
@@ -859,6 +1002,22 @@ function getCustomPerspectiveCount(perspectiveId) {
         </div>
 
         <div class="form-item">
+          <label>推迟到 (Defer Until)</label>
+          <div class="defer-field-row">
+            <input v-model="editForm.deferUntil" type="date" class="form-input" />
+            <button
+              v-if="editForm.deferUntil"
+              type="button"
+              class="btn-defer-clear"
+              @click="editForm.deferUntil = ''"
+            >
+              清除
+            </button>
+          </div>
+          <span class="defer-hint">未到期前在「今日专注」中隐藏，到期当天自动回归</span>
+        </div>
+
+        <div class="form-item">
           <label>上下文场景 (Context)</label>
           <div class="context-pill-group">
             <button
@@ -881,17 +1040,47 @@ function getCustomPerspectiveCount(perspectiveId) {
 
       <template #footer>
         <div class="drawer-footer">
-          <button class="btn-danger-del" @click="deleteTask(editingTask)">
+          <button v-if="editingTask?.id" class="btn-danger-del" @click="deleteTask(editingTask)">
             <el-icon><Delete /></el-icon>
             <span>删除</span>
           </button>
           <div class="drawer-right-btns">
             <button class="btn-cancel" @click="showDrawer = false">取消</button>
-            <button class="btn-primary" @click="saveTask">保存修改</button>
+            <button class="btn-primary" @click="saveTask">{{ editingTask?.id ? '保存修改' : '创建任务' }}</button>
           </div>
         </div>
       </template>
     </el-drawer>
+
+    <!-- W2 推迟到…对话框 -->
+    <el-dialog
+      v-model="showDeferDialog"
+      title="推迟到…"
+      width="360px"
+      destroy-on-close
+    >
+      <div class="defer-dialog-body">
+        <p class="defer-dialog-desc">
+          「{{ deferTargetTask?.taskName }}」在到期前将从「今日专注」隐藏，到期当天自动回归。
+        </p>
+        <el-date-picker
+          v-model="deferDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          placeholder="选择回归日期"
+          :disabled-date="disablePastDates"
+          style="width: 100%"
+        />
+      </div>
+      <template #footer>
+        <div class="drawer-right-btns">
+          <button class="btn-cancel" @click="showDeferDialog = false">取消</button>
+          <button class="btn-primary" :disabled="!deferDate || deferSaving" @click="confirmDefer">
+            {{ deferSaving ? '推迟中…' : '确定推迟' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
 
     <!-- 弹窗组件 -->
     <AreasDialog v-model="showAreasDialog" />
@@ -1531,5 +1720,52 @@ function getCustomPerspectiveCount(perspectiveId) {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── W2 推迟到… ─────────────────────────────────────────── */
+.defer-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-defer-clear {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: var(--c-radius);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-subtle);
+  color: var(--c-text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+
+.btn-defer-clear:hover {
+  color: var(--status-risk);
+  border-color: var(--status-risk);
+}
+
+.defer-hint {
+  font-size: 11px;
+  color: var(--slate-gray-light);
+}
+
+.defer-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.defer-dialog-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
 }
 </style>

@@ -117,6 +117,42 @@ async function testConnection() {
   }
 }
 
+async function doPull() {
+  const appToken = feishuAppToken.value.trim() || syncInfo.value.appToken
+  const tableId = selectedTableId.value || syncInfo.value.tableId
+  if (!appToken || !tableId) {
+    ElMessage.warning('请先填写 App Token 并选择数据表')
+    return
+  }
+  importAllLoading.value = true
+  const result = await casyContext.sync.feishuPull(appToken, tableId)
+  importAllLoading.value = false
+  if (result.ok) {
+    ElMessage.success('飞书数据拉取完成')
+    await loadSyncInfo()
+  } else {
+    ElMessage.error(result.error || '拉取失败')
+  }
+}
+
+async function doPush() {
+  const appToken = feishuAppToken.value.trim() || syncInfo.value.appToken
+  const tableId = selectedTableId.value || syncInfo.value.tableId
+  if (!appToken || !tableId) {
+    ElMessage.warning('请先填写 App Token 并选择数据表')
+    return
+  }
+  importAllLoading.value = true
+  const result = await casyContext.sync.feishuPush(appToken, tableId)
+  importAllLoading.value = false
+  if (result.ok) {
+    ElMessage.success('本地数据推送完成')
+    await loadSyncInfo()
+  } else {
+    ElMessage.error(result.error || '推送失败')
+  }
+}
+
 // === v3.0: 表发现 ===
 async function discoverTables() {
   if (!feishuAppToken.value.trim()) {

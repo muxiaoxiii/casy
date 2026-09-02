@@ -111,7 +111,9 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        return ctx.tasks.toggle(params.id)
+        // P0-2：提案批准后的重放会注入 origin/proposalToken，透传给服务端网关消费 token
+        const p = params as { id: string; origin?: string; proposalToken?: string }
+        return ctx.tasks.toggle(p.id, null, { origin: p.origin, proposalToken: p.proposalToken })
       },
     })
   }
@@ -163,7 +165,8 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        return ctx.tasks.remove(params.id)
+        const p = params as { id: string; origin?: string; proposalToken?: string }
+        return ctx.tasks.remove(p.id, { origin: p.origin, proposalToken: p.proposalToken })
       },
     })
   }

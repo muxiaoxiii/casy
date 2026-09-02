@@ -31,6 +31,8 @@ import {
   Microphone,
   ChatDotRound,
   Paperclip,
+  Clock,
+  Warning,
 } from '@element-plus/icons-vue'
 
 const inboxStore = useInboxStore()
@@ -50,6 +52,7 @@ const casesList = ref([])
 const clarifyAction = ref('action') // 'action' | 'delegate' | 'wait' | 'someday'
 const clarifyContext = ref('@Desk')
 const clarifyMatter = ref('')
+const clarifyCaseId = ref('')
 const clarifyDoWhen = ref('today')
 const clarifyDeadline = ref('')
 const clarifyNotes = ref('')
@@ -138,8 +141,10 @@ async function loadItems() {
 
 async function loadCases() {
   const result = await casyContext.cases.list({})
-  if (result.ok && Array.isArray(result.data)) {
-    casesList.value = result.data
+  if (result.ok) {
+    casesList.value = Array.isArray(result.data)
+      ? result.data
+      : (Array.isArray(result.data?.items) ? result.data.items : [])
   }
 }
 
@@ -151,9 +156,10 @@ async function processCurrentItem(actionType = clarifyAction.value) {
   if (!item) return
 
   processing.value = true
+  let actionResult = { ok: true }
   if (actionType === 'action') {
     // 转为任务
-    await casyContext.tasks.create({
+    actionResult = await casyContext.tasks.create({
       taskName: item.title,
       description: clarifyNotes.value || item.contentText,
       caseId: clarifyCaseId.value || null,
@@ -162,10 +168,19 @@ async function processCurrentItem(actionType = clarifyAction.value) {
       dueDate: clarifyDeadline.value || null,
       estimatedMinutes: clarifyEstMinutes.value,
     })
-    ElMessage.success('已转为行动并归入案件业务链条')
+  } else if (actionType === 'delegate') {
+    actionResult = await casyContext.tasks.create({
+      taskName: item.title,
+      description: clarifyNotes.value || item.contentText,
+      caseId: clarifyCaseId.value || null,
+      caseName: clarifyMatter.value || null,
+      taskType: 'waiting',
+      waitingFor: '待指定负责人',
+      startBucket: 'anytime',
+    })
   } else if (actionType === 'wait') {
     // 设为等待
-    await casyContext.tasks.create({
+    actionResult = await casyContext.tasks.create({
       taskName: `等外部回复: ${item.title}`,
       description: clarifyNotes.value,
       caseId: clarifyCaseId.value || null,
@@ -173,29 +188,49 @@ async function processCurrentItem(actionType = clarifyAction.value) {
       taskType: 'waiting',
       startBucket: 'anytime',
     })
-    ElMessage.success('已记入外部等待列表')
   } else if (actionType === 'someday') {
     // 放入将来也许
-    await casyContext.tasks.create({
+    actionResult = await casyContext.tasks.create({
       taskName: item.title,
       caseId: clarifyCaseId.value || null,
       caseName: clarifyMatter.value || null,
       startBucket: 'someday',
     })
-    ElMessage.success('已归入将来也许清单')
   }
+
+  if (!actionResult.ok) {
+    processing.value = false
+    ElMessage.error(actionResult.error || '操作失败，收件项未被归档')
+    return
+  }
+
+  const successMessages = {
+    action: '已转为行动并归入案件业务链条',
+    delegate: '已建立委派跟踪任务',
+    wait: '已记入外部等待列表',
+    someday: '已归入将来也许清单',
+  }
+  ElMessage.success(successMessages[actionType] || '处理完成')
 
   // 标记收件项完成
   if (item.id) {
-    await casyContext.inbox.confirmAction({
+    const confirmResult = await casyContext.inbox.confirmAction({
       inboxItemId: item.id,
-      action: actionType === 'action' ? 'create_task' : 'file_to_case',
+      action: actionType === 'action' || actionType === 'delegate' || actionType === 'wait'
+        ? 'create_task'
+        : 'file_to_case',
       targetCaseId: clarifyCaseId.value || null,
     })
+    if (!confirmResult.ok) {
+      processing.value = false
+      ElMessage.warning(confirmResult.error || '任务已创建，但收件项归档失败，请稍后重试')
+      return
+    }
   }
 
   processing.value = false
   await loadItems()
+  if (filteredPendingItems.value[0]) selectItem(filteredPendingItems.value[0])
 }
 
 // AI 结构化解析
@@ -344,7 +379,7 @@ async function dismissItem(item) {
       <main class="inbox-stream-panel">
         <div class="stream-header-row">
           <div>
-            <h2 class="section-title">{{ $t('inbox.needs_clarify') }} ({{ items.length }})</h2>
+            <h2 class="section-title">{{ $t('inbox.needs_clarify') }} ({{ filteredPendingItems.length }})</h2>
             <p class="stream-subtitle">Unprocessed items requiring your attention.</p>
           </div>
           <div class="stream-actions">
@@ -563,8 +598,8 @@ async function dismissItem(item) {
 
         <!-- 底部主操作按钮 (Process & Next ⌘↵) -->
         <div class="clarify-footer-action">
-          <button class="btn-clarify-primary" :loading="processing" @click="processCurrentItem('action')">
-            <span>{{ $t('inbox.turn_action') }}</span>
+          <button class="btn-clarify-primary" :loading="processing" @click="processCurrentItem()">
+            <span>{{ clarifyAction === 'delegate' ? '建立委派跟踪' : clarifyAction === 'wait' ? '转入等待' : clarifyAction === 'someday' ? '归入将来/也许' : $t('inbox.turn_action') }}</span>
             <span class="kbd-sub">⌘↵</span>
           </button>
           <div class="clarify-sub-actions">

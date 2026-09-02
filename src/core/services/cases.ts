@@ -1,6 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { Case, CaseListResponse } from '../../types'
+import type { AiAuthCtx } from './tasks'
 
 /** 案件服务：ctx.cases（数据通路：视图 → 服务 → tauriBridge → Rust 命令） */
 export class CasesService extends Service {
@@ -23,16 +24,18 @@ export class CasesService extends Service {
     return result
   }
 
-  async update(id: string, data: Record<string, unknown>): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    const result = await tauriCallSafe<Case>('update_case', { id, data })
+  async update(id: string, data: Record<string, unknown>, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; data?: Case; error?: string }> {
+    // AI 网关授权信息随 data 透传（后端 update_case 从 data 内读取 origin/proposalToken）
+    const payload = aiAuth ? { ...data, ...aiAuth } : data
+    const result = await tauriCallSafe<Case>('update_case', { id, data: payload })
     if (result.ok) {
       this.ctx.emit('case:updated', { id, ...data })
     }
     return result
   }
 
-  async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    const result = await tauriCallSafe<void>('delete_case', { id })
+  async remove(id: string, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
+    const result = await tauriCallSafe<void>('delete_case', { id, ...(aiAuth ?? {}) })
     if (result.ok) {
       this.ctx.emit('case:deleted', { id })
     }

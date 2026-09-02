@@ -2,6 +2,12 @@ import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { Task } from '../../types'
 
+/** AI 授权上下文（P0-2 网关：提案批准后重放时携带一次性 proposal token） */
+export interface AiAuthCtx {
+  origin?: string
+  proposalToken?: string
+}
+
 /** 任务服务：ctx.tasks */
 export class TasksService extends Service {
   static inject: string[] = []
@@ -21,8 +27,8 @@ export class TasksService extends Service {
     return result
   }
 
-  async toggle(id: string, actualMinutes?: number | null): Promise<{ ok: boolean; error?: string }> {
-    const result = await tauriCallSafe<void>('toggle_task', { id, actualMinutes: actualMinutes ?? null })
+  async toggle(id: string, actualMinutes?: number | null, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
+    const result = await tauriCallSafe<void>('toggle_task', { id, actualMinutes: actualMinutes ?? null, ...(aiAuth ?? {}) })
     if (result.ok) {
       this.ctx.emit('task:completed', { id })
     }
@@ -34,8 +40,8 @@ export class TasksService extends Service {
     return tauriCallSafe<void>('update_task', { data })
   }
 
-  async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_task', { id })
+  async remove(id: string, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('delete_task', { id, ...(aiAuth ?? {}) })
   }
 
   /** GTD 领域列表 */

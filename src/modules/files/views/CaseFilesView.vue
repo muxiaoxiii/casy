@@ -1,14 +1,16 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
 import { casyContext } from '../../../core/plugin/context'
+import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Folder, Message, Paperclip, Upload, Download, Document,
   ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick
 } from '@element-plus/icons-vue'
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
+import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +28,126 @@ const uploading = ref(false)
 
 const showReasoningPanel = ref(false)
 const allFileIds = computed(() => files.value.map(f => f.id))
+
+// W5 · OCR 状态（徽标 / 立即识别 / 查看文本）
+const ocrStates = ref({}) // fileId -> { status, hasText }
+const ocrBusy = ref({}) // fileId -> boolean
+const ocrTextDialog = ref(false)
+const ocrTextContent = ref('')
+const ocrTextTitle = ref('')
+const documentJobs = ref({})
+const documentEngine = ref(null)
+let documentPollTimer = null
+
+const OCR_BADGES = {
+  pending: { label: '待识别', cls: 'pending', tip: '等待 OCR 识别' },
+  processing: { label: '识别中', cls: 'processing', tip: 'OCR 识别进行中' },
+  completed: { label: '已完成', cls: 'completed', tip: 'OCR 已完成，可在详情中查看文本' },
+  failed: {
+    label: '失败',
+    cls: 'failed',
+    tip: 'OCR 失败：请确认已安装 tesseract（扫描件 PDF 另需 poppler），可在详情中点击「立即 OCR」重试',
+  },
+}
+
+function isOcrCandidateFile(file) {
+  const ext = String(file?.fileType || file?.fileName?.split('.').pop() || '')
+    .replace('.', '').toLowerCase()
+  return ['pdf', 'png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp', 'gif'].includes(ext)
+}
+
+function ocrBadge(file) {
+  if (!isOcrCandidateFile(file)) return null
+  const job = documentJobs.value[file.id]
+  if (job) {
+    if (job.status === 'queued') return { ...OCR_BADGES.pending, label: '已排队', tip: '等待本地文档引擎处理' }
+    if (job.status === 'running') return { ...OCR_BADGES.processing, label: `${Math.round((job.progress || 0) * 100)}%`, tip: '正在生成 Page IR 和可搜索 PDF' }
+    if (job.status === 'completed') return { ...OCR_BADGES.completed, label: '可搜索', tip: '已生成可搜索 PDF 和 PageIndex' }
+    if (job.status === 'failed') return { ...OCR_BADGES.failed, tip: job.errorMessage || '文档处理失败' }
+    if (job.status === 'cancelled') return { ...OCR_BADGES.pending, label: '已取消', tip: '任务已取消，可重新处理' }
+  }
+  const state = ocrStates.value[file.id]
+  return OCR_BADGES[state?.status || 'pending']
+}
+
+function isPdf(file) {
+  return String(file?.fileType || file?.fileName?.split('.').pop() || '').replace('.', '').toLowerCase() === 'pdf'
+}
+
+async function loadDocumentJobs() {
+  const pdfFiles = files.value.filter(isPdf)
+  const results = await Promise.all(pdfFiles.map(file => tauriCall('list_document_jobs', { fileId: file.id }, { silent: true })))
+  const map = {}
+  pdfFiles.forEach((file, index) => {
+    if (Array.isArray(results[index]) && results[index][0]) map[file.id] = results[index][0]
+  })
+  documentJobs.value = map
+}
+
+async function loadDocumentEngine() {
+  documentEngine.value = await tauriCall('get_document_engine_status', {}, { silent: true })
+}
+
+async function loadOcrStates() {
+  if (!caseId.value) return
+  const data = await tauriCall('list_case_ocr_states', { caseId: caseId.value }, { silent: true })
+  if (!Array.isArray(data)) return
+  const map = {}
+  for (const item of data) map[item.fileId] = { status: item.ocrStatus, hasText: item.hasText }
+  ocrStates.value = map
+}
+
+async function ocrNow(file) {
+  ocrBusy.value = { ...ocrBusy.value, [file.id]: true }
+  ocrStates.value = {
+    ...ocrStates.value,
+    [file.id]: { status: 'processing', hasText: !!ocrStates.value[file.id]?.hasText },
+  }
+  if (isPdf(file)) {
+    const job = await tauriCall('queue_document_processing', { fileId: file.id }, { silent: true })
+    ocrBusy.value = { ...ocrBusy.value, [file.id]: false }
+    if (!job) ElMessage.error('无法创建文档处理任务')
+    else ElMessage.success(job.status === 'completed' ? '已存在可复用的可搜索 PDF' : '已加入本地文档处理队列')
+    await loadDocumentJobs()
+    await loadOcrStates()
+    return
+  }
+  const msg = await tauriCall('ocr_case_file', { fileId: file.id }, { silent: true })
+  ocrBusy.value = { ...ocrBusy.value, [file.id]: false }
+  if (msg === null) {
+    ElMessage.error('OCR 调用失败，请查看日志')
+  } else if (String(msg).startsWith('OCR 完成')) {
+    ElMessage.success(msg)
+  } else {
+    ElMessage.warning(msg)
+  }
+  await loadOcrStates()
+  await loadFiles() // 规则可能已改动分类
+}
+
+async function openSearchablePdf(file) {
+  const path = documentJobs.value[file.id]?.searchablePdfPath
+  if (!path) return
+  const result = await casyContext.files.openDefault(path)
+  if (!result.ok) ElMessage.error(result.error || '无法打开可搜索 PDF')
+}
+
+async function retryDocument(file) {
+  const job = documentJobs.value[file.id]
+  if (!job) return ocrNow(file)
+  const result = await tauriCallSafe('retry_document_job', { jobId: job.id })
+  if (!result.ok) ElMessage.error(result.error || '重试失败')
+  else ElMessage.success('已重新加入处理队列')
+  await loadDocumentJobs()
+}
+
+async function viewOcrText(file) {
+  const text = await tauriCall('get_file_ocr_text', { fileId: file.id })
+  if (text === null) return
+  ocrTextContent.value = text || '（该文件暂无 OCR 文本）'
+  ocrTextTitle.value = file.fileName
+  ocrTextDialog.value = true
+}
 
 const categories = [
   { key: 'all', label: '全部文件', icon: Folder },
@@ -56,8 +178,25 @@ async function loadFiles() {
   const result = await casyContext.files.list(caseId.value)
   if (result.ok) {
     files.value = Array.isArray(result.data) ? result.data : []
-    const retained = files.value.find(file => file.id === selectedFile.value?.id)
-    selectedFile.value = retained || filteredFiles.value[0] || null
+    // W4: 消费证据链接跳转约定 ?select=<fileId>&anchor=page:N（消费后即清除，避免粘性污染后续刷新）
+    const wantId = route.query.select
+    if (wantId) {
+      const fromQuery = files.value.find(file => file.id === wantId)
+      if (fromQuery) {
+        selectedFile.value = fromQuery
+        if (route.query.anchor) {
+          ElMessage.info(`已定位到证据链接出处（${route.query.anchor}）`)
+        }
+      } else {
+        ElMessage.warning('证据链接指向的文件不在本案卷宗中（可能已移除）')
+      }
+      router.replace({ query: {} })
+    } else {
+      const retained = files.value.find(file => file.id === selectedFile.value?.id)
+      selectedFile.value = retained || filteredFiles.value[0] || null
+    }
+    loadOcrStates()
+    loadDocumentJobs()
   }
   filesLoading.value = false
 }
@@ -167,7 +306,10 @@ function onCategoryChange(key) {
 onMounted(() => {
   loadCase()
   loadFiles()
+  loadDocumentEngine()
+  documentPollTimer = window.setInterval(loadDocumentJobs, 3000)
 })
+onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTimer) })
 </script>
 
 <template>
@@ -258,7 +400,14 @@ onMounted(() => {
           >
             <span :class="['file-mark', fileTone(file)]">{{ fileExtension(file).slice(0, 4) }}</span>
             <span class="file-copy">
-              <strong>{{ file.fileName }}</strong>
+              <strong>
+                {{ file.fileName }}
+                <span
+                  v-if="ocrBadge(file)"
+                  :class="['ocr-badge', ocrBadge(file).cls]"
+                  :title="ocrBadge(file).tip"
+                >{{ ocrBadge(file).label }}</span>
+              </strong>
               <small>{{ categoryLabel(file.category) }} · {{ formatDate(file.createdAt) }}</small>
             </span>
             <span class="file-size">{{ formatSize(file.fileSize) }}</span>
@@ -294,8 +443,54 @@ onMounted(() => {
             <p>{{ selectedFile.filePath }}</p>
           </div>
 
+          <div v-if="isOcrCandidateFile(selectedFile)" class="inspector-section">
+            <span class="panel-kicker">文档智能 · OCR / PageIndex</span>
+            <div class="ocr-status-row">
+              <span
+                v-if="ocrBadge(selectedFile)"
+                :class="['ocr-badge', ocrBadge(selectedFile).cls]"
+                :title="ocrBadge(selectedFile).tip"
+              >{{ ocrBadge(selectedFile).label }}</span>
+              <span v-if="ocrStates[selectedFile.id]?.hasText" class="ocr-has-text">已提取文本</span>
+            </div>
+            <p v-if="isPdf(selectedFile) && documentEngine && !documentEngine.available" class="ocr-engine-warning">
+              引擎未就绪：{{ documentEngine.missing?.join('、') || documentEngine.error }}
+            </p>
+            <p v-if="documentJobs[selectedFile.id]?.errorMessage" class="ocr-engine-error">
+              {{ documentJobs[selectedFile.id].errorMessage }}
+            </p>
+          </div>
+
+          <!-- W4: 跨模块双链反链（谁引用了这份文件） -->
+          <div class="inspector-section">
+            <BacklinksPanel target-type="file" :target-id="selectedFile.id" />
+          </div>
+
           <div class="inspector-actions">
             <el-button type="primary" @click="openFile(selectedFile)">打开文件</el-button>
+            <el-button
+              v-if="isOcrCandidateFile(selectedFile)"
+              :loading="!!ocrBusy[selectedFile.id]"
+              @click="ocrNow(selectedFile)"
+            >{{ isPdf(selectedFile) ? '生成可搜索 PDF' : '立即 OCR' }}</el-button>
+            <el-button
+              v-if="documentJobs[selectedFile.id]?.searchablePdfPath"
+              type="success"
+              plain
+              @click="openSearchablePdf(selectedFile)"
+            >打开可搜索 PDF</el-button>
+            <el-button
+              v-if="documentJobs[selectedFile.id]?.status === 'failed'"
+              type="warning"
+              plain
+              @click="retryDocument(selectedFile)"
+            >重试</el-button>
+            <el-button
+              v-if="ocrStates[selectedFile.id]?.hasText"
+              text
+              type="primary"
+              @click="viewOcrText(selectedFile)"
+            >查看文本</el-button>
             <el-button text :icon="FolderOpened" @click="revealFile(selectedFile)">在访达中显示</el-button>
             <el-button text type="danger" @click="deleteFile(selectedFile)">移除登记</el-button>
           </div>
@@ -309,7 +504,14 @@ onMounted(() => {
       </aside>
     </div>
     
-    <ReasoningSearchPanel 
+    <el-dialog v-model="ocrTextDialog" :title="`OCR 文本 · ${ocrTextTitle}`" width="640px">
+      <pre class="ocr-text-view">{{ ocrTextContent }}</pre>
+      <template #footer>
+        <el-button @click="ocrTextDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <ReasoningSearchPanel
       v-model="showReasoningPanel" 
       :caseId="caseId" 
       :fileIds="allFileIds" 
@@ -437,6 +639,35 @@ onMounted(() => {
   font-size: 10px; line-height: 1.55; overflow-wrap: anywhere;
 }
 .inspector-actions { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 16px; }
+
+/* W5 · OCR 状态徽标与文本查看 */
+.ocr-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border: 1px solid var(--c-border);
+  border-radius: 4px; font-size: 9px; font-weight: 600; line-height: 1.5;
+  color: var(--c-text-secondary); background: var(--c-bg-muted); vertical-align: 1px;
+}
+.ocr-badge.pending { border-color: var(--c-border); color: var(--c-text-secondary); }
+.ocr-badge.processing {
+  border-color: var(--c-warning-lighter); background: var(--c-warning-light); color: var(--c-warning);
+}
+.ocr-badge.completed {
+  border-color: var(--c-success-lighter); background: var(--c-success-light); color: var(--c-success);
+}
+.ocr-badge.failed {
+  border-color: var(--c-danger-lighter); background: var(--c-danger-light); color: var(--c-danger);
+}
+.ocr-status-row { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.ocr-status-row .ocr-badge { margin-left: 0; }
+.ocr-has-text { color: var(--c-text-secondary); font-size: 10.5px; }
+.ocr-engine-warning, .ocr-engine-error { margin: 8px 0 0; font-size: 11px; line-height: 1.45; }
+.ocr-engine-warning { color: var(--c-warning); }
+.ocr-engine-error { color: var(--c-danger); }
+.ocr-text-view {
+  max-height: 420px; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--c-border);
+  border-radius: 6px; background: var(--c-bg-muted); color: var(--c-text-regular);
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7; white-space: pre-wrap;
+  overflow-wrap: anywhere; user-select: text;
+}
 
 @media (max-width: 1120px) {
   .files-workbench { grid-template-columns: 190px minmax(330px, 1fr); }

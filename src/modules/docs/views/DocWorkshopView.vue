@@ -113,6 +113,9 @@
             <el-button type="primary" size="small" :loading="exporting" @click="exportToDocx">
               {{ $t('docs.export_word') }}
             </el-button>
+            <el-button plain size="small" @click="openEvidenceLinkPicker">
+              <el-icon><Link /></el-icon> 证据链接
+            </el-button>
             <el-button plain size="small" @click="showKnowledgeSidebar = !showKnowledgeSidebar">
               <el-icon><Collection /></el-icon> 知识抽屉
             </el-button>
@@ -121,6 +124,7 @@
 
         <!-- 块编辑器主体 -->
         <LegalEditor
+          ref="legalEditorRef"
           v-model="currentDraft.content"
           :case-data="linkedCaseData"
           :all-cases="cases"
@@ -156,7 +160,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
-import { Collection } from '@element-plus/icons-vue'
+import { Collection, Link } from '@element-plus/icons-vue'
 import LegalEditor from '../components/LegalEditor.vue'
 import KnowledgeSidebar from '../../knowledge/components/KnowledgeSidebar.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
@@ -165,6 +169,12 @@ import { ElMessage } from 'element-plus'
 import debounce from 'lodash-es/debounce'
 
 const showKnowledgeSidebar = ref(false)
+
+// 证据链接（W4 双链）：转发到 LegalEditor 暴露的选择器
+const legalEditorRef = ref(null)
+function openEvidenceLinkPicker() {
+  legalEditorRef.value?.openEvidenceLinkPicker()
+}
 
 const props = defineProps([])
 const drafts = ref([])
@@ -309,7 +319,36 @@ async function exportToDocx() {
   exporting.value = true
   try {
     const htmlToDocx = (await import('html-to-docx')).default
-    const htmlString = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${currentDraft.value.content}</body></html>`
+    let processedHtml = currentDraft.value.content
+
+    // EvidenceLink 脚注映射后处理
+    if (processedHtml.includes('data-type="evidence-link"')) {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(processedHtml, 'text/html')
+      const links = doc.querySelectorAll('span[data-type="evidence-link"]')
+      const references = []
+      
+      links.forEach((link, index) => {
+        const num = index + 1
+        const label = link.getAttribute('data-label') || '未知引用'
+        const anchor = link.getAttribute('data-anchor') || ''
+        
+        references.push(`<li>${label} ${anchor ? '(' + anchor + ')' : ''}</li>`)
+        
+        const sup = doc.createElement('sup')
+        sup.textContent = `[${num}]`
+        link.parentNode?.replaceChild(sup, link)
+      })
+      
+      if (references.length > 0) {
+        const refSection = doc.createElement('div')
+        refSection.innerHTML = `<hr/><h3>参考证据列表</h3><ol>${references.join('')}</ol>`
+        doc.body.appendChild(refSection)
+      }
+      processedHtml = doc.body.innerHTML
+    }
+
+    const htmlString = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${processedHtml}</body></html>`
     const fileBuffer = await htmlToDocx(htmlString, null, {
       table: { row: { cantSplit: true } },
       footer: true,

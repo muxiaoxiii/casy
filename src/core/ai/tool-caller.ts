@@ -11,6 +11,12 @@
 import { casyContext } from '../plugin/context'
 import { tauriCallSafe } from '../tauriBridge'
 import type { CasyTool, CasyProvider, CasyModel } from '../plugin/types'
+import {
+  createAiProposal,
+  approveProposal,
+  inferEntityType,
+} from './proposals'
+import type { AiProposal, ContextRef, UsedRef } from './proposals'
 
 /** 工具循环最大轮数（防止模型无限调用工具） */
 const MAX_TOOL_ROUNDS = 5
@@ -20,10 +26,21 @@ export interface ToolCallRecord {
   params: Record<string, unknown>
 }
 
+/** 待审批的提案（关联原始工具调用，批准后可重放执行） */
+export interface PendingProposal {
+  proposal: AiProposal
+  toolName: string
+  params: Record<string, unknown>
+}
+
 export interface ChatWithToolsResult {
   content: string
   toolCalls: ToolCallRecord[]
   toolResults: Array<{ ok: boolean; data?: unknown; error?: string }>
+  /** 本轮产生的写操作提案（前端渲染 Diff 确认卡片） */
+  proposals: AiProposal[]
+  /** 本轮实际注入的 @ 引用来源（首轮 ai_chat 返回） */
+  usedRefs: UsedRef[]
 }
 
 interface ChatMessageLike {
@@ -133,6 +150,8 @@ function formatToolResult(name: string, result: { ok: boolean; data?: unknown; e
 class AiToolCaller {
   private providerId = 'ollama'
   private modelId = 'qwen2.5:14b'
+  /** 待审批提案登记表：proposalId → 原始工具调用（批准后在同进程内重放执行） */
+  private pendingProposals = new Map<string, PendingProposal>()
 
   /** 设置当前对话使用的提供商与模型 */
   setModel(providerId: string, modelId: string): void {
@@ -149,10 +168,11 @@ class AiToolCaller {
    * 多轮对话 + 工具调用循环
    *
    * @param messages 对话历史（不含 system；system 由本方法统一注入）
+   * @param opts.contextRefs @ 引用沙箱（W1）：仅注入首轮 ai_chat 的受控上下文
    */
   async chatWithTools(
     messages: ChatMessageLike[],
-    _opts: { autoConfirm?: boolean } = {}
+    opts: { autoConfirm?: boolean; contextRefs?: ContextRef[] } = {}
   ): Promise<ChatWithToolsResult> {
     const tools = casyContext.getTools()
     const provider = casyContext.getProviders().find((p) => p.id === this.providerId)
@@ -170,14 +190,20 @@ class AiToolCaller {
 
     const toolCalls: ToolCallRecord[] = []
     const toolResults: Array<{ ok: boolean; data?: unknown; error?: string }> = []
+    const proposals: AiProposal[] = []
+    let usedRefs: UsedRef[] = []
     let content = ''
     let loopExhausted = false
     // K-3 归因：最近一轮 ai_chat 返回的 ai_runs id（工具级审计以 run_id 关联）
     let currentRunId: string | null = null
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const reply = await this.chat(history, provider)
+      // @ 引用只在首轮注入，避免工具循环中重复拼接受控上下文
+      const reply = await this.chat(history, provider, round === 0 ? opts.contextRefs : undefined)
       currentRunId = reply.runId ?? currentRunId
+      if (round === 0 && reply.usedRefs.length > 0) {
+        usedRefs = reply.usedRefs
+      }
 
       const call = tryParseToolCall(reply.content)
       if (!call) {
@@ -198,6 +224,37 @@ class AiToolCaller {
           role: "user",
           content: '[工具结果 ' + call.name + '] 工具不存在，请从工具清单中选择。',
         })
+        continue
+      }
+
+      // W1 提案网关：写操作不直接执行，先生成提案交由 Diff 确认卡片审批
+      if (tool.policy?.write) {
+        const proposal = await this.createWriteProposal(call.name, tool, call.params)
+        history.push({ role: "assistant", content: reply.content })
+        if (proposal) {
+          this.pendingProposals.set(proposal.id, {
+            proposal,
+            toolName: call.name,
+            params: call.params,
+          })
+          proposals.push(proposal)
+          toolCalls.push({ name: call.name, params: call.params })
+          toolResults.push({ ok: true, data: { pendingProposalId: proposal.id } })
+          history.push({
+            role: "user",
+            content:
+              '[工具结果 ' + call.name + '] 该写操作已生成变更提案（ID: ' + proposal.id +
+              '），正在等待用户在 Diff 确认卡片中审批，请勿重复调用该工具。' +
+              '请先用中文向用户概述将要进行的变更内容。',
+          })
+        } else {
+          toolCalls.push({ name: call.name, params: call.params })
+          toolResults.push({ ok: false, error: '变更提案创建失败，写操作未执行' })
+          history.push({
+            role: "user",
+            content: '[工具结果 ' + call.name + '] 变更提案创建失败，写操作未执行，请如实告知用户。',
+          })
+        }
         continue
       }
 
@@ -223,25 +280,121 @@ class AiToolCaller {
         : '工具调用次数已达上限，请换个说法重试。'
     }
 
-    return { content, toolCalls, toolResults }
+    return { content, toolCalls, toolResults, proposals, usedRefs }
   }
 
-  /** 调用后端多轮对话命令（含 ai_runs 审计；返回内容 + 本次 ai_runs 关联键） */
+  /** 为写工具调用创建提案（payload 优先取 params.data patch 体） */
+  private async createWriteProposal(
+    toolName: string,
+    tool: CasyTool,
+    params: Record<string, unknown>
+  ): Promise<AiProposal | null> {
+    const patch =
+      params.data && typeof params.data === 'object' && !Array.isArray(params.data)
+        ? (params.data as Record<string, unknown>)
+        : params
+    return createAiProposal({
+      toolName,
+      targetEntityType: inferEntityType(toolName, tool.category),
+      targetEntityId: typeof params.id === 'string' ? params.id : null,
+      payloadJson: JSON.stringify(patch),
+      ttlSeconds: null,
+    })
+  }
+
+  /** 查询待审批提案（供 Diff 卡片判断是否可重放执行） */
+  getPendingProposal(proposalId: string): PendingProposal | undefined {
+    return this.pendingProposals.get(proposalId)
+  }
+
+  /** 提案终态清理（拒绝/过期/放弃时调用，防止单例 Map 泄漏累积） */
+  discardProposal(proposalId: string): void {
+    this.pendingProposals.delete(proposalId)
+  }
+
+  /**
+   * 批准提案并执行原始写操作：
+   * approve 换取一次性 auth_token → 注入工具参数重放执行（服务端原子消费 token）。
+   * 提案审批本身已是授权事实（服务端网关校验），故直接走插件的确定性执行路径，
+   * 不再触发内核 ElMessageBox 二次确认。
+   */
+  async approveProposalAndExecute(
+    proposalId: string
+  ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    const token = await approveProposal(proposalId)
+    if (!token) {
+      // 已过期/已处理：提案不可再操作，清理登记表防泄漏
+      this.pendingProposals.delete(proposalId)
+      return { ok: false, error: '授权失败（提案可能已过期或已被处理）' }
+    }
+    const pending = this.pendingProposals.get(proposalId)
+    if (!pending) {
+      // 已授权；本进程内没有可重放的调用（提案由其他入口创建）
+      return { ok: true }
+    }
+    const tool = casyContext.getTool(pending.toolName)
+    if (!tool) {
+      this.pendingProposals.delete(proposalId)
+      return { ok: false, error: '工具不存在: ' + pending.toolName }
+    }
+    const params: Record<string, unknown> = { ...pending.params }
+    if (params.data && typeof params.data === 'object' && !Array.isArray(params.data)) {
+      // update_task 形态：origin/proposalToken 随 patch 体进入服务端 UpdateTaskPatch
+      params.data = {
+        ...(params.data as Record<string, unknown>),
+        origin: 'ai',
+        proposalToken: token,
+      }
+    } else {
+      params.origin = 'ai'
+      params.proposalToken = token
+    }
+    let result: { ok: boolean; data?: unknown; error?: string }
+    try {
+      result = await tool.execute(params)
+    } catch (e) {
+      result = { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+    // K-3 归因对齐：与内核 executeTool 一样发 tool:executed 审计事件
+    casyContext.emit('tool:executed', {
+      name: pending.toolName,
+      turnId: null,
+      runId: null,
+      ok: result.ok,
+      declined: false,
+      digest: Object.keys(params).join(','),
+    })
+    // 重放无论成败都到终态：token 已消费或执行已失败（不可安全重试），清理登记表
+    this.pendingProposals.delete(proposalId)
+    return result
+  }
+
+  /** 调用后端多轮对话命令（含 ai_runs 审计；返回内容 + 本次 ai_runs 关联键 + @ 引用来源） */
   private async chat(
     history: ChatMessageLike[],
-    provider: CasyProvider | undefined
-  ): Promise<{ content: string; runId: string | null }> {
-    const result = await tauriCallSafe<{ content?: string; runId?: string | null }>('ai_chat', {
+    provider: CasyProvider | undefined,
+    contextRefs?: ContextRef[]
+  ): Promise<{ content: string; runId: string | null; usedRefs: UsedRef[] }> {
+    const result = await tauriCallSafe<{
+      content?: string
+      runId?: string | null
+      usedRefs?: UsedRef[]
+    }>('ai_chat', {
       messages: history,
       mode: provider?.mode,
       apiUrl: provider?.apiUrl,
       model: this.modelId,
       purpose: 'ai_chat_panel',
+      contextRefs: contextRefs && contextRefs.length > 0 ? contextRefs : null,
     })
     if (!result.ok) {
       throw new Error(result.error || 'AI 调用失败（请检查设置中的 AI 后端配置）')
     }
-    return { content: String(result.data?.content ?? ''), runId: result.data?.runId ?? null }
+    return {
+      content: String(result.data?.content ?? ''),
+      runId: result.data?.runId ?? null,
+      usedRefs: result.data?.usedRefs ?? [],
+    }
   }
 }
 

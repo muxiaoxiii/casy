@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
+import BacklinksPanel from '../components/BacklinksPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -596,6 +597,9 @@ onMounted(async () => {
               </el-tag>
             </div>
           </div>
+
+          <!-- 反链面板（W4 双链：谁引用了本条目） -->
+          <BacklinksPanel target-type="knowledge" :target-id="selectedItem.id" />
 
           <!-- 子块树（点击子块可跳转展开） -->
           <div v-if="blocksLoading || childBlocks.length > 0" class="blocks-section" v-loading="blocksLoading">

@@ -101,6 +101,18 @@ const routes = [
     meta: { title: '客户管理' },
   },
   {
+    path: '/whiteboard/:caseId',
+    name: 'whiteboard',
+    component: () => import('../modules/whiteboard/views/WhiteboardView.vue'),
+    meta: { title: '事实白板' },
+  },
+  {
+    path: '/persons',
+    name: 'persons',
+    component: () => import('../modules/persons/views/PersonsView.vue'),
+    meta: { title: '实体管理' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('../modules/settings/SettingsView.vue'),
@@ -109,7 +121,7 @@ const routes = [
   {
     path: '/knowledge',
     name: 'knowledge',
-    component: () => import('../modules/knowledge/views/KnowledgeView.vue'),
+    component: () => import('../modules/knowledge/views/KnowledgeNotebookView.vue'),
     meta: { title: '知识库' },
   },
   {

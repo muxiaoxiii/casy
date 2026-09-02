@@ -8,6 +8,8 @@ import ImapSettings from './components/ImapSettings.vue'
 import GeneralSettings from './components/GeneralSettings.vue'
 import FolderTemplateSettings from './components/FolderTemplateSettings.vue'
 import ReminderSettings from './components/ReminderSettings.vue'
+import DeadlineRulesSettings from './components/DeadlineRulesSettings.vue'
+import SmartRulesSettings from './components/SmartRulesSettings.vue'
 import SmtpMcpSettings from './components/SmtpMcpSettings.vue'
 import ProfileSettings from './components/ProfileSettings.vue'
 import BackupSettings from './components/BackupSettings.vue'
@@ -17,7 +19,7 @@ import { casyContext } from '../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   User, Setting, Cpu, MagicStick, Folder, Bell,
-  Cloudy, Link, Message, Connection, Briefcase, InfoFilled
+  Cloudy, Link, Message, Connection, Briefcase, InfoFilled, AlarmClock, SetUp
 } from '@element-plus/icons-vue'
 
 const settingsStore = useSettingsStore()
@@ -105,6 +107,14 @@ onMounted(async () => {
           <el-icon><Bell /></el-icon>
           <span>智能提醒</span>
         </div>
+        <div class="nav-item" :class="{ active: activeTab === 'deadline-rules' }" @click="activeTab = 'deadline-rules'">
+          <el-icon><AlarmClock /></el-icon>
+          <span>期限规则</span>
+        </div>
+        <div class="nav-item" :class="{ active: activeTab === 'smart-rules' }" @click="activeTab = 'smart-rules'">
+          <el-icon><SetUp /></el-icon>
+          <span>智能规则</span>
+        </div>
       </div>
 
       <div class="nav-group">
@@ -159,6 +169,8 @@ onMounted(async () => {
       <div v-show="activeTab === 'briefing-styles'"><BriefingStyleSettings /></div>
       <div v-show="activeTab === 'folder-template'"><FolderTemplateSettings /></div>
       <div v-show="activeTab === 'reminder'"><ReminderSettings /></div>
+      <div v-show="activeTab === 'deadline-rules'"><DeadlineRulesSettings /></div>
+      <div v-show="activeTab === 'smart-rules'"><SmartRulesSettings /></div>
       <div v-show="activeTab === 'webdav'"><WebDAVSettings /></div>
       <div v-show="activeTab === 'feishu'"><FeishuSettings /></div>
       <div v-show="activeTab === 'imap'"><ImapSettings /></div>

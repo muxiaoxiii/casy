@@ -39,13 +39,22 @@ const mockEvents = [
   { id: 'e5', title: '百度案证据提交', date: '2026-08-22', type: 'deadline', caseId: 'c6', time: '17:00' },
 ]
 
-const mockKnowledge = [
+const mockKnowledge: any[] = [
   { id: 'k1', title: '专利无效程序时间节点汇总', category: 'method', content: '提无效请求 → 受理 → 答复 → 口审 → 决定', lawName: '专利法' },
   { id: 'k2', title: '最高法知识产权案件裁判要旨', category: 'reference', content: '关于权利要求解释的裁判规则…', lawName: '司法解释' },
   { id: 'k3', title: '口审答辩策略思考', category: 'inspiration', content: '考虑从技术特征对比入手…' },
   { id: 'k4', title: '无效决定救济途径', category: 'question', content: '对无效决定不服可以提起行政诉讼…' },
   { id: 'k5', title: '某案办理经验复盘', category: 'experience', content: '证据链构建需要注意…' },
 ]
+
+const mockInbox = [
+  { id: 'i1', title: '客户来电：补充技术资料', contentText: '客户说明下周可以补齐对比文件和产品照片，需要安排跟进。', sourceType: 'note', sourceLabel: 'CALL NOTE', status: 'pending', caseId: 'c1', caseName: '隆基244号无效案' },
+  { id: 'i2', title: '法院邮件：提交材料提醒', contentText: '请在截止日前提交授权委托书原件及证据目录。', sourceType: 'email', sourceLabel: 'EMAIL', status: 'pending', caseId: 'c2', caseName: '华为商标侵权案' },
+  { id: 'i3', title: '检索报告初稿', contentText: '代理师发送了第一轮检索结果，等待律师确认检索式。', sourceType: 'wechat', sourceLabel: 'WECHAT', status: 'pending', caseId: 'c3', caseName: '宁德时代专利无效' },
+]
+
+const mockLinks: any[] = []
+const mockKnowledgeVersions: any[] = []
 
 const mockStats = {
   hardSchedule: 2,
@@ -90,6 +99,25 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       // 多个消费者期望数组（tasks store / TasksView / DashboardView）
       return items
     }
+    case 'create_task': {
+      const data = (args.data as any) || {}
+      const item = { id: `t${Date.now()}`, completed: 0, ...data }
+      mockTasks.unshift(item)
+      return item
+    }
+    case 'update_task': {
+      const data = (args.data as any) || {}
+      const item = mockTasks.find(t => t.id === data.id)
+      if (item) Object.assign(item, data)
+      return null
+    }
+    case 'delete_task': {
+      const index = mockTasks.findIndex(t => t.id === args.id)
+      if (index >= 0) mockTasks.splice(index, 1)
+      return null
+    }
+    case 'snooze_task':
+      return null
     case 'list_areas':
       return [
         { id: 'a1', name: '专利诉讼', description: '民事诉讼代理' },
@@ -105,7 +133,95 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
         byClient: [],
       }
     case 'list_knowledge':
-      return { items: mockKnowledge, total: mockKnowledge.length }
+      return { items: mockKnowledge.map(item => ({ ...item })), total: mockKnowledge.length }
+    case 'create_knowledge': {
+      const data = (args.data as any) || {}
+      const id = `k${Date.now()}`
+      mockKnowledge.unshift({ id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...data })
+      return id
+    }
+    case 'update_knowledge': {
+      const item = mockKnowledge.find(k => k.id === args.id)
+      const data = (args.data as any) || {}
+      if (item) {
+        if (typeof data.content === 'string' && data.content !== item.content) {
+          mockKnowledgeVersions.unshift({ id: `kv${Date.now()}`, itemId: item.id, content: item.content, changedAt: new Date().toISOString(), changeReason: 'edit_session' })
+        }
+        Object.assign(item, data, { updatedAt: new Date().toISOString() })
+      }
+      return null
+    }
+    case 'delete_knowledge': {
+      const index = mockKnowledge.findIndex(k => k.id === args.id)
+      if (index >= 0) mockKnowledge.splice(index, 1)
+      return null
+    }
+    case 'list_knowledge_versions':
+      return mockKnowledgeVersions.filter(item => item.itemId === args.itemId)
+    case 'diff_knowledge_with_current': {
+      const version = mockKnowledgeVersions.find(item => item.id === args.versionId)
+      const current = mockKnowledge.find(item => item.id === args.itemId)
+      const oldLines = String(version?.content || '').split('\n')
+      const newLines = String(current?.content || '').split('\n')
+      const diffs = []
+      for (let i = 0; i < Math.max(oldLines.length, newLines.length); i += 1) {
+        if (oldLines[i] === newLines[i]) diffs.push({ type: 'equal', line: i + 1, text: oldLines[i] || '' })
+        else {
+          if (oldLines[i] !== undefined) diffs.push({ type: 'removed', line: i + 1, text: oldLines[i] })
+          if (newLines[i] !== undefined) diffs.push({ type: 'added', line: i + 1, text: newLines[i] })
+        }
+      }
+      return { version, currentContent: current?.content || '', diffs }
+    }
+    case 'restore_knowledge_version': {
+      const version = mockKnowledgeVersions.find(item => item.id === args.versionId && item.itemId === args.itemId)
+      const current = mockKnowledge.find(item => item.id === args.itemId)
+      if (version && current) current.content = version.content
+      return null
+    }
+    case 'list_links_for':
+      return mockLinks.filter(item => item.sourceType === args.sourceType && item.sourceId === args.sourceId)
+    case 'get_backlinks':
+      return mockLinks.filter(item => item.targetType === args.targetType && item.targetId === args.targetId)
+    case 'create_link': {
+      const link = { id: `link${Date.now()}${mockLinks.length}`, createdAt: new Date().toISOString(), ...args }
+      const target = mockKnowledge.find(item => item.id === args.targetId)
+      Object.assign(link, { targetTitle: target?.title || null })
+      mockLinks.push(link)
+      return link
+    }
+    case 'remove_link': {
+      const index = mockLinks.findIndex(item => item.id === args.id)
+      if (index >= 0) mockLinks.splice(index, 1)
+      return null
+    }
+    case 'list_knowledge_document_sources':
+      return [{ fileId: 'f-ocr-1', caseId: 'c1', fileName: '口审决定书.pdf', caseName: '隆基244号无效案', totalPages: 18, markdownPath: '/mock/口审决定书.md', searchablePdfPath: '/mock/口审决定书-searchable.pdf', importedKnowledgeId: mockKnowledge.find(item => item.sourceId === 'f-ocr-1')?.id || null }]
+    case 'import_pageindex_to_knowledge': {
+      const existing = mockKnowledge.find(item => item.sourceId === args.fileId)
+      if (existing) return { knowledgeId: existing.id, childCount: 2, reused: true }
+      const rootId = `kocr${Date.now()}`
+      mockKnowledge.unshift({ id: rootId, title: '[卷宗] 口审决定书.pdf', category: 'document_summary', content: '# 口审决定书\n\nOCR 全文内容示例。', tags: 'OCR,PageIndex,卷宗沉淀', sourceType: 'ocr-pageindex', sourceId: args.fileId, linkedCaseId: 'c1', blockType: 'page', updatedAt: new Date().toISOString() })
+      mockKnowledge.push({ id: `${rootId}-1`, title: '决定理由', category: 'document_summary', content: '> 页码：3-8\n\nPageIndex 摘要。', parentId: rootId, blockType: 'page', updatedAt: new Date().toISOString() })
+      mockKnowledge.push({ id: `${rootId}-2`, title: '决定结论', category: 'document_summary', content: '> 页码：17-18\n\nPageIndex 摘要。', parentId: rootId, blockType: 'page', updatedAt: new Date().toISOString() })
+      return { knowledgeId: rootId, childCount: 2, reused: false }
+    }
+    case 'get_knowledge_with_blocks': {
+      const item = mockKnowledge.find(k => k.id === args.id)
+      return { item, blocks: [] }
+    }
+    case 'list_inbox_items':
+      return mockInbox.filter(item => !args.status || item.status === args.status)
+    case 'dismiss_inbox_item': {
+      const item = mockInbox.find(entry => entry.id === args.id)
+      if (item) item.status = 'dismissed'
+      return null
+    }
+    case 'confirm_inbox_action': {
+      const item = mockInbox.find(entry => entry.id === args.inboxItemId)
+      if (item) item.status = 'filed'
+      return `mock-${Date.now()}`
+    }
     case 'get_calendar_events': {
       const year = (args.year as number) || new Date().getFullYear()
       const month = (args.month as number) || new Date().getMonth() + 1

@@ -10,6 +10,20 @@
 import type {
   AiChatResult,
   AiConfig,
+  AppNotification,
+  CasePersonDto,
+  ContextRef,
+  DeadlineRuleAuditDto,
+  DeadlineRuleDto,
+  FactNodeDto,
+  FileOcrStateDto,
+  LinkDto,
+  PersonCaseDto,
+  PersonDto,
+  ProposalPreviewDto,
+  SmartRuleApplyResult,
+  SmartRuleDto,
+  WhiteboardDto,
   AreaDto,
   AreaStatsDto,
   CalendarEvent,
@@ -51,6 +65,8 @@ import type {
   KnowledgeDiffCurrentResult,
   KnowledgeDiffVersionsResult,
   KnowledgeGraphDto,
+  KnowledgeDocumentSourceDto,
+  PageIndexImportResultDto,
   KnowledgeItemDto,
   KnowledgeWithBlocksDto,
   KnowledgeStatsDto,
@@ -206,6 +222,12 @@ export type CommandMap = {
   }, ImportResult>
   feishu_compare_table: Cmd<{ appToken: string; tableId: string; localTable: unknown }, SchemaDiff>
   feishu_compare_records: Cmd<{ appToken: string; tableId: string; localTable: unknown; matchField: string }, RecordDiff>
+  feishu_import_incremental: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: any }, any>
+  feishu_sync_pull: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: any }, any>
+  feishu_sync_push: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: any }, any>
+  sync_export_persons_to_vcard: Cmd<{}, string>
+  sync_export_whiteboards_to_blob: Cmd<{}, string>
+
   import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
   sync_reminders_to_calendar: Cmd<Record<string, unknown>, CalendarSyncReport>
 
@@ -216,6 +238,7 @@ export type CommandMap = {
     apiUrl?: string
     model?: string
     purpose?: string
+    contextRefs?: ContextRef[]
   }, AiChatResult>
   get_ai_config: Cmd<Record<string, unknown>, AiConfig>
   get_command_route_info: Cmd<Record<string, unknown>, CommandRoute>
@@ -235,6 +258,9 @@ export type CommandMap = {
   diff_knowledge_versions: Cmd<{ versionId1: string; versionId2: string }, KnowledgeDiffVersionsResult>
   diff_knowledge_with_current: Cmd<{ versionId: string; itemId: string }, KnowledgeDiffCurrentResult>
   get_knowledge_graph: Cmd<{ limit?: number }, KnowledgeGraphDto>
+  list_knowledge_document_sources: Cmd<Record<string, unknown>, KnowledgeDocumentSourceDto[]>
+  import_pageindex_to_knowledge: Cmd<{ fileId: string }, PageIndexImportResultDto>
+  restore_knowledge_version: Cmd<{ itemId: string; versionId: string }, void>
 
   // ── 知识域 ──
   create_knowledge: Cmd<{ data: CreateKnowledgeInput }, string>
@@ -281,4 +307,62 @@ export type CommandMap = {
   // ── 草稿 ──
   list_drafts: Cmd<Record<string, unknown>, Draft[]>
   get_draft: Cmd<{ id: string }, Draft>
+
+  // ── 对标灵感落地（2026-09-01 · Schema v20）──
+  // W2 通知中心（Linear 式 Inbox-Zero）
+  list_notifications: Cmd<Record<string, unknown>, AppNotification[]>
+  unread_notification_count: Cmd<Record<string, unknown>, number>
+  create_notification: Cmd<{ kind: string; title: string; body?: string | null; payloadJson?: string | null }, string>
+  mark_notification_read: Cmd<{ id: string }, void>
+  dismiss_notification: Cmd<{ id: string }, void>
+  dismiss_all_notifications: Cmd<Record<string, unknown>, number>
+  // W2 Defer Date（OmniFocus 式推迟日）
+  defer_task: Cmd<{ taskId: string; until: string }, void>
+  clear_task_defer: Cmd<{ taskId: string }, void>
+  // W3 期限规则（LawToolBox 式可审计）
+  list_deadline_rules: Cmd<Record<string, unknown>, DeadlineRuleDto[]>
+  upsert_deadline_rule: Cmd<{ id?: string | null; track: string; ruleName: string; legalBasis: string; triggerField: string; offsetValue: number; offsetUnit: string; calcMethod: string; procedureTypes?: string | null; deadlineSource: string; priority: number }, string>
+  toggle_deadline_rule: Cmd<{ id: string; enabled: boolean }, void>
+  delete_deadline_rule: Cmd<{ id: string }, void>
+  list_deadline_rule_audit: Cmd<{ ruleId?: string | null }, DeadlineRuleAuditDto[]>
+  recalculate_deadlines_for_track: Cmd<{ track: string }, number>
+  // W4 跨模块双链（Hookmark/Obsidian 式）
+  create_link: Cmd<{ sourceType: string; sourceId: string; targetType: string; targetId: string; anchor?: string | null; label?: string | null }, LinkDto>
+  remove_link: Cmd<{ id: string }, void>
+  list_links_for: Cmd<{ sourceType: string; sourceId: string }, LinkDto[]>
+  get_backlinks: Cmd<{ targetType: string; targetId: string }, LinkDto[]>
+  // W5 Smart Rules + 本地 OCR（DEVONthink 式）
+  list_smart_rules: Cmd<Record<string, unknown>, SmartRuleDto[]>
+  upsert_smart_rule: Cmd<{ id?: string | null; name: string; enabled: boolean; matchField: string; matchPattern: string; actionType: string; actionPayload: string }, string>
+  delete_smart_rule: Cmd<{ id: string }, void>
+  apply_smart_rules: Cmd<{ fileId: string }, SmartRuleApplyResult>
+  run_smart_rules_for_all: Cmd<Record<string, unknown>, number>
+  list_pending_ocr_files: Cmd<Record<string, unknown>, [string, string, string][]>
+  ocr_case_file: Cmd<{ fileId: string }, string>
+  ocr_all_pending: Cmd<Record<string, unknown>, number>
+  list_case_ocr_states: Cmd<{ caseId: string }, FileOcrStateDto[]>
+  get_file_ocr_text: Cmd<{ fileId: string }, string | null>
+  // W6 对象化实体（Capacities 式）
+  list_persons: Cmd<{ kind?: string | null; keyword?: string | null }, PersonDto[]>
+  upsert_person: Cmd<{ id?: string | null; kind: string; name: string; org?: string | null; phone?: string | null; email?: string | null; preferences?: string | null; notes?: string | null }, string>
+  delete_person: Cmd<{ id: string }, void>
+  attach_person_to_case: Cmd<{ caseId: string; personId: string; role?: string | null }, string>
+  detach_person_from_case: Cmd<{ linkId: string }, void>
+  list_case_persons: Cmd<{ caseId: string }, CasePersonDto[]>
+  list_person_cases: Cmd<{ personId: string }, PersonCaseDto[]>
+  // W7 事实白板（LiquidText 式）
+  list_whiteboards: Cmd<{ caseId: string }, WhiteboardDto[]>
+  create_whiteboard: Cmd<{ caseId: string; name: string }, string>
+  rename_whiteboard: Cmd<{ id: string; name: string }, void>
+  delete_whiteboard: Cmd<{ id: string }, void>
+  list_fact_nodes: Cmd<{ whiteboardId: string }, FactNodeDto[]>
+  create_fact_node: Cmd<{ whiteboardId: string; fileId: string | null; page: number | null; excerpt: string; note: string | null; x: number; y: number }, string>
+  update_fact_node: Cmd<{ id: string; page?: number | null; excerpt?: string; note?: string | null; x?: number; y?: number }, void>
+  delete_fact_node: Cmd<{ id: string }, void>
+  list_whiteboard_edges: Cmd<{ whiteboardId: string }, import('./bindings').WhiteboardEdgeDto[]>
+  create_whiteboard_edge: Cmd<{ whiteboardId: string; sourceNodeId: string; targetNodeId: string }, string>
+  delete_whiteboard_edge: Cmd<{ id: string }, void>
+
+  // ==========================================W1 AI Proposal 预览（Cursor 式 Diff 确认）
+  get_proposal_preview: Cmd<{ proposalId: string }, ProposalPreviewDto>
 }

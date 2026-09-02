@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { tauriCallSafe } from '../../core/tauriBridge'
 import { Warning, Timer, Bell, Calendar, ArrowRight, Check } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const route = useRoute()
 const visible = ref(false)
 const loading = ref(false)
 
@@ -94,10 +95,16 @@ function goReminder() {
   router.push({ name: 'reminder' })
 }
 
+watch(() => route.path, (path) => {
+  if (path !== '/') visible.value = false
+})
+
 // ============================================================
 // 初始化
 // ============================================================
 onMounted(async () => {
+  // 早报只属于 Today 工作台，不能在设置、收件箱等业务页上形成全局阻断层。
+  if (route.path !== '/') return
   if (shouldShow()) {
     await loadBrief()
     // 有逾期或今日到期才显示

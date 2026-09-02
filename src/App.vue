@@ -10,6 +10,7 @@ import OverdueMorningBrief from './shared/components/OverdueMorningBrief.vue'
 import AIStatusBadge from './shared/components/AIStatusBadge.vue'
 import OnboardingWizard from './shared/components/OnboardingWizard.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
+import NotificationBell from './modules/notifications/components/NotificationBell.vue'
 import UnifiedCaptureDialog from './shared/components/UnifiedCaptureDialog.vue'
 import { registerShortcut } from './shared/keyboard'
 import { useProfileStore } from './stores/profile'
@@ -331,6 +332,9 @@ function onMenuSelect(name) {
         </div>
 
         <div class="topbar-right">
+          <!-- W2 通知中心（铃铛 + 未读角标） -->
+          <NotificationBell />
+
           <!-- 浏览器预览模式标识 -->
           <div v-if="isBrowserPreview" class="browser-preview-pill" title="当前在纯浏览器环境运行，数据由 Mock 驱动">
             <span class="preview-dot" />

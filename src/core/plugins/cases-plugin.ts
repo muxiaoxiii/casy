@@ -133,7 +133,9 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id', 'data'],
       },
       execute: async (params) => {
-        return ctx.cases.update(params.id, params.data)
+        // P0-2：透传提案批准后的 origin/proposalToken（随 data 进入服务端网关校验）
+        const p = params as { id: string; data: Record<string, unknown>; origin?: string; proposalToken?: string }
+        return ctx.cases.update(p.id, p.data, { origin: p.origin, proposalToken: p.proposalToken })
       },
     })
   }
@@ -157,7 +159,8 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        return ctx.cases.remove(params.id)
+        const p = params as { id: string; origin?: string; proposalToken?: string }
+        return ctx.cases.remove(p.id, { origin: p.origin, proposalToken: p.proposalToken })
       },
     })
   }

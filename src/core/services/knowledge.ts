@@ -1,6 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { KnowledgeItem } from '../../types'
+import type { KnowledgeDocumentSourceDto, PageIndexImportResultDto } from '../../types/bindings'
 
 /** 知识库服务：ctx.knowledge */
 export class KnowledgeService extends Service {
@@ -48,6 +49,18 @@ export class KnowledgeService extends Service {
   /** 两个版本差异 */
   async diffVersions(versionId1: string, versionId2: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     return tauriCallSafe<unknown>('diff_knowledge_versions', { versionId1, versionId2 })
+  }
+
+  async restoreVersion(itemId: string, versionId: string): Promise<{ ok: boolean; error?: string }> {
+    return tauriCallSafe<void>('restore_knowledge_version', { itemId, versionId })
+  }
+
+  async documentSources(): Promise<{ ok: boolean; data?: KnowledgeDocumentSourceDto[]; error?: string }> {
+    return tauriCallSafe<KnowledgeDocumentSourceDto[]>('list_knowledge_document_sources', {})
+  }
+
+  async importPageIndex(fileId: string): Promise<{ ok: boolean; data?: PageIndexImportResultDto; error?: string }> {
+    return tauriCallSafe<PageIndexImportResultDto>('import_pageindex_to_knowledge', { fileId })
   }
 
   /** 知识图谱数据（知识 ↔ 案件 ↔ 任务；后端 get_knowledge_graph 返回 { nodes, edges }） */
