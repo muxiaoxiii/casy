@@ -48,6 +48,8 @@ pub struct TaskDto {
     pub parent_task_id: Option<String>,
     pub recurrence_rule: Option<String>,
     pub is_focus: i32,
+    /// W2：OmniFocus 式推迟日（YYYY-MM-DD）；未到期任务在今日/焦点透视隐藏
+    pub defer_until: Option<String>,
 }
 
 /// 全局搜索结果项（轻量列）
@@ -98,8 +100,28 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
             }
             if let Some(start_bucket) = &f.start_bucket {
                 if !start_bucket.is_empty() {
-                    sql.push_str(&format!(" AND start_bucket = ?{}", idx));
-                    params.push(Box::new(start_bucket.clone()));
+                    match start_bucket.as_str() {
+                        // W2 已推迟透视：defer_until 非空且未到期（未来日期）的未完成任务
+                        "deferred" => {
+                            sql.push_str(
+                                " AND defer_until IS NOT NULL AND defer_until != '' \
+                                 AND defer_until > date('now','localtime') AND completed = 0",
+                            );
+                        }
+                        // W2 今日语义：未到期推迟任务隐藏（defer_until > 今天才藏，到期当天回归）
+                        "today" => {
+                            sql.push_str(&format!(
+                                " AND start_bucket = ?{} \
+                                 AND (defer_until IS NULL OR defer_until <= date('now','localtime'))",
+                                idx
+                            ));
+                            params.push(Box::new(start_bucket.clone()));
+                        }
+                        _ => {
+                            sql.push_str(&format!(" AND start_bucket = ?{}", idx));
+                            params.push(Box::new(start_bucket.clone()));
+                        }
+                    }
                 }
             }
         }
@@ -145,6 +167,7 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
                     parent_task_id: row.get::<_, Option<String>>("parent_task_id")?,
                     recurrence_rule: row.get::<_, Option<String>>("recurrence_rule")?,
                     is_focus: row.get::<_, i32>("is_focus")?,
+                    defer_until: row.get::<_, Option<String>>("defer_until")?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -158,7 +181,20 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
 #[tauri::command]
 pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw_conn = db::open_db()?;
+        // 事务化：token 消费与写入同生共死（写失败则回滚，token 不被白烧）
+        let conn = raw_conn.transaction()?;
+        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn,
+            data["origin"].as_str(),
+            data["proposalToken"].as_str(),
+            "create_task",
+            "task",
+            None,
+            None,
+            &data,
+        )?;
         let id = db::new_id();
         let now = db::now_local();
 
@@ -235,10 +271,11 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
             ],
         )?;
 
-        // 记录 task_event
+        // 记录 task_event（AI 创建归因 actor='ai'）
+        let actor = if data["origin"].as_str() == Some("ai") { "ai" } else { "user" };
         conn.execute(
-            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, 'user')",
-            rusqlite::params![db::new_id(), id, now],
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, ?4)",
+            rusqlite::params![db::new_id(), id, now, actor],
         )?;
 
         // 设置即交接（设计哲学 §11.2）：任务带截止日期 + 日历同步启用 → 立即同步提醒到外部日历
@@ -253,16 +290,23 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
             );
         }
 
+        conn.commit()?;
         Ok(serde_json::json!({ "id": id }))
     })
     .await
 }
 
 #[tauri::command]
-pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), String> {
+pub async fn toggle_task(
+    id: String,
+    actual_minutes: Option<i64>,
+    origin: Option<String>,
+    proposal_token: Option<String>,
+) -> Result<(), String> {
     let task_id = id.clone();
     let unlock_result = run_blocking(move || {
-        db::with_conn(|conn| {
+        let mut raw_conn = db::open_db()?;
+        let conn = raw_conn.transaction()?;
         let now = db::now_local();
 
         // 获取当前状态（错误码试点：CAS-1001 任务不存在）
@@ -278,6 +322,19 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
                     format!("任务不存在: {id} ({e})"),
                 ))
             })?;
+
+        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn,
+            origin.as_deref(),
+            proposal_token.as_deref(),
+            "toggle_task",
+            "task",
+            Some(&id),
+            Some(&crate::ai::gateway::compute_current_entity_hash(&conn, "task", &id)?),
+            &serde_json::json!({ "id": id }),
+        )?;
+        let actor = if origin.as_deref() == Some("ai") { "ai" } else { "user" };
 
         let new_status = if current == 0 { 1 } else { 0 };
 
@@ -296,13 +353,13 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
             }
         }
 
-        // 记录 task_event（完成事件 payload 带实际耗时）
+        // 记录 task_event（完成事件 payload 带实际耗时；AI 操作归因 actor='ai'）
         let event_type = if new_status == 1 { "completed" } else { "created" };
         let payload = actual_minutes
             .map(|m| serde_json::json!({ "actualMinutes": m }).to_string());
         conn.execute(
-            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, ?3, ?4, ?5, 'user')",
-            rusqlite::params![db::new_id(), id, event_type, now, payload],
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![db::new_id(), id, event_type, now, payload, actor],
         )?;
 
         // ── A1-5 重复任务：完成后生成下一实例（确定性执行在 Rust · 双路径铁律）──
@@ -384,8 +441,8 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
             }
         }
 
+        conn.commit()?;
         Ok((new_status == 1, unlocked_task_id))
-        })
     })
     .await?;
 
@@ -406,11 +463,31 @@ pub async fn toggle_task(id: String, actual_minutes: Option<i64>) -> Result<(), 
 }
 
 #[tauri::command]
-pub async fn delete_task(id: String) -> Result<(), String> {
+pub async fn delete_task(
+    id: String,
+    origin: Option<String>,
+    proposal_token: Option<String>,
+) -> Result<(), String> {
     let task_id = id.clone();
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw_conn = db::open_db()?;
+        // 事务化：token 消费与写入同生共死（写失败则回滚，token 不被白烧）
+        let conn = raw_conn.transaction()?;
+        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn,
+            origin.as_deref(),
+            proposal_token.as_deref(),
+            "delete_task",
+            "task",
+            Some(&id),
+            Some(&crate::ai::gateway::compute_current_entity_hash(
+                &conn, "task", &id,
+            )?),
+            &serde_json::json!({ "id": id }),
+        )?;
         conn.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![id])?;
+        conn.commit()?;
         Ok(())
     })
     .await?;
@@ -471,6 +548,67 @@ pub async fn snooze_task(
             rusqlite::params![db::new_id(), id, now, serde_json::to_string(&payload).unwrap_or_default()],
         )?;
 
+        Ok(())
+    })
+    .await
+}
+
+/// W2 OmniFocus 式推迟日：设置 defer_until（YYYY-MM-DD）
+///
+/// 与 snooze_task（改 due/start 日期）正交：defer_until 只做"可见性闸门"——
+/// 未到期任务在今日/焦点透视隐藏，到期当天自动回归，不改任务本身的计划日期。
+#[tauri::command]
+pub async fn defer_task(task_id: String, until: String) -> Result<(), String> {
+    run_blocking(move || {
+        // 校验日期格式（YYYY-MM-DD）
+        chrono::NaiveDate::parse_from_str(&until, "%Y-%m-%d").map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid date format for defer until: expected YYYY-MM-DD, got '{}'",
+                until
+            )
+        })?;
+
+        let conn = db::open_db()?;
+        let now = db::now_local();
+
+        let rows = conn.execute(
+            "UPDATE tasks SET defer_until = ?1 WHERE id = ?2",
+            rusqlite::params![until, task_id],
+        )?;
+        if rows != 1 {
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::TASK_NOT_FOUND,
+                format!("任务不存在: {}", task_id),
+            )));
+        }
+
+        // 写 deferred 行为事件（actor='user'，payload 带推迟目标日期）
+        let payload = serde_json::json!({ "until": until }).to_string();
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deferred', ?3, ?4, 'user')",
+            rusqlite::params![db::new_id(), task_id, now, payload],
+        )?;
+
+        Ok(())
+    })
+    .await
+}
+
+/// W2 提前结束推迟：清除 defer_until（任务立即回到今日/焦点可见集合）
+#[tauri::command]
+pub async fn clear_task_defer(task_id: String) -> Result<(), String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let rows = conn.execute(
+            "UPDATE tasks SET defer_until = NULL WHERE id = ?1",
+            rusqlite::params![task_id],
+        )?;
+        if rows != 1 {
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::TASK_NOT_FOUND,
+                format!("任务不存在: {}", task_id),
+            )));
+        }
         Ok(())
     })
     .await
@@ -593,6 +731,8 @@ pub struct UpdateTaskPatch {
     pub recurrence_rule: PatchField<String>,
     #[serde(default, deserialize_with = "deserialize_patch_i32")]
     pub is_focus: PatchField<i32>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub defer_until: PatchField<String>,
 }
 
 impl UpdateTaskPatch {
@@ -668,6 +808,9 @@ impl UpdateTaskPatch {
         if let PatchField::Value(d) = &self.follow_up_date {
             validate_date("followUpDate", d)?;
         }
+        if let PatchField::Value(d) = &self.defer_until {
+            validate_date("deferUntil", d)?;
+        }
 
         if let PatchField::Value(m) = &self.estimated_minutes {
             if *m < 0 {
@@ -720,7 +863,8 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
             "update_task",
             "task",
             Some(&patch.id),
-            None,
+            Some(&crate::ai::gateway::compute_current_entity_hash(&tx, "task", &patch.id)?),
+            &data,
         )?;
 
         // 3. 构建动态 UPDATE SET 语句
@@ -786,6 +930,7 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
         apply_patch_text!(patch.parent_task_id, "parent_task_id");
         apply_patch_text!(patch.recurrence_rule, "recurrence_rule");
         apply_patch_i32!(patch.is_focus, "is_focus");
+        apply_patch_text!(patch.defer_until, "defer_until");
 
         sets.push("updated_at = ?".to_string());
         params.push(Box::new(now.clone()));
@@ -852,10 +997,17 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
             }
         }
 
-        // 常规审计日志
+        // 常规审计日志（脱敏：剔除 origin/proposalToken；AI 操作归因 actor='ai'）
+        let mut sanitized = data.clone();
+        if let Some(obj) = sanitized.as_object_mut() {
+            obj.remove("origin");
+            obj.remove("proposalToken");
+            obj.remove("proposal_token");
+        }
+        let edit_actor = if patch.origin.as_deref() == Some("ai") { "ai" } else { "user" };
         tx.execute(
-            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'edited', ?3, ?4, 'user')",
-            rusqlite::params![db::new_id(), patch.id, now, serde_json::to_string(&data).unwrap_or_default()],
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'edited', ?3, ?4, ?5)",
+            rusqlite::params![db::new_id(), patch.id, now, serde_json::to_string(&sanitized).unwrap_or_default(), edit_actor],
         )?;
 
         // 提交事务

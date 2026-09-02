@@ -27,15 +27,22 @@ fn test_extract_feishu_tokens_from_various_url_formats() {
     assert_eq!(app_token4, Some("bascnABCDEF1234567890".to_string()));
 
     // 5. 用户真实飞书多维表格链接 1 (带 from 参数)
-    let url_user1 = "https://hs2wxdogy2.feishu.cn/base/TW48bdi2daCMCGsucGZcQoivnpV?from=from_copylink";
+    let url_user1 =
+        "https://hs2wxdogy2.feishu.cn/base/TW48bdi2daCMCGsucGZcQoivnpV?from=from_copylink";
     let (app_token_u1, table_id_u1) = extract_feishu_tokens(url_user1);
-    assert_eq!(app_token_u1, Some("TW48bdi2daCMCGsucGZcQoivnpV".to_string()));
+    assert_eq!(
+        app_token_u1,
+        Some("TW48bdi2daCMCGsucGZcQoivnpV".to_string())
+    );
     assert_eq!(table_id_u1, None);
 
     // 6. 用户真实飞书多维表格链接 2 (带 table 与 view 参数)
     let url_user2 = "https://my.feishu.cn/base/JYWEb4e0BayQrrsw5Tdct0c3n5g?table=tbl4fMNw2UJfXBgy&view=vew6lP2d80";
     let (app_token_u2, table_id_u2) = extract_feishu_tokens(url_user2);
-    assert_eq!(app_token_u2, Some("JYWEb4e0BayQrrsw5Tdct0c3n5g".to_string()));
+    assert_eq!(
+        app_token_u2,
+        Some("JYWEb4e0BayQrrsw5Tdct0c3n5g".to_string())
+    );
     assert_eq!(table_id_u2, Some("tbl4fMNw2UJfXBgy".to_string()));
 }
 
@@ -118,6 +125,11 @@ fn test_user_feishu_table_25_columns_matching() {
             expected_field,
             matched_field
         );
-        assert!(conf >= 0.8, "Confidence for [{}] was too low: {}", header, conf);
+        assert!(
+            conf >= 0.8,
+            "Confidence for [{}] was too low: {}",
+            header,
+            conf
+        );
     }
 }

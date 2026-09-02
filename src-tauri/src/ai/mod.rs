@@ -6,6 +6,7 @@
 //! - Recommender: 推荐决策引擎
 //! - NoOpBackend: 无 AI 时的 fallback（规则匹配）
 
+pub mod context_refs;
 pub mod distillation;
 pub mod gateway;
 pub mod insights;
@@ -375,7 +376,10 @@ pub async fn call_llm_json(
 
     match config.mode.as_str() {
         "ollama" => {
-            let url = config.api_url.as_deref().unwrap_or("http://localhost:11434");
+            let url = config
+                .api_url
+                .as_deref()
+                .unwrap_or("http://localhost:11434");
             let model = config.model.as_deref().unwrap_or("qwen2.5:7b");
             let client = reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(30))
@@ -397,17 +401,20 @@ pub async fn call_llm_json(
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
-            
+
             if !resp.status().is_success() {
                 return Err(format!("Ollama API 错误: {}", resp.status()));
             }
             let result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             let content = result["message"]["content"].as_str().unwrap_or("{}");
-            
+
             serde_json::from_str(content).map_err(|e| format!("无法解析 LLM 的 JSON 响应: {}", e))
         }
         "openai" => {
-            let url = config.api_url.as_deref().unwrap_or("https://api.openai.com/v1");
+            let url = config
+                .api_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1");
             let key = config.api_key.as_deref().unwrap_or("");
             let model = config.model.as_deref().unwrap_or("gpt-4o-mini");
             let client = reqwest::Client::builder()
@@ -435,10 +442,12 @@ pub async fn call_llm_json(
             if !resp.status().is_success() {
                 return Err(format!("OpenAI API 错误: {}", resp.status()));
             }
-            
+
             let result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            let content = result["choices"][0]["message"]["content"].as_str().unwrap_or("{}");
-            
+            let content = result["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("{}");
+
             serde_json::from_str(content).map_err(|e| format!("无法解析 LLM 的 JSON 响应: {}", e))
         }
         _ => Err(format!("不支持的 AI 模式: {}", config.mode)),
@@ -1222,17 +1231,20 @@ pub async fn get_ai_usage() -> Result<serde_json::Value, String> {
     }))
 }
 
-/// ai_chat 返回体（K-3 归因）：content + 本次对话的 ai_runs 关联键
+/// ai_chat 返回体（K-3 归因）：content + 本次对话的 ai_runs 关联键 + @ 引用来源
 #[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChatResult {
     pub content: String,
     pub run_id: Option<String>,
+    /// 本次实际注入的 @ 引用清单（受控上下文沙箱，W1）
+    pub used_refs: Vec<context_refs::UsedRef>,
 }
 
 /// 通用多轮对话（AI 聊天面板 / 工具调用循环的原始通道）
 ///
 /// - 支持 mode / api_url / model 覆盖（前端面板切换提供商/模型，不改全局配置）
+/// - 支持 context_refs（@ 引用沙箱）：引用实体被解析为「受控上下文」注入首个 system 消息
 /// - 过 ai_runs 审计（input/output SHA256 脱敏，§11.9 模型可见即记录）
 /// - 过每日限额（TokenBudget）
 #[tauri::command]
@@ -1242,7 +1254,36 @@ pub async fn ai_chat(
     mode: Option<String>,
     api_url: Option<String>,
     model: Option<String>,
+    context_refs: Option<Vec<context_refs::ContextRef>>,
 ) -> Result<AiChatResult, String> {
+    // @ 引用沙箱：先注入受控上下文，使 input_hash 覆盖模型实际可见内容（§11.9）
+    let mut messages = messages;
+    let mut used_refs: Vec<context_refs::UsedRef> = Vec::new();
+    if let Some(refs) = context_refs {
+        if !refs.is_empty() {
+            match crate::db::open_db() {
+                Ok(conn) => {
+                    let (section, used) = context_refs::build_controlled_context(&conn, &refs);
+                    if !section.is_empty() {
+                        if let Some(sys) = messages.iter_mut().find(|m| m.role == "system") {
+                            sys.content.push_str(&section);
+                        } else {
+                            messages.insert(
+                                0,
+                                ChatMessage {
+                                    role: "system".to_string(),
+                                    content: section.trim_start().to_string(),
+                                },
+                            );
+                        }
+                        used_refs = used;
+                    }
+                }
+                Err(e) => log::warn!("@引用解析跳过（数据库不可用）: {}", e),
+            }
+        }
+    }
+
     let budget = get_token_budget();
     if !budget.check_quota().await.map_err(|e| e.to_string())? {
         return Err("AI 调用已达每日限额".to_string());
@@ -1319,6 +1360,7 @@ pub async fn ai_chat(
     Ok(AiChatResult {
         content: text,
         run_id,
+        used_refs,
     })
 }
 

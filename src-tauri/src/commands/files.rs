@@ -79,6 +79,9 @@ pub async fn add_case_file(
             rusqlite::params![id, case_id, file_name, safe_path_string, file_size, file_type, category],
         )?;
 
+        // W5 自动接线：PDF/图片登记成功后立即套用 Smart Rules（filename 类规则即时生效；失败不影响登记）
+        crate::commands::smart_rules::auto_rules_on_register(&id, &file_name, file_type.as_deref());
+
         Ok(CaseFile {
             id,
             case_id,
@@ -328,6 +331,11 @@ pub async fn import_files_to_case(
                 original_path: p.clone(),
             });
         }
+
+        // W5 自动接线：对 pdf/图片套用 Smart Rules（失败仅记日志，不影响导入结果）
+        for f in &out {
+            crate::commands::smart_rules::auto_rules_on_register(&f.id, &f.file_name, None);
+        }
         Ok(out)
     })
     .await
@@ -407,6 +415,7 @@ pub async fn register_existing_files(case_id: String, paths: Vec<String>) -> Res
         let mut conn = crate::db::open_db()?;
         let tx = conn.transaction()?;
         let mut n = 0u32;
+        let mut registered: Vec<(String, String)> = Vec::new();
         for p in &safe_files {
             let meta = std::fs::metadata(p).ok();
             let name = p
@@ -417,14 +426,20 @@ pub async fn register_existing_files(case_id: String, paths: Vec<String>) -> Res
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|s| s.to_string());
+            let fid = db::new_id();
             tx.execute(
                 "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type)
                  VALUES (?1,?2,?3,?4,?5,?6,'other','imported')",
-                rusqlite::params![db::new_id(), case_id, name, p.to_string_lossy(), meta.as_ref().map(|m| m.len() as i64), ftype],
+                rusqlite::params![fid, case_id, name, p.to_string_lossy(), meta.as_ref().map(|m| m.len() as i64), ftype],
             )?;
+            registered.push((fid, name));
             n += 1;
         }
         tx.commit()?;
+        // W5 自动接线：事务提交后对 pdf/图片套用 Smart Rules（失败仅记日志，不影响登记结果）
+        for (fid, name) in &registered {
+            crate::commands::smart_rules::auto_rules_on_register(fid, name, None);
+        }
         Ok(n)
     })
     .await

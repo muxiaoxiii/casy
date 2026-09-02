@@ -1,6 +1,6 @@
+use super::run_blocking;
 use crate::db;
 use serde::Serialize;
-use super::run_blocking;
 
 #[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +17,7 @@ pub async fn global_search(query: String) -> Result<Vec<GlobalSearchResult>, Str
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
-    
+
     run_blocking(move || {
         let conn = db::open_db()?;
         

@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 19;
+pub const CURRENT_SCHEMA_VERSION: i64 = 23;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -474,14 +474,7 @@ CREATE INDEX IF NOT EXISTS idx_email_from ON email_records(from_address);
 CREATE TABLE IF NOT EXISTS knowledge_items (
   id            TEXT PRIMARY KEY,
   title         TEXT NOT NULL,
-  category      TEXT NOT NULL DEFAULT 'other'
-                CHECK(category IN (
-                  'legal_provision','case_note','email','document_summary',
-                  'holiday','cause_action','court_name','judge_info',
-                  'common_paragraph','law_reference',
-                  'complaint','defense_brief','legal_opinion','lawyer_letter','reply_brief',
-                  'other'
-                )),
+  category      TEXT NOT NULL DEFAULT 'other', -- v23 起不再用 CHECK 枚举：分类由应用层演进（笔记本/卷宗沉淀等），见条件重建段
   content       TEXT NOT NULL,
   tags          TEXT,
   source_type   TEXT,
@@ -699,7 +692,280 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("17", MIGRATION_V17_SQL),
     ("18", MIGRATION_V18_SQL),
     ("19", MIGRATION_V19_SQL),
+    ("20", MIGRATION_V20_SQL),
+    ("21", MIGRATION_V21_SQL),
+    ("22", MIGRATION_V22_SQL),
+    ("23", MIGRATION_V23_SQL),
 ];
+
+/// 版本 23：knowledge_items.category 去除 CHECK 枚举。
+/// 真正的表重建在 run_migrations 末尾的条件重建段幂等执行（检测旧 CHECK 存在才动手），
+/// 这里只推进 user_version 作为修复留痕。
+pub const MIGRATION_V23_SQL: &str = r#"
+SELECT 1;
+"#;
+
+/// v23 条件重建：旧库的 knowledge_items 带有 category CHECK 枚举（法律分类），
+/// 会拒绝笔记本分类（reference/inspiration/...）与后续任何新分类。
+/// 按 SQLite 12 步重建：保 rowid（FTS external-content 依赖），临时关 FK 避免
+/// DROP 隐式 DELETE 触发 knowledge_versions/knowledge_relations 的 ON DELETE CASCADE，
+/// 重建索引与四个触发器。
+pub const KNOWLEDGE_ITEMS_REBUILD_V23_SQL: &str = r#"
+PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS knowledge_items_v23;
+
+CREATE TABLE knowledge_items_v23 (
+  id            TEXT PRIMARY KEY,
+  title         TEXT NOT NULL,
+  category      TEXT NOT NULL DEFAULT 'other',
+  content       TEXT NOT NULL,
+  tags          TEXT,
+  source_type   TEXT,
+  source_id     TEXT,
+  linked_case_id TEXT REFERENCES cases(id) ON DELETE SET NULL,
+  law_name      TEXT,
+  article_no    TEXT,
+  effective_date TEXT,
+  status        TEXT DEFAULT 'current',
+  parent_id     TEXT,
+  block_type    TEXT DEFAULT 'page',
+  created_at    TEXT DEFAULT (datetime('now','localtime')),
+  updated_at    TEXT DEFAULT (datetime('now','localtime'))
+);
+
+INSERT INTO knowledge_items_v23 (rowid, id, title, category, content, tags, source_type, source_id,
+  linked_case_id, law_name, article_no, effective_date, status, parent_id, block_type, created_at, updated_at)
+SELECT rowid, id, title, category, content, tags, source_type, source_id,
+  linked_case_id, law_name, article_no, effective_date, status, parent_id, block_type, created_at, updated_at
+FROM knowledge_items;
+
+DROP TABLE knowledge_items;
+ALTER TABLE knowledge_items_v23 RENAME TO knowledge_items;
+
+-- FTS5 external-content 表在内容表被 DROP 后内部状态会损坏（实测报
+-- "database disk image is malformed"），必须一并丢弃重建并重灌索引。
+DROP TABLE IF EXISTS knowledge_fts;
+CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+  title, content, tags,
+  content=knowledge_items, content_rowid=rowid
+);
+INSERT INTO knowledge_fts(knowledge_fts) VALUES('rebuild');
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_items(category);
+CREATE INDEX IF NOT EXISTS idx_knowledge_case ON knowledge_items(linked_case_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);
+CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_items(parent_id);
+
+CREATE TRIGGER IF NOT EXISTS trg_knowledge_ai AFTER INSERT ON knowledge_items BEGIN
+  INSERT INTO knowledge_fts(rowid, title, content, tags)
+  VALUES (new.rowid, new.title, new.content, new.tags);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_knowledge_ad AFTER DELETE ON knowledge_items BEGIN
+  INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, tags)
+  VALUES ('delete', old.rowid, old.title, old.content, old.tags);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_knowledge_au AFTER UPDATE ON knowledge_items BEGIN
+  INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, tags)
+  VALUES ('delete', old.rowid, old.title, old.content, old.tags);
+  INSERT INTO knowledge_fts(rowid, title, content, tags)
+  VALUES (new.rowid, new.title, new.content, new.tags);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_knowledge_updated
+AFTER UPDATE ON knowledge_items FOR EACH ROW
+BEGIN
+  UPDATE knowledge_items SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+PRAGMA foreign_keys=ON;
+"#;
+
+pub const MIGRATION_V22_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS whiteboard_edges (
+  id             TEXT PRIMARY KEY,
+  whiteboard_id  TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+  source_node_id TEXT NOT NULL REFERENCES fact_nodes(id) ON DELETE CASCADE,
+  target_node_id TEXT NOT NULL REFERENCES fact_nodes(id) ON DELETE CASCADE,
+  created_at     TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_wb_edges_board ON whiteboard_edges(whiteboard_id);
+"#;
+
+/// 版本 21：本地文档智能流水线。原文件只读，所有 OCR/PDF/索引结果均为衍生件。
+pub const MIGRATION_V21_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS document_processing_jobs (
+  id                    TEXT PRIMARY KEY,
+  file_id               TEXT NOT NULL REFERENCES case_files(id) ON DELETE CASCADE,
+  source_sha256         TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'queued'
+                        CHECK(status IN ('queued','running','completed','failed','cancelled')),
+  engine                TEXT NOT NULL DEFAULT 'ovisocr2+ppocrv5',
+  model_version         TEXT,
+  current_page          INTEGER NOT NULL DEFAULT 0,
+  total_pages           INTEGER NOT NULL DEFAULT 0,
+  progress              REAL NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 1),
+  searchable_pdf_path   TEXT,
+  page_ir_path          TEXT,
+  markdown_path         TEXT,
+  error_code            TEXT,
+  error_message         TEXT,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  started_at            TEXT,
+  completed_at          TEXT,
+  updated_at            TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_document_jobs_file ON document_processing_jobs(file_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_document_jobs_status ON document_processing_jobs(status, created_at);
+
+CREATE TABLE IF NOT EXISTS document_pages (
+  job_id                TEXT NOT NULL REFERENCES document_processing_jobs(id) ON DELETE CASCADE,
+  file_id               TEXT NOT NULL REFERENCES case_files(id) ON DELETE CASCADE,
+  page_number           INTEGER NOT NULL CHECK(page_number > 0),
+  width                 REAL,
+  height                REAL,
+  plain_text            TEXT NOT NULL DEFAULT '',
+  markdown              TEXT NOT NULL DEFAULT '',
+  regions_json          TEXT NOT NULL DEFAULT '[]',
+  confidence            REAL,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY(job_id, page_number)
+);
+CREATE INDEX IF NOT EXISTS idx_document_pages_file_page ON document_pages(file_id, page_number);
+"#;
+
+/// 版本 20: 全球对标灵感落地（2026-09-01）
+/// Defer Date / 通知中心 / 期限规则留痕 / 跨模块双链 / 对象化实体 / Smart Rules / 事实白板
+pub const MIGRATION_V20_SQL: &str = r#"
+-- ============================================================
+-- W2: tasks 推迟日（OmniFocus Defer Date）
+-- 注：ALTER 在 run_migrations 末尾的条件补列段幂等执行（本 SQL 仅承载建表）
+-- ============================================================
+
+-- ============================================================
+-- W2: 应用内通知中心（Linear 式 Inbox-Zero：处理即消失）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS notifications (
+  id           TEXT PRIMARY KEY,
+  type         TEXT NOT NULL,              -- reminder/system/ai/ocr/smart_rule 等
+  title        TEXT NOT NULL,
+  body         TEXT,
+  payload_json TEXT,                        -- 跳转上下文（task_id/case_id/file_id 等）
+  created_at   TEXT DEFAULT (datetime('now','localtime')),
+  read_at      TEXT,
+  dismissed_at TEXT                         -- 非空即已从通知中心消失
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_active
+  ON notifications(dismissed_at, created_at);
+
+-- ============================================================
+-- W3: 期限规则变更留痕（LawToolBox 式可审计）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS deadline_rule_audit (
+  id          TEXT PRIMARY KEY,
+  rule_id     TEXT NOT NULL,
+  action      TEXT NOT NULL CHECK(action IN ('create','update','toggle','delete')),
+  before_json TEXT,
+  after_json  TEXT,
+  actor       TEXT NOT NULL DEFAULT 'user',
+  created_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_deadline_rule_audit_rule ON deadline_rule_audit(rule_id);
+
+-- ============================================================
+-- W4: 通用跨模块双链（Hookmark/Obsidian 式；内部 ID 引用，重命名不断链）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS links (
+  id          TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,               -- doc/knowledge/task/case/file
+  source_id   TEXT NOT NULL,
+  target_type TEXT NOT NULL,               -- file/knowledge/task/case/doc
+  target_id   TEXT NOT NULL,
+  anchor      TEXT,                         -- 目标定位：如 PDF 页码 "page:12"
+  label       TEXT,
+  created_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_type, target_id);
+
+-- ============================================================
+-- W6: 对象化实体（Capacities 式单一事实源）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS persons (
+  id          TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL CHECK(kind IN ('judge','client','opposing_counsel','court','contact')),
+  name        TEXT NOT NULL,
+  org         TEXT,                         -- 所属机构（律所/法院/公司）
+  phone       TEXT,
+  email       TEXT,
+  preferences TEXT,                         -- 偏好/注意事项（如法官偏好）
+  notes       TEXT,
+  created_at  TEXT DEFAULT (datetime('now','localtime')),
+  updated_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_persons_kind ON persons(kind);
+
+CREATE TABLE IF NOT EXISTS case_persons (
+  id         TEXT PRIMARY KEY,
+  case_id    TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  person_id  TEXT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+  role       TEXT,                          -- 本案角色（如"主审法官"）
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(case_id, person_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_case_persons_case ON case_persons(case_id);
+CREATE INDEX IF NOT EXISTS idx_case_persons_person ON case_persons(person_id);
+
+-- ============================================================
+-- W5: Smart Rules（DEVONthink 式本地自动化）
+-- 注：case_files.ocr_text 的 ALTER 在条件补列段幂等执行
+-- ============================================================
+CREATE TABLE IF NOT EXISTS smart_rules (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  enabled        INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+  match_field    TEXT NOT NULL CHECK(match_field IN ('filename','ocr_text')),
+  match_pattern  TEXT NOT NULL,             -- 子串匹配（大小写不敏感）
+  action_type    TEXT NOT NULL CHECK(action_type IN ('set_category','mark_urgent','add_keyword')),
+  action_payload TEXT NOT NULL,             -- category 值 / 关键词文本
+  created_at     TEXT DEFAULT (datetime('now','localtime')),
+  updated_at     TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- ============================================================
+-- W7: 事实白板（LiquidText 式事实节点网络）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS whiteboards (
+  id         TEXT PRIMARY KEY,
+  case_id    TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_whiteboards_case ON whiteboards(case_id);
+
+CREATE TABLE IF NOT EXISTS fact_nodes (
+  id            TEXT PRIMARY KEY,
+  whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+  file_id       TEXT REFERENCES case_files(id) ON DELETE SET NULL,
+  page          INTEGER,                    -- 出处页码
+  excerpt       TEXT NOT NULL,              -- 摘录原文
+  note          TEXT,                       -- 律师批注
+  x             REAL NOT NULL DEFAULT 0,
+  y             REAL NOT NULL DEFAULT 0,
+  created_at    TEXT DEFAULT (datetime('now','localtime')),
+  updated_at    TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_fact_nodes_board ON fact_nodes(whiteboard_id);
+
+CREATE TABLE IF NOT EXISTS whiteboard_edges (
+  id             TEXT PRIMARY KEY,
+  whiteboard_id  TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+  source_node_id TEXT NOT NULL REFERENCES fact_nodes(id) ON DELETE CASCADE,
+  target_node_id TEXT NOT NULL REFERENCES fact_nodes(id) ON DELETE CASCADE,
+  created_at     TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_wb_edges_board ON whiteboard_edges(whiteboard_id);
+"#;
 
 /// 版本 2: inbox v2.1 — 重建 inbox_items、扩展 cases/tasks、新增推荐/命名表
 pub const MIGRATION_V2_SQL: &str = r#"
@@ -2464,8 +2730,58 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
             created_at      TEXT DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_page_index_file ON page_index_nodes(file_id);
-        CREATE INDEX IF NOT EXISTS idx_page_index_parent ON page_index_nodes(parent_id);"
+        CREATE INDEX IF NOT EXISTS idx_page_index_parent ON page_index_nodes(parent_id);",
     )?;
+
+    // ── v20 条件补列段（幂等：PRAGMA 探测后按需 ALTER；裸 ALTER 进 MIGRATIONS 会在
+    //    迁移中途失败重试时 duplicate column 永久卡死，遵循 v11/v13/v15 惯例）──
+    let tasks_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(tasks)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !tasks_cols.iter().any(|c| c == "defer_until") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN defer_until TEXT;")?;
+        log::info!("Added defer_until column to tasks (v20)");
+    }
+    if !case_files_cols.iter().any(|c| c == "ocr_text") {
+        conn.execute_batch("ALTER TABLE case_files ADD COLUMN ocr_text TEXT;")?;
+        log::info!("Added ocr_text column to case_files (v20)");
+    }
+
+    // v21：衍生文档指针与可诊断状态。逐列探测保证中断后重试仍幂等。
+    for (column, definition) in [
+        ("source_sha256", "TEXT"),
+        ("searchable_pdf_path", "TEXT"),
+        ("document_ir_path", "TEXT"),
+        ("ocr_markdown_path", "TEXT"),
+        ("ocr_engine", "TEXT"),
+        ("ocr_error", "TEXT"),
+    ] {
+        if !case_files_cols.iter().any(|existing| existing == column) {
+            conn.execute_batch(&format!(
+                "ALTER TABLE case_files ADD COLUMN {} {};",
+                column, definition
+            ))?;
+        }
+    }
+
+    // v23：knowledge_items.category 旧 CHECK 枚举条件重建（sqlite_master 探测，幂等）。
+    // 必须排在全部 knowledge_items 条件补列（law_name/parent_id/block_type）之后，
+    // 保证 INSERT SELECT 的列清单在旧库上也已齐整。
+    let ki_table_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_items'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(sql) = ki_table_sql {
+        if sql.contains("CHECK(category") {
+            conn.execute_batch(KNOWLEDGE_ITEMS_REBUILD_V23_SQL)?;
+            log::info!("Rebuilt knowledge_items without category CHECK (v23)");
+        }
+    }
 
     Ok(())
 }
@@ -2787,5 +3103,99 @@ mod tests {
             [],
         );
         assert!(bad.is_err(), "非法 status 应被 CHECK 拒绝");
+    }
+
+    /// v23：全新 schema 的 knowledge_items 接受笔记本分类（不再被 category CHECK 拒绝）
+    #[test]
+    fn test_v23_fresh_schema_accepts_notebook_categories() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        run_migrations(&conn, 1).unwrap();
+
+        for cat in ["reference", "inspiration", "method", "question", "experience", "log", "document_summary"] {
+            conn.execute(
+                "INSERT INTO knowledge_items (id, title, category, content) VALUES (?1, 't', ?2, 'c')",
+                rusqlite::params![format!("ki-{cat}"), cat],
+            )
+            .unwrap_or_else(|e| panic!("分类 {cat} 应被接受: {e}"));
+        }
+    }
+
+    /// v23：带旧 category CHECK 的遗留库被条件重建，数据与级联子表（knowledge_versions）存活
+    #[test]
+    fn test_v23_rebuild_removes_legacy_category_check() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        // 模拟遗留库：带旧 CHECK 的 knowledge_items + 级联子表一行版本数据
+        conn.execute_batch(
+            "CREATE TABLE cases (id TEXT PRIMARY KEY, case_name TEXT);
+             CREATE TABLE knowledge_items (
+               id TEXT PRIMARY KEY, title TEXT NOT NULL,
+               category TEXT NOT NULL DEFAULT 'other' CHECK(category IN ('legal_provision','other')),
+               content TEXT NOT NULL, tags TEXT, source_type TEXT, source_id TEXT,
+               linked_case_id TEXT, law_name TEXT, article_no TEXT, effective_date TEXT,
+               status TEXT DEFAULT 'current', parent_id TEXT, block_type TEXT DEFAULT 'page',
+               created_at TEXT DEFAULT (datetime('now','localtime')),
+               updated_at TEXT DEFAULT (datetime('now','localtime'))
+             );
+             CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+               title, content, tags, content=knowledge_items, content_rowid=rowid);
+             CREATE TABLE knowledge_versions (
+               id TEXT PRIMARY KEY,
+               item_id TEXT NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+               content TEXT NOT NULL, changed_at TEXT DEFAULT (datetime('now','localtime')),
+               change_reason TEXT);
+             INSERT INTO knowledge_items (id, title, category, content)
+               VALUES ('n1', '旧笔记', 'other', '正文');
+             INSERT INTO knowledge_fts(rowid, title, content, tags)
+               SELECT rowid, title, content, tags FROM knowledge_items;
+             INSERT INTO knowledge_versions (id, item_id, content) VALUES ('v1', 'n1', '旧正文');",
+        )
+        .unwrap();
+
+        conn.execute_batch(KNOWLEDGE_ITEMS_REBUILD_V23_SQL).unwrap();
+
+        // 新分类可写
+        conn.execute(
+            "UPDATE knowledge_items SET category='reference' WHERE id='n1'",
+            [],
+        )
+        .unwrap();
+        // 数据与 rowid 保留（FTS external-content 依赖 rowid 不变）
+        let (title, cat): (String, String) = conn
+            .query_row("SELECT title, category FROM knowledge_items WHERE id='n1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((title.as_str(), cat.as_str()), ("旧笔记", "reference"));
+        // FK 关闭期间 DROP 未级联清空版本表
+        let versions: i64 = conn
+            .query_row("SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(versions, 1, "重建不应丢失 knowledge_versions 数据");
+        // 旧索引内容在 FTS 重灌后仍可检索
+        let old_hit: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_fts WHERE knowledge_fts MATCH '旧笔记'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_hit, 1, "重建后旧 FTS 索引应被重灌");
+        // FTS 触发器重建后仍工作
+        conn.execute(
+            "INSERT INTO knowledge_items (id, title, category, content) VALUES ('n2', '检索词甲乙', 'log', '正文')",
+            [],
+        )
+        .unwrap();
+        let hit: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_fts WHERE knowledge_fts MATCH '检索词甲乙'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hit, 1, "重建后 FTS 触发器应继续索引");
     }
 }

@@ -187,7 +187,9 @@ pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
         let configured = sync::feishu::is_feishu_configured();
-        let app_id = sync::feishu::load_feishu_credentials().ok().map(|(id, _)| id);
+        let app_id = sync::feishu::load_feishu_credentials()
+            .ok()
+            .map(|(id, _)| id);
         let last_pull_at = sync::feishu::get_sync_metadata(&conn, "feishu_last_pull_at")
             .ok()
             .flatten();
@@ -1190,4 +1192,22 @@ pub async fn feishu_sync_push(
     sync::feishu::sync_table_push(&app_token, &table_id, &local_table, &sync_mappings)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ============================================================
+// Casy V5 - Persons & Whiteboards Sync Pre-allocations
+// ============================================================
+
+/// (V5 Design) Export persons to vCard format for CardDAV synchronization.
+/// Future Implementation: Maps `persons` table to standardized vCards.
+#[tauri::command]
+pub async fn sync_export_persons_to_vcard() -> Result<String, String> {
+    Ok("NOT_IMPLEMENTED: Sync mapping for persons to vCard is planned for a future release.".to_string())
+}
+
+/// (V5 Design) Export whiteboards and connections to WebDAV compatible JSON blocks.
+/// Future Implementation: Maps `whiteboards`, `fact_nodes`, and `whiteboard_edges` to `.casy-whiteboard` custom blobs.
+#[tauri::command]
+pub async fn sync_export_whiteboards_to_blob() -> Result<String, String> {
+    Ok("NOT_IMPLEMENTED: Sync mapping for whiteboards to WebDAV JSON blob is planned for a future release.".to_string())
 }

@@ -298,18 +298,26 @@ pub async fn create_ai_proposal(
     tool_name: String,
     target_entity_type: String,
     target_entity_id: Option<String>,
-    pre_state_hash: Option<String>,
+    _pre_state_hash: Option<String>,
     payload_json: String,
     ttl_seconds: Option<i64>,
 ) -> Result<crate::ai::gateway::AiProposal, String> {
     super::run_blocking(move || {
         let conn = db::open_db()?;
+        let trusted_pre_state_hash = match target_entity_id.as_deref() {
+            Some(entity_id) => Some(crate::ai::gateway::compute_current_entity_hash(
+                &conn,
+                &target_entity_type,
+                entity_id,
+            )?),
+            None => None,
+        };
         crate::ai::gateway::create_proposal(
             &conn,
             &tool_name,
             &target_entity_type,
             target_entity_id.as_deref(),
-            pre_state_hash.as_deref(),
+            trusted_pre_state_hash.as_deref(),
             &payload_json,
             ttl_seconds,
         )
@@ -345,6 +353,196 @@ pub async fn reject_ai_proposal(proposal_id: String) -> Result<(), String> {
     super::run_blocking(move || {
         let conn = db::open_db()?;
         crate::ai::gateway::reject_proposal(&conn, &proposal_id)
+    })
+    .await
+}
+
+// ============================================================
+// W1：Cursor 式 AI Diff 确认视图 —— 提案预览
+// ============================================================
+
+/// 字段级 Diff 行（before = 目标实体当前值，after = 提案将写入的值）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalFieldDiff {
+    /// 字段名（payload_json 中的 camelCase key）
+    pub field: String,
+    pub before: Option<serde_json::Value>,
+    pub after: Option<serde_json::Value>,
+    pub changed: bool,
+}
+
+/// 提案预览：proposal 全字段 + 目标实体当前状态 + 字段级 Diff
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalPreviewDto {
+    pub proposal: crate::ai::gateway::AiProposal,
+    /// 目标实体显示名（任务名/案件名/知识标题/文件名）
+    pub target_entity_name: Option<String>,
+    /// 目标实体当前整行状态（snake_case 列名）；新建类提案为 None
+    pub current_state: Option<serde_json::Value>,
+    pub field_diffs: Vec<ProposalFieldDiff>,
+}
+
+/// 实体类型 → (主表名, 显示名列)。白名单制，未知类型不查询。
+fn proposal_entity_table(entity_type: &str) -> Option<(&'static str, &'static str)> {
+    match entity_type {
+        "task" | "tasks" => Some(("tasks", "task_name")),
+        "case" | "cases" => Some(("cases", "case_name")),
+        "knowledge" | "knowledge_item" | "knowledge_items" => Some(("knowledge_items", "title")),
+        "file" | "case_file" | "case_files" => Some(("case_files", "file_name")),
+        _ => None,
+    }
+}
+
+/// camelCase → snake_case（payload 字段名 → 数据库列名）
+fn camel_to_snake(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// 读取实体整行为 JSON（key 为 snake_case 列名）
+fn load_entity_state(
+    conn: &rusqlite::Connection,
+    table: &str,
+    id: &str,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, anyhow::Error> {
+    // table 仅来自 proposal_entity_table 白名单常量，拼接安全
+    let sql = format!("SELECT * FROM {} WHERE id = ?1", table);
+    let mut stmt = conn.prepare(&sql)?;
+    let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let mut rows = stmt.query(params![id])?;
+    if let Some(row) = rows.next()? {
+        let mut map = serde_json::Map::new();
+        for (i, name) in col_names.iter().enumerate() {
+            let v = row.get_ref(i)?;
+            let jv = match v {
+                rusqlite::types::ValueRef::Null => serde_json::Value::Null,
+                rusqlite::types::ValueRef::Integer(n) => serde_json::Value::from(n),
+                rusqlite::types::ValueRef::Real(f) => serde_json::Value::from(f),
+                rusqlite::types::ValueRef::Text(t) => {
+                    serde_json::Value::from(String::from_utf8_lossy(t).to_string())
+                }
+                rusqlite::types::ValueRef::Blob(b) => {
+                    serde_json::Value::from(format!("<blob {} bytes>", b.len()))
+                }
+            };
+            map.insert(name.clone(), jv);
+        }
+        Ok(Some(map))
+    } else {
+        Ok(None)
+    }
+}
+
+/// 从 payload_json 提取将写入的字段（兼容平铺与 { data: {...} } 嵌套两种形态）
+fn collect_patch_fields(payload: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    fn is_meta_key(k: &str) -> bool {
+        matches!(
+            k,
+            "id" | "origin" | "proposalToken" | "proposal_token" | "data"
+        )
+    }
+    let mut out = serde_json::Map::new();
+    if let Some(obj) = payload.as_object() {
+        for (k, v) in obj {
+            if !is_meta_key(k) {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+        // data 嵌套形态（如 update_task 的 patch 体）：其字段优先
+        if let Some(data) = obj.get("data").and_then(|d| d.as_object()) {
+            for (k, v) in data {
+                if !is_meta_key(k) {
+                    out.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Tauri 命令：获取提案预览（供前端渲染字段级 before→after diff）
+#[tauri::command]
+pub async fn get_proposal_preview(proposal_id: String) -> Result<ProposalPreviewDto, String> {
+    super::run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut proposal = crate::ai::gateway::get_proposal(&conn, &proposal_id)?
+            .ok_or_else(|| anyhow::anyhow!("提案不存在: {}", proposal_id))?;
+
+        // 惰性过期：pending 且已过期的提案在读取时落终态
+        if proposal.status == "pending" && proposal.expires_at < db::now_local() {
+            conn.execute(
+                "UPDATE ai_proposals SET status = 'expired' WHERE id = ?1 AND status = 'pending'",
+                params![proposal_id],
+            )?;
+            proposal.status = "expired".to_string();
+        }
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&proposal.payload_json).unwrap_or(serde_json::Value::Null);
+        let patch = collect_patch_fields(&payload);
+
+        let mut entity_name: Option<String> = None;
+        let mut current_state: Option<serde_json::Value> = None;
+        let mut field_diffs: Vec<ProposalFieldDiff> = Vec::new();
+
+        let resolved =
+            proposal_entity_table(&proposal.target_entity_type).and_then(|(table, name_col)| {
+                let eid = proposal.target_entity_id.as_deref()?;
+                let row = load_entity_state(&conn, table, eid).ok().flatten()?;
+                let name = row
+                    .get(name_col)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Some((row, name))
+            });
+
+        match resolved {
+            Some((row, name)) => {
+                entity_name = name;
+                for (k, v) in &patch {
+                    let col = camel_to_snake(k);
+                    let before = row.get(&col).cloned();
+                    let changed = before.as_ref() != Some(v);
+                    field_diffs.push(ProposalFieldDiff {
+                        field: k.clone(),
+                        before,
+                        after: Some(v.clone()),
+                        changed,
+                    });
+                }
+                current_state = Some(serde_json::Value::Object(row));
+            }
+            None => {
+                // 新建类提案 / 未知实体类型 / 实体已不存在：仅有 after
+                for (k, v) in &patch {
+                    field_diffs.push(ProposalFieldDiff {
+                        field: k.clone(),
+                        before: None,
+                        after: Some(v.clone()),
+                        changed: true,
+                    });
+                }
+            }
+        }
+
+        Ok(ProposalPreviewDto {
+            proposal,
+            target_entity_name: entity_name,
+            current_state,
+            field_diffs,
+        })
     })
     .await
 }

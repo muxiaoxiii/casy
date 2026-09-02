@@ -28,19 +28,41 @@ pub async fn get_case(id: String) -> Result<db::cases::Case, String> {
 #[tauri::command]
 pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
-        
+        let mut raw_conn = db::open_db()?;
+        // 事务化：token 消费与写入同生共死
+        let conn = raw_conn.transaction()?;
+
+        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn,
+            data["origin"].as_str(),
+            data["proposalToken"].as_str(),
+            "create_case",
+            "case",
+            None,
+            None,
+            &data,
+        )?;
+        if let Some(obj) = data.as_object_mut() {
+            obj.remove("origin");
+            obj.remove("proposalToken");
+        }
+
         // 清理空字符串字段并为其赋予默认值
         if let Some(obj) = data.as_object_mut() {
             if obj.get("caseLevel").and_then(|v| v.as_str()) == Some("") {
                 obj.insert("caseLevel".to_string(), serde_json::Value::Null);
             }
             if obj.get("track").and_then(|v| v.as_str()) == Some("") {
-                obj.insert("track".to_string(), serde_json::json!("patent_invalidation"));
+                obj.insert(
+                    "track".to_string(),
+                    serde_json::json!("patent_invalidation"),
+                );
             }
         }
 
-        let mut case: db::cases::Case = serde_json::from_value(data).map_err(|e| anyhow::anyhow!("Failed to parse Case: {}", e))?;
+        let mut case: db::cases::Case = serde_json::from_value(data)
+            .map_err(|e| anyhow::anyhow!("Failed to parse Case: {}", e))?;
         case.id = db::new_id();
         case.created_at = Some(db::now_local());
         case.updated_at = Some(db::now_local());
@@ -72,6 +94,7 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
         // 触发飞书自动推送（5 秒防抖）
         crate::sync::feishu::get_auto_push_manager().notify_change();
 
+        conn.commit()?;
         Ok(case)
     })
     .await
@@ -80,39 +103,75 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
 #[tauri::command]
 pub async fn update_case(id: String, data: serde_json::Value) -> Result<db::cases::Case, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw_conn = db::open_db()?;
+        // 事务化：token 消费与写入同生共死
+        let conn = raw_conn.transaction()?;
+        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn,
+            data["origin"].as_str(),
+            data["proposalToken"].as_str(),
+            "update_case",
+            "case",
+            Some(&id),
+            Some(&crate::ai::gateway::compute_current_entity_hash(
+                &conn, "case", &id,
+            )?),
+            &data,
+        )?;
         let case = db::cases::update_case(&conn, &id, &data)?;
 
         // 触发飞书自动推送（5 秒防抖）
         crate::sync::feishu::get_auto_push_manager().notify_change();
 
+        conn.commit()?;
         Ok(case)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn delete_case(id: String) -> Result<(), String> {
+pub async fn delete_case(
+    id: String,
+    origin: Option<String>,
+    proposal_token: Option<String>,
+) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw_conn = db::open_db()?;
 
-        // 删除前将案件文件夹移入系统回收站
-        if let Ok(case) = db::cases::get_case(&conn, &id) {
-            if let Some(ref folder_path) = case.folder_path {
-                let path = std::path::Path::new(folder_path);
-                if path.exists() {
-                    let trash_result = trash::delete(path);
-                    if let Err(e) = trash_result {
-                        log::warn!("移入回收站失败，尝试直接删除: {}", e);
-                        let _ = std::fs::remove_dir_all(path);
-                    } else {
-                        log::info!("案件文件夹已移入回收站: {}", folder_path);
-                    }
+        // 先只读取路径；授权与数据库删除成功前不允许触碰文件系统。
+        let folder_path = db::cases::get_case(&raw_conn, &id)
+            .ok()
+            .and_then(|case| case.folder_path);
+
+        // 事务化：token 消费与写入同生共死
+        let conn = raw_conn.transaction()?;
+        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn,
+            origin.as_deref(),
+            proposal_token.as_deref(),
+            "delete_case",
+            "case",
+            Some(&id),
+            Some(&crate::ai::gateway::compute_current_entity_hash(
+                &conn, "case", &id,
+            )?),
+            &serde_json::json!({ "id": id }),
+        )?;
+
+        db::cases::delete_case(&conn, &id)?;
+        conn.commit()?;
+
+        // 数据库删除成功后再执行可恢复的回收站操作。失败只告警，不改为永久删除。
+        if let Some(folder_path) = folder_path {
+            let path = std::path::Path::new(&folder_path);
+            if path.exists() {
+                if let Err(error) = trash::delete(path) {
+                    log::warn!("案件已删除，但关联文件夹移入回收站失败: {}", error);
                 }
             }
         }
-
-        db::cases::delete_case(&conn, &id)?;
 
         // 触发飞书自动推送（5 秒防抖）
         crate::sync::feishu::get_auto_push_manager().notify_change();
@@ -1016,7 +1075,8 @@ pub async fn update_case_hearing(id: String, payload: serde_json::Value) -> Resu
             ],
         )?;
         Ok(())
-    }).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1025,7 +1085,8 @@ pub async fn delete_case_hearing(id: String) -> Result<(), String> {
         let conn = db::open_db()?;
         conn.execute("DELETE FROM hearings WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
-    }).await
+    })
+    .await
 }
 
 // ═══════════════════════════════════════════════════════════

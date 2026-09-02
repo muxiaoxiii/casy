@@ -1,5 +1,6 @@
 pub mod engine;
 pub mod holidays;
+pub mod recalc;
 
 // Re-export for backward compatibility
 #[allow(unused_imports)]

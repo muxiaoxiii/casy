@@ -23,13 +23,90 @@ pub struct AiProposal {
 /// 计算实体状态哈希（用于前置状态防并发漂移校验）
 #[allow(dead_code)]
 pub fn compute_entity_hash(data: &serde_json::Value) -> String {
-    let canonical = match serde_json::to_string(data) {
+    let canonical = match serde_json::to_string(&canonicalize_json(data)) {
         Ok(s) => s,
         Err(_) => data.to_string(),
     };
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+fn canonicalize_json(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<_> = map.iter().collect();
+            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let mut sorted = serde_json::Map::new();
+            for (key, value) in entries {
+                sorted.insert(key.clone(), canonicalize_json(value));
+            }
+            serde_json::Value::Object(sorted)
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.iter().map(canonicalize_json).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// 将提案和真实写命令归一成同一业务 payload：去除身份/授权元数据，展开 data patch。
+pub fn normalize_mutation_payload(value: &serde_json::Value) -> serde_json::Value {
+    let source = value.get("data").unwrap_or(value);
+    let mut clean = serde_json::Map::new();
+    if let Some(map) = source.as_object() {
+        for (key, value) in map {
+            if matches!(
+                key.as_str(),
+                "id" | "origin" | "proposalToken" | "proposal_token" | "data"
+            ) {
+                continue;
+            }
+            clean.insert(key.clone(), canonicalize_json(value));
+        }
+    }
+    canonicalize_json(&serde_json::Value::Object(clean))
+}
+
+/// 后端读取目标实体的完整当前状态，禁止把前置状态哈希的信任交给前端。
+pub fn compute_current_entity_hash(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<String> {
+    let table = match entity_type {
+        "task" | "tasks" => "tasks",
+        "case" | "cases" => "cases",
+        "knowledge" | "knowledge_item" | "knowledge_items" => "knowledge_items",
+        "file" | "case_file" | "case_files" => "case_files",
+        _ => return Err(anyhow!("Unsupported proposal entity type: {}", entity_type)),
+    };
+    let sql = format!("SELECT * FROM {} WHERE id = ?1", table);
+    let mut stmt = conn.prepare(&sql)?;
+    let names: Vec<String> = stmt
+        .column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+    let mut rows = stmt.query(params![entity_id])?;
+    let row = rows
+        .next()?
+        .ok_or_else(|| anyhow!("Target entity not found: {}", entity_id))?;
+    let mut state = serde_json::Map::new();
+    for (index, name) in names.iter().enumerate() {
+        use rusqlite::types::ValueRef;
+        let value = match row.get_ref(index)? {
+            ValueRef::Null => serde_json::Value::Null,
+            ValueRef::Integer(value) => serde_json::Value::from(value),
+            ValueRef::Real(value) => serde_json::Value::from(value),
+            ValueRef::Text(value) => {
+                serde_json::Value::from(String::from_utf8_lossy(value).to_string())
+            }
+            ValueRef::Blob(value) => serde_json::Value::from(hex::encode(value)),
+        };
+        state.insert(name.clone(), value);
+    }
+    Ok(compute_entity_hash(&serde_json::Value::Object(state)))
 }
 
 /// 创建 AI 变更提案（初始状态为 pending，生成高熵 auth_token）
@@ -197,6 +274,7 @@ pub fn validate_and_consume_token(
     expected_entity_type: &str,
     expected_entity_id: Option<&str>,
     current_state_hash: Option<&str>,
+    actual_payload: &serde_json::Value,
 ) -> Result<AiProposal> {
     let proposal = get_proposal_by_token(conn, auth_token)?
         .ok_or_else(|| anyhow!("Invalid authorization token"))?;
@@ -243,30 +321,38 @@ pub fn validate_and_consume_token(
     }
 
     // 3. 校验实体 ID（如果有指定）
-    if let (Some(prop_id), Some(exp_id)) =
-        (proposal.target_entity_id.as_deref(), expected_entity_id)
-    {
-        if prop_id != exp_id {
-            return Err(anyhow!(
-                "Entity ID mismatch: proposal is for '{}', requested '{}'",
-                prop_id,
-                exp_id
-            ));
-        }
+    if proposal.target_entity_id.as_deref() != expected_entity_id {
+        return Err(anyhow!(
+            "Entity ID mismatch: proposal target does not match requested target"
+        ));
     }
 
-    // 4. 校验前置状态 Hash 防止并发漂移
-    if let (Some(prop_hash), Some(curr_hash)) =
-        (proposal.pre_state_hash.as_deref(), current_state_hash)
-    {
-        if prop_hash != curr_hash {
+    // 4. 状态快照必须成对存在且一致，防止调用方用 None 绕过并发漂移校验。
+    match (proposal.pre_state_hash.as_deref(), current_state_hash) {
+        (Some(prop_hash), Some(curr_hash)) if prop_hash == curr_hash => {}
+        (Some(_), Some(_)) => {
             return Err(anyhow!(
                 "State hash mismatch: target entity state was modified after proposal creation"
-            ));
+            ))
         }
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(anyhow!("State hash required for existing target entity"))
+        }
+        (None, None) => {}
     }
 
-    // 5. 原子消费 Token，状态置为 executed
+    // 5. 批准的 payload 必须与命令真正写入的业务字段完全一致。
+    let proposed_payload: serde_json::Value = serde_json::from_str(&proposal.payload_json)
+        .map_err(|_| anyhow!("Proposal payload is invalid JSON"))?;
+    let proposed_hash = compute_entity_hash(&normalize_mutation_payload(&proposed_payload));
+    let actual_hash = compute_entity_hash(&normalize_mutation_payload(actual_payload));
+    if proposed_hash != actual_hash {
+        return Err(anyhow!(
+            "Payload mismatch: approved proposal differs from requested mutation"
+        ));
+    }
+
+    // 6. 原子消费 Token，状态置为 executed
     let rows = conn.execute(
         "UPDATE ai_proposals SET status = 'executed', executed_at = ?1 WHERE id = ?2 AND status = 'approved'",
         params![now, proposal.id],
@@ -288,6 +374,7 @@ pub fn verify_ai_mutation_authorized(
     entity_type: &str,
     entity_id: Option<&str>,
     current_hash: Option<&str>,
+    actual_payload: &serde_json::Value,
 ) -> Result<()> {
     if origin == Some("ai") {
         let token = proposal_token.ok_or_else(|| {
@@ -300,7 +387,15 @@ pub fn verify_ai_mutation_authorized(
             ));
         }
 
-        validate_and_consume_token(conn, token, tool_name, entity_type, entity_id, current_hash)?;
+        validate_and_consume_token(
+            conn,
+            token,
+            tool_name,
+            entity_type,
+            entity_id,
+            current_hash,
+            actual_payload,
+        )?;
     }
 
     Ok(())

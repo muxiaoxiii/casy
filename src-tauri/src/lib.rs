@@ -1,11 +1,12 @@
 pub mod ai;
-pub mod background_jobs;
 mod app_log;
+pub mod background_jobs;
 pub mod commands;
 mod credentials;
 pub mod db;
 mod deadline;
 mod docsy_engine;
+pub mod document_pipeline;
 mod email;
 mod error_code;
 mod files;
@@ -81,7 +82,7 @@ pub fn run() {
             // 初始化数据库
             let conn = db::open_db()?;
             db::init_db(&conn)?;
-            
+
             // 启动闲时后台任务处理器 (Phase 3 Rust)
             background_jobs::start_background_worker(app.handle().clone());
 

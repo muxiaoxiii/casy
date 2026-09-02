@@ -2,13 +2,17 @@ use std::collections::HashMap;
 use tempfile::NamedTempFile;
 
 use casy_lib::commands::import_excel::{
-    clean_amount_str, clean_array_to_json, clean_date_str, excel_import_cases, excel_import_subtable,
-    excel_inspect_sheet, infer_track_and_route, CaseImportConfig, SubtableImportConfig,
+    clean_amount_str, clean_array_to_json, clean_date_str, excel_import_cases,
+    excel_import_subtable, excel_inspect_sheet, infer_track_and_route, CaseImportConfig,
+    SubtableImportConfig,
 };
 use rust_xlsxwriter::Workbook;
 
-#[test]
-fn test_excel_serial_and_multi_format_date_cleaning() {
+static TEST_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[tokio::test]
+async fn test_excel_serial_and_multi_format_date_cleaning() {
+    let _guard = TEST_MUTEX.lock().await;
     // 1. Excel Serial Number
     // 45123 对应 2023-07-16
     let d1 = clean_date_str("45123");
@@ -64,21 +68,31 @@ fn test_amount_and_array_cleaning() {
 
 #[test]
 fn test_track_and_route_inference() {
-    let (t1, _raw1, r1) = infer_track_and_route(None, None, None, "某某发明专利权无效宣告", Some("专利无效"));
+    let (t1, _raw1, r1) =
+        infer_track_and_route(None, None, None, "某某发明专利权无效宣告", Some("专利无效"));
     assert_eq!(t1, "patent_invalidation");
     assert_eq!(r1, "专利无效");
 
-    let (t2, _raw2, r2) = infer_track_and_route(None, None, None, "不服国知局行政决定起诉", Some("行政诉讼"));
+    let (t2, _raw2, r2) =
+        infer_track_and_route(None, None, None, "不服国知局行政决定起诉", Some("行政诉讼"));
     assert_eq!(t2, "admin_litigation");
     assert_eq!(r2, "行政诉讼");
 
-    let (t3, _raw3, r3) = infer_track_and_route(None, None, None, "侵犯计算机软件著作权纠纷", Some("民事侵权"));
+    let (t3, _raw3, r3) = infer_track_and_route(
+        None,
+        None,
+        None,
+        "侵犯计算机软件著作权纠纷",
+        Some("民事侵权"),
+    );
     assert_eq!(t3, "civil_tort");
     assert_eq!(r3, "民事诉讼");
 }
 
 #[tokio::test]
 async fn test_end_to_end_excel_import_with_header_offset_and_conflict() {
+    let _guard = TEST_MUTEX.lock().await;
+    casy_lib::db::enable_test_mode();
     casy_lib::db::init_db(&casy_lib::db::open_db().unwrap()).unwrap();
     // 1. 使用 rust_xlsxwriter 动态生成一个带表头偏移和不规则数据的真实 Excel
     let temp_dir = tempfile::tempdir().unwrap();
@@ -188,6 +202,8 @@ async fn test_end_to_end_excel_import_with_header_offset_and_conflict() {
 
 #[tokio::test]
 async fn test_real_user_excel_file_inspection_and_import() {
+    let _guard = TEST_MUTEX.lock().await;
+    casy_lib::db::enable_test_mode();
     casy_lib::db::init_db(&casy_lib::db::open_db().unwrap()).unwrap();
     let path = "/Users/only/Documents/Workspace/【案件进程表】2025.07.21更新.xlsx".to_string();
     // 1. 探测工作表结构与复合表头
@@ -217,14 +233,26 @@ async fn test_real_user_excel_file_inspection_and_import() {
         .unwrap();
 
     println!("Real Excel Import Report: {:?}", report);
-    assert_eq!(report.failed_count, 0, "Errors occurred: {:?}", report.errors);
+    assert_eq!(
+        report.failed_count, 0,
+        "Errors occurred: {:?}",
+        report.errors
+    );
     assert!(report.total_rows_processed > 0, "No rows processed");
 }
 
 #[tokio::test]
 async fn test_multi_row_case_hearings_and_notes_aggregation() {
+    let _guard = TEST_MUTEX.lock().await;
+    casy_lib::db::enable_test_mode();
     casy_lib::db::init_db(&casy_lib::db::open_db().unwrap()).unwrap();
-    let test_case_no = format!("(2024)京知民初{}号", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    let test_case_no = format!(
+        "(2024)京知民初{}号",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let mut workbook = Workbook::new();
     let worksheet = workbook.add_worksheet();
 
@@ -237,28 +265,40 @@ async fn test_multi_row_case_hearings_and_notes_aggregation() {
 
     // 第 1 行: 主案件与第 1 次开庭
     worksheet.write_string(1, 0, &test_case_no).unwrap();
-    worksheet.write_string(1, 1, "某科技公司专利侵权案").unwrap();
+    worksheet
+        .write_string(1, 1, "某科技公司专利侵权案")
+        .unwrap();
     worksheet.write_string(1, 2, "某科技有限公司").unwrap();
     worksheet.write_string(1, 3, "2025-04-10").unwrap();
-    worksheet.write_string(1, 4, "第一次开庭完毕，法官要求补充证据").unwrap();
+    worksheet
+        .write_string(1, 4, "第一次开庭完毕，法官要求补充证据")
+        .unwrap();
 
     // 第 2 行: 相同案号，记录第 2 次开庭与差异日志
     worksheet.write_string(2, 0, &test_case_no).unwrap();
-    worksheet.write_string(2, 1, "某科技公司专利侵权案").unwrap();
+    worksheet
+        .write_string(2, 1, "某科技公司专利侵权案")
+        .unwrap();
     worksheet.write_string(2, 2, "某科技有限公司").unwrap();
     worksheet.write_string(2, 3, "2025-05-20").unwrap();
-    worksheet.write_string(2, 4, "第二次开庭质证涉案专利权利要求").unwrap();
+    worksheet
+        .write_string(2, 4, "第二次开庭质证涉案专利权利要求")
+        .unwrap();
 
     // 第 3 行: 相同案号，记录第 3 次开庭与差异日志
     worksheet.write_string(3, 0, &test_case_no).unwrap();
-    worksheet.write_string(3, 1, "某科技公司专利侵权案").unwrap();
+    worksheet
+        .write_string(3, 1, "某科技公司专利侵权案")
+        .unwrap();
     worksheet.write_string(3, 2, "某科技有限公司").unwrap();
     worksheet.write_string(3, 3, "2025-06-30").unwrap();
     worksheet.write_string(3, 4, "第三次口审听证总结").unwrap();
 
     // 第 4 行: 相同案号，记录第 4 次开庭
     worksheet.write_string(4, 0, &test_case_no).unwrap();
-    worksheet.write_string(4, 1, "某科技公司专利侵权案").unwrap();
+    worksheet
+        .write_string(4, 1, "某科技公司专利侵权案")
+        .unwrap();
     worksheet.write_string(4, 2, "某科技有限公司").unwrap();
     worksheet.write_string(4, 3, "2025-08-15").unwrap();
     worksheet.write_string(4, 4, "第四次开庭宣判").unwrap();
@@ -295,19 +335,27 @@ async fn test_multi_row_case_hearings_and_notes_aggregation() {
 
     // 验证数据库中 hearings 表已全量沉淀 4 次开庭记录
     let conn = casy_lib::db::open_db().unwrap();
-    let hearing_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM hearings h JOIN cases c ON c.id = h.case_id WHERE c.case_no = ?1",
-        rusqlite::params![&test_case_no],
-        |r| r.get(0),
-    ).unwrap();
-    assert_eq!(hearing_count, 4, "Expected 4 distinct hearings in sub-table, got {}", hearing_count);
+    let hearing_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM hearings h JOIN cases c ON c.id = h.case_id WHERE c.case_no = ?1",
+            rusqlite::params![&test_case_no],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        hearing_count, 4,
+        "Expected 4 distinct hearings in sub-table, got {}",
+        hearing_count
+    );
 
     // 验证案件备忘录中的日志被无损合并追加
-    let case_notes: String = conn.query_row(
-        "SELECT notes FROM cases WHERE case_no = ?1",
-        rusqlite::params![&test_case_no],
-        |r| r.get(0),
-    ).unwrap();
+    let case_notes: String = conn
+        .query_row(
+            "SELECT notes FROM cases WHERE case_no = ?1",
+            rusqlite::params![&test_case_no],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert!(case_notes.contains("第一次开庭"));
     assert!(case_notes.contains("第二次开庭"));
     assert!(case_notes.contains("第三次口审"));
@@ -316,8 +364,16 @@ async fn test_multi_row_case_hearings_and_notes_aggregation() {
 
 #[tokio::test]
 async fn test_subtable_tasks_and_hearings_relational_import() {
+    let _guard = TEST_MUTEX.lock().await;
+    casy_lib::db::enable_test_mode();
     casy_lib::db::init_db(&casy_lib::db::open_db().unwrap()).unwrap();
-    let test_case_no = format!("(2024)京知民分表{}号", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    let test_case_no = format!(
+        "(2024)京知民分表{}号",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let conn = casy_lib::db::open_db().unwrap();
     let parent_case_id = casy_lib::db::new_id();
 
@@ -340,14 +396,18 @@ async fn test_subtable_tasks_and_hearings_relational_import() {
     sheet_tasks.write_string(0, 4, "执行人").unwrap();
     sheet_tasks.write_string(0, 5, "完成状态").unwrap();
 
-    sheet_tasks.write_string(1, 0, "撰写无效宣告请求书").unwrap();
+    sheet_tasks
+        .write_string(1, 0, "撰写无效宣告请求书")
+        .unwrap();
     sheet_tasks.write_string(1, 1, &test_case_no).unwrap();
     sheet_tasks.write_string(1, 2, "2025-05-01").unwrap();
     sheet_tasks.write_string(1, 3, "high").unwrap();
     sheet_tasks.write_string(1, 4, "张律师").unwrap();
     sheet_tasks.write_string(1, 5, "未完成").unwrap();
 
-    sheet_tasks.write_string(2, 0, "检索对比文件与现有技术").unwrap();
+    sheet_tasks
+        .write_string(2, 0, "检索对比文件与现有技术")
+        .unwrap();
     sheet_tasks.write_string(2, 1, &test_case_no).unwrap();
     sheet_tasks.write_string(2, 2, "2025-04-15").unwrap();
     sheet_tasks.write_string(2, 3, "medium").unwrap();
@@ -385,11 +445,15 @@ async fn test_subtable_tasks_and_hearings_relational_import() {
     assert_eq!(task_report.linked_cases_count, 2);
 
     // 验证数据库中 tasks 表正确挂载了 parent_case_id
-    let linked_task_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM tasks WHERE case_id = ?1",
-        rusqlite::params![&parent_case_id],
-        |r| r.get(0),
-    ).unwrap();
-    assert_eq!(linked_task_count, 2, "Tasks should be linked to parent case");
+    let linked_task_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tasks WHERE case_id = ?1",
+            rusqlite::params![&parent_case_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        linked_task_count, 2,
+        "Tasks should be linked to parent case"
+    );
 }
-

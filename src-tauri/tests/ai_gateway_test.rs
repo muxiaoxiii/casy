@@ -38,6 +38,7 @@ fn test_unauthorized_ai_write_rejected_by_default() {
         "task",
         Some("task-100"),
         None,
+        &serde_json::json!({"dueDate":"2026-09-01"}),
     );
     assert!(res.is_err());
     assert!(res
@@ -54,6 +55,7 @@ fn test_unauthorized_ai_write_rejected_by_default() {
         "task",
         Some("task-100"),
         None,
+        &serde_json::json!({}),
     );
     assert!(res_empty.is_err());
 
@@ -66,6 +68,7 @@ fn test_unauthorized_ai_write_rejected_by_default() {
         "task",
         Some("task-100"),
         None,
+        &serde_json::json!({}),
     );
     assert!(res_user.is_ok());
 }
@@ -102,6 +105,7 @@ fn test_proposal_lifecycle_and_single_use_token() {
         "task",
         Some("task-200"),
         Some(&state_hash),
+        &serde_json::json!({"completed": 1}),
     );
     assert!(early_consume.is_err());
     assert!(early_consume
@@ -121,6 +125,7 @@ fn test_proposal_lifecycle_and_single_use_token() {
         "task",
         Some("task-200"),
         Some(&state_hash),
+        &serde_json::json!({"completed": 1}),
     )
     .unwrap();
     assert_eq!(consumed.id, proposal.id);
@@ -133,6 +138,7 @@ fn test_proposal_lifecycle_and_single_use_token() {
         "task",
         Some("task-200"),
         Some(&state_hash),
+        &serde_json::json!({"completed": 1}),
     );
     assert!(replay.is_err());
     assert!(replay
@@ -173,8 +179,50 @@ fn test_state_hash_mismatch_prevents_race_condition() {
         "task",
         Some("task-300"),
         Some(&new_hash),
+        &serde_json::json!({"dueDate": "2026-09-05"}),
     );
 
     assert!(res.is_err());
     assert!(res.unwrap_err().to_string().contains("State hash mismatch"));
+}
+
+#[test]
+fn test_payload_mismatch_is_rejected_without_consuming_token() {
+    let conn = setup_gateway_db();
+    let proposal = create_proposal(
+        &conn,
+        "update_task",
+        "task",
+        Some("task-400"),
+        None,
+        &serde_json::json!({"dueDate": "2026-09-05"}).to_string(),
+        Some(300),
+    )
+    .unwrap();
+    approve_proposal(&conn, &proposal.id).unwrap();
+
+    let mismatch = validate_and_consume_token(
+        &conn,
+        &proposal.auth_token,
+        "update_task",
+        "task",
+        Some("task-400"),
+        None,
+        &serde_json::json!({"dueDate": "2026-10-01"}),
+    );
+    assert!(mismatch
+        .unwrap_err()
+        .to_string()
+        .contains("Payload mismatch"));
+
+    let valid = validate_and_consume_token(
+        &conn,
+        &proposal.auth_token,
+        "update_task",
+        "task",
+        Some("task-400"),
+        None,
+        &serde_json::json!({"dueDate": "2026-09-05"}),
+    );
+    assert!(valid.is_ok());
 }

@@ -6,9 +6,11 @@ pub mod calendar;
 pub mod calendar_events;
 pub mod cases;
 pub mod dashboard;
+pub mod deadline_rules;
 pub mod decisions;
 pub mod demo;
 pub mod docs;
+pub mod document_intelligence;
 pub mod drafts;
 pub mod files;
 pub mod filters;
@@ -16,14 +18,19 @@ pub mod import_excel;
 pub mod import_feishu;
 pub mod inbox;
 pub mod knowledge;
+pub mod linking;
+pub mod notifications;
+pub mod persons;
 pub mod projects;
 pub mod relations;
 pub mod reminder;
+pub mod search;
 pub mod settings;
+pub mod smart_rules;
 pub mod sync;
 pub mod tasks;
 pub mod timeline;
-pub mod search;
+pub mod whiteboard;
 
 // AI 和邮件命令直接在对应模块中定义
 
@@ -115,6 +122,58 @@ pub async fn record_ai_tool_audit(
 
 pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
     tauri::generate_handler![
+        notifications::list_notifications,
+        notifications::unread_notification_count,
+        notifications::create_notification,
+        notifications::mark_notification_read,
+        notifications::dismiss_notification,
+        notifications::dismiss_all_notifications,
+        tasks::defer_task,
+        tasks::clear_task_defer,
+        ai_routes::get_proposal_preview,
+        document_intelligence::get_document_engine_status,
+        document_intelligence::queue_document_processing,
+        document_intelligence::list_document_jobs,
+        document_intelligence::retry_document_job,
+        document_intelligence::cancel_document_job,
+        deadline_rules::list_deadline_rules,
+        deadline_rules::upsert_deadline_rule,
+        deadline_rules::toggle_deadline_rule,
+        deadline_rules::delete_deadline_rule,
+        deadline_rules::list_deadline_rule_audit,
+        crate::deadline::recalc::recalculate_deadlines_for_track,
+        linking::create_link,
+        linking::remove_link,
+        linking::list_links_for,
+        linking::get_backlinks,
+        persons::list_persons,
+        persons::upsert_person,
+        persons::delete_person,
+        persons::attach_person_to_case,
+        persons::detach_person_from_case,
+        persons::list_case_persons,
+        persons::list_person_cases,
+        smart_rules::list_smart_rules,
+        smart_rules::upsert_smart_rule,
+        smart_rules::delete_smart_rule,
+        smart_rules::apply_smart_rules,
+        smart_rules::run_smart_rules_for_all,
+        smart_rules::list_pending_ocr_files,
+        smart_rules::ocr_case_file,
+        smart_rules::ocr_all_pending,
+        smart_rules::list_case_ocr_states,
+        smart_rules::get_file_ocr_text,
+        whiteboard::list_whiteboards,
+        whiteboard::create_whiteboard,
+        whiteboard::rename_whiteboard,
+        whiteboard::delete_whiteboard,
+        whiteboard::list_fact_nodes,
+        whiteboard::create_fact_node,
+        whiteboard::update_fact_node,
+        whiteboard::delete_fact_node,
+        whiteboard::list_whiteboard_edges,
+        whiteboard::create_whiteboard_edge,
+        whiteboard::delete_whiteboard_edge,
         search::global_search,
         search::reasoning_search,
         cases::list_cases,
@@ -210,6 +269,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         sync::feishu_import_incremental,
         sync::feishu_sync_pull,
         sync::feishu_sync_push,
+        sync::sync_export_persons_to_vcard,
+        sync::sync_export_whiteboards_to_blob,
         knowledge::list_knowledge,
         knowledge::create_knowledge,
         knowledge::update_knowledge,
@@ -226,6 +287,9 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         // 知识块级化（设计哲学 §8.2）
         knowledge::list_knowledge_blocks,
         knowledge::get_knowledge_with_blocks,
+        knowledge::list_knowledge_document_sources,
+        knowledge::import_pageindex_to_knowledge,
+        knowledge::restore_knowledge_version,
         // 混合检索命令
         crate::db::search::hybrid_search_knowledge,
         crate::db::search::embed_knowledge,

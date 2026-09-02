@@ -1454,8 +1454,24 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
 
     // 3) 任务意图
     if [
-        "需要", "要做", "尽快", "别忘了", "安排", "完成", "准备", "交", "提交", "递交", "办理",
-        "出具", "草拟", "签署", "寄送", "发送", "委托书", "授权委托书",
+        "需要",
+        "要做",
+        "尽快",
+        "别忘了",
+        "安排",
+        "完成",
+        "准备",
+        "交",
+        "提交",
+        "递交",
+        "办理",
+        "出具",
+        "草拟",
+        "签署",
+        "寄送",
+        "发送",
+        "委托书",
+        "授权委托书",
     ]
     .iter()
     .any(|w| text.contains(w))
@@ -1898,9 +1914,9 @@ fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::N
     }
 
     // 2. MM-DD / M/D / M.D / M月D日 / M月D号
-    if let Ok(re) = regex::Regex::new(
-        r"(?:^|[^\d])(\d{1,2})\s*[\-/\.月]\s*(\d{1,2})(?:[日号]|\b|$)",
-    ) {
+    if let Ok(re) =
+        regex::Regex::new(r"(?:^|[^\d])(\d{1,2})\s*[\-/\.月]\s*(\d{1,2})(?:[日号]|\b|$)")
+    {
         if let Some(caps) = re.captures(text) {
             if let (Ok(m), Ok(d)) = (caps[1].parse::<u32>(), caps[2].parse::<u32>()) {
                 if (1..=12).contains(&m) && (1..=31).contains(&d) {
@@ -1919,9 +1935,9 @@ fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::N
     }
 
     // 3. 中文数字月份与日期：如 "九月十五日" / "十月一号" / "五月二十"
-    if let Ok(re) = regex::Regex::new(
-        r"([一二三四五六七八九十]+)月\s*([一二三四五六七八九十廿卅]+)[日号]?",
-    ) {
+    if let Ok(re) =
+        regex::Regex::new(r"([一二三四五六七八九十]+)月\s*([一二三四五六七八九十廿卅]+)[日号]?")
+    {
         if let Some(caps) = re.captures(text) {
             if let (Some(m), Some(d)) = (parse_zh_num(&caps[1]), parse_zh_num(&caps[2])) {
                 if (1..=12).contains(&m) && (1..=31).contains(&d) {
@@ -2007,7 +2023,9 @@ fn extract_parties_from_name(text: &str) -> Vec<String> {
     if let Ok(re_case) = regex::Regex::new(r"([\u{4e00}-\u{9fff}\w]{2,12})案") {
         for cap in re_case.captures_iter(text) {
             let p = cap[1].to_string();
-            let trimmed = p.trim_start_matches(|c| "交办写发关于对看查与".contains(c)).to_string();
+            let trimmed = p
+                .trim_start_matches(|c| "交办写发关于对看查与".contains(c))
+                .to_string();
             if trimmed.chars().count() >= 2 {
                 parties.push(trimmed);
             }
@@ -2015,7 +2033,9 @@ fn extract_parties_from_name(text: &str) -> Vec<String> {
     }
 
     // 2. 匹配 "X诉Y"
-    if let Ok(re_vs) = regex::Regex::new(r"([\u{4e00}-\u{9fff}]{2,10})诉([\u{4e00}-\u{9fff}]{2,10})") {
+    if let Ok(re_vs) =
+        regex::Regex::new(r"([\u{4e00}-\u{9fff}]{2,10})诉([\u{4e00}-\u{9fff}]{2,10})")
+    {
         for cap in re_vs.captures_iter(text) {
             parties.push(cap[1].to_string());
             parties.push(cap[2].to_string());
@@ -2024,9 +2044,29 @@ fn extract_parties_from_name(text: &str) -> Vec<String> {
 
     // 3. 过滤掉常见非当事人词
     let stop_words: std::collections::HashSet<&str> = [
-        "传票", "判决", "裁定", "决定", "起诉", "答辩", "证据", "通知书", "口审",
-        "函件", "文件", "扫描", "复印件", "原件", "副本", "明天", "后天", "今天",
-        "委托书", "授权委托书", "起诉状", "答辩状", "代理词",
+        "传票",
+        "判决",
+        "裁定",
+        "决定",
+        "起诉",
+        "答辩",
+        "证据",
+        "通知书",
+        "口审",
+        "函件",
+        "文件",
+        "扫描",
+        "复印件",
+        "原件",
+        "副本",
+        "明天",
+        "后天",
+        "今天",
+        "委托书",
+        "授权委托书",
+        "起诉状",
+        "答辩状",
+        "代理词",
     ]
     .iter()
     .copied()
@@ -2570,18 +2610,39 @@ mod tests {
         ).expect("初始化cases表应成功");
 
         // 1. 命中「李四案」时
-        let result_matched = quick_judge_text(&conn, "明天交李四案的授权委托书").expect("规则判断应成功");
-        assert!(result_matched.recommendations.iter().any(|r| r.action == "create_task"));
-        let task_rec = result_matched.recommendations.iter().find(|r| r.action == "create_task").unwrap();
+        let result_matched =
+            quick_judge_text(&conn, "明天交李四案的授权委托书").expect("规则判断应成功");
+        assert!(result_matched
+            .recommendations
+            .iter()
+            .any(|r| r.action == "create_task"));
+        let task_rec = result_matched
+            .recommendations
+            .iter()
+            .find(|r| r.action == "create_task")
+            .unwrap();
         assert_eq!(task_rec.target_case_id, Some("case-101".to_string()));
         assert!(task_rec.intent.as_ref().unwrap().get("dueDate").is_some());
 
         // 2. 未命中任何案件时（例如数据库中无王五）
-        let result_unmatched = quick_judge_text(&conn, "明天交王五案的授权委托书").expect("规则判断应成功");
-        assert!(result_unmatched.recommendations.iter().any(|r| r.action == "create_task"));
-        let unlinked_rec = result_unmatched.recommendations.iter().find(|r| r.action == "create_task").unwrap();
+        let result_unmatched =
+            quick_judge_text(&conn, "明天交王五案的授权委托书").expect("规则判断应成功");
+        assert!(result_unmatched
+            .recommendations
+            .iter()
+            .any(|r| r.action == "create_task"));
+        let unlinked_rec = result_unmatched
+            .recommendations
+            .iter()
+            .find(|r| r.action == "create_task")
+            .unwrap();
         assert_eq!(unlinked_rec.target_case_id, None);
-        assert!(unlinked_rec.intent.as_ref().unwrap().get("dueDate").is_some());
+        assert!(unlinked_rec
+            .intent
+            .as_ref()
+            .unwrap()
+            .get("dueDate")
+            .is_some());
     }
 
     #[test]
@@ -2590,17 +2651,44 @@ mod tests {
         let today = Local::now().date_naive();
 
         // 1. 相对今天/明天/后天/大后天
-        assert_eq!(extract_date_hint("今天下午开会"), Some(today.format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("明天提交答辩状"), Some((today + Duration::days(1)).format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("后天上午开庭"), Some((today + Duration::days(2)).format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("大后天截止"), Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()));
+        assert_eq!(
+            extract_date_hint("今天下午开会"),
+            Some(today.format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("明天提交答辩状"),
+            Some((today + Duration::days(1)).format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("后天上午开庭"),
+            Some((today + Duration::days(2)).format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("大后天截止"),
+            Some((today + Duration::days(3)).format("%Y-%m-%d").to_string())
+        );
 
         // 2. N天/周/月/年后
-        assert_eq!(extract_date_hint("3天后交证据"), Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("三天内提交"), Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("15日内提出上诉"), Some((today + Duration::days(15)).format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("2周后交代理词"), Some((today + Duration::days(14)).format("%Y-%m-%d").to_string()));
-        assert_eq!(extract_date_hint("半个月后截止"), Some((today + Duration::days(15)).format("%Y-%m-%d").to_string()));
+        assert_eq!(
+            extract_date_hint("3天后交证据"),
+            Some((today + Duration::days(3)).format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("三天内提交"),
+            Some((today + Duration::days(3)).format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("15日内提出上诉"),
+            Some((today + Duration::days(15)).format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("2周后交代理词"),
+            Some((today + Duration::days(14)).format("%Y-%m-%d").to_string())
+        );
+        assert_eq!(
+            extract_date_hint("半个月后截止"),
+            Some((today + Duration::days(15)).format("%Y-%m-%d").to_string())
+        );
         assert!(extract_date_hint("1个月后").is_some());
         assert!(extract_date_hint("3个月内").is_some());
 
@@ -2614,11 +2702,29 @@ mod tests {
         assert!(extract_date_hint("下月初开会").is_some());
 
         // 5. 绝对中文/点号/斜杠/横杠日期
-        assert_eq!(extract_date_hint("2026年9月15日交公证书"), Some("2026-09-15".to_string()));
-        assert_eq!(extract_date_hint("2026.09.15 开庭"), Some("2026-09-15".to_string()));
-        assert_eq!(extract_date_hint("2026/9/15"), Some("2026-09-15".to_string()));
-        assert_eq!(extract_date_hint("2026-9-15"), Some("2026-09-15".to_string()));
-        assert_eq!(extract_date_hint("九月十五日截止"), Some(format!("{}-09-15", today.year())));
-        assert_eq!(extract_date_hint("十月一日放假"), Some(format!("{}-10-01", today.year())));
+        assert_eq!(
+            extract_date_hint("2026年9月15日交公证书"),
+            Some("2026-09-15".to_string())
+        );
+        assert_eq!(
+            extract_date_hint("2026.09.15 开庭"),
+            Some("2026-09-15".to_string())
+        );
+        assert_eq!(
+            extract_date_hint("2026/9/15"),
+            Some("2026-09-15".to_string())
+        );
+        assert_eq!(
+            extract_date_hint("2026-9-15"),
+            Some("2026-09-15".to_string())
+        );
+        assert_eq!(
+            extract_date_hint("九月十五日截止"),
+            Some(format!("{}-09-15", today.year()))
+        );
+        assert_eq!(
+            extract_date_hint("十月一日放假"),
+            Some(format!("{}-10-01", today.year()))
+        );
     }
 }

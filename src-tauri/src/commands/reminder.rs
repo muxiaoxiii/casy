@@ -517,6 +517,11 @@ fn dispatch_reminder_at(
         ],
     )?;
 
+    // W2：到期提醒同步落入应用内通知中心（best-effort，绝不影响提醒状态机）
+    if status == "sent" {
+        let _ = push_inbox_notification(conn, case_id, task_id, level, message);
+    }
+
     Ok(entry)
 }
 
@@ -733,6 +738,11 @@ fn dispatch_due_local_jobs(conn: &Connection) -> Result<Vec<ReminderLogEntry>> {
              VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, datetime('now','localtime'))",
             params![log_id, rule_id, task_id, channel, message, level, job_status],
         )?;
+
+        // W2：延迟作业到点投递同样落入通知中心（best-effort）
+        if job_status == "sent" {
+            let _ = push_inbox_notification(conn, None, task_id, &level, &message);
+        }
 
         delivered.push(ReminderLogEntry {
             id: log_id,
@@ -1263,7 +1273,7 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
         }
     }
 
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let engine = ReminderEngine::new(interval);
         let running = engine.start_loop();
         let _ = ENGINE_RUNNING.set(running.clone());
@@ -1287,7 +1297,7 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
                 }
             }
 
-            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+            std::thread::sleep(std::time::Duration::from_secs(interval));
         }
 
         log::info!("提醒引擎已停止");
@@ -1995,4 +2005,32 @@ mod tests {
             .unwrap();
         assert_eq!(job_count, 0, "时段内不应创建延迟作业");
     }
+}
+
+// ============================================================
+// W2 通知中心联动（Linear 式安静通知：提醒落 inbox，处理即消失）
+// ============================================================
+
+/// 到期提醒落入应用内通知中心。
+/// best-effort 语义：调用方以 `let _ =` 忽略错误，绝不改变提醒状态机行为。
+/// payload_json 携带 taskId/caseId/level，供前端点击跳转与分级展示。
+fn push_inbox_notification(
+    conn: &Connection,
+    case_id: Option<&str>,
+    task_id: Option<&str>,
+    level: &str,
+    message: &str,
+) -> Result<()> {
+    let title = message.lines().next().unwrap_or("Casy 提醒").to_string();
+    let payload = serde_json::json!({
+        "caseId": case_id,
+        "taskId": task_id,
+        "level": level,
+    })
+    .to_string();
+    conn.execute(
+        "INSERT INTO notifications (id, type, title, body, payload_json) VALUES (?1, 'reminder', ?2, ?3, ?4)",
+        params![db::new_id(), title, message, payload],
+    )?;
+    Ok(())
 }

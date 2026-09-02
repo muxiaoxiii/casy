@@ -197,6 +197,12 @@ pub fn open_db_encrypted() -> Result<Connection> {
         std::fs::create_dir_all(parent)?;
     }
 
+    if IS_TEST_MODE.load(Ordering::SeqCst) || std::env::var("TEST_ENV").is_ok() {
+        let conn = Connection::open(&path)?;
+        conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        return Ok(conn);
+    }
+
     let key = get_or_create_encryption_key()?;
 
     // 如果数据库文件不存在，直接创建加密数据库
@@ -283,8 +289,21 @@ fn migrate_to_encrypted(key: &str) -> Result<()> {
     Ok(())
 }
 
+static IS_TEST_MODE: AtomicBool = AtomicBool::new(false);
+static TEST_DB_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// 启用测试模式（仅内存/独立临时文件，不走 Keychain）
+pub fn enable_test_mode() {
+    IS_TEST_MODE.store(true, Ordering::SeqCst);
+}
+
 /// 数据库文件路径
 fn db_path() -> PathBuf {
+    if IS_TEST_MODE.load(Ordering::SeqCst) || std::env::var("TEST_ENV").is_ok() {
+        return TEST_DB_PATH.get_or_init(|| {
+            std::env::temp_dir().join(format!("casy_test_{}.db", uuid::Uuid::new_v4()))
+        }).clone();
+    }
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("Casy")

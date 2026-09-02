@@ -363,7 +363,14 @@ pub fn infer_track_and_route(
     };
 
     let validate_route = |r: &str| -> String {
-        let valid = ["民事诉讼", "专利无效", "行政诉讼", "民事诉讼+专利无效", "专利无效+行政诉讼", "三轨并行"];
+        let valid = [
+            "民事诉讼",
+            "专利无效",
+            "行政诉讼",
+            "民事诉讼+专利无效",
+            "专利无效+行政诉讼",
+            "三轨并行",
+        ];
         if valid.contains(&r) {
             r.to_string()
         } else {
@@ -374,13 +381,23 @@ pub fn infer_track_and_route(
     let get_tracks = |t: &str| -> (String, String) {
         // (safe_track, raw_track)
         if t.contains("无效") || t.contains("patent invalidation") {
-            ("patent_invalidation".to_string(), "patent_invalidation".to_string())
+            (
+                "patent_invalidation".to_string(),
+                "patent_invalidation".to_string(),
+            )
         } else if t.contains("复审") {
             ("other".to_string(), "patent_reexam".to_string())
-        } else if t.contains("民事") || t.contains("侵权") || t.contains("合同") || t.contains("civil") {
+        } else if t.contains("民事")
+            || t.contains("侵权")
+            || t.contains("合同")
+            || t.contains("civil")
+        {
             ("civil_tort".to_string(), "civil_first_instance".to_string())
         } else if t.contains("行政") || t.contains("admin") {
-            ("admin_litigation".to_string(), "admin_first_instance".to_string())
+            (
+                "admin_litigation".to_string(),
+                "admin_first_instance".to_string(),
+            )
         } else if t.contains("刑事") || t.contains("criminal") {
             ("other".to_string(), "criminal_investigation".to_string())
         } else if t.contains("仲裁") || t.contains("arbitration") {
@@ -397,7 +414,7 @@ pub fn infer_track_and_route(
         if !rt.trim().is_empty() {
             let t = rt.to_lowercase();
             let (mut safe_track, mut raw_track) = get_tracks(&t);
-            
+
             // If the row explicitly matches nothing special, try the default track
             if safe_track == "other" && raw_track == "other" {
                 if let Some(dt) = default_track_opt {
@@ -408,7 +425,7 @@ pub fn infer_track_and_route(
                     }
                 }
             }
-            
+
             let final_route = if let Some(rr) = row_route_opt {
                 if !rr.trim().is_empty() {
                     validate_route(rr)
@@ -418,7 +435,7 @@ pub fn infer_track_and_route(
             } else {
                 map_track_to_route(&safe_track)
             };
-            
+
             return (safe_track, raw_track, final_route);
         }
     }
@@ -440,7 +457,11 @@ pub fn infer_track_and_route(
 
     let combined = format!("{} {}", case_name, cause_action.unwrap_or_default());
     let (fallback_safe, fallback_raw) = get_tracks(&combined);
-    (fallback_safe.clone(), fallback_raw.clone(), map_track_to_route(&fallback_safe))
+    (
+        fallback_safe.clone(),
+        fallback_raw.clone(),
+        map_track_to_route(&fallback_safe),
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -547,7 +568,14 @@ const FIELD_MATCHERS: &[FieldMatcher] = &[
     },
     FieldMatcher {
         field_name: "causeAction",
-        keywords: &["案由", "诉由", "纠纷类型", "纠纷", "争议事由", "cause of action"],
+        keywords: &[
+            "案由",
+            "诉由",
+            "纠纷类型",
+            "纠纷",
+            "争议事由",
+            "cause of action",
+        ],
     },
     FieldMatcher {
         field_name: "court",
@@ -831,24 +859,11 @@ const FIELD_MATCHERS: &[FieldMatcher] = &[
     },
     FieldMatcher {
         field_name: "priority",
-        keywords: &[
-            "优先级",
-            "重要程度",
-            "紧急程度",
-            "重要紧急程度",
-            "priority",
-        ],
+        keywords: &["优先级", "重要程度", "紧急程度", "重要紧急程度", "priority"],
     },
     FieldMatcher {
         field_name: "assignee",
-        keywords: &[
-            "执行人",
-            "责任人",
-            "指派人",
-            "主办人",
-            "承办人",
-            "assignee",
-        ],
+        keywords: &["执行人", "责任人", "指派人", "主办人", "承办人", "assignee"],
     },
     FieldMatcher {
         field_name: "description",
@@ -884,13 +899,7 @@ const FIELD_MATCHERS: &[FieldMatcher] = &[
     },
     FieldMatcher {
         field_name: "eventType",
-        keywords: &[
-            "事件类型",
-            "日志类型",
-            "活动类型",
-            "节点类型",
-            "event type",
-        ],
+        keywords: &["事件类型", "日志类型", "活动类型", "节点类型", "event type"],
     },
     FieldMatcher {
         field_name: "content",
@@ -905,13 +914,7 @@ const FIELD_MATCHERS: &[FieldMatcher] = &[
     },
     FieldMatcher {
         field_name: "operator",
-        keywords: &[
-            "经办人",
-            "记录人",
-            "填写人",
-            "登记人",
-            "operator",
-        ],
+        keywords: &["经办人", "记录人", "填写人", "登记人", "operator"],
     },
     FieldMatcher {
         field_name: "hearingName",
@@ -995,7 +998,10 @@ pub fn resolve_effective_headers(raw_rows: &[Vec<Data>], header_row_idx: usize) 
     let mut result = Vec::with_capacity(col_count);
     for (col_idx, cell) in current_row.iter().enumerate() {
         let cur_text = cell_to_string(cell).trim().to_string();
-        let parent_text = parent_forward_filled.get(col_idx).map(|s| s.trim()).unwrap_or("");
+        let parent_text = parent_forward_filled
+            .get(col_idx)
+            .map(|s| s.trim())
+            .unwrap_or("");
 
         let effective = if cur_text.is_empty() {
             // 当前行为空，直接取上一层表头（例如“案号”、“案由”、“序号”、“备注”）
@@ -1027,10 +1033,12 @@ pub fn resolve_effective_headers(raw_rows: &[Vec<Data>], header_row_idx: usize) 
 
 /// 评估列名与系统字段的匹配度 (0.0 ~ 1.0)
 pub fn match_field_confidence(header: &str) -> (Option<String>, f32) {
-    let clean_header = header
-        .trim()
-        .to_lowercase()
-        .replace([' ', '_', '-', ':', '：', '(', ')', '（', '）', '【', '】', '[', ']'], "");
+    let clean_header = header.trim().to_lowercase().replace(
+        [
+            ' ', '_', '-', ':', '：', '(', ')', '（', '）', '【', '】', '[', ']',
+        ],
+        "",
+    );
 
     if clean_header.is_empty() {
         return (None, 0.0);
@@ -1039,9 +1047,12 @@ pub fn match_field_confidence(header: &str) -> (Option<String>, f32) {
     // 1. 先进行完全精确匹配 (Exact Match 优先，防止子串抢先拦截)
     for matcher in FIELD_MATCHERS {
         for &kw in matcher.keywords {
-            let clean_kw = kw
-                .to_lowercase()
-                .replace([' ', '_', '-', ':', '：', '(', ')', '（', '）', '【', '】', '[', ']'], "");
+            let clean_kw = kw.to_lowercase().replace(
+                [
+                    ' ', '_', '-', ':', '：', '(', ')', '（', '）', '【', '】', '[', ']',
+                ],
+                "",
+            );
             if clean_header == clean_kw {
                 return (Some(matcher.field_name.to_string()), 1.0);
             }
@@ -1051,9 +1062,12 @@ pub fn match_field_confidence(header: &str) -> (Option<String>, f32) {
     // 2. 再进行包含匹配 (Substring Match)
     for matcher in FIELD_MATCHERS {
         for &kw in matcher.keywords {
-            let clean_kw = kw
-                .to_lowercase()
-                .replace([' ', '_', '-', ':', '：', '(', ')', '（', '）', '【', '】', '[', ']'], "");
+            let clean_kw = kw.to_lowercase().replace(
+                [
+                    ' ', '_', '-', ':', '：', '(', ')', '（', '）', '【', '】', '[', ']',
+                ],
+                "",
+            );
             if clean_header.contains(&clean_kw) || clean_kw.contains(&clean_header) {
                 return (Some(matcher.field_name.to_string()), 0.8);
             }

@@ -1,84 +1,167 @@
-//! Background Jobs (Pure Rust OCR & PageIndex Scheduler)
-use log::{info, error};
+//! Durable single-flight document processing worker.
+use log::{error, info};
+use rusqlite::OptionalExtension;
 use std::time::Duration;
 use tauri::AppHandle;
-use tokio::time::sleep;
 
-/// 启动闲时后台任务处理器
-/// 负责扫描需要 OCR 或构建索引的文件，并在后台无感知地执行
-pub fn start_background_worker(_app: AppHandle) {
-    tokio::spawn(async move {
-        info!("Rust Native Background OCR (OvisOCR2 GGUF) & PageIndex worker started.");
-        
-        // 并发锁：确保同一时间只有一个 OvisOCR2 推理实例在运行
-        let ocr_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
-        
-        loop {
-            // 每隔 60 秒检查一次是否有待处理任务
-            // 真实场景下，可以增加“用户闲时检测（Idle Detection）”逻辑，
-            // 这里为了演示简化处理
-            sleep(Duration::from_secs(60)).await;
+#[derive(Debug)]
+struct ClaimedJob {
+    id: String,
+    file_id: String,
+    source_path: String,
+    source_sha256: String,
+}
 
-            // 1. 从数据库捞取 ocr_status = 'pending' 的 case_files
-            let file_opt = {
-                let conn_res = crate::db::open_db();
-                if let Ok(conn) = conn_res {
-                    let stmt = conn.prepare("SELECT id, file_path FROM case_files WHERE ocr_status = 'pending' LIMIT 1");
-                    let opt = if let Ok(mut stmt) = stmt {
-                        stmt.query_map([], |row| {
-                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                        })
-                        .and_then(|mut rows| rows.next().transpose())
-                        .unwrap_or(None)
-                    } else { None };
-                    
-                    if let Some((ref file_id, _)) = opt {
-                        let _ = conn.execute("UPDATE case_files SET ocr_status = 'processing' WHERE id = ?1", rusqlite::params![file_id]);
+fn claim_next_job() -> anyhow::Result<Option<ClaimedJob>> {
+    let mut conn = crate::db::open_db()?;
+    let tx = conn.transaction()?;
+    let candidate:Option<(String,String,String,String)>=tx.query_row(
+        "SELECT j.id,j.file_id,f.file_path,j.source_sha256 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.status='queued' ORDER BY j.created_at LIMIT 1",
+        [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+    ).optional()?;
+    let Some((id, file_id, source_path, source_sha256)) = candidate else {
+        tx.commit()?;
+        return Ok(None);
+    };
+    let changed=tx.execute("UPDATE document_processing_jobs SET status='running',progress=0.01,started_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=?1 AND status='queued'",[&id])?;
+    if changed != 1 {
+        tx.commit()?;
+        return Ok(None);
+    }
+    tx.execute(
+        "UPDATE case_files SET ocr_status='processing',ocr_error=NULL WHERE id=?1",
+        [&file_id],
+    )?;
+    tx.commit()?;
+    Ok(Some(ClaimedJob {
+        id,
+        file_id,
+        source_path,
+        source_sha256,
+    }))
+}
+
+fn persist_success(
+    job: &ClaimedJob,
+    result: &crate::document_pipeline::ProcessResult,
+) -> anyhow::Result<()> {
+    let mut conn = crate::db::open_db()?;
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM document_pages WHERE job_id=?1", [&job.id])?;
+    for page in &result.pages {
+        tx.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json,confidence) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",rusqlite::params![job.id,job.file_id,page.page_number,page.width,page.height,page.plain_text,page.markdown,serde_json::to_string(&page.regions)?,page.confidence])?;
+    }
+    tx.execute("UPDATE document_processing_jobs SET status='completed',engine=?1,model_version=?2,current_page=?3,total_pages=?3,progress=1,searchable_pdf_path=?4,page_ir_path=?5,markdown_path=?6,error_code=NULL,error_message=NULL,completed_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=?7",rusqlite::params![result.engine,result.model_version,result.pages.len() as i64,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,job.id])?;
+    tx.execute("UPDATE case_files SET source_sha256=?1,searchable_pdf_path=?2,document_ir_path=?3,ocr_markdown_path=?4,ocr_engine=?5,ocr_error=NULL,ocr_status='completed',index_status='processing' WHERE id=?6",rusqlite::params![job.source_sha256,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,result.engine,job.file_id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn persist_failure(job: &ClaimedJob, error: &anyhow::Error) {
+    if let Ok(conn) = crate::db::open_db() {
+        let message = error.to_string();
+        let code = message.split(':').next().unwrap_or("DOC_PROCESSING_FAILED");
+        let _=conn.execute("UPDATE document_processing_jobs SET status='failed',error_code=?1,error_message=?2,updated_at=datetime('now','localtime') WHERE id=?3",rusqlite::params![code,message,job.id]);
+        let _=conn.execute("UPDATE case_files SET ocr_status='failed',index_status='failed',ocr_error=?1 WHERE id=?2",rusqlite::params![message,job.file_id]);
+    }
+}
+
+async fn process_one(job: ClaimedJob) {
+    let current_hash =
+        match crate::document_pipeline::sha256_file(std::path::Path::new(&job.source_path)) {
+            Ok(value) => value,
+            Err(error) => {
+                persist_failure(&job, &error);
+                return;
+            }
+        };
+    if current_hash != job.source_sha256 {
+        persist_failure(&job, &anyhow::anyhow!("SOURCE_CHANGED: 排队后源文件已变化"));
+        return;
+    }
+    let output_dir = match crate::document_pipeline::artifact_dir(&job.file_id, &job.source_sha256)
+    {
+        Ok(path) => path,
+        Err(error) => {
+            persist_failure(&job, &error);
+            return;
+        }
+    };
+    let request = crate::document_pipeline::process_request(
+        &job.id,
+        &job.source_path,
+        &job.source_sha256,
+        &output_dir,
+    );
+    match crate::document_pipeline::run_engine(request).await {
+        Ok(result) => {
+            if let Err(error) = persist_success(&job, &result) {
+                persist_failure(&job, &error);
+                return;
+            }
+            match crate::ai::page_index::build_page_index_tree(&job.file_id, &job.source_path).await
+            {
+                Ok(()) => {
+                    if let Ok(conn) = crate::db::open_db() {
+                        let _ = conn.execute(
+                            "UPDATE case_files SET index_status='completed' WHERE id=?1",
+                            [&job.file_id],
+                        );
                     }
-                    opt
-                } else {
-                    None
                 }
-            }; // conn is dropped here
+                Err(message) => {
+                    error!("PageIndex build failed {}: {}", job.id, message);
+                    if let Ok(conn) = crate::db::open_db() {
+                        let _ = conn.execute(
+                            "UPDATE case_files SET index_status='failed',ocr_error=?1 WHERE id=?2",
+                            rusqlite::params![format!("PAGE_INDEX_FAILED: {message}"), job.file_id],
+                        );
+                    }
+                }
+            }
+            info!("document processing completed: {}", job.id);
+        }
+        Err(process_error) => {
+            error!("document processing failed {}: {}", job.id, process_error);
+            persist_failure(&job, &process_error)
+        }
+    }
+}
 
-            if let Some((file_id, file_path)) = file_opt {
-                // 获取并发锁，避免撑爆显存/内存
-                let _permit = ocr_semaphore.acquire().await.ok();
-                info!("Found pending OCR task for file_id: {}, acquired lock.", file_id);
-                
-                // 执行纯 Rust PDF 提取 (OvisOCR2)
-                match crate::parse::pdf_extractor::extract_pdf_to_markdown(&file_path).await {
-                    Ok(_markdown) => {
-                        info!("OCR completed for file_id: {}", file_id);
-                        if let Ok(conn) = crate::db::open_db() {
-                            let _ = conn.execute("UPDATE case_files SET ocr_status = 'completed', index_status = 'pending' WHERE id = ?1", rusqlite::params![&file_id]);
-                            
-                            // 立即触发 PageIndex 构建 (传入 file_path 以支持懒加载建树)
-                            if let Err(e) = crate::ai::page_index::build_page_index_tree(&file_id, &file_path).await {
-                                error!("Failed to build PageIndex for {}: {}", file_id, e);
-                                if let Ok(conn) = crate::db::open_db() {
-                                    let _ = conn.execute("UPDATE case_files SET index_status = 'failed' WHERE id = ?1", rusqlite::params![&file_id]);
-                                }
-                            } else {
-                                if let Ok(conn) = crate::db::open_db() {
-                                    let _ = conn.execute("UPDATE case_files SET index_status = 'completed' WHERE id = ?1", rusqlite::params![&file_id]);
-                                }
-                            }
-                        }
+pub fn start_background_worker(_app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        if let Ok(conn) = crate::db::open_db() {
+            let _ = conn.execute(
+                "UPDATE case_files SET ocr_status='failed',index_status='failed',ocr_error='INTERRUPTED: 应用上次退出时任务仍在运行，请重试' WHERE id IN (SELECT file_id FROM document_processing_jobs WHERE status='running')",
+                [],
+            );
+            let _=conn.execute("UPDATE document_processing_jobs SET status='failed',error_code='INTERRUPTED',error_message='应用上次退出时任务仍在运行，请重试',updated_at=datetime('now','localtime') WHERE status='running'",[]);
+        }
+        info!("durable document intelligence worker started");
+        loop {
+            match claim_next_job() {
+                Ok(Some(job)) => process_one(job).await,
+                Ok(None) => tokio::time::sleep(Duration::from_secs(5)).await,
+                Err(error) => {
+                    error!("document worker claim failed: {}", error);
+                    tokio::time::sleep(Duration::from_secs(10)).await
+                }
+            }
+        }
+    });
+
+    tauri::async_runtime::spawn(async move {
+        info!("auto-ocr trigger loop started");
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            match crate::commands::smart_rules::ocr_all_pending().await {
+                Ok(count) => {
+                    if count > 0 {
+                        info!("auto-ocr triggered {} pending files", count);
                     }
-                    Err(e) => {
-                        if e == "NeedsOCR" {
-                            info!("File {} is a scanned document. Marking as requires_extension.", file_id);
-                            if let Ok(conn) = crate::db::open_db() {
-                                let _ = conn.execute("UPDATE case_files SET ocr_status = 'requires_extension' WHERE id = ?1", rusqlite::params![&file_id]);
-                            }
-                        } else {
-                            error!("Fast extraction failed for {}: {}", file_id, e);
-                            if let Ok(conn) = crate::db::open_db() {
-                                let _ = conn.execute("UPDATE case_files SET ocr_status = 'failed' WHERE id = ?1", rusqlite::params![&file_id]);
-                            }
-                        }
-                    }
+                }
+                Err(e) => {
+                    error!("auto-ocr trigger failed: {}", e);
                 }
             }
         }

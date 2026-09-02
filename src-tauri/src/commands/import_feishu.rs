@@ -839,7 +839,9 @@ pub async fn feishu_import_bitable_subtable(
     table_id: String,
     config: SubtableImportConfig,
 ) -> Result<SubtableImportReport, String> {
-    let (client, token) = get_feishu_client_and_token().await.map_err(|e| e.to_string())?;
+    let (client, token) = get_feishu_client_and_token()
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 1. 分页全量拉取记录
     let mut all_records = Vec::new();
@@ -869,7 +871,10 @@ pub async fn feishu_import_bitable_subtable(
         let code = body["code"].as_i64().unwrap_or(-1);
         if code != 0 {
             let msg = body["msg"].as_str().unwrap_or("未知错误");
-            return Err(format!("读取飞书多维表格记录失败: {} (code: {})", msg, code));
+            return Err(format!(
+                "读取飞书多维表格记录失败: {} (code: {})",
+                msg, code
+            ));
         }
 
         let items = body["data"]["items"]

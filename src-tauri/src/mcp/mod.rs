@@ -785,7 +785,7 @@ async fn execute_task_update_status(args: serde_json::Value) -> Result<serde_jso
 
     match action {
         "complete" => {
-            crate::commands::tasks::toggle_task(task_id.to_string(), None).await?;
+            crate::commands::tasks::toggle_task(task_id.to_string(), None, None, None).await?;
             Ok(serde_json::json!({ "success": true }))
         }
         "waiting" => {
