@@ -1,5 +1,6 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
+import { normalizeCase, normalizeCaseList, normalizeCaseInput } from '../caseNormalize'
 import type { Case, CaseListResponse } from '../../types'
 // list_cases 后端返回 { items,total,page,perPage }，业务类型已补 page/perPage（见 src/types/index.ts
 // CaseListResponse）。filter 沿用 bindings.CaseFilter（含 page/perPage，供前端分页透传）。
@@ -11,18 +12,29 @@ export class CasesService extends Service {
   static inject: string[] = []
 
   async list(filter: Partial<BindingsCaseFilter> = {}): Promise<{ ok: boolean; data?: CaseListResponse; error?: string }> {
-    return tauriCallSafe('list_cases', { filter })
+    const result = await tauriCallSafe('list_cases', { filter })
+    // 边界：wire Case（可空字段）→ 业务 Case，attorneys 归一为 string[]
+    if (result.ok && result.data) {
+      return { ...result, data: { ...result.data, items: normalizeCaseList(result.data.items) } }
+    }
+    return result
   }
 
   async get(id: string): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    return tauriCallSafe('get_case', { id })
+    const result = await tauriCallSafe('get_case', { id })
+    if (result.ok && result.data) {
+      return { ...result, data: normalizeCase(result.data) }
+    }
+    return result
   }
 
   async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    const result = await tauriCallSafe('create_case', { data })
+    const result = await tauriCallSafe('create_case', { data: normalizeCaseInput(data) })
     // K-3①：领域事件由 service 层统一发出——人与 AI 触发同一事件流
     if (result.ok) {
-      this.ctx.emit('case:created', { id: result.data?.id, ...data })
+      const normalized = result.data ? normalizeCase(result.data) : result.data
+      this.ctx.emit('case:created', { id: normalized?.id, ...data })
+      return { ...result, data: normalized }
     }
     return result
   }
@@ -30,9 +42,11 @@ export class CasesService extends Service {
   async update(id: string, data: Record<string, unknown>, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; data?: Case; error?: string }> {
     // AI 网关授权信息随 data 透传（后端 update_case 从 data 内读取 origin/proposalToken）
     const payload = aiAuth ? { ...data, ...aiAuth } : data
-    const result = await tauriCallSafe('update_case', { id, data: payload })
+    const result = await tauriCallSafe('update_case', { id, data: normalizeCaseInput(payload) })
     if (result.ok) {
+      const normalized = result.data ? normalizeCase(result.data) : result.data
       this.ctx.emit('case:updated', { id, ...data })
+      return { ...result, data: normalized }
     }
     return result
   }
@@ -46,7 +60,11 @@ export class CasesService extends Service {
   }
 
   async search(query: string): Promise<{ ok: boolean; data?: Case[]; error?: string }> {
-    return tauriCallSafe('search_cases', { query })
+    const result = await tauriCallSafe('search_cases', { query })
+    if (result.ok && result.data) {
+      return { ...result, data: normalizeCaseList(result.data) }
+    }
+    return result
   }
   
   async stats(): Promise<{ ok: boolean; data?: unknown; error?: string }> {

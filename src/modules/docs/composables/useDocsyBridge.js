@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
+import { joinAttorneys } from '../../../core/caseNormalize'
 
 /**
  * Docsy 桥接 composable
@@ -182,7 +183,7 @@ export function mapCaseToTemplate(caseData, settings = {}) {
   values['案件结果'] = caseData.caseResult || ''
   values['备注'] = caseData.notes || ''
   values['律所名称'] = settings.firmName || ''
-  values['律师'] = (caseData.attorneys || []).join('、')
+  values['律师'] = joinAttorneys(caseData.attorneys)
 
   // ---- 日期字段 → YYYY-MM-DD 字符串 ----
   const dateFields = {

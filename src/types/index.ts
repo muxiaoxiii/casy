@@ -85,6 +85,7 @@ export interface Case {
   id: string
   caseName: string
   caseNo: string
+  internalNo: string         // 内部编号/流水号
   track: TrackType           // 旧字段，迁移期间保留
   causeAction: string        // 案由
 
@@ -151,6 +152,7 @@ export interface Case {
 
   // 文件夹
   folderPath: string
+  folderTemplateId: string
 
   // 文书
   lastDocPath: string
@@ -163,6 +165,9 @@ export interface Case {
   // 时间戳
   createdAt: string
   updatedAt: string
+
+  // 期限紧急度（仅列表查询时填充）：red=3天内, yellow=14天内, 其他=绿色
+  deadlineUrgency?: string | null
 }
 
 /** 创建案件的输入（必填字段） */

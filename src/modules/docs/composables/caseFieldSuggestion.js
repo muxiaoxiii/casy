@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import { Suggestion } from '@tiptap/suggestion'
+import { joinAttorneys } from '../../../core/caseNormalize'
 
 function getSuggestionItems({ query, editor }) {
   const caseData = editor.storage.caseData || {}
@@ -18,7 +19,7 @@ function getSuggestionItems({ query, editor }) {
     { label: '专利申请号', value: caseData.patentAppNo || '' },
     { label: '内部卷号', value: caseData.internalNo || '' },
     { label: '今日日期', value: new Date().toLocaleDateString('zh-CN') },
-    { label: '办案人', value: (caseData.attorneys || []).join('、') },
+    { label: '办案人', value: joinAttorneys(caseData.attorneys) },
   ]
 
   return fields

@@ -17,6 +17,7 @@ import {
   INVALIDATION_STATUS_LABELS,
   ADMIN_STATUS_LABELS,
 } from '../../../types'
+import { joinAttorneys } from '../../../core/caseNormalize'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import AddRelationDialog from '../components/AddRelationDialog.vue'
 
@@ -408,7 +409,13 @@ async function toggleHearingStatus(h) {
 // 全量字段就地编辑
 function startEditFields() {
   if (!caseData.value) return
-  fieldsForm.value = { ...caseData.value }
+  const form = { ...caseData.value }
+  // 编辑表单兼容：业务 Case 的 attorneys 是 string[]，而 el-input 需要 string。
+  // 进入编辑态时归一为可编辑的分隔字符串，避免数组塞入 el-input 导致展示/编辑错乱。
+  if (Array.isArray(form.attorneys)) {
+    form.attorneys = form.attorneys.join('、')
+  }
+  fieldsForm.value = form
   editingFields.value = true
 }
 
@@ -444,10 +451,12 @@ async function unlockNextTask(completedTask) {
   )
 
   if (nextTask) {
-    await casyContext.tasks.update({
+    // 后端失败时不得本地置 blocked=0 或提示成功——校验 res.ok 后再更新本地。
+    const res = await casyContext.tasks.update({
       id: nextTask.id,
       blocked: 0,
     })
+    if (!res.ok) return ElMessage.error(res.error || '解锁后续步骤失败')
     nextTask.blocked = 0
     ElMessage.success(`已解锁后续步骤：${nextTask.taskName}`)
   }
@@ -1120,7 +1129,7 @@ onUnmounted(() => {
           <div class="field-item">
             <label class="field-label">负责律师/团队 (attorneys):</label>
             <el-input v-if="editingFields" v-model="fieldsForm.attorneys" size="small" />
-            <div v-else class="field-val">{{ caseData.attorneys || '—' }}</div>
+            <div v-else class="field-val">{{ joinAttorneys(caseData.attorneys) || '—' }}</div>
           </div>
 
           <!-- 关键节点时间 -->
