@@ -24,6 +24,7 @@ mod export_bindings;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8};
 use std::sync::Arc;
+use tauri::Manager;
 
 /// Global app handle for emitting events from non-command contexts.
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
@@ -158,8 +159,16 @@ pub fn run() {
             }
 
             // 文件夹监听: ~/Documents/Casy/inbox/
-            if let Err(e) = watcher::start_inbox_watcher() {
-                log::warn!("收件箱文件夹监听启动失败: {}", e);
+            // start 返回持有所有权的 RecommendedWatcher，交给 managed state 保管；
+            // 应用退出时随状态一起被 drop（macOS 上 Drop 会停掉 FSEvents 监听线程），
+            // 不再用 std::mem::forget 泄漏。
+            match watcher::start_inbox_watcher() {
+                Ok(watcher) => {
+                    app.manage(watcher::InboxWatcherState::new(watcher));
+                }
+                Err(e) => {
+                    log::warn!("收件箱文件夹监听启动失败: {}", e);
+                }
             }
 
             // MCP Server（设计哲学 §11.11）：只读数据接口，绑定 127.0.0.1:37877
