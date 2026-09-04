@@ -37,6 +37,8 @@ import { useProfileStore } from '../../stores/profile'
 import { useInboxStore } from '../../stores/inbox'
 import { useSettingsStore } from '../../stores/settings'
 import BriefingModal from '../../shared/components/BriefingModal.vue'
+// 审查 P0-3：rec.text 的 <strong> 由模板生成，但任务名/案件名来自用户或同步数据，渲染前必须消毒
+import { sanitizeInlineHtml } from '../../shared/markdown/mdBridge'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -308,12 +310,30 @@ const hardScheduleItems = computed(() => {
 // ============================================================
 // 2. 今日承诺事项 (Today's Commitments)
 // ============================================================
+// 案件 id → 案件名 映射：任务只存 caseId，需要从已加载案件里解析真实案件名，
+// 避免在卡片上直接暴露原始 UUID。
+const caseNameMap = computed(() => {
+  const map = new Map()
+  for (const c of casesStore.cases || []) {
+    if (c.id && c.caseName) map.set(c.id, c.caseName)
+  }
+  return map
+})
+
+function resolveCaseName(task) {
+  if (!task?.caseId) return task?.caseName || ''
+  // 降级链（审查 P1-4）：caseNameMap → task.caseName → '重点在办案件'。
+  // 任务关联的案件可能不在已加载的首页 50 条内，此时 caseNameMap 未命中就返回空串
+  // 会让卡片案件名整行消失（配合 v-if="c.caseName"），必须保留兜底。
+  return caseNameMap.value.get(task.caseId) || task.caseName || '重点在办案件'
+}
+
 const todayCommitments = computed(() => {
   const list = tasksStore.pendingTasks.filter(t => t.startBucket === 'today' || t.dueDate === today)
   return list.map(t => ({
     id: t.id,
     title: t.taskName,
-    caseName: t.caseName || t.caseId || '重点在办案件',
+    caseName: resolveCaseName(t),
     category: t.category || (t.isClient ? 'Client' : 'Internal'),
     overdue: t.dueDate && t.dueDate < today,
     completed: t.status === 'completed' || t.status === 'done',
@@ -379,7 +399,7 @@ const redlineItems = computed(() => {
       .map(t => ({
         id: t.id,
         title: t.taskName,
-        caseTitle: t.caseName || '重点案件',
+        caseTitle: resolveCaseName(t) || '重点案件',
         timeText: t.dueDate < today ? '已逾期' : '今日到期',
       }))
   } else {
@@ -388,7 +408,7 @@ const redlineItems = computed(() => {
     return completedToday.map(t => ({
         id: t.id,
         title: t.taskName,
-        caseTitle: t.caseName || '已完成事项',
+        caseTitle: resolveCaseName(t) || '已完成事项',
         timeText: '今日完成',
     }))
   }
@@ -409,7 +429,7 @@ const dynamicRecommendations = computed(() => {
     const t = urgentTasks[0]
     recs.push({
       id: `rec-urgent-${t.id}`,
-      text: `检测到任务<strong>「${t.taskName}」</strong>（${t.caseName || '重点专案'}）需要处理，建议优先安排推进。`,
+      text: `检测到任务<strong>「${t.taskName}」</strong>（${resolveCaseName(t) || '重点专案'}）需要处理，建议优先安排推进。`,
       actionLabel: '前往办理',
       targetTask: t,
     })
@@ -605,7 +625,7 @@ async function handleRecAction(rec, decision) {
                   <span class="c-title">{{ c.title }}</span>
                   <span v-if="c.overdue && !c.completed" class="badge-overdue">OVERDUE</span>
                 </div>
-                <span class="c-case">{{ c.caseName }}</span>
+                <span v-if="c.caseName" class="c-case">{{ c.caseName }}</span>
               </div>
               <span class="c-category-chip" :class="c.category.toLowerCase()">
                 {{ c.category }}
@@ -690,7 +710,7 @@ async function handleRecAction(rec, decision) {
             >
               <span class="rec-dot"></span>
               <div class="rec-content">
-                <p v-html="rec.text"></p>
+                <p v-html="sanitizeInlineHtml(rec.text)"></p>
                 <div class="rec-actions">
                   <button class="btn-rec-action accept" @click="handleRecAction(rec, 'accept')">{{ rec.actionLabel }}</button>
                   <button class="btn-rec-action dismiss" @click="handleRecAction(rec, 'reject')">忽略</button>
@@ -1059,8 +1079,9 @@ async function handleRecAction(rec, decision) {
 }
 
 .commitment-item.is-overdue {
-  background: var(--bg-risk-weak);
-  border-color: color-mix(in srgb, var(--status-risk) 25%, transparent);
+  background: color-mix(in srgb, var(--status-risk) 6%, var(--c-bg-card));
+  border-color: color-mix(in srgb, var(--status-risk) 30%, var(--c-border));
+  box-shadow: var(--shadow-sm), inset 3px 0 0 0 var(--status-risk);
 }
 
 .commitment-item.is-completed .c-title {

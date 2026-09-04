@@ -181,21 +181,23 @@ async function onDropOnDay(e, targetDate) {
     }
   }
 
-  // 1. 乐观更新
+  // 2. 先真实持久化：失败则不更新本地、不弹成功、直接报错
+  const startBucket = isToday(newStartDate) ? 'today' : 'anytime'
+  const res = await casyContext.tasks.update({
+    id: task.id,
+    startDate: newStartDate,
+    dueDate: newDueDate,
+    startBucket,
+  })
+  if (!res.ok) return ElMessage.error(res.error || '排期失败')
+
+  // 3. 持久化成功后更新本地
   const existing = tasks.value.find(t => t.id === task.id)
   if (existing) {
     existing.startDate = newStartDate
     existing.dueDate = newDueDate
-    existing.startBucket = isToday(newStartDate) ? 'today' : 'anytime'
+    existing.startBucket = startBucket
   }
-
-  // 2. 真实持久化到数据库
-  await casyContext.tasks.update({
-    id: task.id,
-    startDate: newStartDate,
-    dueDate: newDueDate,
-    startBucket: isToday(newStartDate) ? 'today' : 'anytime',
-  })
 
   if (newStartDate !== newDueDate) {
     ElMessage.success(`已将「${task.taskName}」设定为跨天任务 (${newStartDate} ~ ${newDueDate})`)
@@ -220,22 +222,24 @@ async function onDropOnHourSlot(e, hour) {
 
   const hourStr = `${String(hour).padStart(2, '0')}:00`
   const targetDateStr = formatDate(currentDate.value)
+  const startBucket = isToday(currentDate.value) ? 'today' : 'anytime'
+
+  const res = await casyContext.tasks.update({
+    id: task.id,
+    startDate: targetDateStr,
+    dueDate: targetDateStr,
+    startTime: hourStr,
+    startBucket,
+  })
+  if (!res.ok) return ElMessage.error(res.error || '排期失败')
 
   const existing = tasks.value.find(t => t.id === task.id)
   if (existing) {
     existing.startDate = targetDateStr
     existing.dueDate = targetDateStr
     existing.startTime = hourStr
-    existing.startBucket = isToday(currentDate.value) ? 'today' : 'anytime'
+    existing.startBucket = startBucket
   }
-
-  await casyContext.tasks.update({
-    id: task.id,
-    startDate: targetDateStr,
-    dueDate: targetDateStr,
-    startTime: hourStr,
-    startBucket: isToday(currentDate.value) ? 'today' : 'anytime',
-  })
 
   ElMessage.success(`已将「${task.taskName}」安排至 ${targetDateStr} ${hourStr}`)
   await loadTasks()
@@ -254,6 +258,15 @@ async function onDropToHoldingTank(e) {
   }
   if (!task) return
 
+  const res = await casyContext.tasks.update({
+    id: task.id,
+    startDate: null,
+    dueDate: null,
+    startTime: null,
+    startBucket: 'inbox',
+  })
+  if (!res.ok) return ElMessage.error(res.error || '移入未排期池失败')
+
   const existing = tasks.value.find(t => t.id === task.id)
   if (existing) {
     existing.startDate = null
@@ -261,14 +274,6 @@ async function onDropToHoldingTank(e) {
     existing.startTime = null
     existing.startBucket = 'inbox'
   }
-
-  await casyContext.tasks.update({
-    id: task.id,
-    startDate: null,
-    dueDate: null,
-    startTime: null,
-    startBucket: 'inbox',
-  })
 
   ElMessage.success(`已将「${task.taskName}」移入未排期池`)
   await loadTasks()
@@ -321,49 +326,47 @@ async function saveEditingItem() {
   }
 
   if (item.type === 'task') {
-    if (!item.id) {
-      await casyContext.tasks.create({
-        taskName: item.title,
-        startDate: item.startDate || null,
-        dueDate: item.dueDate || null,
-        startTime: item.startTime || null,
-        caseId: item.caseId || null,
-        estimatedMinutes: item.estimatedMinutes || 60,
-        description: item.description || null,
-      })
-    } else {
-      await casyContext.tasks.update({
-        id: item.id,
-        taskName: item.title,
-        startDate: item.startDate || null,
-        dueDate: item.dueDate || null,
-        startTime: item.startTime || null,
-        caseId: item.caseId || null,
-        estimatedMinutes: item.estimatedMinutes || 60,
-        description: item.description || null,
-      })
-    }
+    const res = !item.id
+      ? await casyContext.tasks.create({
+          taskName: item.title,
+          startDate: item.startDate || null,
+          dueDate: item.dueDate || null,
+          startTime: item.startTime || null,
+          caseId: item.caseId || null,
+          estimatedMinutes: item.estimatedMinutes || 60,
+          description: item.description || null,
+        })
+      : await casyContext.tasks.update({
+          id: item.id,
+          taskName: item.title,
+          startDate: item.startDate || null,
+          dueDate: item.dueDate || null,
+          startTime: item.startTime || null,
+          caseId: item.caseId || null,
+          estimatedMinutes: item.estimatedMinutes || 60,
+          description: item.description || null,
+        })
+    if (!res.ok) return ElMessage.error(res.error || '保存任务失败')
     ElMessage.success('已保存任务修改')
     await loadTasks()
     await loadTodayTasks()
   } else {
-    if (item.id) {
-      await casyContext.calendar.updateEvent(item.id, {
-        title: item.title,
-        eventDate: item.dueDate || item.startDate,
-        startTime: item.startTime || null,
-        caseId: item.caseId || null,
-        notes: item.description || null,
-      })
-    } else {
-      await casyContext.calendar.createEvent({
-        title: item.title,
-        eventDate: item.dueDate || item.startDate,
-        startTime: item.startTime || null,
-        caseId: item.caseId || null,
-        notes: item.description || null,
-      })
-    }
+    const res = item.id
+      ? await casyContext.calendar.updateEvent(item.id, {
+          title: item.title,
+          eventDate: item.dueDate || item.startDate,
+          startTime: item.startTime || null,
+          caseId: item.caseId || null,
+          notes: item.description || null,
+        })
+      : await casyContext.calendar.createEvent({
+          title: item.title,
+          eventDate: item.dueDate || item.startDate,
+          startTime: item.startTime || null,
+          caseId: item.caseId || null,
+          notes: item.description || null,
+        })
+    if (!res.ok) return ElMessage.error(res.error || '保存日程失败')
     ElMessage.success('已保存日程修改')
     await loadEvents()
   }
@@ -374,28 +377,33 @@ async function saveEditingItem() {
 // 删除事项 (真实删除数据库记录)
 async function deleteEditingItem() {
   const item = editingItem.value
+  let confirmed = false
   try {
     await ElMessageBox.confirm(`确定删除「${item.title}」吗？`, '删除确认', {
       confirmButtonText: '确定删除',
       cancelButtonText: '取消',
       type: 'warning',
     })
+    confirmed = true
+  } catch { /* 用户取消：属预期 */ }
+  if (!confirmed) return
 
-    if (item.type === 'task') {
-      if (item.id) {
-        await casyContext.tasks.remove(item.id)
-      }
-      tasks.value = tasks.value.filter(t => t.id !== item.id)
-      ElMessage.success('已删除任务')
-      await loadTasks()
-    } else if (item.type === 'event' && item.id) {
-      await casyContext.calendar.removeEvent(item.id)
-      events.value = events.value.filter(e => e.id !== item.id)
-      ElMessage.success('已删除日程')
-      await loadEvents()
+  if (item.type === 'task') {
+    if (item.id) {
+      const res = await casyContext.tasks.remove(item.id)
+      if (!res.ok) return ElMessage.error(res.error || '删除任务失败')
     }
-    showEditDialog.value = false
-  } catch {}
+    tasks.value = tasks.value.filter(t => t.id !== item.id)
+    ElMessage.success('已删除任务')
+    await loadTasks()
+  } else if (item.type === 'event' && item.id) {
+    const res = await casyContext.calendar.removeEvent(item.id)
+    if (!res.ok) return ElMessage.error(res.error || '删除日程失败')
+    events.value = events.value.filter(e => e.id !== item.id)
+    ElMessage.success('已删除日程')
+    await loadEvents()
+  }
+  showEditDialog.value = false
 }
 
 // ============================================================
@@ -853,7 +861,8 @@ function goToday() {
 
 async function toggleTask(task) {
   const newDone = !task.completed
-  await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  const res = await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  if (!res.ok) return ElMessage.error(res.error || '操作失败')
   await loadTasks()
   await loadTodayTasks()
 }

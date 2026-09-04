@@ -291,6 +291,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         knowledge::list_knowledge_document_sources,
         knowledge::import_pageindex_to_knowledge,
         knowledge::restore_knowledge_version,
+        knowledge::export_knowledge_markdown,
         // 混合检索命令
         crate::db::search::hybrid_search_knowledge,
         crate::db::search::embed_knowledge,

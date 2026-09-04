@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { ArrowDown, Download, Search, Filter, FolderChecked, Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
+import { toLocalISODate } from '../../../shared/utils/date'
 import { useFiltersStore, type SavedFilter } from '../../../stores/filters'
 import type { CaseFilter, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus, TrackType, CaseStatus } from '../../../types'
 import {
@@ -155,7 +156,9 @@ function onDateRangeChange(val: string[] | null) {
 // 期限快捷选择
 function onDeadlineQuickChange(val: string) {
   const today = new Date()
-  const fmt = (d: Date) => d.toISOString().split('T')[0]
+  // 时区（审查 P1-2）：原本用 toISOString()（UTC）取日期，东八区凌晨窗口内
+  // "逾期"快捷筛选/今天/3/7/30 天上界会偏一天。改用本地日期序列化。
+  const fmt = (d: Date) => toLocalISODate(d)
 
   if (!val) {
     deadlineRange.value = []

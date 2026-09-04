@@ -1,11 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
-import {
-  completeTaskOptimistic, restoreTaskOptimistic,
-  deleteTaskOptimistic, snoozeTaskWithUndo
-} from '../../../core/taskActions'
+import { deleteTaskOptimistic, undoLast } from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
@@ -347,7 +344,10 @@ onMounted(async () => {
 
   unregisterKeys.push(
     registerShortcut('meta+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
-    registerShortcut('ctrl+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' })
+    registerShortcut('ctrl+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
+    // 撤销上一步删除/稍后等任务操作：接通 taskActions 的 Undo 栈
+    registerShortcut('meta+z', () => undoLast(), { description: '撤销上一步任务操作' }),
+    registerShortcut('ctrl+z', () => undoLast(), { description: '撤销上一步任务操作' })
   )
 })
 
@@ -447,7 +447,11 @@ function onCaptureKeydown(e) {
 // 完成/取消完成任务
 async function toggleComplete(task) {
   const newDone = !task.completed
-  await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  const result = await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  if (!result.ok) {
+    ElMessage.error(result.error || '更新任务状态失败')
+    return
+  }
   ElMessage.success(newDone ? '任务已完成' : '已恢复为待办')
   await loadTasks()
 }
@@ -463,7 +467,11 @@ async function onDropToQuadrant(e, priorityKey) {
   }
   if (!task || !task.id) return
 
-  await casyContext.tasks.update({ id: task.id, priority: priorityKey })
+  const result = await casyContext.tasks.update({ id: task.id, priority: priorityKey })
+  if (!result.ok) {
+    ElMessage.error(result.error || '移动任务失败')
+    return
+  }
   ElMessage.success(`已将「${task.taskName}」移动至对应象限`)
   await loadTasks()
 }
@@ -574,21 +582,43 @@ function triageTask(task) {
   openDrawer(task)
 }
 
-// 删除任务
+// 删除任务（乐观 + Undo）：本地立即移除、失败回滚、Cmd/Ctrl+Z 可撤销
 async function deleteTask(task) {
+  let confirmed = false
   try {
     await ElMessageBox.confirm(`确定删除任务「${task.taskName}」吗？`, '删除确认', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await casyContext.tasks.remove(task.id)
-    ElMessage.success('已删除任务')
-    if (editingTask.value?.id === task.id) {
-      showDrawer.value = false
+    confirmed = true
+  } catch { /* 用户取消：属预期 */ }
+  if (!confirmed) return
+
+  const wasEditing = editingTask.value?.id === task.id
+  const ok = await deleteTaskOptimistic(task, {
+    // 乐观阶段：从当前列表移除；若是抽屉中正在编辑的任务，同时关闭抽屉
+    remove: () => {
+      const idx = tasks.value.findIndex(t => t.id === task.id)
+      if (idx !== -1) tasks.value.splice(idx, 1)
+      if (editingTask.value?.id === task.id) showDrawer.value = false
+    },
+    // 回滚（删除失败）或撤销（Undo）时：把任务还原进列表
+    restore: () => {
+      if (!tasks.value.some(t => t.id === task.id)) {
+        tasks.value.push(task)
+      }
+    },
+  })
+
+  if (!ok) {
+    // 删除失败：若此前抽屉正在编辑该任务，重开抽屉供继续编辑
+    if (wasEditing && editingTask.value?.id === task.id && !showDrawer.value) {
+      openDrawer(task)
     }
-    await loadTasks()
-  } catch {}
+    return
+  }
+  ElMessage.success('已删除任务（⌘/Ctrl+Z 可撤销）')
 }
 
 // ============================================================

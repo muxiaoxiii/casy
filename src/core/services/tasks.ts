@@ -1,6 +1,20 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { Task } from '../../types'
+import type { TaskDto } from '../../types/bindings'
+
+/**
+ * 撤销删除（restore_task）快照：不能再是 TaskLike 那种 7 字段子集。
+ * 必须是完整 Task 全量列，否则后端会静默丢掉 taskType/priority/context 等列。
+ * 额外声明后端 DTO 字段名（parentTaskId/deferUntil）与前端 Task 的 parentId 等价，
+ * 确保父关系不会被丢弃；这些为可选扩展，不影响 `Task` 本身的可赋值性。
+ */
+export type RestoreTaskSnapshot = Task & {
+  /** 后端 DTO 字段名，与前端 Task 的 parentId 等价（二者映射到同一列） */
+  parentTaskId?: string | null
+  /** 后端 DTO 字段名（Defer 日期） */
+  deferUntil?: string | null
+}
 
 /** AI 授权上下文（P0-2 网关：提案批准后重放时携带一次性 proposal token） */
 export interface AiAuthCtx {
@@ -18,8 +32,9 @@ export class TasksService extends Service {
     return tauriCallSafe<Task[]>('list_tasks', { filter })
   }
 
-  async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: Task; error?: string }> {
-    const result = await tauriCallSafe<Task>('create_task', { data })
+  async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
+    // B1：create_task 后端实际仅返回 { id }（非完整 Task），按真实契约标注返回类型
+    const result = await tauriCallSafe('create_task', { data })
     // K-3①：领域事件由 service 层统一发出——人与 AI 触发同一事件流
     if (result.ok) {
       this.ctx.emit('task:created', { id: result.data?.id, ...data })
@@ -28,7 +43,7 @@ export class TasksService extends Service {
   }
 
   async toggle(id: string, actualMinutes?: number | null, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
-    const result = await tauriCallSafe<void>('toggle_task', { id, actualMinutes: actualMinutes ?? null, ...(aiAuth ?? {}) })
+    const result = await tauriCallSafe('toggle_task', { id, actualMinutes: actualMinutes ?? null, ...(aiAuth ?? {}) })
     if (result.ok) {
       this.ctx.emit('task:completed', { id })
     }
@@ -37,11 +52,20 @@ export class TasksService extends Service {
 
   async update(data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
     // id 必须在 data 内（后端 update_task 只收 data）
-    return tauriCallSafe<void>('update_task', { data })
+    return tauriCallSafe('update_task', { data })
   }
 
   async remove(id: string, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_task', { id, ...(aiAuth ?? {}) })
+    return tauriCallSafe('delete_task', { id, ...(aiAuth ?? {}) })
+  }
+
+  /**
+   * 撤销删除：按快照还原任务（保留原 id 与 completed，不走 create_task 的
+   * sequential 继承 / AI token 消耗）。快照必须是完整 RestoreTaskSnapshot，
+   * 避免仅满足 TaskLike 的瘦对象让后端静默丢列。后端返回还原后的完整 TaskDto 供前端对账。
+   */
+  async restore(snapshot: RestoreTaskSnapshot): Promise<{ ok: boolean; data?: TaskDto; error?: string }> {
+    return tauriCallSafe('restore_task', { snapshot })
   }
 
   /** GTD 领域列表 */

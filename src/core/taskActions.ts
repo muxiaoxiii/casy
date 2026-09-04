@@ -12,7 +12,13 @@
 
 import { casyContext } from './plugin/context'
 import { ElMessage } from 'element-plus'
+import type { StartBucket, Task } from '../types'
 
+/**
+ * 乐观任务操作的**最小字段子集**（仅用于 complete/restore/snooze 这类
+ * 只读取少数字段的函数）。注意：这不是撤销删除的快照契约——
+ * `deleteTaskOptimistic` 传的是完整 `Task`（见下），避免后端还原时静默丢列。
+ */
 export interface TaskLike {
   id: string
   taskName: string
@@ -115,8 +121,12 @@ export async function restoreTaskOptimistic(task: TaskLike): Promise<boolean> {
   return true
 }
 
-/** 删除任务（无确认框，靠 Undo 兜底）：乐观移除 + 失败还原 + 可撤销 */
-export async function deleteTaskOptimistic(task: TaskLike, hooks: ListHooks = {}): Promise<boolean> {
+/**
+ * 删除任务（无确认框，靠 Undo 兜底）：乐观移除 + 失败还原 + 可撤销。
+ * 接收完整 `Task`（而非 TaskLike），因为撤销删除的快照需要全量列，
+ * 否则后端 restore_task 会静默丢掉 taskType/priority/context 等字段。
+ */
+export async function deleteTaskOptimistic(task: Task, hooks: ListHooks = {}): Promise<boolean> {
   hooks.remove?.()
   const result = await casyContext.tasks.remove(task.id)
   if (!result.ok) {
@@ -127,9 +137,28 @@ export async function deleteTaskOptimistic(task: TaskLike, hooks: ListHooks = {}
   registerUndo({
     label: `删除「${task.taskName}」`,
     undo: async () => {
-      const create = await casyContext.tasks.create(task as unknown as Record<string, unknown>)
-      if (create.ok) hooks.restore?.()
-      else throw new Error(create.error || '恢复任务失败')
+      // P1-6：撤销删除不再走 create_task（会另生成 id、completed 清零），
+      // 改用专用 restore_task 按快照还原原 id / completed，并用后端返回对象对账，
+      // 保证本地对象与 DB 一致。快照即完整 Task，非 TaskLike 子集。
+      const restored = await casyContext.tasks.restore(task)
+      if (restored.ok) {
+        const d = restored.data
+        if (d) {
+          task.id = d.id
+          task.taskName = d.taskName
+          task.completed = d.completed
+          task.dueDate = d.dueDate ?? null
+          task.startDate = d.startDate ?? null
+          // d.startBucket 来自后端（schema 校验为合法 StartBucket），窄化到联合类型
+          task.startBucket = d.startBucket as StartBucket
+          task.actualMinutes = d.actualMinutes ?? null
+          // 父关系：前端 Task 用 parentId，后端 DTO 用 parentTaskId，还原后对齐为 parentId
+          task.parentId = d.parentTaskId ?? null
+        }
+        hooks.restore?.()
+      } else {
+        throw new Error(restored.error || '恢复任务失败')
+      }
     },
   })
   return true

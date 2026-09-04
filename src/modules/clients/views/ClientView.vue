@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { User } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
+import { todayLocalISO } from '../../../shared/utils/date'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const router = useRouter()
@@ -30,7 +31,8 @@ const clientStats = computed(() => {
     tasks: clientTasks.value.filter(t => !t.completed).length,
     overdue: clientTasks.value.filter(t => {
       const due = t.dueDate || t.deadline
-      return due && due < new Date().toISOString().split('T')[0] && !t.completed
+      // 时区（审查 P1-2）：原本按 UTC 取"今天"，东八区凌晨窗口内逾期计数偏一天。
+      return due && due < todayLocalISO() && !t.completed
     }).length,
   }
 })

@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
 import { useTasksStore } from '../../../stores/tasks'
 import { casyContext } from '../../../core/plugin/context'
+import { todayLocalISO } from '../../../shared/utils/date'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search,
@@ -388,9 +389,6 @@ function getFileExt(fileName) {
 function trackLabel(track) {
   return trackOptions.find((option) => option.value === track)?.label || '其他事项'
 }
-function caseCode(item) {
-  return item?.internalNo || item?.caseNo || item?.id || 'MATTER-01'
-}
 function statusBadgeClass(status) {
   if (!status) return 'badge-active'
   if (status.includes('庭') || status.includes('Trial')) return 'badge-risk'
@@ -497,13 +495,17 @@ async function saveEditingTask() {
 // 删除任务
 async function deleteTaskFromDrawer() {
   if (!editingTask.value) return
+  let confirmed = false
   try {
     await ElMessageBox.confirm('确定删除此任务吗？', '删除确认', { type: 'warning' })
-    await casyContext.tasks.remove(editingTask.value.id)
-    ElMessage.success('任务已删除')
-    showTaskDrawer.value = false
-    await tasksStore.loadTasks()
-  } catch {}
+    confirmed = true
+  } catch { /* 用户取消：属预期 */ }
+  if (!confirmed) return
+  const res = await casyContext.tasks.remove(editingTask.value.id)
+  if (!res.ok) return ElMessage.error(res.error || '删除任务失败')
+  ElMessage.success('任务已删除')
+  showTaskDrawer.value = false
+  await tasksStore.loadTasks()
 }
 // ── 记录工作台核心操作 ──
 // 1. 保存备忘
@@ -513,7 +515,8 @@ async function submitMemo() {
     return
   }
   const now = new Date()
-  const dateStr = now.toISOString().slice(0, 10)
+  // 时区（审查 P1-2）：原本用 toISOString()（UTC）取备忘日期，凌晨窗口内标成前一天。
+  const dateStr = todayLocalISO()
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   const newMemo = {
     id: Date.now().toString(),
@@ -672,16 +675,20 @@ async function createSubdir() {
   } catch {}
 }
 async function deleteFile(file) {
+  let confirmed = false
   try {
     await ElMessageBox.confirm(`确定从案件卷宗中移除「${file.fileName}」吗？`, '删除确认', {
       confirmButtonText: '移除',
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await casyContext.files.remove(file.id)
-    ElMessage.success('已移除文件登记')
-    await loadCaseFiles()
-  } catch {}
+    confirmed = true
+  } catch { /* 用户取消：属预期 */ }
+  if (!confirmed) return
+  const res = await casyContext.files.remove(file.id)
+  if (!res.ok) return ElMessage.error(res.error || '移除文件登记失败')
+  ElMessage.success('已移除文件登记')
+  await loadCaseFiles()
 }
 // 唯一的案件二级菜单：进入完整卷宗管理工作台
 function openSelectedFiles() {
@@ -764,6 +771,11 @@ watch(
 function onSearch() {
   casesStore.page = 1
   casesStore.loadCases()
+}
+// 分页（审查 P1-3）：页变更时写入 store.page 并重载，使超过 perPage 的案件可访问。
+async function onPageChange(page) {
+  casesStore.page = page
+  await casesStore.loadCases()
 }
 // 处理向导提交
 async function handleCreateCase(formData) {
@@ -868,33 +880,46 @@ async function handleCreateCase(formData) {
             @input="(e) => { casesStore.filter.search = e.target.value; onSearch() }"
           />
         </div>
+        <!-- 仅在无数据时展示加载/空态；翻页期间保留当前列表，避免整列闪烁 -->
         <StateFeedback
-          v-if="casesStore.loading || !casesStore.cases.length"
+          v-if="!casesStore.cases.length"
           :state="casesStore.loading ? 'loading' : 'empty'"
           empty-text="暂无匹配案件"
           style="padding-top: 20px"
         />
-        <div v-else class="cases-scroll-list" role="listbox">
-          <button
-            v-for="item in casesStore.cases"
-            :key="item.id"
-            type="button"
-            class="case-index-card"
-            :class="{ active: selectedCase?.id === item.id }"
-            @click="selectCase(item)"
-            @dblclick="enterFullWorkspace"
-            title="单击查看概览 · 双击进入案件完整工作区"
-          >
-            <div class="card-meta-line">
-              <span class="mono-case-code">{{ item.internalNo || item.id }}</span>
-              <span :class="['case-status-badge', statusBadgeClass(item.caseStatus)]">
-                {{ item.caseStatus || 'In Progress' }}
-              </span>
-            </div>
-            <strong class="case-card-title">{{ item.caseName }}</strong>
-            <span class="case-card-client" v-if="item.clientName">{{ item.clientName }}</span>
-          </button>
-        </div>
+        <template v-else>
+          <div class="cases-scroll-list" role="listbox">
+            <button
+              v-for="item in casesStore.cases"
+              :key="item.id"
+              type="button"
+              class="case-index-card"
+              :class="{ active: selectedCase?.id === item.id }"
+              @click="selectCase(item)"
+              @dblclick="enterFullWorkspace"
+              title="单击查看概览 · 双击进入案件完整工作区"
+            >
+              <div class="card-meta-line">
+                <span v-if="item.internalNo || item.caseNo" class="mono-case-code">{{ item.internalNo || item.caseNo }}</span>
+                <span :class="['case-status-badge', statusBadgeClass(item.caseStatus)]">
+                  {{ item.caseStatus || 'In Progress' }}
+                </span>
+              </div>
+              <strong class="case-card-title">{{ item.caseName }}</strong>
+              <span class="case-card-client" v-if="item.clientName">{{ item.clientName }}</span>
+            </button>
+          </div>
+          <!-- 分页（审查 P1-3）：超过 perPage 的案件可通过翻页访问 -->
+          <div v-if="casesStore.total > casesStore.perPage" class="case-pagination">
+            <el-pagination
+              layout="prev, pager, next"
+              :current-page="casesStore.page"
+              :page-size="casesStore.perPage"
+              :total="casesStore.total"
+              @current-change="onPageChange"
+            />
+          </div>
+        </template>
       </aside>
       <!-- ── 右侧工作台区域 (在 Full Workspace 模式下全宽展开) ── -->
       <main v-if="selectedCase" class="cases-detail-area">
@@ -922,7 +947,7 @@ async function handleCreateCase(formData) {
             <!-- 案件名称与标识 -->
             <div class="summary-matter-identity">
               <div class="identity-badge-row">
-                <span class="badge-matter-pill">MATTER {{ caseCode(selectedCase).slice(0, 4) }}</span>
+                <span v-if="selectedCase.internalNo" class="badge-matter-pill">MATTER {{ selectedCase.internalNo }}</span>
                 <span class="badge-pat-code" v-if="selectedCase.caseNo">{{ selectedCase.caseNo }}</span>
               </div>
               <h2 class="matter-main-name">{{ selectedCase.caseName }}</h2>
@@ -1691,7 +1716,7 @@ async function handleCreateCase(formData) {
     <!-- ═══ 新建案件向导 (Sprint 2) ═══ -->
     <CaseWizard v-model="showCaseWizard" @create="handleCreateCase" />
     <!-- ═══ Excel 案件批量导入向导 ═══ -->
-    <CaseImportDialog v-model="showExcelImportDialog" @imported="loadCases" />
+    <CaseImportDialog v-model="showExcelImportDialog" @imported="casesStore.loadCases" />
   </div>
 </template>
 <style scoped>
@@ -1915,6 +1940,11 @@ async function handleCreateCase(formData) {
   flex: 1;
   padding-right: 2px;
 }
+.case-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
 .case-index-card {
   text-align: left;
   border: 1px solid transparent;
@@ -2089,6 +2119,8 @@ async function handleCreateCase(formData) {
   font-size: 12px;
   color: var(--slate-gray-light);
   margin: 0;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 /* 右侧 Next Actions 待办列表卡片 */
 .summary-next-actions-card {
@@ -3238,6 +3270,11 @@ async function handleCreateCase(formData) {
 .modal-footer-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .btn-cancel { padding: 6px 14px; border-radius: var(--c-radius-lg); border: 1px solid var(--c-border); background: var(--c-bg-subtle); cursor: pointer; }
 .btn-submit-primary { padding: 6px 16px; border-radius: var(--c-radius-lg); border: none; background: var(--c-primary); color: var(--c-primary-contrast); font-weight: 600; cursor: pointer; }
+/* 中等宽度下，摘要头部改为纵向堆叠，避免身份列被挤压成逐字竖排 */
+@media (max-width: 1360px) {
+  .matter-summary-header-card { flex-direction: column; align-items: flex-start; }
+  .summary-next-actions-card { width: 100%; }
+}
 @media (max-width: 1024px) {
   .cases-master-detail { grid-template-columns: 1fr; }
   .matter-summary-header-card { flex-direction: column; align-items: flex-start; }

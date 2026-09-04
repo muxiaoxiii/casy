@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
+import { todayLocalISO } from '../../../shared/utils/date'
 import { ElMessage } from 'element-plus'
 import { 
   ChatDotRound, 
@@ -100,7 +101,8 @@ const recommendLoading = ref(false)
 
 /** 规则兜底：后端不可用时按 due_date 本地排序 */
 function buildFallbackRecommendations() {
-  const today = new Date().toISOString().split('T')[0]
+  // 时区（审查 P1-2）：原本用 toISOString()（UTC）取"今天"，凌晨窗口内昨天到期不判逾期。
+  const today = todayLocalISO()
   return [...tasksStore.pendingTasks]
     .sort((a, b) => {
       const da = a.dueDate || '9999'

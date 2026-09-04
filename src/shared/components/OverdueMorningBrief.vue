@@ -2,12 +2,14 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { tauriCallSafe } from '../../core/tauriBridge'
+import { todayLocalISO } from '../utils/date'
 import { Warning, Timer, Bell, Calendar, ArrowRight, Check } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const visible = ref(false)
 const loading = ref(false)
+const briefError = ref(false)
 
 // 早报数据
 const brief = ref({
@@ -22,11 +24,11 @@ const brief = ref({
 // ============================================================
 async function loadBrief() {
   loading.value = true
+  briefError.value = false
   try {
     // 获取提醒日志并统计
     const res = await tauriCallSafe('get_reminder_log', { limit: 200 })
     if (res.ok && res.data) {
-      const today = new Date().toISOString().slice(0, 10)
       let overdueDeadlines = 0
       let overdueTasks = 0
       let dueTodayTasks = 0
@@ -52,17 +54,14 @@ async function loadBrief() {
 
       brief.value = { overdueDeadlines, overdueTasks, dueTodayTasks, todayHearings }
     } else {
-      // 回退占位数据
-      brief.value = {
-        overdueDeadlines: Math.floor(Math.random() * 5) + 1,
-        overdueTasks: Math.floor(Math.random() * 3),
-        dueTodayTasks: Math.floor(Math.random() * 4) + 1,
-        todayHearings: Math.floor(Math.random() * 2),
-      }
+      // 不伪造业务数字：命令失败即进入明确错误态，绝不向律师展示虚构的逾期数量。
+      briefError.value = true
+      brief.value = { overdueDeadlines: 0, overdueTasks: 0, dueTodayTasks: 0, todayHearings: 0 }
     }
   } catch (e) {
     console.warn('[Casy] 早报数据加载失败:', e)
-    brief.value = { overdueDeadlines: 2, overdueTasks: 1, dueTodayTasks: 3, todayHearings: 1 }
+    briefError.value = true
+    brief.value = { overdueDeadlines: 0, overdueTasks: 0, dueTodayTasks: 0, todayHearings: 0 }
   }
   loading.value = false
 }
@@ -71,13 +70,13 @@ async function loadBrief() {
 // 是否今日首次打开（localStorage 记录）
 // ============================================================
 function shouldShow() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayLocalISO()
   const lastShown = localStorage.getItem('casy_morning_brief_date')
   return lastShown !== today
 }
 
 function markShown() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayLocalISO()
   localStorage.setItem('casy_morning_brief_date', today)
 }
 
@@ -107,6 +106,12 @@ onMounted(async () => {
   if (route.path !== '/') return
   if (shouldShow()) {
     await loadBrief()
+    // 加载失败：打开 dialog 展示明确错误态（绝不用虚构数字），供用户点"查看详情"去提醒中心；
+    // 不标记"已展示"，明天/下次重试。
+    if (briefError.value) {
+      visible.value = true
+      return
+    }
     // 有逾期或今日到期才显示
     const { overdueDeadlines, overdueTasks, dueTodayTasks, todayHearings } = brief.value
     if (overdueDeadlines > 0 || overdueTasks > 0 || dueTodayTasks > 0 || todayHearings > 0) {
@@ -140,8 +145,12 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- 统计卡片 -->
-    <div class="brief-stats" v-loading="loading">
+    <!-- 统计卡片（加载失败时展示明确错误态，不伪造数字） -->
+    <div v-if="briefError" class="brief-error">
+      <el-icon color="#F56C6C"><Warning /></el-icon>
+      <span>早报数据加载失败，请到提醒中心查看</span>
+    </div>
+    <div v-else class="brief-stats" v-loading="loading">
       <div class="brief-stat" v-if="brief.overdueDeadlines > 0">
         <div class="stat-icon overdue">
           <el-icon :size="20"><Warning /></el-icon>
@@ -289,6 +298,21 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--gray-400);
   margin-top: 2px;
+}
+
+/* 加载失败态 */
+.brief-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 96px;
+  padding: 16px;
+  border-radius: 8px;
+  background: #FEF0F0;
+  border: 1px solid #FDE2E2;
+  font-size: 13px;
+  color: #F56C6C;
 }
 
 /* 提示语 */

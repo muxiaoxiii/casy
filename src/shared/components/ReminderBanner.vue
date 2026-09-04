@@ -48,8 +48,21 @@ async function setupListener() {
       const msg = typeof payload === 'string' ? payload : payload?.message
       if (!msg) return
 
+      // 优先使用后端已提供的结构化字段（审查 P1-8）；缺失时回退到文本解析（兼容旧数据）。
+      const structured = typeof payload === 'string' ? {} : (payload || {})
+      const structuredDaysLeft = typeof structured.daysLeft === 'number'
+        ? structured.daysLeft
+        : null
+      const structuredLevel = structured.level
+
       const parsed = parseMessage(msg)
-      const level = classifyLevel(parsed.daysLeft)
+      const effectiveDaysLeft = structuredDaysLeft !== null ? structuredDaysLeft : parsed.daysLeft
+
+      // 后端字段优先；仅在缺失时用文本解析出的天数推算等级。
+      const level =
+        (structuredLevel && ['R1', 'R2', 'R3', 'R4'].includes(structuredLevel))
+          ? structuredLevel
+          : classifyLevel(effectiveDaysLeft)
 
       // 仅 R2/R3 显示横幅，R4 也会显示（逾期更紧急）
       if (level === 'R2' || level === 'R3' || level === 'R4') {
@@ -62,6 +75,11 @@ async function setupListener() {
           level,
           message: msg,
           ...parsed,
+          // 结构化字段优先于文本解析结果
+          caseName: structured.caseName ?? parsed.caseName,
+          type: structured.type ?? parsed.type,
+          dueDate: structured.dueDate ?? parsed.dueDate,
+          daysLeft: effectiveDaysLeft,
           ...colorMap[level],
         }
         visible.value = true

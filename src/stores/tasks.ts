@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { casyContext } from '../core/plugin/context'
 import type { Task, TaskPriority, TaskType, Context, StartBucket } from '../types'
+import { parseLocalDate, todayLocalISO, addDaysLocalISO, toLocalISODate } from '../shared/utils/date'
 
 // ============================================================
 // GTD 类型（字段定义见 types/index.ts 的 Task 接口）
@@ -92,7 +93,7 @@ export const useTasksStore = defineStore('tasks', {
      * 今日：startDate <= 今天 或 startBucket='today'
      */
     todayTasks: (state): GTDTask[] => {
-      const today = new Date().toISOString().split('T')[0]
+      const today = todayLocalISO()
       return state.tasks
         .filter(t => 
           !t.completed && 
@@ -106,7 +107,7 @@ export const useTasksStore = defineStore('tasks', {
      * 回顾：nextReviewDate <= 今天
      */
     reviewTasks: (state): GTDTask[] => {
-      const today = new Date().toISOString().split('T')[0]
+      const today = todayLocalISO()
       return state.tasks.filter(t => 
         !t.completed && t.nextReviewDate && t.nextReviewDate <= today
       )
@@ -123,7 +124,7 @@ export const useTasksStore = defineStore('tasks', {
     // ============================================================
     
     taskStats: (state) => {
-      const today = new Date().toISOString().split('T')[0]
+      const today = todayLocalISO()
       return {
         inbox: state.tasks.filter(t => t.startBucket === 'inbox' && !t.completed).length,
         next: state.tasks.filter(t => !t.completed && t.taskType === 'action' && (t.blocked === 0 || !t.caseId)).length,
@@ -181,7 +182,7 @@ export const useTasksStore = defineStore('tasks', {
     // CRUD 操作
     // ============================================================
     
-    async createTask(data: Partial<GTDTask>): Promise<{ ok: boolean; data?: GTDTask; error?: string }> {
+    async createTask(data: Partial<GTDTask>): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
       const result = await casyContext.tasks.create({ ...data })
       if (result.ok) {
         await this.loadTasks()
@@ -314,7 +315,9 @@ export const useTasksStore = defineStore('tasks', {
      */
     isTaskOverdue(task: GTDTask): boolean {
       if (!task.dueDate) return false
-      return task.dueDate < new Date().toISOString().split('T')[0]
+      // 时区（审查 P1-2）：原本 `toISOString().split('T')[0]` 在东八区
+      // 00:00–07:59 取到的是昨天，导致昨天到期的任务不被判为逾期。
+      return task.dueDate < todayLocalISO()
     },
 
     /**
@@ -322,9 +325,12 @@ export const useTasksStore = defineStore('tasks', {
      */
     isTaskDueSoon(task: GTDTask): boolean {
       if (!task.dueDate) return false
-      const today = new Date()
-      const dueDate = new Date(task.dueDate)
-      const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      // 时区（审查 P1-2）：原本 `new Date(dueDate)`（UTC 午夜）减 `new Date()`（本地当下）
+      // 再 Math.ceil，差值含小时分量，"今天到期"会随一天内的时刻在 0/1 之间跳变。
+      const due = parseLocalDate(task.dueDate)
+      if (!due) return false
+      const today = parseLocalDate(todayLocalISO())!
+      const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000)
       return diffDays >= 0 && diffDays <= 3
     },
 
@@ -333,9 +339,11 @@ export const useTasksStore = defineStore('tasks', {
      */
     getWaitingDays(task: GTDTask): number {
       if (!task.followUpDate) return 0
-      const today = new Date()
-      const followUp = new Date(task.followUpDate)
-      return Math.ceil((today.getTime() - followUp.getTime()) / (1000 * 60 * 60 * 24))
+      // 时区（审查 P1-2）：两侧均按本地午夜，消除小时分量导致的跳变。
+      const followUp = parseLocalDate(task.followUpDate)
+      if (!followUp) return 0
+      const today = parseLocalDate(todayLocalISO())!
+      return Math.round((today.getTime() - followUp.getTime()) / 86400000)
     },
 
     // ============================================================
@@ -427,20 +435,19 @@ export const useTasksStore = defineStore('tasks', {
       }
 
       // 日期范围过滤
-      const today = new Date().toISOString().split('T')[0]
+      const today = todayLocalISO()
       if (filters.dateRange === 'overdue') {
         tasks = tasks.filter(t => t.dueDate && t.dueDate < today)
       } else if (filters.dateRange === 'today') {
         tasks = tasks.filter(t => t.dueDate === today || t.startBucket === 'today')
       } else if (filters.dateRange === 'week') {
-        const weekEnd = new Date()
-        weekEnd.setDate(weekEnd.getDate() + 7)
-        const weekEndStr = weekEnd.toISOString().split('T')[0]
+        // 时区（审查 P1-2）：`toISOString()` 取 UTC 日期，东八区凌晨会偏早一天
+        const weekEndStr = addDaysLocalISO(today, 7)
         tasks = tasks.filter(t => t.dueDate && t.dueDate >= today && t.dueDate <= weekEndStr)
       } else if (filters.dateRange === 'month') {
-        const monthEnd = new Date()
+        const monthEnd = parseLocalDate(today)!
         monthEnd.setMonth(monthEnd.getMonth() + 1)
-        const monthEndStr = monthEnd.toISOString().split('T')[0]
+        const monthEndStr = toLocalISODate(monthEnd)
         tasks = tasks.filter(t => t.dueDate && t.dueDate >= today && t.dueDate <= monthEndStr)
       }
 

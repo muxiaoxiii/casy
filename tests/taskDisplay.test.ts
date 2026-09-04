@@ -40,8 +40,9 @@ describe('taskDisplay · 日期逻辑', () => {
     const today = new Date()
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
-    expect(formatDate(today.toISOString().split('T')[0])).toBe('今天')
-    expect(formatDate(tomorrow.toISOString().split('T')[0])).toBe('明天')
+    // 用本地日期串而非 toISOString()（UTC），避免凌晨窗口下测试输入偏一天
+    expect(formatDate(localDate(today))).toBe('今天')
+    expect(formatDate(localDate(tomorrow))).toBe('明天')
   })
 })
 

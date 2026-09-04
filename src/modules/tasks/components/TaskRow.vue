@@ -340,7 +340,7 @@ function areaName(id: string | null | undefined): string {
     opacity var(--motion-base) var(--ease-out);
 }
 .task-card:hover { box-shadow: var(--shadow-sm); border-color: var(--c-border-strong); }
-.task-card.overdue { border-left-color: var(--status-risk); background: var(--bg-risk-weak); }
+.task-card.overdue { border-left-color: var(--status-risk); background: color-mix(in srgb, var(--status-risk) 6%, var(--c-bg-card)); }
 .task-card.due-soon { border-left-color: var(--status-warning); }
 .task-card.flagged { background: var(--bg-warning-weak); }
 .task-card.blocked { border-left-color: var(--c-text-secondary); opacity: 0.85; }

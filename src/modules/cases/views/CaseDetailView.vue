@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
+import { todayLocalISO } from '../../../shared/utils/date'
 import CaseFilesPanel from '../components/CaseFilesPanel.vue'
 import CasePersonsPanel from '../../persons/components/CasePersonsPanel.vue'
 import WhiteboardEntry from '../../whiteboard/components/WhiteboardEntry.vue'
@@ -153,7 +154,8 @@ const taskStats = computed(() => {
   const overdue = tasks.value.filter(t => {
     if (t.completed) return false
     const due = t.dueDate || t.deadline
-    return due && due < new Date().toISOString().split('T')[0]
+    // 时区（审查 P1-2）：原本按 UTC 取"今天"，东八区凌晨窗口内逾期计数偏一天。
+    return due && due < todayLocalISO()
   }).length
 
   return { total, completed, pending, overdue }

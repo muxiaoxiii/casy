@@ -16,6 +16,7 @@ import {
   CircleCheck,
 } from '@element-plus/icons-vue'
 import { useCasesStore } from '../../../stores/cases'
+import { todayLocalISO } from '../../../shared/utils/date'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import type { Case, CaseRoute, CivilStatus, InvalidationStatus, AdminStatus } from '../../../types'
@@ -209,7 +210,7 @@ async function onDragChange(columnKey: string, evt: Record<string, unknown>) {
       caseId: caseItem.id,
       eventSummary: `看板拖拽: ${CASE_ROUTE_LABELS[activeRoute.value]}状态变更为「${newStatus}」`,
       eventType: 'record',
-      eventDate: new Date().toISOString().split('T')[0],
+      eventDate: todayLocalISO(),
       content: `通过看板拖拽，${statusField} 从「${(caseItem as unknown as Record<string, unknown>)[statusField] || '未分类'}」变更为「${newStatus}」`,
     })
     ElMessage.success('案件状态已更新')
