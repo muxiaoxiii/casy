@@ -321,7 +321,7 @@ fn check_task_rules(
         "SELECT t.id, t.case_id, t.task_name, t.deadline, t.due_time, COALESCE(c.case_name, '')
          FROM tasks t
          LEFT JOIN cases c ON c.id = t.case_id
-         WHERE t.completed = 0 AND t.deadline IS NOT NULL AND t.deadline != ''",
+         WHERE t.completed = 0 AND t.deadline IS NOT NULL AND t.deadline != '' AND t.deleted_at IS NULL",
     )?;
 
     let rows = stmt.query_map([], |row| {

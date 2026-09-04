@@ -69,7 +69,7 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
         // 任务
         let mut stmt = conn.prepare(
             "SELECT id, created_date, task_name, description, completed
-             FROM tasks WHERE case_id = ?1",
+             FROM tasks WHERE case_id = ?1 AND deleted_at IS NULL",
         )?;
         for row in stmt.query_map(rusqlite::params![case_id], |r| {
             let completed: i32 = r.get(4)?;

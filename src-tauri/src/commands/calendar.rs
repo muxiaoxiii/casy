@@ -75,7 +75,7 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
         // 任务到期
         let mut stmt = conn.prepare(
             "SELECT id, deadline, task_name, case_id FROM tasks
-             WHERE deadline BETWEEN ?1 AND ?2 AND completed = 0",
+             WHERE deadline BETWEEN ?1 AND ?2 AND completed = 0 AND deleted_at IS NULL",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
             Ok(CalendarEvent::projection(

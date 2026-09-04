@@ -194,7 +194,7 @@ pub async fn delete_project(id: String) -> Result<(), String> {
                 )));
             }
             let linked: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND completed = 0",
+                "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND completed = 0 AND deleted_at IS NULL",
                 rusqlite::params![id],
                 |r| r.get(0),
             )?;

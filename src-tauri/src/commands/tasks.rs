@@ -1,5 +1,6 @@
 use super::run_blocking;
 use crate::db;
+use rusqlite::OptionalExtension;
 
 #[derive(serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +77,9 @@ fn row_to_task_dto(row: &rusqlite::Row) -> rusqlite::Result<TaskDto> {
         completed: row.get::<_, i32>("completed")?,
         assignee: row.get::<_, Option<String>>("assignee")?,
         finish_note: row.get::<_, Option<String>>("finish_note")?,
-        task_type: row.get::<_, Option<String>>("task_type")?.unwrap_or_else(|| "action".to_string()),
+        task_type: row
+            .get::<_, Option<String>>("task_type")?
+            .unwrap_or_else(|| "action".to_string()),
         start_date: row.get::<_, Option<String>>("start_date")?,
         due_date: row.get::<_, Option<String>>("due_date")?,
         waiting_for: row.get::<_, Option<String>>("waiting_for")?,
@@ -86,7 +89,9 @@ fn row_to_task_dto(row: &rusqlite::Row) -> rusqlite::Result<TaskDto> {
         sequential: row.get::<_, Option<i32>>("sequential")?.unwrap_or(0),
         blocked: row.get::<_, Option<i32>>("blocked")?.unwrap_or(0),
         sequence_order: row.get::<_, Option<i32>>("sequence_order")?.unwrap_or(0),
-        start_bucket: row.get::<_, Option<String>>("start_bucket")?.unwrap_or_else(|| "anytime".to_string()),
+        start_bucket: row
+            .get::<_, Option<String>>("start_bucket")?
+            .unwrap_or_else(|| "anytime".to_string()),
         today_index: row.get::<_, Option<i32>>("today_index")?.unwrap_or(0),
         estimated_minutes: row.get::<_, Option<i32>>("estimated_minutes")?,
         actual_minutes: row.get::<_, Option<i32>>("actual_minutes")?,
@@ -116,7 +121,9 @@ fn load_task_row(conn: &rusqlite::Connection, id: &str) -> anyhow::Result<TaskDt
 pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, String> {
     run_blocking(move || {
         db::with_conn(|conn| {
-        let mut sql = String::from("SELECT * FROM tasks WHERE 1=1");
+        // 软删除：默认过滤已删任务（deleted_at IS NULL），
+        // 后续 AND 条件在此之上叠加。
+        let mut sql = String::from("SELECT * FROM tasks WHERE deleted_at IS NULL");
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
@@ -497,7 +504,37 @@ pub async fn delete_task(
             )?),
             &serde_json::json!({ "id": id }),
         )?;
-        conn.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![id])?;
+        // 软删除（v24）：UPDATE deleted_at 而非 DELETE。行保留，关联提醒/事件/子项不被级联删除。
+        let now = db::now_local();
+        let rows = conn.execute(
+            "UPDATE tasks SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            rusqlite::params![now, id],
+        )?;
+        if rows == 0 {
+            // 任务不存在 → 报错；已被软删 → 幂等成功（重复删除不视为错误、不重复写审计）。
+            let deleted_at: Option<String> = conn
+                .query_row(
+                    "SELECT deleted_at FROM tasks WHERE id = ?1",
+                    rusqlite::params![id],
+                    |r| r.get(0),
+                )
+                .ok();
+            if deleted_at.is_none() {
+                return Err(anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::TASK_NOT_FOUND,
+                    format!("任务不存在: {id}"),
+                )));
+            }
+            conn.commit()?;
+            return Ok(());
+        }
+        // 审计：写 deleted 事件（task_events.event_type 已随 v24 条件重建扩展 'deleted'）
+        let actor = if origin.as_deref() == Some("ai") { "ai" } else { "user" };
+        let payload = serde_json::json!({ "reason": "soft_delete", "deletedAt": now }).to_string();
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deleted', ?3, ?4, ?5)",
+            rusqlite::params![db::new_id(), id, now, payload, actor],
+        )?;
         conn.commit()?;
         Ok(())
     })
@@ -513,18 +550,22 @@ pub async fn delete_task(
 
 /// 撤销删除：按快照还原任务（保留原 id 与 completed）。
 ///
-/// P1-6 修复：`create_task` 忽略入参 id 另生成新 id，并把 completed 硬编码为 0，
-/// 导致"撤销删除"恢复出**新 id、未完成**的任务，后续对该行的所有操作都打到不存在的 id。
-/// 本命令刻意不走 `create_task` 的「案件级 sequential 自动继承」（避免还原时被二次改写）
-/// 与「AI 授权网关」（撤销删除是用户操作，不消耗 proposal token），
-/// 而是按前端 Task 快照做全字段还原，返回还原后的完整任务对象供前端对账。
+/// v24 软删除语义：`delete_task` 只写 `tasks.deleted_at`，行与关联提醒/事件/子项
+/// 均未被级联删除。因此 `restore_task` 对**已软删原行**执行 undelete（清 `deleted_at`）
+/// 并按快照恢复必要字段，写在原行上；仅当原行不存在（旧硬删除遗留）时才走
+/// INSERT 全字段重建的向后兼容路径。
 ///
-/// 限制：原任务若被硬删除时级联删除了子行（提醒、案件日志、子任务等），
-/// 本命令只还原 tasks 主表这行，被级联清掉的子行**不可**恢复。
+/// P1-6 修复：`create_task` 忽略入参 id 另生成新 id，并把 completed 硬编码为 0，
+/// 导致"撤销删除"恢复出**新 id、未完成**的任务。本命令刻意不走 `create_task` 的
+/// 「案件级 sequential 自动继承」与「AI 授权网关」，而是按前端 Task 快照做全字段还原，
+/// 返回还原后的完整任务对象供前端对账。
 ///
 /// 原子性：tasks 行 + task_events 事件 + 还原后读取在**同一事务**内完成，
-/// 任一失败整体回滚，避免「tasks 已插入但 event 读取/写入失败」留下半恢复行。
-fn restore_task_inner(conn: &mut rusqlite::Connection, snapshot: &serde_json::Value) -> anyhow::Result<TaskDto> {
+/// 任一失败整体回滚，避免留下半恢复行。
+fn restore_task_inner(
+    conn: &mut rusqlite::Connection,
+    snapshot: &serde_json::Value,
+) -> anyhow::Result<TaskDto> {
     let id = snapshot["id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("恢复任务失败：快照缺少 id"))?
@@ -532,16 +573,6 @@ fn restore_task_inner(conn: &mut rusqlite::Connection, snapshot: &serde_json::Va
     let now = db::now_local();
 
     let tx = conn.transaction()?;
-
-    // 撤销删除场景：原 id 已被硬删除，应当空闲；若已被占用则拒绝覆盖，避免误伤现有任务
-    let exists: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM tasks WHERE id = ?1",
-        rusqlite::params![id],
-        |r| r.get(0),
-    )?;
-    if exists > 0 {
-        return Err(anyhow::anyhow!("无法恢复任务 {}：该 id 已被占用", id));
-    }
 
     // 还原原 id 与 completed（P1-6：completed 必须取快照值，而非 create_task 的字面量 0）
     let completed = snapshot["completed"].as_i64().unwrap_or(0);
@@ -551,58 +582,133 @@ fn restore_task_inner(conn: &mut rusqlite::Connection, snapshot: &serde_json::Va
         .as_str()
         .or(snapshot["parentTaskId"].as_str());
 
-    tx.execute(
-        "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
-         task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
-         start_bucket, today_index, estimated_minutes, actual_minutes, is_overdue, due_soon, last_review_date, next_review_date,
-         area_id, knowledge_id, created_at, parent_task_id, recurrence_rule, is_focus, defer_until)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36)",
-        rusqlite::params![
-            id,
-            snapshot["caseId"].as_str(),
-            snapshot["taskName"].as_str().unwrap_or(""),
-            snapshot["description"].as_str(),
-            snapshot["createdDate"].as_str().unwrap_or(&now),
-            snapshot["deadline"].as_str().or(snapshot["dueDate"].as_str()),
-            snapshot["priority"].as_str().unwrap_or("normal"),
-            completed,
-            snapshot["assignee"].as_str(),
-            snapshot["finishNote"].as_str(),
-            snapshot["taskType"].as_str().unwrap_or("action"),
-            snapshot["startDate"].as_str(),
-            snapshot["dueDate"].as_str().or(snapshot["deadline"].as_str()),
-            snapshot["dueTime"].as_str(),
-            snapshot["waitingFor"].as_str(),
-            snapshot["followUpDate"].as_str(),
-            snapshot["context"].as_str(),
-            snapshot["flagged"].as_i64().unwrap_or(0),
-            snapshot["sequential"].as_i64().unwrap_or(0),
-            snapshot["blocked"].as_i64().unwrap_or(0),
-            snapshot["sequenceOrder"].as_i64().unwrap_or(0),
-            snapshot["startBucket"].as_str().unwrap_or("anytime"),
-            snapshot["todayIndex"].as_i64().unwrap_or(0),
-            snapshot["estimatedMinutes"].as_i64(),
-            snapshot["actualMinutes"].as_i64(),
-            snapshot["isOverdue"].as_i64().unwrap_or(0),
-            snapshot["dueSoon"].as_i64().unwrap_or(0),
-            snapshot["lastReviewDate"].as_str(),
-            snapshot["nextReviewDate"].as_str(),
-            snapshot["areaId"].as_str(),
-            snapshot["knowledgeId"].as_str(),
-            now,
-            parent_task_id,
-            snapshot["recurrenceRule"].as_str(),
-            snapshot["isFocus"].as_i64().unwrap_or(0),
-            snapshot["deferUntil"].as_str(),
-        ],
-    )?;
+    // v24 软删除：读取当前行状态（含软删行）。
+    //   已软删（deleted_at 非空）→ undelete（清 deleted_at）+ 按快照恢复必要字段；
+    //   已存在且未删（deleted_at 为空）→ id 冲突，拒绝覆盖，避免误伤现有任务；
+    //   不存在 → 旧硬删除快照还原（向后兼容），INSERT 全字段重建。
+    let row_state: Option<Option<String>> = tx
+        .query_row(
+            "SELECT deleted_at FROM tasks WHERE id = ?1",
+            rusqlite::params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?;
 
-    // 记录审计事件（撤销删除还原 → 行被重建，采用合法的 'created' 事件类型；
-    // task_events.event_type 有 CHECK 约束，'restored' 不在白名单内）
-    tx.execute(
-        "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, 'user')",
-        rusqlite::params![db::new_id(), id, now],
-    )?;
+    if let Some(Some(_deleted_at)) = row_state {
+        // 已软删原行：undelete。行仍在库，关联提醒/事件/子项从未被级联删除，无需重建。
+        // 按快照恢复必要字段，使还原后的任务与前端快照完全一致（应对软删期间字段漂移）。
+        tx.execute(
+            "UPDATE tasks SET
+             case_id = ?2, task_name = ?3, description = ?4, created_date = ?5, deadline = ?6,
+             priority = ?7, completed = ?8, assignee = ?9, finish_note = ?10, task_type = ?11,
+             start_date = ?12, due_date = ?13, due_time = ?14, waiting_for = ?15, follow_up_date = ?16,
+             context = ?17, flagged = ?18, sequential = ?19, blocked = ?20, sequence_order = ?21,
+             start_bucket = ?22, today_index = ?23, estimated_minutes = ?24, actual_minutes = ?25,
+             is_overdue = ?26, due_soon = ?27, last_review_date = ?28, next_review_date = ?29,
+             area_id = ?30, knowledge_id = ?31, parent_task_id = ?32, recurrence_rule = ?33,
+             is_focus = ?34, defer_until = ?35,
+             deleted_at = NULL, updated_at = ?36
+             WHERE id = ?1",
+            rusqlite::params![
+                id,
+                snapshot["caseId"].as_str(),
+                snapshot["taskName"].as_str().unwrap_or(""),
+                snapshot["description"].as_str(),
+                snapshot["createdDate"].as_str().unwrap_or(&now),
+                snapshot["deadline"].as_str().or(snapshot["dueDate"].as_str()),
+                snapshot["priority"].as_str().unwrap_or("normal"),
+                completed,
+                snapshot["assignee"].as_str(),
+                snapshot["finishNote"].as_str(),
+                snapshot["taskType"].as_str().unwrap_or("action"),
+                snapshot["startDate"].as_str(),
+                snapshot["dueDate"].as_str().or(snapshot["deadline"].as_str()),
+                snapshot["dueTime"].as_str(),
+                snapshot["waitingFor"].as_str(),
+                snapshot["followUpDate"].as_str(),
+                snapshot["context"].as_str(),
+                snapshot["flagged"].as_i64().unwrap_or(0),
+                snapshot["sequential"].as_i64().unwrap_or(0),
+                snapshot["blocked"].as_i64().unwrap_or(0),
+                snapshot["sequenceOrder"].as_i64().unwrap_or(0),
+                snapshot["startBucket"].as_str().unwrap_or("anytime"),
+                snapshot["todayIndex"].as_i64().unwrap_or(0),
+                snapshot["estimatedMinutes"].as_i64(),
+                snapshot["actualMinutes"].as_i64(),
+                snapshot["isOverdue"].as_i64().unwrap_or(0),
+                snapshot["dueSoon"].as_i64().unwrap_or(0),
+                snapshot["lastReviewDate"].as_str(),
+                snapshot["nextReviewDate"].as_str(),
+                snapshot["areaId"].as_str(),
+                snapshot["knowledgeId"].as_str(),
+                parent_task_id,
+                snapshot["recurrenceRule"].as_str(),
+                snapshot["isFocus"].as_i64().unwrap_or(0),
+                snapshot["deferUntil"].as_str(),
+                now,
+            ],
+        )?;
+        // 审计：写 restored 事件（task_events.event_type 已随 v24 条件重建扩展 'restored'）
+        tx.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'restored', ?3, 'user')",
+            rusqlite::params![db::new_id(), id, now],
+        )?;
+    } else if row_state.is_some() {
+        // 行已存在且未删（deleted_at 为空）→ id 冲突，拒绝覆盖
+        return Err(anyhow::anyhow!("无法恢复任务 {}：该 id 已被占用", id));
+    } else {
+        // 行不存在 → 旧硬删除快照还原（向后兼容）：INSERT 全字段重建
+        tx.execute(
+            "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
+             task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
+             start_bucket, today_index, estimated_minutes, actual_minutes, is_overdue, due_soon, last_review_date, next_review_date,
+             area_id, knowledge_id, created_at, parent_task_id, recurrence_rule, is_focus, defer_until)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36)",
+            rusqlite::params![
+                id,
+                snapshot["caseId"].as_str(),
+                snapshot["taskName"].as_str().unwrap_or(""),
+                snapshot["description"].as_str(),
+                snapshot["createdDate"].as_str().unwrap_or(&now),
+                snapshot["deadline"].as_str().or(snapshot["dueDate"].as_str()),
+                snapshot["priority"].as_str().unwrap_or("normal"),
+                completed,
+                snapshot["assignee"].as_str(),
+                snapshot["finishNote"].as_str(),
+                snapshot["taskType"].as_str().unwrap_or("action"),
+                snapshot["startDate"].as_str(),
+                snapshot["dueDate"].as_str().or(snapshot["deadline"].as_str()),
+                snapshot["dueTime"].as_str(),
+                snapshot["waitingFor"].as_str(),
+                snapshot["followUpDate"].as_str(),
+                snapshot["context"].as_str(),
+                snapshot["flagged"].as_i64().unwrap_or(0),
+                snapshot["sequential"].as_i64().unwrap_or(0),
+                snapshot["blocked"].as_i64().unwrap_or(0),
+                snapshot["sequenceOrder"].as_i64().unwrap_or(0),
+                snapshot["startBucket"].as_str().unwrap_or("anytime"),
+                snapshot["todayIndex"].as_i64().unwrap_or(0),
+                snapshot["estimatedMinutes"].as_i64(),
+                snapshot["actualMinutes"].as_i64(),
+                snapshot["isOverdue"].as_i64().unwrap_or(0),
+                snapshot["dueSoon"].as_i64().unwrap_or(0),
+                snapshot["lastReviewDate"].as_str(),
+                snapshot["nextReviewDate"].as_str(),
+                snapshot["areaId"].as_str(),
+                snapshot["knowledgeId"].as_str(),
+                now,
+                parent_task_id,
+                snapshot["recurrenceRule"].as_str(),
+                snapshot["isFocus"].as_i64().unwrap_or(0),
+                snapshot["deferUntil"].as_str(),
+            ],
+        )?;
+        // 审计：硬删除快照还原 → 行被重建，写 'created' 事件（保持既有语义）
+        tx.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, 'created', ?3, 'user')",
+            rusqlite::params![db::new_id(), id, now],
+        )?;
+    }
 
     // 在 commit 前读取还原后的 DTO（事务内自读自己的写入），再做原子提交
     let dto = load_task_row(&tx, &id)?;
@@ -1419,7 +1525,7 @@ pub async fn search_tasks(query: String) -> Result<Vec<SearchTaskDto>, String> {
         let mut stmt = conn.prepare(
             "SELECT id, task_name, due_date, completed, start_bucket
              FROM tasks
-             WHERE task_name LIKE ?1
+             WHERE task_name LIKE ?1 AND deleted_at IS NULL
              ORDER BY completed ASC,
                       CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
                       due_date ASC
@@ -1534,7 +1640,8 @@ mod tests {
             [],
         )
         .unwrap();
-        conn.execute("DELETE FROM tasks WHERE id = 't-abc'", []).unwrap();
+        conn.execute("DELETE FROM tasks WHERE id = 't-abc'", [])
+            .unwrap();
 
         let snapshot = serde_json::json!({
             "id": "t-abc",
@@ -1575,8 +1682,14 @@ mod tests {
         });
 
         let restored = restore_task_inner(&mut conn, &snapshot).unwrap();
-        assert_eq!(restored.id, "t-abc", "撤销删除应恢复原 id，而非 create_task 新生成的 id");
-        assert_eq!(restored.completed, 1, "撤销删除应保留 completed=1，而非被清零");
+        assert_eq!(
+            restored.id, "t-abc",
+            "撤销删除应恢复原 id，而非 create_task 新生成的 id"
+        );
+        assert_eq!(
+            restored.completed, 1,
+            "撤销删除应保留 completed=1，而非被清零"
+        );
         assert_eq!(restored.task_name, "旧任务");
         assert_eq!(restored.priority.as_deref(), Some("important"));
         assert_eq!(restored.due_date.as_deref(), Some("2026-09-05"));
@@ -1601,7 +1714,10 @@ mod tests {
             "taskName": "尝试还原",
             "completed": 1,
         });
-        assert!(restore_task_inner(&mut conn, &snapshot).is_err(), "id 已存在时撤销删除应拒绝覆盖");
+        assert!(
+            restore_task_inner(&mut conn, &snapshot).is_err(),
+            "id 已存在时撤销删除应拒绝覆盖"
+        );
     }
 
     // P1-6：撤销删除不得触发 create_task 的「案件级 sequential 自动继承 / sequence_order 重算」副作用
@@ -1634,9 +1750,15 @@ mod tests {
         });
 
         let restored = restore_task_inner(&mut conn, &snapshot).unwrap();
-        assert_eq!(restored.sequential, 0, "撤销删除不得自动继承案件级 sequential");
+        assert_eq!(
+            restored.sequential, 0,
+            "撤销删除不得自动继承案件级 sequential"
+        );
         assert_eq!(restored.case_id.as_deref(), Some("case1"));
-        assert_eq!(restored.sequence_order, 3, "sequence_order 应按快照还原，而非按案件已有计数重算");
+        assert_eq!(
+            restored.sequence_order, 3,
+            "sequence_order 应按快照还原，而非按案件已有计数重算"
+        );
     }
 
     // 原子性：成功时 tasks 行与 task_events 'created' 事件同批提交
@@ -1655,7 +1777,11 @@ mod tests {
         assert_eq!(restored.id, "t-atomic");
 
         let task_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tasks WHERE id = 't-atomic'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE id = 't-atomic'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(task_count, 1, "还原成功应落库 1 行任务");
         let event_count: i64 = conn
@@ -1687,14 +1813,25 @@ mod tests {
             "taskType": "action",
             "startBucket": "anytime",
         });
-        assert!(restore_task_inner(&mut conn, &snapshot).is_err(), "event 写入失败应使还原失败");
+        assert!(
+            restore_task_inner(&mut conn, &snapshot).is_err(),
+            "event 写入失败应使还原失败"
+        );
 
         let task_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tasks WHERE id = 't-rollback'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE id = 't-rollback'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(task_count, 0, "失败后不应残留半恢复的任务行");
         let event_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM task_events WHERE task_id = 't-rollback'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM task_events WHERE task_id = 't-rollback'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(event_count, 0, "失败后不应残留 task_events 行");
     }
@@ -1716,7 +1853,11 @@ mod tests {
             "parentTaskId": "t-parent",
         });
         let r1 = restore_task_inner(&mut conn, &snap_dto).unwrap();
-        assert_eq!(r1.parent_task_id.as_deref(), Some("t-parent"), "应兼容 parentTaskId");
+        assert_eq!(
+            r1.parent_task_id.as_deref(),
+            Some("t-parent"),
+            "应兼容 parentTaskId"
+        );
 
         // 前端 Task 字段名：parentId
         let snap_fe = serde_json::json!({
@@ -1725,6 +1866,10 @@ mod tests {
             "parentId": "t-parent",
         });
         let r2 = restore_task_inner(&mut conn, &snap_fe).unwrap();
-        assert_eq!(r2.parent_task_id.as_deref(), Some("t-parent"), "应兼容 parentId");
+        assert_eq!(
+            r2.parent_task_id.as_deref(),
+            Some("t-parent"),
+            "应兼容 parentId"
+        );
     }
 }

@@ -412,7 +412,7 @@ fn query_recent_activities(
     let mut stmt = conn.prepare(
         "SELECT t.task_name, t.description, t.created_date, t.case_id, c.case_name
          FROM tasks t JOIN cases c ON c.id = t.case_id
-         WHERE t.created_date >= ?1
+         WHERE t.created_date >= ?1 AND t.deleted_at IS NULL
          ORDER BY t.created_date DESC LIMIT 10",
     )?;
     for row in stmt.query_map(rusqlite::params![since], |r| {
@@ -903,14 +903,14 @@ pub async fn get_today_stats() -> Result<TodayStats, String> {
 
         // 今日到期任务
         let due_today: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE (deadline = ?1 OR due_date = ?1) AND completed = 0",
+            "SELECT COUNT(*) FROM tasks WHERE (deadline = ?1 OR due_date = ?1) AND completed = 0 AND deleted_at IS NULL",
             rusqlite::params![today],
             |row| row.get(0),
         ).unwrap_or(0);
 
         // 等待超3天
         let waiting_overdue: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE task_type = 'waiting' AND follow_up_date < date(?1, '-3 days') AND completed = 0",
+            "SELECT COUNT(*) FROM tasks WHERE task_type = 'waiting' AND follow_up_date < date(?1, '-3 days') AND completed = 0 AND deleted_at IS NULL",
             rusqlite::params![today],
             |row| row.get(0),
         ).unwrap_or(0);
@@ -1116,7 +1116,8 @@ fn count_overdue_tasks(conn: &rusqlite::Connection, case_id: &str) -> anyhow::Re
         "SELECT COUNT(*) FROM tasks t
          WHERE t.case_id=?1 AND t.completed=0
            AND {due} IS NOT NULL AND {due} != ''
-           AND {due} < date('now','localtime')",
+           AND {due} < date('now','localtime')
+           AND t.deleted_at IS NULL",
         due = TASK_DUE_EXPR
     );
     let n = conn.query_row(&sql, rusqlite::params![case_id], |row| row.get(0))?;
@@ -1162,6 +1163,7 @@ pub fn compute_case_type_metrics(
                             WHERE te.task_id = t.id AND te.event_type='completed') AS completed_at
                    FROM tasks t
                    WHERE t.case_id=?1 AND t.completed=1
+                     AND t.deleted_at IS NULL
                  )",
                 due = TASK_DUE_EXPR
             );
@@ -1197,7 +1199,7 @@ pub fn compute_case_type_metrics(
                     "SELECT COUNT(*),
                             SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END),
                             SUM(CASE WHEN blocked=1 AND completed=0 THEN 1 ELSE 0 END)
-                     FROM tasks WHERE case_id=?1",
+                     FROM tasks WHERE case_id=?1 AND deleted_at IS NULL",
                     rusqlite::params![case_id],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )?;
@@ -1217,14 +1219,15 @@ pub fn compute_case_type_metrics(
             let active_days_30d: i64 = conn.query_row(
                 "SELECT COUNT(DISTINCT date(te.occurred_at))
                  FROM task_events te JOIN tasks t ON t.id = te.task_id
-                 WHERE t.case_id=?1 AND te.occurred_at >= datetime('now','localtime','-30 days')",
+                 WHERE t.case_id=?1 AND te.occurred_at >= datetime('now','localtime','-30 days')
+                   AND t.deleted_at IS NULL",
                 rusqlite::params![case_id],
                 |row| row.get(0),
             )?;
             let inactive_days: Option<f64> = conn.query_row(
                 "SELECT julianday(date('now','localtime')) - julianday(date(MAX(te.occurred_at)))
                  FROM task_events te JOIN tasks t ON t.id = te.task_id
-                 WHERE t.case_id=?1",
+                 WHERE t.case_id=?1 AND t.deleted_at IS NULL",
                 rusqlite::params![case_id],
                 |row| row.get(0),
             )?;
@@ -1238,7 +1241,7 @@ pub fn compute_case_type_metrics(
             // 未设 case_type：通用指标（任务完成率 + 逾期数）
             let (total, completed): (i64, Option<i64>) = conn.query_row(
                 "SELECT COUNT(*), SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END)
-                 FROM tasks WHERE case_id=?1",
+                 FROM tasks WHERE case_id=?1 AND deleted_at IS NULL",
                 rusqlite::params![case_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )?;

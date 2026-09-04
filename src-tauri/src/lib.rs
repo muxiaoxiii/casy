@@ -344,7 +344,7 @@ fn recalc_all_deadlines() -> anyhow::Result<usize> {
 /// 为逾期未完成任务写 overdue 行为事件（同日去重）
 fn record_overdue_events(conn: &rusqlite::Connection, today: &str) -> anyhow::Result<usize> {
     let overdue_tasks: Vec<(String, String)> = conn
-        .prepare("SELECT id, due_date FROM tasks WHERE completed = 0 AND due_date IS NOT NULL AND due_date < ?1")?
+        .prepare("SELECT id, due_date FROM tasks WHERE completed = 0 AND due_date IS NOT NULL AND due_date < ?1 AND deleted_at IS NULL")?
         .query_map(rusqlite::params![today], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
 

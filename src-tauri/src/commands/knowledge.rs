@@ -1337,7 +1337,7 @@ pub async fn get_knowledge_graph(limit: Option<usize>) -> Result<KnowledgeGraphD
         // 任务节点 + 任务 → 知识 边（tasks.knowledge_id 外键）
         {
             let mut stmt = conn.prepare(
-                "SELECT id, task_name, knowledge_id FROM tasks WHERE knowledge_id IS NOT NULL",
+                "SELECT id, task_name, knowledge_id FROM tasks WHERE knowledge_id IS NOT NULL AND deleted_at IS NULL",
             )?;
             let tasks: Vec<(String, String, String)> = stmt
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?

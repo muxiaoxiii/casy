@@ -53,7 +53,7 @@ export type FolderTemplateOutput = { id: string; name: string; caseType: string;
 
 /**
  * 草稿实体（docs 域）
- *
+ * 
  * 契约（审查 P1-1）：Tauri v2 **只对入参**做 camelCase→snake_case 自动转换，
  * 返回值序列化完全由 serde 决定。缺 rename_all 时下行 JSON 为 snake_case
  * （case_id / template_path / created_at / updated_at），而前端 `core/services/docs.ts`
@@ -65,6 +65,11 @@ export type Draft = { id: string; caseId: string | null; title: string; content:
 export type ReminderLogEntry = { id: string; ruleId: string; caseId: string | null; taskId: string | null; channel: string; message: string; level: string | null; status: string; sentAt: string | null }
 
 export type PersonCaseDto = { linkId: string; caseId: string; caseName: string; caseNo: string | null; role: string | null }
+
+/**
+ * 任务类型化更新契约（P1-2：三态字段 + 服务端校验 + 影响行数断言）
+ */
+export type UpdateTaskPatch = { id: string; origin?: string | null; proposalToken?: string | null; taskName?: PatchField<string>; description?: PatchField<string>; deadline?: PatchField<string>; priority?: PatchField<string>; completed?: PatchField<number>; assignee?: PatchField<string>; finishNote?: PatchField<string>; taskType?: PatchField<string>; startDate?: PatchField<string>; dueDate?: PatchField<string>; dueTime?: PatchField<string>; waitingFor?: PatchField<string>; followUpDate?: PatchField<string>; context?: PatchField<string>; flagged?: PatchField<number>; sequential?: PatchField<number>; blocked?: PatchField<number>; blockedReason?: PatchField<string>; sequenceOrder?: PatchField<number>; startBucket?: PatchField<string>; todayIndex?: PatchField<number>; estimatedMinutes?: PatchField<number>; actualMinutes?: PatchField<number>; areaId?: PatchField<string>; caseId?: PatchField<string>; timeBlock?: PatchField<string>; parentTaskId?: PatchField<string>; recurrenceRule?: PatchField<string>; isFocus?: PatchField<number>; deferUntil?: PatchField<string> }
 
 /**
  * 字段级 Diff 行（before = 目标实体当前值，after = 提案将写入的值）
@@ -82,7 +87,7 @@ export type FieldDiffItem = { feishuField: string | null; feishuType: string | n
 
 /**
  * 导出结果响应
- *
+ * 
  * 契约（审查 P1-1）：同上。缺 rename_all 时前端 `result.data.outputPath`
  * 恒为 undefined，表现为「DOCX 已导出: undefined」且导出后「打开文件」必然失败
  * （`DocumentGenView.vue:499` / `:506`）。
@@ -112,7 +117,7 @@ export type QuickJudgeResult = { category: string; confidence: number; strength:
 
 /**
  * 渲染结果响应
- *
+ * 
  * 契约（审查 P1-1）：Tauri v2 **只对入参**做 camelCase→snake_case 自动转换，
  * 返回值序列化完全由 serde 决定。缺 rename_all 时下行 JSON 为 snake_case，
  * 而前端 `core/services/docs.ts:46-59` 按 camelCase 断言，导致
@@ -120,8 +125,6 @@ export type QuickJudgeResult = { category: string; confidence: number; strength:
  * 告警永不显示（生成正式文书时唯一的占位符防线）。
  */
 export type RenderResponse = { html: string; text: string; usedFields: { [key: string]: string }; missingFields: string[] }
-
-export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
 
 /**
  * 列表查询过滤条件
@@ -170,7 +173,10 @@ export type KnowledgeBlockDto = { id: string; title: string; category: string; c
  */
 export type SearchResult = { id: string; title: string; category: string; content: string; tags: string | null; lawName: string | null; articleNo: string | null; score: number; source: string }
 
-export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
+/**
+ * 全局搜索结果项（轻量列）
+ */
+export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
 
 export type DocumentEngineStatus = { available: boolean; executable: string | null; version: string | null; rendererAvailable: boolean; coordinateModelAvailable: boolean; ovisModelAvailable: boolean; searchablePdfAvailable: boolean; missing: string[]; error: string | null }
 
@@ -183,6 +189,11 @@ export type TodayStats = { hardSchedule: number; dueToday: number; waitingOverdu
  * AI 处理结果（分类 + 置信度 + 抽取 + 自动路由动作）
  */
 export type ProcessedInboxResult = { category: string; confidence: number; suggestedCaseId: string | null; caseNo: string | null; extracted: any | null; routeActions: any[] }
+
+/**
+ * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
+ */
+export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null; parentTaskId: string | null; recurrenceRule: string | null; isFocus: number; deferUntil: string | null }
 
 export type GlobalSearchResult = { itemType: string; id: string; title: string; category: string; snippet: string | null }
 
@@ -204,7 +215,7 @@ export type CalendarEventRow = { id: string; title: string; eventDate: string; s
 
 /**
  * 收件箱列表项（B1 类型化：返回侧 Value → 强类型）
- *
+ * 
  * 空值口径：title/contentText/aiCategory/aiConfidence/sourcePath/userCategory/createdAt
  * 在 SQL 层 COALESCE 归一为 '' / 0（前端手写契约按非空建模；null 与 ''
  * 在展示层真值判断等价），其余可空字段保持 Option。
@@ -250,6 +261,8 @@ export type CalendarSyncReport = { total: number; synced: number; failed: number
  * 版本历史项
  */
 export type KnowledgeVersionDto = { id: string; content: string; changedAt: string | null; changeReason: string | null }
+
+export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
 
 /**
  * 案件类型差异化评估指标（B1 类型化）
@@ -332,16 +345,13 @@ export type DeadlineRuleAuditDto = { id: string; ruleId: string; action: string;
 export type AreaStatsDto = { areaId: string; areaName: string; totalTasks: number; completedTasks: number; pendingTasks: number; totalCases: number }
 
 /**
- * 全局搜索结果项（轻量列）
- */
-export type SearchTaskDto = { id: string; taskName: string; dueDate: string | null; completed: number; startBucket: string | null }
-
-/**
  * 案件导入报告
  */
 export type CaseImportReport = { totalRowsProcessed: number; createdCount: number; updatedCount: number; skippedCount: number; failedCount: number; errors: string[]; importedCaseIds: string[] }
 
 export type TodayKpis = { todayEvents: number; dueToday: number; waitingOverdue: number; reviewDue: number }
+
+export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
 
 export type DeadlineResult = { ruleId: string | null; ruleName: string; dueDate: string; daysLeft: number; urgency: string; deadlineSource: string; legalBasis: string | null; caseId: string; caseName: string }
 
@@ -429,16 +439,6 @@ export type KnowledgeWithBlocksDto = { item: KnowledgeItemDto; blocks: Knowledge
  * 节假日解析结果（B1 类型化）
  */
 export type HolidayNotice = { year: number; holidays: string[]; workdays: string[] }
-
-/**
- * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
- */
-export type TaskDto = { id: string; caseId: string | null; taskName: string; description: string | null; createdDate: string; deadline: string | null; priority: string | null; completed: number; assignee: string | null; finishNote: string | null; taskType: string; startDate: string | null; dueDate: string | null; waitingFor: string | null; followUpDate: string | null; context: string | null; flagged: number; sequential: number; blocked: number; sequenceOrder: number; startBucket: string; todayIndex: number; estimatedMinutes: number | null; actualMinutes: number | null; isOverdue: number; dueSoon: number; lastReviewDate: string | null; nextReviewDate: string | null; areaId: string | null; knowledgeId: string | null; parentTaskId: string | null; recurrenceRule: string | null; isFocus: number; deferUntil: string | null }
-
-/**
- * 任务类型化更新契约（P1-2：三态字段 + 服务端校验 + 影响行数断言）
- */
-export type UpdateTaskPatch = { id: string; origin?: string | null; proposalToken?: string | null; taskName?: PatchField<string>; description?: PatchField<string>; deadline?: PatchField<string>; priority?: PatchField<string>; completed?: PatchField<number>; assignee?: PatchField<string>; finishNote?: PatchField<string>; taskType?: PatchField<string>; startDate?: PatchField<string>; dueDate?: PatchField<string>; dueTime?: PatchField<string>; waitingFor?: PatchField<string>; followUpDate?: PatchField<string>; context?: PatchField<string>; flagged?: PatchField<number>; sequential?: PatchField<number>; blocked?: PatchField<number>; blockedReason?: PatchField<string>; sequenceOrder?: PatchField<number>; startBucket?: PatchField<string>; todayIndex?: PatchField<number>; estimatedMinutes?: PatchField<number>; actualMinutes?: PatchField<number>; areaId?: PatchField<string>; caseId?: PatchField<string>; timeBlock?: PatchField<string>; parentTaskId?: PatchField<string>; recurrenceRule?: PatchField<string>; isFocus?: PatchField<number>; deferUntil?: PatchField<string> }
 
 export type FeishuTableMeta = { tableId: string; name: string; revision: number | null }
 

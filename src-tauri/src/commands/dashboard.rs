@@ -93,7 +93,7 @@ pub async fn get_monthly_task_trend(months: Option<i32>) -> Result<Vec<MonthTren
         for (yy, mm) in &ym {
             let key = format!("{yy:04}-{mm:02}");
             let created: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM tasks WHERE substr(created_date,1,7) = ?1",
+                "SELECT COUNT(*) FROM tasks WHERE substr(created_date,1,7) = ?1 AND deleted_at IS NULL",
                 rusqlite::params![key],
                 |r| r.get(0),
             )?;
@@ -180,20 +180,22 @@ pub async fn get_today_kpis() -> Result<TodayKpis, String> {
         )?;
         let due_today: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks
-             WHERE completed = 0 AND (due_date = ?1 OR deadline = ?1)",
+             WHERE completed = 0 AND (due_date = ?1 OR deadline = ?1) AND deleted_at IS NULL",
             rusqlite::params![today],
             |r| r.get(0),
         )?;
         let waiting_overdue: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks
              WHERE completed = 0 AND task_type = 'waiting'
-               AND follow_up_date IS NOT NULL AND follow_up_date < ?1",
+               AND follow_up_date IS NOT NULL AND follow_up_date < ?1
+               AND deleted_at IS NULL",
             rusqlite::params![today],
             |r| r.get(0),
         )?;
         let review_due: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks
-             WHERE completed = 0 AND next_review_date IS NOT NULL AND next_review_date <= ?1",
+             WHERE completed = 0 AND next_review_date IS NOT NULL AND next_review_date <= ?1
+               AND deleted_at IS NULL",
             rusqlite::params![today],
             |r| r.get(0),
         )?;

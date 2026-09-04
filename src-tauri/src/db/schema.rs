@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 23;
+pub const CURRENT_SCHEMA_VERSION: i64 = 24;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -696,6 +696,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("21", MIGRATION_V21_SQL),
     ("22", MIGRATION_V22_SQL),
     ("23", MIGRATION_V23_SQL),
+    ("24", MIGRATION_V24_SQL),
 ];
 
 /// 版本 23：knowledge_items.category 去除 CHECK 枚举。
@@ -703,6 +704,48 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
 /// 这里只推进 user_version 作为修复留痕。
 pub const MIGRATION_V23_SQL: &str = r#"
 SELECT 1;
+"#;
+
+/// 版本 24：tasks 软删除（deleted_at）。
+/// 幂等说明：ADD COLUMN / 索引 / task_events 重建在 run_migrations 的条件执行段完成
+/// （PRAGMA 探测后按需变更），这里只推进 user_version 作为版本留痕，避免重复迁移时
+/// duplicate column / duplicate event_type。
+pub const MIGRATION_V24_SQL: &str = r#"
+SELECT 1;
+"#;
+
+/// task_events 重建 SQL（v24）：event_type CHECK 扩展 'deleted'/'restored'（软删除审计）。
+/// 仅在旧表 CHECK 不含 'deleted' 时由 run_migrations 执行；task_id 保持可空
+/// （继承 v11 的 recursion_gap 形态），索引与 FK 完整重建。12 步重建，临时关 FK。
+const TASK_EVENTS_REBUILD_V24_SQL: &str = r#"
+PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS task_events_v24;
+
+CREATE TABLE task_events_v24 (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+  event_type      TEXT NOT NULL CHECK(event_type IN (
+    'created','completed','deferred','snoozed','reminded',
+    'overdue','escalated','cancelled','moved','recursion_gap',
+    'deleted','restored'
+  )),
+  occurred_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  payload         TEXT,  -- JSON
+  actor           TEXT DEFAULT 'user' CHECK(actor IN ('user','ai','system'))
+);
+
+INSERT INTO task_events_v24 (id, task_id, event_type, occurred_at, payload, actor)
+SELECT id, task_id, event_type, occurred_at, payload, actor FROM task_events;
+
+DROP TABLE task_events;
+ALTER TABLE task_events_v24 RENAME TO task_events;
+
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_task_events_time ON task_events(occurred_at);
+
+PRAGMA foreign_keys=ON;
 "#;
 
 /// v23b 条件重建：旧库 decisions.entity_type CHECK 枚举缺 'recommendation'
@@ -2597,127 +2640,197 @@ BEGIN
 END;
 "#;
 
-/// 执行迁移：从 from_version 之后的版本逐条应用
-/// 守卫以库内 PRAGMA user_version 为权威（from_version 仅作下限提示）——
-/// 重复调用幂等，ALTER 类迁移不会被二次执行
+/// 执行迁移：从 from_version 之后的版本逐条应用。
+///
+/// 事务边界设计（SQLite 的 `PRAGMA foreign_keys` 不能在活动事务中随意切换，
+/// 事务内切换是 no-op，只能在无活动事务时生效）：
+/// - 进入任何事务前先把 FK 置为 OFF（表重建时 DROP 不会触发级联删除），
+///   全部迁移结束后再恢复为进入前的取值；FK 的 ON/OFF 永不与事务重叠。
+/// - 每个版本升级各自包裹在一个事务内：schema DDL 与 `PRAGMA user_version`
+///   在同一事务里原子提交。某版本中途失败 → 该版本整体回滚，user_version
+///   停在上一已提交版本，重跑时从失败版本续起（幂等且可恢复）。
+/// - 条件执行段（幂等：PRAGMA 探测后按需 ALTER/重建）在单个事务内整体执行，
+///   中途失败同样整体回滚，重跑自愈。
+///
+/// 以库内 `PRAGMA user_version` 为权威（from_version 仅作下限提示），
+/// 重复调用幂等，ALTER 类迁移不会被二次执行。
 #[allow(dead_code)]
 pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow::Error> {
-    let already_applied: i64 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap_or(0);
-    let floor = already_applied.max(from_version);
-    for (version, sql) in MIGRATIONS {
-        let v: i64 = version.parse().unwrap_or(0);
+    // 进入事务前锁定 FK 状态；表重建需要 FK=OFF，但该 PRAGMA 不能在有事务时切换，
+    // 因此必须放在整个迁移过程的第一个事务之前、最后一个事务之后。
+    let fk_before: bool = fk_enabled(conn)?;
+    let result = (|| -> Result<(), anyhow::Error> {
+        set_fk(conn, false)?;
+        apply_versions(conn, MIGRATIONS, from_version)?;
+        apply_conditional_segments(conn)?;
+        Ok(())
+    })();
+
+    // 无论迁移成功与否都要把 FK 恢复到进入前的状态（该切换必须在事务外）。
+    // 先执行恢复再传播原始结果：迁移错误优先于恢复错误。
+    let restore = set_fk(conn, fk_before);
+    result?;
+    restore?;
+    Ok(())
+}
+
+/// 读取库内 user_version。
+fn current_user_version(conn: &Connection) -> Result<i64, anyhow::Error> {
+    Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
+}
+
+/// 读取当前 foreign_keys 开关状态（0/1）。
+fn fk_enabled(conn: &Connection) -> Result<bool, anyhow::Error> {
+    let v: i64 = conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
+    Ok(v != 0)
+}
+
+/// 设置 foreign_keys。必须在无活动事务时调用——SQLite 规定事务内切换是 no-op。
+fn set_fk(conn: &Connection, on: bool) -> Result<(), anyhow::Error> {
+    conn.pragma_update(None, "foreign_keys", if on { 1 } else { 0 })?;
+    Ok(())
+}
+
+/// 逐条应用版本化迁移，每条在独立事务中原子提交。
+/// 某版本失败则其事务回滚，user_version 停在上一已提交版本，重跑从失败版本续起。
+fn apply_versions(
+    conn: &Connection,
+    migrations: &[(&str, &str)],
+    from_version: i64,
+) -> Result<(), anyhow::Error> {
+    let floor = current_user_version(conn)?.max(from_version);
+    for (version, sql) in migrations {
+        let v: i64 = version
+            .parse()
+            .map_err(|e| anyhow::anyhow!("非法迁移版本号 {version}: {e}"))?;
         if v > floor {
-            conn.execute_batch(sql)?;
-            conn.execute_batch(&format!("PRAGMA user_version = {};", v))?;
-            log::info!("Migration v{} applied", v);
+            apply_migration_tx(conn, sql, v)?;
+            log::info!("Migration v{v} applied");
         }
     }
+    Ok(())
+}
+
+/// 在单个事务内执行一条迁移 SQL 并把 user_version 原子推进到 new_version。
+/// DDL 与 user_version 同事务提交：成功一起落盘，失败一起回滚。
+fn apply_migration_tx(conn: &Connection, sql: &str, new_version: i64) -> Result<(), anyhow::Error> {
+    // 仅拿得到 &Connection，故用 unchecked_transaction；入口保证无活动事务。
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(sql)?;
+    tx.pragma_update(None, "user_version", new_version)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// 条件执行段（幂等：PRAGMA 探测后按需 ALTER/重建），在单个事务内整体执行。
+/// 任一步骤失败则整体回滚（`?` 提前返回会 Drop `tx` 触发回滚），重跑幂等自愈。
+fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
+    // 仅拿得到 &Connection，故用 unchecked_transaction；入口保证无活动事务。
+    let tx = conn.unchecked_transaction()?;
 
     // 条件补列：cases.raw_track (v19 幂等增加)
-    let has_raw_track: bool = conn
+    let has_raw_track: bool = tx
         .prepare("PRAGMA table_info(cases)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .any(|col| col == "raw_track");
     if !has_raw_track {
-        conn.execute_batch("ALTER TABLE cases ADD COLUMN raw_track TEXT;")?;
+        tx.execute_batch("ALTER TABLE cases ADD COLUMN raw_track TEXT;")?;
     }
 
     // 条件补列 + 索引：knowledge_items.law_name（旧 DB 可能缺少该列）
-    let has_law_name: bool = conn
+    let has_law_name: bool = tx
         .prepare("PRAGMA table_info(knowledge_items)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .any(|col| col == "law_name");
     if !has_law_name {
-        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN law_name TEXT;")?;
-        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN article_no TEXT;")?;
-        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN effective_date TEXT;")?;
-        conn.execute_batch(
+        tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN law_name TEXT;")?;
+        tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN article_no TEXT;")?;
+        tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN effective_date TEXT;")?;
+        tx.execute_batch(
             "ALTER TABLE knowledge_items ADD COLUMN status TEXT DEFAULT 'current';",
         )?;
         log::info!("Added law_name/article_no/effective_date/status columns to knowledge_items");
     }
-    conn.execute_batch(
+    tx.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);",
     )?;
 
     // 条件补列：reminder_log.level（R1-R4 分级，旧 DB 可能缺少该列）
-    let has_reminder_level: bool = conn
+    let has_reminder_level: bool = tx
         .prepare("PRAGMA table_info(reminder_log)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .any(|col| col == "level");
     if !has_reminder_level {
-        conn.execute_batch(
+        tx.execute_batch(
             "ALTER TABLE reminder_log ADD COLUMN level TEXT CHECK(level IN ('R1','R2','R3','R4'));",
         )?;
         log::info!("Added level column to reminder_log (R1-R4 classification)");
     }
 
     // 条件补列：ai_runs / ai_context_items 等表的索引（旧 DB 可能缺少）
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_ai_runs_created ON ai_runs(created_at);")?;
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_ai_runs_created ON ai_runs(created_at);")?;
 
     // ── v11 条件执行段（幂等：PRAGMA 探测后按需变更）────────────────
 
     // 知识块级化（§8.2）：knowledge_items.parent_id / block_type
-    let ki_cols: Vec<String> = conn
+    let ki_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(knowledge_items)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .collect();
     if !ki_cols.iter().any(|c| c == "parent_id") {
-        conn.execute_batch("ALTER TABLE knowledge_items ADD COLUMN parent_id TEXT;")?;
+        tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN parent_id TEXT;")?;
         log::info!("Added parent_id column to knowledge_items (block hierarchy)");
     }
     if !ki_cols.iter().any(|c| c == "block_type") {
-        conn.execute_batch(
+        tx.execute_batch(
             "ALTER TABLE knowledge_items ADD COLUMN block_type TEXT DEFAULT 'page';",
         )?;
         log::info!("Added block_type column to knowledge_items (page/block/reference)");
     }
-    conn.execute_batch(
+    tx.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_items(parent_id);",
     )?;
 
     // 报表叙事层（§11.3）：smart_summaries.narrative_source（'rule'/'ai'）
-    let ss_cols: Vec<String> = conn
+    let ss_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(smart_summaries)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .collect();
     if !ss_cols.iter().any(|c| c == "narrative_source") {
-        conn.execute_batch(
+        tx.execute_batch(
             "ALTER TABLE smart_summaries ADD COLUMN narrative_source TEXT DEFAULT 'rule';",
         )?;
         log::info!("Added narrative_source column to smart_summaries (rule/ai)");
     }
 
     // v13：tasks.due_time（具体时间点，旧库保护）
-    let task_cols: Vec<String> = conn
+    let task_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .collect();
     if !task_cols.iter().any(|c| c == "due_time") {
-        conn.execute_batch("ALTER TABLE tasks ADD COLUMN due_time TEXT;")?;
-        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_due_time ON tasks(due_time);")?;
+        tx.execute_batch("ALTER TABLE tasks ADD COLUMN due_time TEXT;")?;
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_due_time ON tasks(due_time);")?;
         log::info!("Added due_time column to tasks (v13 time model)");
     }
 
     // v15：tasks.time_block（时间块排程，设计哲学 §7.2）
     if !task_cols.iter().any(|c| c == "time_block") {
-        conn.execute_batch("ALTER TABLE tasks ADD COLUMN time_block TEXT CHECK(time_block IN ('morning','afternoon','evening','night','flex',NULL));")?;
-        conn.execute_batch(
+        tx.execute_batch("ALTER TABLE tasks ADD COLUMN time_block TEXT CHECK(time_block IN ('morning','afternoon','evening','night','flex',NULL));")?;
+        tx.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_tasks_time_block ON tasks(time_block);",
         )?;
         log::info!("Added time_block column to tasks (v15 time block scheduling)");
     }
 
     // L3 递归确认（§11.5）：task_events.event_type CHECK 扩展 'recursion_gap'，task_id 可空
-    let te_sql: Option<String> = conn
+    let te_sql: Option<String> = tx
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_events'",
             [],
@@ -2726,13 +2839,13 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         .ok();
     if let Some(sql) = te_sql {
         if !sql.contains("recursion_gap") {
-            conn.execute_batch(TASK_EVENTS_REBUILD_V11_SQL)?;
+            tx.execute_batch(TASK_EVENTS_REBUILD_V11_SQL)?;
             log::info!("Rebuilt task_events with recursion_gap event type (v11)");
         }
     }
 
     // AI 授权提案表（阶段 1 P0-2）
-    conn.execute_batch(
+    tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS ai_proposals (
             id                 TEXT PRIMARY KEY,
             tool_name          TEXT NOT NULL,
@@ -2751,26 +2864,26 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
     )?;
 
     // Phase 3: 扩展 case_files 增加 ocr_status, index_status
-    let case_files_cols: Vec<String> = conn
+    let case_files_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(case_files)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .collect();
     if !case_files_cols.iter().any(|c| c == "ocr_status") {
-        conn.execute_batch(
+        tx.execute_batch(
             "ALTER TABLE case_files ADD COLUMN ocr_status TEXT DEFAULT 'pending' CHECK(ocr_status IN ('pending','processing','completed','failed'));"
         )?;
         log::info!("Added ocr_status column to case_files (Phase 3)");
     }
     if !case_files_cols.iter().any(|c| c == "index_status") {
-        conn.execute_batch(
+        tx.execute_batch(
             "ALTER TABLE case_files ADD COLUMN index_status TEXT DEFAULT 'pending' CHECK(index_status IN ('pending','processing','completed','failed'));"
         )?;
         log::info!("Added index_status column to case_files (Phase 3)");
     }
 
     // Phase 3: page_index_nodes 检索树
-    conn.execute_batch(
+    tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS page_index_nodes (
             id              TEXT PRIMARY KEY,
             file_id         TEXT NOT NULL REFERENCES case_files(id) ON DELETE CASCADE,
@@ -2789,17 +2902,17 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
 
     // ── v20 条件补列段（幂等：PRAGMA 探测后按需 ALTER；裸 ALTER 进 MIGRATIONS 会在
     //    迁移中途失败重试时 duplicate column 永久卡死，遵循 v11/v13/v15 惯例）──
-    let tasks_cols: Vec<String> = conn
+    let tasks_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |row| row.get::<_, String>(1))?
         .filter_map(|r| r.ok())
         .collect();
     if !tasks_cols.iter().any(|c| c == "defer_until") {
-        conn.execute_batch("ALTER TABLE tasks ADD COLUMN defer_until TEXT;")?;
+        tx.execute_batch("ALTER TABLE tasks ADD COLUMN defer_until TEXT;")?;
         log::info!("Added defer_until column to tasks (v20)");
     }
     if !case_files_cols.iter().any(|c| c == "ocr_text") {
-        conn.execute_batch("ALTER TABLE case_files ADD COLUMN ocr_text TEXT;")?;
+        tx.execute_batch("ALTER TABLE case_files ADD COLUMN ocr_text TEXT;")?;
         log::info!("Added ocr_text column to case_files (v20)");
     }
 
@@ -2813,7 +2926,7 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         ("ocr_error", "TEXT"),
     ] {
         if !case_files_cols.iter().any(|existing| existing == column) {
-            conn.execute_batch(&format!(
+            tx.execute_batch(&format!(
                 "ALTER TABLE case_files ADD COLUMN {} {};",
                 column, definition
             ))?;
@@ -2823,7 +2936,7 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
     // v23：knowledge_items.category 旧 CHECK 枚举条件重建（sqlite_master 探测，幂等）。
     // 必须排在全部 knowledge_items 条件补列（law_name/parent_id/block_type）之后，
     // 保证 INSERT SELECT 的列清单在旧库上也已齐整。
-    let ki_table_sql: Option<String> = conn
+    let ki_table_sql: Option<String> = tx
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_items'",
             [],
@@ -2832,13 +2945,13 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         .ok();
     if let Some(sql) = ki_table_sql {
         if sql.contains("CHECK(category") {
-            conn.execute_batch(KNOWLEDGE_ITEMS_REBUILD_V23_SQL)?;
+            tx.execute_batch(KNOWLEDGE_ITEMS_REBUILD_V23_SQL)?;
             log::info!("Rebuilt knowledge_items without category CHECK (v23)");
         }
     }
 
     // v23b：decisions.entity_type 旧 CHECK 缺 'recommendation' 条件重建（幂等）
-    let dec_table_sql: Option<String> = conn
+    let dec_table_sql: Option<String> = tx
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'decisions'",
             [],
@@ -2847,11 +2960,43 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         .ok();
     if let Some(sql) = dec_table_sql {
         if sql.contains("CHECK(entity_type IN") && !sql.contains("'recommendation'") {
-            conn.execute_batch(DECISIONS_REBUILD_V23B_SQL)?;
+            tx.execute_batch(DECISIONS_REBUILD_V23B_SQL)?;
             log::info!("Rebuilt decisions with recommendation entity_type (v23b)");
         }
     }
 
+    // ── v24 条件补列 + 重建段（软删除落地；幂等：PRAGMA 探测后按需变更）──
+    // tasks.deleted_at：软删除标记。所有任务读取默认 WHERE deleted_at IS NULL，
+    // delete_task 改为 UPDATE deleted_at（而非 DELETE），restore_task 改回 NULL。
+    let tasks_cols_v24: Vec<String> = tx
+        .prepare("PRAGMA table_info(tasks)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !tasks_cols_v24.iter().any(|c| c == "deleted_at") {
+        tx.execute_batch("ALTER TABLE tasks ADD COLUMN deleted_at TEXT;")?;
+        log::info!("Added deleted_at column to tasks (v24 soft delete)");
+    }
+    // 必要索引：活跃任务（deleted_at IS NULL）是最常见的过滤谓词，普通索引足够支撑。
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);")?;
+
+    // task_events.event_type CHECK 扩展 'deleted'/'restored'（v24 软删除审计留痕）。
+    // 仅在旧表 CHECK 不含 'deleted' 时重建（幂等）；task_id 保持可空（继承 v11 形态）。
+    let te_table_sql_v24: Option<String> = tx
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_events'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(sql) = te_table_sql_v24 {
+        if !sql.contains("'deleted'") {
+            tx.execute_batch(TASK_EVENTS_REBUILD_V24_SQL)?;
+            log::info!("Rebuilt task_events with deleted/restored event types (v24)");
+        }
+    }
+
+    tx.commit()?;
     Ok(())
 }
 
@@ -3089,6 +3234,133 @@ pub fn seed_deadline_rules(conn: &Connection) -> Result<(), anyhow::Error> {
 mod tests {
     use super::*;
 
+    // ---------- 事务边界 / 失败回滚 / 幂等 ----------
+
+    /// 表是否存在（用于断言迁移回滚后未留下半迁移表）。
+    fn table_exists(conn: &Connection, name: &str) -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            [name],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+            > 0
+    }
+
+    /// 单条迁移在事务内原子执行：失败时 schema 与 user_version 一起回滚。
+    #[test]
+    fn test_apply_migration_tx_rolls_back_on_failure() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+
+        // 批次第一条语句成功后第二条失败 → 整个事务应回滚。
+        let sql = "CREATE TABLE t (id INTEGER PRIMARY KEY);
+                   INSERT INTO t (id) VALUES (1);
+                   INSERT INTO t (id) VALUES (2, 'boom');"; // 列数不匹配 → 失败
+        let res = apply_migration_tx(&conn, sql, 2);
+
+        assert!(res.is_err(), "含失败语句的迁移应返回 Err");
+        assert!(!table_exists(&conn, "t"), "失败迁移应整体回滚，不留下 t 表");
+        let ver: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(ver, 1, "失败迁移不应推进 user_version");
+        // 连接应回到可用状态（无残留活动事务）。
+        let ok: i64 = conn.query_row("SELECT 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(ok, 1);
+    }
+
+    /// 版本化迁移逐条事务提交：前一版本已提交，失败版本整体回滚，重跑可从失败版本续起。
+    #[test]
+    fn test_apply_versions_resumes_after_failed_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+
+        let migrations: &[(&str, &str)] = &[
+            ("2", "CREATE TABLE t2 (id INTEGER PRIMARY KEY);"),
+            (
+                "3",
+                "CREATE TABLE t3 (id INTEGER PRIMARY KEY);
+                 INSERT INTO t3 (id) VALUES (1);
+                 INSERT INTO t3 (id) VALUES (2, 'boom');",
+            ),
+        ];
+        // v2 提交、v3 失败。
+        let res = apply_versions(&conn, migrations, 1);
+        assert!(res.is_err(), "v3 应失败");
+        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver, 2, "user_version 应停在已提交的 v2");
+        assert!(table_exists(&conn, "t2"), "v2 应已提交");
+        assert!(!table_exists(&conn, "t3"), "v3 应整体回滚");
+
+        // 重跑：仍在 v2，v3 再次失败；v2 不重复执行，v3 不留下半迁移。
+        let res2 = apply_versions(&conn, migrations, 1);
+        assert!(res2.is_err());
+        let ver2: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver2, 2);
+        assert!(table_exists(&conn, "t2"));
+        assert!(!table_exists(&conn, "t3"));
+    }
+
+    /// run_migrations 应把 foreign_keys 恢复到进入前的状态（现 ON 与 OFF 均需正确）。
+    #[test]
+    fn test_run_migrations_restores_foreign_keys_state() {
+        // 进入时 FK=ON → 迁移后仍为 ON
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn, 1).unwrap();
+        let fk_on: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fk_on, 1, "进入时 FK=ON，迁移后应恢复为 ON");
+
+        // 进入时 FK=OFF → 迁移后仍为 OFF（显式设置，不依赖库默认值）
+        let conn2 = Connection::open_in_memory().unwrap();
+        conn2.execute_batch(SCHEMA_SQL).unwrap();
+        conn2.execute_batch("PRAGMA user_version = 1;").unwrap();
+        conn2.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+        let fk2_before: i64 = conn2
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fk2_before, 0, "进入时应为 FK=OFF");
+        run_migrations(&conn2, 1).unwrap();
+        let fk2: i64 = conn2
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fk2, 0, "进入时 FK=OFF，迁移后应保持 OFF");
+    }
+
+    /// 全量迁移幂等：从 v1 起跑并重复执行，最终达到目标版本且条件列就位、不重复。
+    #[test]
+    fn test_full_migration_idempotent_reaches_target() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+
+        run_migrations(&conn, 1).unwrap();
+        run_migrations(&conn, 1).unwrap();
+        run_migrations(&conn, 1).unwrap();
+
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+        let tasks_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(tasks)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        // v13/v15/v20 条件补列在重复迁移下应存在（幂等，不因重复执行而缺失）。
+        assert!(tasks_cols.iter().any(|c| c == "due_time"));
+        assert!(tasks_cols.iter().any(|c| c == "time_block"));
+        assert!(tasks_cols.iter().any(|c| c == "defer_until"));
+    }
+
     /// v11 迁移幂等性：从 v1 全量迁移两次，结果一致且新列/新约束就位
     #[test]
     fn test_v11_migration_idempotent() {
@@ -3182,7 +3454,15 @@ mod tests {
         conn.execute_batch("PRAGMA user_version = 1;").unwrap();
         run_migrations(&conn, 1).unwrap();
 
-        for cat in ["reference", "inspiration", "method", "question", "experience", "log", "document_summary"] {
+        for cat in [
+            "reference",
+            "inspiration",
+            "method",
+            "question",
+            "experience",
+            "log",
+            "document_summary",
+        ] {
             conn.execute(
                 "INSERT INTO knowledge_items (id, title, category, content) VALUES (?1, 't', ?2, 'c')",
                 rusqlite::params![format!("ki-{cat}"), cat],
@@ -3233,14 +3513,20 @@ mod tests {
         .unwrap();
         // 数据与 rowid 保留（FTS external-content 依赖 rowid 不变）
         let (title, cat): (String, String) = conn
-            .query_row("SELECT title, category FROM knowledge_items WHERE id='n1'", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT title, category FROM knowledge_items WHERE id='n1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert_eq!((title.as_str(), cat.as_str()), ("旧笔记", "reference"));
         // FK 关闭期间 DROP 未级联清空版本表
         let versions: i64 = conn
-            .query_row("SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(versions, 1, "重建不应丢失 knowledge_versions 数据");
         // 旧索引内容在 FTS 重灌后仍可检索
@@ -3268,3 +3554,4 @@ mod tests {
         assert_eq!(hit, 1, "重建后 FTS 触发器应继续索引");
     }
 }
+

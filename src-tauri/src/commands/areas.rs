@@ -217,19 +217,19 @@ pub async fn get_area_stats(id: String) -> Result<AreaStatsDto, String> {
             )
             .map_err(|e| anyhow::anyhow!(e))?;
         let total_tasks: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1",
+            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND deleted_at IS NULL",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
 
         let completed_tasks: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND completed = 1",
+            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND completed = 1 AND deleted_at IS NULL",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
 
         let pending_tasks: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND completed = 0",
+            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND completed = 0 AND deleted_at IS NULL",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
