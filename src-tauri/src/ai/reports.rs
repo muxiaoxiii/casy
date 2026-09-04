@@ -177,7 +177,7 @@ fn upsert_daily_stats(conn: &rusqlite::Connection, date: &str, brief: &DailyBrie
     // 截至当日累计任务数
     let task_total: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE date(created_at) <= ?1",
+            "SELECT COUNT(*) FROM tasks WHERE date(created_at) <= ?1 AND deleted_at IS NULL",
             params![date],
             |r| r.get(0),
         )
@@ -189,7 +189,8 @@ fn upsert_daily_stats(conn: &rusqlite::Connection, date: &str, brief: &DailyBrie
             "SELECT COUNT(*), COALESCE(SUM(julianday(?1) - julianday(COALESCE(t.due_date, t.deadline))), 0)
              FROM tasks t
              WHERE t.completed = 0 AND COALESCE(t.due_date, t.deadline) IS NOT NULL
-               AND COALESCE(t.due_date, t.deadline) < ?1",
+               AND COALESCE(t.due_date, t.deadline) < ?1
+               AND t.deleted_at IS NULL",
             params![date],
             |r| Ok((r.get(0)?, r.get::<_, f64>(1)? as i64)),
         )
@@ -422,7 +423,7 @@ fn generate_yesterday_review(
 
     let total: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE date(created_at) <= ?1",
+            "SELECT COUNT(*) FROM tasks WHERE date(created_at) <= ?1 AND deleted_at IS NULL",
             params![yesterday],
             |r| r.get(0),
         )
@@ -493,7 +494,7 @@ fn generate_today_focus(conn: &rusqlite::Connection, today: &str) -> Result<Toda
     // 今日到期任务
     let mut stmt = conn.prepare(
         "SELECT id, task_name, case_id, COALESCE(due_date, deadline), COALESCE(priority, 'normal') FROM tasks
-         WHERE completed = 0 AND (due_date = ?1 OR deadline = ?1)
+         WHERE completed = 0 AND (due_date = ?1 OR deadline = ?1) AND deleted_at IS NULL
          ORDER BY priority",
     )?;
 
@@ -512,7 +513,7 @@ fn generate_today_focus(conn: &rusqlite::Connection, today: &str) -> Result<Toda
     // 下一步行动
     let mut stmt = conn.prepare(
         "SELECT id, task_name, case_id, COALESCE(due_date, deadline), COALESCE(priority, 'normal') FROM tasks
-         WHERE completed = 0 AND task_type = 'action' AND blocked = 0
+         WHERE completed = 0 AND task_type = 'action' AND blocked = 0 AND deleted_at IS NULL
          ORDER BY priority LIMIT 3",
     )?;
 
@@ -649,7 +650,8 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
         .query_row(
             "SELECT COUNT(*) FROM tasks
              WHERE completed = 0 AND COALESCE(due_date, deadline) IS NOT NULL
-               AND COALESCE(due_date, deadline) < ?1",
+               AND COALESCE(due_date, deadline) < ?1
+               AND deleted_at IS NULL",
             params![today_s],
             |r| r.get(0),
         )

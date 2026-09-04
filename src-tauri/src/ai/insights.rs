@@ -129,6 +129,7 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
              FROM tasks
              WHERE completed = 0 AND task_type = 'waiting'
                AND follow_up_date IS NOT NULL AND follow_up_date < ?1
+               AND deleted_at IS NULL
              ORDER BY follow_up_date ASC
              LIMIT 20",
         )?;
