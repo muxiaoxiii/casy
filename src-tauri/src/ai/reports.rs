@@ -539,7 +539,7 @@ fn generate_today_focus(conn: &rusqlite::Connection, today: &str) -> Result<Toda
 fn generate_waiting_alerts(conn: &rusqlite::Connection, today: &str) -> Result<Vec<WaitingAlert>> {
     let mut stmt = conn.prepare(
         "SELECT id, task_name, waiting_for, follow_up_date FROM tasks
-         WHERE completed = 0 AND task_type = 'waiting'",
+         WHERE completed = 0 AND task_type = 'waiting' AND deleted_at IS NULL",
     )?;
 
     let mut alerts = Vec::new();
@@ -660,7 +660,7 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
     // 逾期率 = 逾期数 /（本周完成 + 当前未完成且有截止日期的任务数）
     let open_with_due: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE completed = 0 AND COALESCE(due_date, deadline) IS NOT NULL",
+            "SELECT COUNT(*) FROM tasks WHERE completed = 0 AND COALESCE(due_date, deadline) IS NOT NULL AND deleted_at IS NULL",
             [],
             |r| r.get(0),
         )
@@ -683,6 +683,7 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
          JOIN tasks t ON t.id = te.task_id
          LEFT JOIN cases c ON c.id = t.case_id
          WHERE te.event_type = 'completed' AND date(te.occurred_at) BETWEEN ?1 AND ?2
+           AND t.deleted_at IS NULL
          GROUP BY track ORDER BY minutes DESC",
     )?;
     let time_by_track: Vec<TrackTime> = stmt
