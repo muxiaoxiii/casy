@@ -246,7 +246,7 @@ fn collect_bounded_context(
         if items.len() < MAX_CONTEXT_ITEMS {
             let mut stmt = conn.prepare(
                 "SELECT id, task_name, COALESCE(COALESCE(due_date, deadline), ''), completed
-                 FROM tasks WHERE case_id = ?1 ORDER BY created_at DESC LIMIT 10",
+                 FROM tasks WHERE case_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10",
             )?;
             let rows = stmt
                 .query_map(params![cid], |r| {

@@ -369,7 +369,8 @@ mod tests {
         let orphans: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM tasks t WHERE t.case_id IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM cases c WHERE c.id = t.case_id)",
+             AND NOT EXISTS (SELECT 1 FROM cases c WHERE c.id = t.case_id)
+             AND t.deleted_at IS NULL",
                 [],
                 |r| r.get(0),
             )

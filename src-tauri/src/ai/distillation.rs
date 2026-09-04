@@ -107,7 +107,7 @@ fn extract_candidate_memories(conn: &rusqlite::Connection) -> Result<Vec<Candida
                 GROUP_CONCAT(t.id) as task_ids
          FROM task_events te
          JOIN tasks t ON t.id = te.task_id
-         WHERE te.event_type = 'deferred'
+         WHERE te.event_type = 'deferred' AND t.deleted_at IS NULL
          GROUP BY t.task_name
          HAVING delay_count >= 2",
     )?;
