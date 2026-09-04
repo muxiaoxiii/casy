@@ -1872,4 +1872,185 @@ mod tests {
             "应兼容 parentId"
         );
     }
+
+    /// 模拟 delete_task 的服务端软删除（UPDATE deleted_at + 写 deleted 审计事件）。
+    fn soft_delete(conn: &rusqlite::Connection, id: &str, now: &str) {
+        conn.execute(
+            "UPDATE tasks SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            rusqlite::params![now, id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor)
+             VALUES (?1, ?2, 'deleted', ?3, ?4, 'user')",
+            rusqlite::params![
+                db::new_id(),
+                id,
+                now,
+                serde_json::json!({ "reason": "soft_delete", "deletedAt": now }).to_string(),
+            ],
+        )
+        .unwrap();
+    }
+
+    /// v24 软删除：删除是 UPDATE（行保留），且关联提醒/事件/子项不被级联删除；
+    /// list_tasks 的默认查询（deleted_at IS NULL）将软删任务过滤掉。
+    #[test]
+    fn test_soft_delete_preserves_row_and_associated_records() {
+        let mut conn = test_conn();
+        let now = "2026-09-01 12:00:00";
+
+        // 一个主任务 + 关联的事件、提醒作业、子任务（软删后都应存活）
+        conn.execute(
+            "INSERT INTO tasks (id, task_name, created_date, completed) VALUES ('t-del', '主任务', '2026-09-01', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor)
+             VALUES ('te-1', 't-del', 'created', '2026-09-01', 'user')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO reminder_jobs (id, entity_type, entity_id, channel, scheduled_at, status)
+             VALUES ('rj-1', 'task', 't-del', 'local', '2026-09-01 09:00:00', 'pending')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, task_name, created_date, completed, parent_task_id)
+             VALUES ('t-child', '子任务', '2026-09-01', 0, 't-del')",
+            [],
+        )
+        .unwrap();
+
+        soft_delete(&conn, "t-del", now);
+
+        // 主任务行仍在库（软删标记），未被 DELETE
+        let (still_exists, deleted_at): (i64, Option<String>) = conn
+            .query_row(
+                "SELECT COUNT(*), deleted_at FROM tasks WHERE id = 't-del'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(still_exists, 1, "软删后主任务行应保留");
+        assert!(deleted_at.is_some(), "软删后 deleted_at 应被写入");
+
+        // 关联引用行未被级联删除
+        let ev_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_events WHERE task_id = 't-del'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ev_count, 2, "软删不应级联删除 task_events（created + deleted）");
+        let rj_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM reminder_jobs WHERE entity_id = 't-del'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rj_count, 1, "软删不应删除提醒作业行");
+        let child_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE id = 't-child'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(child_count, 1, "软删不应删除子任务行");
+
+        // 默认任务查询（list_tasks 语义：deleted_at IS NULL）应过滤掉软删任务
+        let visible: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(visible, 1, "软删任务应被默认查询过滤（只剩子任务可见）");
+    }
+
+    /// v24 软删除还原：对已软删原行执行 undelete（清 deleted_at）并按快照恢复字段，
+    /// 关联引用行仍保留；写 restored 审计事件。
+    #[test]
+    fn test_restore_undeletes_soft_deleted_task() {
+        let mut conn = test_conn();
+        let now = "2026-09-01 12:00:00";
+
+        conn.execute(
+            "INSERT INTO tasks (id, task_name, created_date, completed, priority, start_bucket)
+             VALUES ('t-u', '软删任务', '2026-09-01', 1, 'important', 'today')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor)
+             VALUES ('te-1', 't-u', 'created', '2026-09-01', 'user')",
+            [],
+        )
+        .unwrap();
+        soft_delete(&conn, "t-u", now);
+
+        let snapshot = serde_json::json!({
+            "id": "t-u",
+            "taskName": "软删任务",
+            "createdDate": "2026-09-01",
+            "completed": 1,
+            "priority": "urgent_important",
+            "taskType": "action",
+            "startBucket": "today",
+            "flagged": 1,
+            "isFocus": 0,
+        });
+
+        let restored = restore_task_inner(&mut conn, &snapshot).unwrap();
+        assert_eq!(restored.id, "t-u");
+        assert_eq!(restored.completed, 1);
+        assert_eq!(restored.priority.as_deref(), Some("urgent_important"), "还原应按快照恢复字段");
+        assert_eq!(restored.flagged, 1);
+
+        let (deleted_at_after, deleted_event): (Option<String>, i64) = conn
+            .query_row(
+                "SELECT deleted_at,
+                        (SELECT COUNT(*) FROM task_events WHERE task_id='t-u' AND event_type='restored')
+                 FROM tasks WHERE id='t-u'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(deleted_at_after.is_none(), "undelete 后 deleted_at 应为 NULL");
+        assert_eq!(deleted_event, 1, "还原应写 restored 审计事件");
+        // 关联事件未丢
+        let ev_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM task_events WHERE task_id='t-u'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(ev_count, 3, "关联事件应保留（created + deleted + restored）");
+    }
+
+    /// v24：重复删除已软删任务 → 幂等成功（不重复写审计）；行不被二次变更。
+    #[test]
+    fn test_idempotent_soft_delete_no_duplicate_event() {
+        let mut conn = test_conn();
+        let now = "2026-09-01 12:00:00";
+        conn.execute(
+            "INSERT INTO tasks (id, task_name, created_date, completed) VALUES ('t-d2', '任务', '2026-09-01', 0)",
+            [],
+        )
+        .unwrap();
+        soft_delete(&conn, "t-d2", now);
+
+        // delete_task 的重复删除路径：UPDATE 命中 0 行（已删），视为幂等成功，不写新 deleted 事件
+        let rows = conn
+            .execute(
+                "UPDATE tasks SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+                rusqlite::params![now, "t-d2"],
+            )
+            .unwrap();
+        assert_eq!(rows, 0, "已删任务二次 UPDATE 应命中 0 行");
+        let deleted_events: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_events WHERE task_id='t-d2' AND event_type='deleted'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(deleted_events, 1, "重复删除不应重复写 deleted 审计事件");
+    }
 }

@@ -3553,5 +3553,56 @@ mod tests {
             .unwrap();
         assert_eq!(hit, 1, "重建后 FTS 触发器应继续索引");
     }
+
+    /// v24：软删除落地 —— tasks.deleted_at 列+索引、task_events 'deleted'/'restored' 可写、
+    /// 迁移幂等（重复执行安全）；软删行保留且关联行不被级联删除。
+    #[test]
+    fn test_v24_soft_delete_migration_adds_column_index_event_types() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+
+        run_migrations(&conn, 1).unwrap();
+        // v24 条件段幂等：重复迁移两次仍安全
+        run_migrations(&conn, 24).unwrap();
+        run_migrations(&conn, 24).unwrap();
+
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+        // tasks.deleted_at 列 + 索引就位
+        let has_deleted_at: bool = conn
+            .prepare("PRAGMA table_info(tasks)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .any(|c| c == "deleted_at");
+        assert!(has_deleted_at, "tasks 应有 deleted_at 列");
+        let idx_cnt: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_deleted_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_cnt, 1, "应有 idx_tasks_deleted_at 索引");
+
+        // task_events 支持 'deleted'/'restored'
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, payload, actor)
+             VALUES ('te-del', NULL, 'deleted', '{}', 'system')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_events (id, task_id, event_type, payload, actor)
+             VALUES ('te-res', NULL, 'restored', '{}', 'system')",
+            [],
+        )
+        .unwrap();
+    }
 }
 

@@ -1310,7 +1310,7 @@ mod case_type_metrics_tests {
             "CREATE TABLE cases (id TEXT PRIMARY KEY, case_type TEXT);
              CREATE TABLE tasks (
                id TEXT PRIMARY KEY, case_id TEXT, completed INTEGER DEFAULT 0,
-               due_date TEXT, deadline TEXT, blocked INTEGER DEFAULT 0
+               due_date TEXT, deadline TEXT, blocked INTEGER DEFAULT 0, deleted_at TEXT
              );
              CREATE TABLE task_events (
                id TEXT PRIMARY KEY, task_id TEXT, event_type TEXT, occurred_at TEXT
