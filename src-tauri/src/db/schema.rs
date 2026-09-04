@@ -705,6 +705,60 @@ pub const MIGRATION_V23_SQL: &str = r#"
 SELECT 1;
 "#;
 
+/// v23b 条件重建：旧库 decisions.entity_type CHECK 枚举缺 'recommendation'
+/// （首页 AI 建议反馈 recordDecision 以 recommendation 为实体类型，旧库必拒）。
+/// decisions 无 FTS 依赖，12 步重建即可；需重建索引与 updated_at 触发器。
+pub const DECISIONS_REBUILD_V23B_SQL: &str = r#"
+PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS decisions_v23b;
+
+CREATE TABLE decisions_v23b (
+  id              TEXT PRIMARY KEY,
+  entity_type     TEXT NOT NULL CHECK(entity_type IN ('case','client','task','knowledge','recommendation')),
+  entity_id       TEXT NOT NULL,
+  decision_type   TEXT NOT NULL CHECK(decision_type IN (
+    'appeal','settle','accept','refuse','other',
+    'recommend_today','recommend_priority','recommend_estimate',
+    'recommend_schedule','recommend_action','recommend_followup'
+  )),
+  decision        TEXT NOT NULL,
+  basis           TEXT,
+  ai_advice       TEXT,
+  ai_model        TEXT,
+  source_ref      TEXT,
+  status          TEXT DEFAULT 'proposed' CHECK(status IN ('proposed','confirmed','rejected','voided')),
+  recursive_checked INTEGER DEFAULT 0 CHECK(recursive_checked IN (0,1)),
+  confirmed_at    TEXT,
+  review_due      TEXT,
+  reviewed_at     TEXT,
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  updated_at      TEXT DEFAULT (datetime('now','localtime'))
+);
+
+INSERT INTO decisions_v23b (rowid, id, entity_type, entity_id, decision_type, decision, basis,
+  ai_advice, ai_model, source_ref, status, recursive_checked, confirmed_at, review_due, reviewed_at,
+  created_at, updated_at)
+SELECT rowid, id, entity_type, entity_id, decision_type, decision, basis,
+  ai_advice, ai_model, source_ref, status, recursive_checked, confirmed_at, review_due, reviewed_at,
+  created_at, updated_at
+FROM decisions;
+
+DROP TABLE decisions;
+ALTER TABLE decisions_v23b RENAME TO decisions;
+
+CREATE INDEX IF NOT EXISTS idx_decisions_entity ON decisions(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status);
+
+CREATE TRIGGER IF NOT EXISTS trg_decisions_updated
+AFTER UPDATE ON decisions FOR EACH ROW
+BEGIN
+  UPDATE decisions SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+PRAGMA foreign_keys=ON;
+"#;
+
 /// v23 条件重建：旧库的 knowledge_items 带有 category CHECK 枚举（法律分类），
 /// 会拒绝笔记本分类（reference/inspiration/...）与后续任何新分类。
 /// 按 SQLite 12 步重建：保 rowid（FTS external-content 依赖），临时关 FK 避免
@@ -1758,7 +1812,7 @@ CREATE INDEX IF NOT EXISTS idx_task_events_time ON task_events(occurred_at);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS decisions (
   id              TEXT PRIMARY KEY,
-  entity_type     TEXT NOT NULL CHECK(entity_type IN ('case','client','task','knowledge')),
+  entity_type     TEXT NOT NULL CHECK(entity_type IN ('case','client','task','knowledge','recommendation')),
   entity_id       TEXT NOT NULL,
   decision_type   TEXT NOT NULL CHECK(decision_type IN (
     'appeal','settle','accept','refuse','other',
@@ -2780,6 +2834,21 @@ pub fn run_migrations(conn: &Connection, from_version: i64) -> Result<(), anyhow
         if sql.contains("CHECK(category") {
             conn.execute_batch(KNOWLEDGE_ITEMS_REBUILD_V23_SQL)?;
             log::info!("Rebuilt knowledge_items without category CHECK (v23)");
+        }
+    }
+
+    // v23b：decisions.entity_type 旧 CHECK 缺 'recommendation' 条件重建（幂等）
+    let dec_table_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'decisions'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(sql) = dec_table_sql {
+        if sql.contains("CHECK(entity_type IN") && !sql.contains("'recommendation'") {
+            conn.execute_batch(DECISIONS_REBUILD_V23B_SQL)?;
+            log::info!("Rebuilt decisions with recommendation entity_type (v23b)");
         }
     }
 

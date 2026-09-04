@@ -136,6 +136,25 @@ fn links_support_anchor_and_backlink_index() {
 }
 
 #[test]
+fn decisions_accepts_recommendation_entity_type() {
+    let conn = migrated_db();
+    // v23b：entity_type CHECK 放宽后 'recommendation' 可写（首页 AI 建议反馈 recordDecision）
+    conn.execute(
+        "INSERT INTO decisions (id, entity_type, entity_id, decision_type, decision)
+         VALUES ('d1', 'recommendation', 'rec-1', 'recommend_today', 'accept')",
+        [],
+    )
+    .unwrap();
+    // 非法类型仍被拒绝
+    let bad = conn.execute(
+        "INSERT INTO decisions (id, entity_type, entity_id, decision_type, decision)
+         VALUES ('d2', 'alien', 'x', 'other', 'accept')",
+        [],
+    );
+    assert!(bad.is_err(), "invalid entity_type must still be rejected");
+}
+
+#[test]
 fn smart_rules_action_check() {
     let conn = migrated_db();
     let bad = conn.execute(
