@@ -204,6 +204,11 @@ export type CommandMap = {
   get_deadline_warnings_with_levels: Cmd<Record<string, unknown>, DeadlineWarning[]>
   test_reminder: Cmd<{ ruleId: string; channel: string; message: string }, ReminderLogEntry>
 
+  // ── 备份域 ──
+  create_backup: Cmd<{}, import('./bindings').BackupFile>
+  list_backups: Cmd<{}, import('./bindings').BackupFile[]>
+  restore_backup: Cmd<{ filename: string }, boolean>
+
   // ── 同步域 ──
   get_sync_status: Cmd<Record<string, unknown>, SyncStatus>
   webdav_push: Cmd<Record<string, unknown>, SyncResult>
