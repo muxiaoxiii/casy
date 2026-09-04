@@ -308,6 +308,7 @@ export interface Task {
   parentId?: string | null         // 父任务（子任务自引用）
   recurrenceRule?: string | null   // 'daily'|'weekdays'|'weekly:<1-7>'|'monthly:<DD>'
   isFocus?: number                 // 今日重点（序时参考：Top-3 纪律）
+  deferUntil?: string | null        // 推迟至日期，到期后自动回归
 }
 
 /** 任务过滤条件 */

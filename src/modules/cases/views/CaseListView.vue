@@ -4,7 +4,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
 import { useTasksStore } from '../../../stores/tasks'
 import { casyContext } from '../../../core/plugin/context'
-import { todayLocalISO } from '../../../shared/utils/date'
+import { FILE_CATEGORIES, filterAndSortFiles, formatFileSize, getFileExt } from '../lib/fileUtils'
+import { buildMemoRecord, parseMemosFromNotes } from '../lib/memoUtils'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search,
@@ -120,16 +121,7 @@ const contextMenu = ref({
   y: 0,
   file: null,
 })
-const fileCategories = [
-  { key: 'all', label: '全部分类' },
-  { key: 'summons', label: '传票 / 通知书' },
-  { key: 'evidence', label: '证据材料' },
-  { key: 'submitted', label: '提交文件' },
-  { key: 'received', label: '接收文件' },
-  { key: 'internal', label: '内部文件' },
-  { key: 'correspondence', label: '往来函件' },
-  { key: 'other', label: '其他' },
-]
+const fileCategories = FILE_CATEGORIES
 // 案件要素编辑表单
 const editingCaseFacts = ref({
   caseName: '',
@@ -345,47 +337,12 @@ const filteredTimelineItems = computed(() => {
 /**
  * 卷宗文件列表穿透与非穿透逻辑
  */
-const sortedCaseFiles = computed(() => {
-  let list = [...caseFiles.value]
-  // 1. 目录树穿透/子目录过滤
-  if (selectedDirRel.value) {
-    const rel = selectedDirRel.value
-    list = list.filter(f => {
-      const p = f.filePath || ''
-      return p.includes(`/${rel}/`) || p.includes(`\\${rel}\\`) || f.category === rel
-    })
-  }
-  // 2. 分类筛选过滤
-  if (activeCategory.value !== 'all') {
-    list = list.filter(f => f.category === activeCategory.value)
-  }
-  // 3. 关键字搜索
-  const q = fileSearchQuery.value.trim().toLowerCase()
-  if (q) {
-    list = list.filter(f => f.fileName?.toLowerCase().includes(q))
-  }
-  // 4. 排序方式
-  if (fileSortOrder.value === 'recent') {
-    list.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
-  } else if (fileSortOrder.value === 'name') {
-    list.sort((a, b) => (a.fileName || '').localeCompare(b.fileName || '', 'zh'))
-  } else {
-    list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-  }
-  return list
-})
-function formatFileSize(bytes) {
-  if (!bytes || bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-function getFileExt(fileName) {
-  if (!fileName) return 'FILE'
-  const ext = fileName.split('.').pop()
-  return ext ? ext.toUpperCase() : 'FILE'
-}
+const sortedCaseFiles = computed(() => filterAndSortFiles(caseFiles.value, {
+  selectedDirRel: selectedDirRel.value,
+  activeCategory: activeCategory.value,
+  searchQuery: fileSearchQuery.value,
+  sortOrder: fileSortOrder.value,
+}))
 function trackLabel(track) {
   return trackOptions.find((option) => option.value === track)?.label || '其他事项'
 }
@@ -412,16 +369,7 @@ function exitFullWorkspace() {
 }
 // 加载案件备忘
 function loadCaseMemos(item) {
-  if (!item?.notes) {
-    caseMemos.value = []
-    return
-  }
-  try {
-    const parsed = JSON.parse(item.notes)
-    caseMemos.value = Array.isArray(parsed) ? parsed : [{ id: '1', title: '办案备忘', content: item.notes, date: '2026-08-28' }]
-  } catch {
-    caseMemos.value = [{ id: '1', title: '办案备忘', content: item.notes, date: '2026-08-28', tags: ['办案随笔'] }]
-  }
+  caseMemos.value = parseMemosFromNotes(item?.notes)
 }
 // 加载案件文件与目录
 async function loadCaseFiles() {
@@ -516,18 +464,12 @@ async function submitMemo() {
     ElMessage.warning('请输入备忘内容')
     return
   }
-  const now = new Date()
-  // 时区（审查 P1-2）：原本用 toISOString()（UTC）取备忘日期，凌晨窗口内标成前一天。
-  const dateStr = todayLocalISO()
-  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  const newMemo = {
-    id: Date.now().toString(),
-    title: memoForm.value.title || `办案备忘 · ${dateStr}`,
+  const newMemo = buildMemoRecord({
+    title: memoForm.value.title,
     content: memoForm.value.content,
-    date: dateStr,
-    time: timeStr,
-    tags: [...memoForm.value.tags, `#${selectedCase.value?.caseName?.slice(0, 8) || '案件'}`],
-  }
+    tags: memoForm.value.tags,
+    caseName: selectedCase.value?.caseName,
+  })
   // 先持久化（同步入库案件 notes 字段），成功后才更新本地状态：
   // 后端失败时不写入 caseMemos、不弹成功，直接报错，避免本地污染/虚假成功。
   const nextMemos = [newMemo, ...caseMemos.value]

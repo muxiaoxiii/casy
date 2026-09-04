@@ -23,6 +23,15 @@ import { formatDate } from '../utils/taskDisplay'
 import { registerShortcut } from '../../../shared/keyboard'
 import { parseWhen } from '../../../shared/nlp/parseWhen'
 import { tauriCall } from '../../../core/tauriBridge'
+import { emptyEditForm, toEditForm, toSavePayload } from '../utils/taskForm'
+import {
+  applyTaskCardFilters,
+  buildCaseGroupSections,
+  buildChildrenMap,
+  buildGtdStats,
+  buildMatrixQuadrants,
+  tasksForPerspective,
+} from '../utils/taskFilter'
 
 // ============================================================
 // 1. 状态管理 (直连真实 SQLite 数据库)
@@ -44,25 +53,7 @@ const selectedCaseFilter = ref('all')
 // 抽屉与详情编辑
 const showDrawer = ref(false)
 const editingTask = ref(null)
-const editForm = ref({
-  taskName: '',
-  description: '',
-  deadline: '',
-  priority: 'normal',
-  caseId: '',
-  taskType: 'action',
-  startDate: '',
-  dueDate: '',
-  dueTime: '',
-  waitingFor: '',
-  followUpDate: '',
-  context: '',
-  flagged: false,
-  areaId: '',
-  estimatedMinutes: null,
-  startBucket: 'anytime',
-  deferUntil: '',
-})
+const editForm = ref(emptyEditForm())
 
 // 弹窗状态
 const showCreateDialog = ref(false)
@@ -146,182 +137,32 @@ const todayStr = computed(() => {
   return `${y}-${m}-${day}`
 })
 
-const gtdStats = computed(() => {
-  const today = todayStr.value
-  const uncompleted = tasks.value.filter(t => !t.completed)
-  const completedList = tasks.value.filter(t => !!t.completed)
-
-  return {
-    all: uncompleted.length,
-    inbox: uncompleted.filter(t => t.startBucket === 'inbox' || (!t.dueDate && !t.startDate && !t.caseId)).length,
-    today: uncompleted.filter(t => t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)).length,
-    upcoming: uncompleted.filter(t => t.dueDate || t.startDate || t.deadline).length,
-    multiday: uncompleted.filter(t => t.startDate && t.dueDate && t.startDate !== t.dueDate).length,
-    next: uncompleted.filter(t => t.taskType === 'action' || !t.taskType).length,
-    waiting: uncompleted.filter(t => t.taskType === 'waiting' || !!t.waitingFor).length,
-    deferred: uncompleted.filter(t => t.deferUntil && t.deferUntil > today).length,
-    matrix: uncompleted.length,
-    bycase: uncompleted.filter(t => !!t.caseId).length,
-    completed: completedList.length,
-  }
-})
+const gtdStats = computed(() => buildGtdStats(tasks.value, todayStr.value))
 
 // ============================================================
 // 4. 当前透视任务流过滤 (Dynamic Filtering)
 // ============================================================
-const gtdTasks = computed(() => {
-  const today = todayStr.value
-  const q = searchQuery.value.trim().toLowerCase()
-  let list = []
-
-  switch (activePerspective.value) {
-    case 'all':
-      list = tasks.value.filter(t => !t.completed)
-      break
-
-    case 'inbox':
-      list = tasks.value.filter(t => !t.completed && (t.startBucket === 'inbox' || (!t.dueDate && !t.startDate && !t.caseId)))
-      break
-
-    case 'today':
-      // W2：今日专注隐藏未到期推迟任务（deferUntil > 今天才藏，到期当天自动回归）
-      list = tasks.value.filter(t => !t.completed
-        && (!t.deferUntil || t.deferUntil <= today)
-        && (t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)))
-      break
-
-    case 'deferred':
-      // W2 已推迟透视：deferUntil 未到期（未来日期）的未完成任务，按回归日升序
-      list = tasks.value.filter(t => !t.completed && t.deferUntil && t.deferUntil > today)
-      list.sort((a, b) => String(a.deferUntil).localeCompare(String(b.deferUntil)))
-      break
-
-    case 'upcoming':
-      list = tasks.value.filter(t => !t.completed && (t.dueDate || t.startDate || t.deadline))
-      list.sort((a, b) => (a.dueDate || a.startDate || '9999').localeCompare(b.dueDate || b.startDate || '9999'))
-      break
-
-    case 'multiday':
-      list = tasks.value.filter(t => !t.completed && t.startDate && t.dueDate && t.startDate !== t.dueDate)
-      break
-
-    case 'next':
-      list = tasks.value.filter(t => !t.completed && (t.taskType === 'action' || !t.taskType))
-      break
-
-    case 'waiting':
-      list = tasks.value.filter(t => !t.completed && (t.taskType === 'waiting' || !!t.waitingFor))
-      break
-
-    case 'completed':
-      list = tasks.value.filter(t => !!t.completed)
-      break
-
-    case 'matrix':
-    case 'bycase':
-      list = tasks.value.filter(t => !t.completed)
-      break
-
-    default:
-      // 自定义透视
-      list = tasksStore.getTasksByCustomPerspective(activePerspective.value)
-      break
-  }
-
-  // 搜索关键字过滤
-  if (q) {
-    list = list.filter(t => t.taskName?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || getCaseName(t.caseId)?.toLowerCase().includes(q))
-  }
-
-  // 上下文过滤
-  if (selectedContextFilter.value !== 'all') {
-    list = list.filter(t => t.context === selectedContextFilter.value)
-  }
-
-  // 案件过滤
-  if (selectedCaseFilter.value !== 'all') {
-    list = list.filter(t => t.caseId === selectedCaseFilter.value)
-  }
-
-  return list
-})
+const gtdTasks = computed(() => applyTaskCardFilters(
+  tasksForPerspective(tasks.value, activePerspective.value, {
+    todayStr: todayStr.value,
+    getCustomTasks: (id) => tasksStore.getTasksByCustomPerspective(id),
+  }),
+  {
+    searchQuery: searchQuery.value,
+    contextFilter: selectedContextFilter.value,
+    caseFilter: selectedCaseFilter.value,
+    resolveCaseName: getCaseName,
+  },
+))
 
 // 案件分组视图
-const caseGroupSections = computed(() => {
-  const map = new Map()
-  const unassigned = []
-
-  for (const t of gtdTasks.value) {
-    if (t.caseId) {
-      if (!map.has(t.caseId)) {
-        map.set(t.caseId, {
-          caseId: t.caseId,
-          caseName: getCaseName(t.caseId) || '未知案件',
-          tasks: [],
-        })
-      }
-      map.get(t.caseId).tasks.push(t)
-    } else {
-      unassigned.push(t)
-    }
-  }
-
-  const list = Array.from(map.values())
-  if (unassigned.length) {
-    list.push({
-      caseId: '__unassigned__',
-      caseName: '律所通用 / 未指定案件',
-      tasks: unassigned,
-    })
-  }
-  return list
-})
+const caseGroupSections = computed(() => buildCaseGroupSections(gtdTasks.value, getCaseName))
 
 // 四象限看板数据
-const matrixQuadrants = computed(() => {
-  const uncompleted = tasks.value.filter(t => !t.completed)
-  return {
-    q1: {
-      key: 'urgent_important',
-      title: '重要且紧急 (Do First)',
-      desc: '诉讼举证截止、明日开庭准备、紧急保全',
-      color: '#f56c6c',
-      tasks: uncompleted.filter(t => t.priority === 'urgent_important'),
-    },
-    q2: {
-      key: 'important',
-      title: '重要不紧急 (Schedule)',
-      desc: '起草长篇辩护词、战略推演、客户深度维系',
-      color: '#e6a23c',
-      tasks: uncompleted.filter(t => t.priority === 'important' || (!t.priority && (t.startDate && t.dueDate && t.startDate !== t.dueDate))),
-    },
-    q3: {
-      key: 'urgent',
-      title: '紧急不重要 (Delegate)',
-      desc: '调取常规档案、法庭文书盖章送达、助理跟进',
-      color: '#409eff',
-      tasks: uncompleted.filter(t => t.priority === 'urgent' || t.taskType === 'waiting'),
-    },
-    q4: {
-      key: 'normal',
-      title: '普通 / 不紧急 (Someday)',
-      desc: '模板整理、行业合规资讯查阅、备忘归档',
-      color: '#909399',
-      tasks: uncompleted.filter(t => t.priority === 'normal' || !t.priority),
-    },
-  }
-})
+const matrixQuadrants = computed(() => buildMatrixQuadrants(tasks.value))
 
 // 子任务映射
-const childrenMap = computed(() => {
-  const m = new Map()
-  for (const t of tasks.value) {
-    if (!t.parentId) continue
-    if (!m.has(t.parentId)) m.set(t.parentId, [])
-    m.get(t.parentId).push(t)
-  }
-  return m
-})
+const childrenMap = computed(() => buildChildrenMap(tasks.value))
 
 // ============================================================
 // 5. 数据加载与持久化
@@ -490,36 +331,13 @@ function onDragOver(e) {
 // 打开编辑抽屉
 function openDrawer(task) {
   editingTask.value = task
-  editForm.value = {
-    taskName: task.taskName || '',
-    description: task.description || '',
-    deadline: task.deadline || '',
-    priority: task.priority || 'normal',
-    caseId: task.caseId || '',
-    taskType: task.taskType || 'action',
-    startDate: task.startDate || '',
-    dueDate: task.dueDate || task.deadline || '',
-    dueTime: task.dueTime || '',
-    waitingFor: task.waitingFor || '',
-    followUpDate: task.followUpDate || '',
-    context: task.context || '',
-    flagged: task.flagged === 1,
-    areaId: task.areaId || '',
-    estimatedMinutes: task.estimatedMinutes || null,
-    startBucket: task.startBucket || 'anytime',
-    deferUntil: task.deferUntil || '',
-  }
+  editForm.value = toEditForm(task)
   showDrawer.value = true
 }
 
 function openNewTask() {
   editingTask.value = { id: null, taskName: '' }
-  editForm.value = {
-    taskName: '', description: '', deadline: '', priority: 'normal', caseId: '',
-    taskType: 'action', startDate: '', dueDate: '', dueTime: '', waitingFor: '',
-    followUpDate: '', context: '', flagged: false, areaId: '',
-    estimatedMinutes: null, startBucket: 'inbox', deferUntil: '',
-  }
+  editForm.value = emptyEditForm('inbox')
   showDrawer.value = true
 }
 
@@ -530,13 +348,7 @@ async function saveTask() {
     return
   }
 
-  const data = {
-    ...(editingTask.value.id ? { id: editingTask.value.id } : {}),
-    ...editForm.value,
-    flagged: editForm.value.flagged ? 1 : 0,
-    // 三态 PATCH：空串归一为 null（清除推迟日），非空走格式校验
-    deferUntil: editForm.value.deferUntil || null,
-  }
+  const data = toSavePayload(editingTask.value.id, editForm.value)
 
   const result = editingTask.value.id
     ? await casyContext.tasks.update(data)

@@ -227,11 +227,14 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, View, Download, EditPen } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
+import { useDocsyBridge } from '../composables/useDocsyBridge.js'
 import {
-  useDocsyBridge,
+  fieldTypeLabel,
+  fieldTypeTag,
+  filterFieldRows,
   mapCaseToTemplate,
   mapToFieldRows,
-} from '../composables/useDocsyBridge.js'
+} from '../utils/fieldMapping.js'
 import TemplateBrowser from './TemplateBrowser.vue'
 import LegalEditor from '../components/LegalEditor.vue'
 // 审查 P0-3：displayHtml 含 Rust 模板渲染结果与用户可编辑 HTML，渲染前必须消毒
@@ -325,15 +328,7 @@ const fieldRows = computed(() => {
 })
 
 // 过滤后的字段行
-const filteredFieldRows = computed(() => {
-  if (!fieldFilter.value) return fieldRows.value
-  const lower = fieldFilter.value.toLowerCase()
-  return fieldRows.value.filter(
-    (r) =>
-      r.field.toLowerCase().includes(lower) ||
-      r.value.toLowerCase().includes(lower)
-  )
-})
+const filteredFieldRows = computed(() => filterFieldRows(fieldRows.value, fieldFilter.value))
 
 // 加载案件列表
 async function loadCases() {
@@ -566,29 +561,6 @@ async function handleRevertEdits() {
   } catch {
     // 用户取消，忽略
   }
-}
-
-// 字段类型标签
-function fieldTypeLabel(type) {
-  const labels = {
-    text: '文本',
-    date: '日期',
-    party_list: '当事人',
-    checkbox: '勾选',
-    radio_group: '单选',
-  }
-  return labels[type] || type
-}
-
-function fieldTypeTag(type) {
-  const tags = {
-    text: '',
-    date: 'warning',
-    party_list: 'success',
-    checkbox: 'info',
-    radio_group: 'danger',
-  }
-  return tags[type] || ''
 }
 
 onMounted(() => {
