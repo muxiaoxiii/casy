@@ -1,22 +1,25 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { Case, CaseListResponse } from '../../types'
+// list_cases 后端返回 { items,total,page,perPage }，业务类型已补 page/perPage（见 src/types/index.ts
+// CaseListResponse）。filter 沿用 bindings.CaseFilter（含 page/perPage，供前端分页透传）。
+import type { CaseFilter as BindingsCaseFilter } from '../../types/bindings'
 import type { AiAuthCtx } from './tasks'
 
 /** 案件服务：ctx.cases（数据通路：视图 → 服务 → tauriBridge → Rust 命令） */
 export class CasesService extends Service {
   static inject: string[] = []
 
-  async list(filter: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: CaseListResponse; error?: string }> {
-    return tauriCallSafe<CaseListResponse>('list_cases', { filter })
+  async list(filter: Partial<BindingsCaseFilter> = {}): Promise<{ ok: boolean; data?: CaseListResponse; error?: string }> {
+    return tauriCallSafe('list_cases', { filter })
   }
 
   async get(id: string): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    return tauriCallSafe<Case>('get_case', { id })
+    return tauriCallSafe('get_case', { id })
   }
 
   async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: Case; error?: string }> {
-    const result = await tauriCallSafe<Case>('create_case', { data })
+    const result = await tauriCallSafe('create_case', { data })
     // K-3①：领域事件由 service 层统一发出——人与 AI 触发同一事件流
     if (result.ok) {
       this.ctx.emit('case:created', { id: result.data?.id, ...data })
@@ -27,7 +30,7 @@ export class CasesService extends Service {
   async update(id: string, data: Record<string, unknown>, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; data?: Case; error?: string }> {
     // AI 网关授权信息随 data 透传（后端 update_case 从 data 内读取 origin/proposalToken）
     const payload = aiAuth ? { ...data, ...aiAuth } : data
-    const result = await tauriCallSafe<Case>('update_case', { id, data: payload })
+    const result = await tauriCallSafe('update_case', { id, data: payload })
     if (result.ok) {
       this.ctx.emit('case:updated', { id, ...data })
     }
@@ -43,7 +46,7 @@ export class CasesService extends Service {
   }
 
   async search(query: string): Promise<{ ok: boolean; data?: Case[]; error?: string }> {
-    return tauriCallSafe<Case[]>('search_cases', { query })
+    return tauriCallSafe('search_cases', { query })
   }
   
   async stats(): Promise<{ ok: boolean; data?: unknown; error?: string }> {

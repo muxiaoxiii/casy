@@ -213,10 +213,14 @@ export interface CaseFilter {
   caseRoute: CaseRoute | null
 }
 
-/** 案件列表响应 */
+/** 案件列表响应
+ * 与 bindings 生成的 CaseListResult 对齐：分页由后端在 list_cases 返回，
+ * 手写缺 page/perPage 会导致前端无法拿到分页字段（P1-3）。字段为向后兼容保留。 */
 export interface CaseListResponse {
   items: Case[]
   total: number
+  page: number
+  perPage: number
 }
 
 /** 案件统计 */

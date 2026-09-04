@@ -3,6 +3,12 @@ import { tauriCallSafe } from '../tauriBridge'
 import type { KnowledgeItem } from '../../types'
 import type { KnowledgeDocumentSourceDto, PageIndexImportResultDto } from '../../types/bindings'
 
+export interface KnowledgeExportResult {
+  outputPath: string
+  fileSize: number
+  exportedAt: string
+}
+
 /** 知识库服务：ctx.knowledge */
 export class KnowledgeService extends Service {
   static inject: string[] = []
@@ -61,6 +67,11 @@ export class KnowledgeService extends Service {
 
   async importPageIndex(fileId: string): Promise<{ ok: boolean; data?: PageIndexImportResultDto; error?: string }> {
     return tauriCallSafe<PageIndexImportResultDto>('import_pageindex_to_knowledge', { fileId })
+  }
+
+  /** 导出单篇 Markdown；调用前必须先保存当前编辑态。 */
+  async exportMarkdown(itemId: string, outputPath: string): Promise<{ ok: boolean; data?: KnowledgeExportResult; error?: string }> {
+    return tauriCallSafe<KnowledgeExportResult>('export_knowledge_markdown', { itemId, outputPath })
   }
 
   /** 知识图谱数据（知识 ↔ 案件 ↔ 任务；后端 get_knowledge_graph 返回 { nodes, edges }） */

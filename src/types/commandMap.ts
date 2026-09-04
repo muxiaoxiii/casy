@@ -29,10 +29,8 @@ import type {
   CalendarEvent,
   CalendarEventRow,
   CalendarSyncReport,
-  Case,
   CaseFile,
   CaseFilter,
-  CaseListResult,
   CaseRelation,
   CaseStats,
   CaseTypeMetrics,
@@ -100,6 +98,7 @@ import type {
   TodayStats,
 } from './bindings'
 import type { InboxStatus } from './index'
+import type { Case as BusinessCase, CaseListResponse, Task } from './index'
 
 export interface Cmd<P = Record<string, unknown>, R = unknown> {
   readonly params: P
@@ -158,16 +157,19 @@ export type CommandMap = {
   delete_project: Cmd<{ id: string }, null>
 
   // ── 案件域 ──
-  get_case: Cmd<{ id: string }, Case>
-  list_cases: Cmd<{ filter?: Partial<CaseFilter> }, CaseListResult>
-  search_cases: Cmd<{ query: string }, Case[]>
+  // 说明（P1-7 收口）：get/create/update/search 的 result 使用 index 业务 Case 而非常
+  // bindings.Case（bindings 是 specta 生成、字段更宽松/可空）。当前前后端契约以业务类型
+  // 为准（store/组件全部基于 index.Case），Case 类型统一迁移留待骨架重构，详见残留风险。
+  get_case: Cmd<{ id: string }, BusinessCase>
+  list_cases: Cmd<{ filter?: Partial<CaseFilter> }, CaseListResponse>
+  search_cases: Cmd<{ query: string }, BusinessCase[]>
   case_stats: Cmd<Record<string, unknown>, CaseStats>
   get_dashboard_stats: Cmd<Record<string, unknown>, DashboardStats>
-  update_case_status: Cmd<Record<string, unknown>, Case>
+  update_case_status: Cmd<Record<string, unknown>, BusinessCase>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
   // B1 类型化：create_case/update_case 参数因「缺键跳过 vs null 清除」三态语义复杂，保持 Record
-  create_case: Cmd<{ data: Record<string, unknown> }, Case>
-  update_case: Cmd<{ id: string; data: Record<string, unknown> }, Case>
+  create_case: Cmd<{ data: Record<string, unknown> }, BusinessCase>
+  update_case: Cmd<{ id: string; data: Record<string, unknown> }, BusinessCase>
   // B1 类型化：新增类型化命令
   list_field_groups: Cmd<{ caseType?: string }, FieldGroup[]>
   get_case_unified_view: Cmd<{ filters?: Record<string, unknown> }, CaseUnifiedView[]>
@@ -248,6 +250,15 @@ export type CommandMap = {
   // ── 任务域 ──
   list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, TaskDto[]>
   search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
+  // P1-6：撤销删除专用还原命令（保留原 id / completed；snapshot 为前端 Task 快照）
+  restore_task: Cmd<{ snapshot: Task }, TaskDto>
+  // 任务写命令（B1 类型化）：data 参数当前按 Record 收口，后续逐步收紧为强类型输入。
+  // create_task 后端实际仅返回 { id }（非完整 Task），勿误标为 Task；写类命令返回 null。
+  create_task: Cmd<{ data: Record<string, unknown> }, { id: string }>
+  update_task: Cmd<{ data: Record<string, unknown> }, null>
+  toggle_task: Cmd<{ id: string; actualMinutes?: number | null; origin?: string | null; proposalToken?: string | null }, null>
+  delete_task: Cmd<{ id: string; origin?: string | null; proposalToken?: string | null }, null>
+
 
   search_knowledge: Cmd<{ query: string }, SearchKnowledgeDto[]>
   global_search: Cmd<{ query: string }, any[]>
@@ -261,6 +272,10 @@ export type CommandMap = {
   list_knowledge_document_sources: Cmd<Record<string, unknown>, KnowledgeDocumentSourceDto[]>
   import_pageindex_to_knowledge: Cmd<{ fileId: string }, PageIndexImportResultDto>
   restore_knowledge_version: Cmd<{ itemId: string; versionId: string }, void>
+  export_knowledge_markdown: Cmd<
+    { itemId: string; outputPath: string },
+    { outputPath: string; fileSize: number; exportedAt: string }
+  >
 
   // ── 知识域 ──
   create_knowledge: Cmd<{ data: CreateKnowledgeInput }, string>
@@ -300,6 +315,11 @@ export type CommandMap = {
   list_docsy_templates: Cmd<Record<string, unknown>, TemplateListResponse>
   render_docsy_template: Cmd<{ templateId: string; caseId: string }, RenderResponse>
   export_docx: Cmd<{ templateId: string; caseId: string; outputPath?: string | null }, ExportResponse>
+  export_edited_docx: Cmd<{
+    document: Record<string, unknown>
+    title: string
+    outputPath?: string | null
+  }, ExportResponse>
 
   // ── 知识检索 ──
   hybrid_search_knowledge: Cmd<{ query: string; limit?: number }, SearchResult>
@@ -307,6 +327,15 @@ export type CommandMap = {
   // ── 草稿 ──
   list_drafts: Cmd<Record<string, unknown>, Draft[]>
   get_draft: Cmd<{ id: string }, Draft>
+  create_draft: Cmd<
+    { title: string; content?: string | null; caseId?: string | null; templatePath?: string | null },
+    Draft
+  >
+  update_draft: Cmd<
+    { id: string; title?: string; content?: string | null; status?: string; caseId?: string | null },
+    Draft
+  >
+  delete_draft: Cmd<{ id: string }, boolean>
 
   // ── 对标灵感落地（2026-09-01 · Schema v20）──
   // W2 通知中心（Linear 式 Inbox-Zero）

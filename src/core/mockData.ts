@@ -116,6 +116,16 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       if (index >= 0) mockTasks.splice(index, 1)
       return null
     }
+    case 'restore_task': {
+      // P1-6 撤销删除：按快照还原，保留原 id 与 completed（模拟后端 restore_task 语义）
+      const data = (args.snapshot as any) || {}
+      if (mockTasks.some(t => t.id === data.id)) {
+        throw new Error(`无法恢复任务 ${data.id}：该 id 已被占用`)
+      }
+      const restored = { ...data }
+      mockTasks.unshift(restored)
+      return restored
+    }
     case 'snooze_task':
       return null
     case 'list_areas':

@@ -1,61 +1,26 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
+// Docsy 模板/渲染/导出契约来自 bindings（specta 生成物，禁止手改）。
+// 此前 docs.ts 手写的 DocsyTemplateListResponse / DocsyRenderResult / DocsyExportResult
+// 与生成类型重复，且已确认无外部 import 引用，随本次收口统一到 bindings（删除重复）。
+import type {
+  Draft,
+  ExportResponse,
+  RenderResponse,
+  TemplateListResponse,
+} from '../../types/bindings'
 
 // ============================================================
-// Docs 域类型（对齐后端 drafts.rs / docsy_engine，snake_case → camelCase）
+// Docs 域类型
 // ============================================================
 
-/** 草稿实体（后端 Draft） */
-export interface Draft {
-  id: string
-  caseId: string | null
-  title: string
-  content: string | null
-  templatePath: string | null
-  status: string
-  version: number
-  createdAt: string
-  updatedAt: string
-}
-
-/** Docsy 模板字段（后端 TemplateField） */
-export interface DocsyTemplateField {
-  name: string
-  fieldType: string
-  defaultValue: string | null
-  required: boolean
-}
-
-/** Docsy 模板（后端 DocsyTemplate） */
-export interface DocsyTemplate {
-  id: string
-  name: string
-  path: string
-  category: string
-  fieldCount: number
-  fields: DocsyTemplateField[]
-  description: string
-}
-
-/** 模板列表响应（后端 TemplateListResponse） */
-export interface DocsyTemplateListResponse {
-  templates: DocsyTemplate[]
-  total: number
-}
-
-/** 渲染结果（后端 RenderResponse） */
-export interface DocsyRenderResult {
-  html: string
-  text: string
-  usedFields: Record<string, string>
-  missingFields: string[]
-}
-
-/** 导出结果（后端 ExportResponse） */
-export interface DocsyExportResult {
-  outputPath: string
-  fileSize: number
-  exportedAt: string
+/** Tiptap/ProseMirror JSON 文档；节点由后端白名单解析，未知节点会拒绝导出。 */
+export interface RichTextDocument {
+  type: string
+  attrs?: Record<string, unknown>
+  content?: RichTextDocument[]
+  text?: string
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
 }
 
 /**
@@ -73,12 +38,12 @@ export class DocsService extends Service {
 
   /** 列出所有草稿（按 updated_at 倒序） */
   async listDrafts(): Promise<{ ok: boolean; data?: Draft[]; error?: string }> {
-    return tauriCallSafe<Draft[]>('list_drafts', {})
+    return tauriCallSafe('list_drafts', {})
   }
 
   /** 获取单个草稿 */
   async getDraft(id: string): Promise<{ ok: boolean; data?: Draft; error?: string }> {
-    return tauriCallSafe<Draft>('get_draft', { id })
+    return tauriCallSafe('get_draft', { id })
   }
 
   /** 新建草稿 */
@@ -88,7 +53,7 @@ export class DocsService extends Service {
     caseId?: string | null
     templatePath?: string | null
   }): Promise<{ ok: boolean; data?: Draft; error?: string }> {
-    return tauriCallSafe<Draft>('create_draft', {
+    return tauriCallSafe('create_draft', {
       title: data.title,
       content: data.content ?? null,
       caseId: data.caseId ?? null,
@@ -106,24 +71,24 @@ export class DocsService extends Service {
       caseId?: string | null
     } = {}
   ): Promise<{ ok: boolean; data?: Draft; error?: string }> {
-    return tauriCallSafe<Draft>('update_draft', { id, ...data })
+    return tauriCallSafe('update_draft', { id, ...data })
   }
 
   /** 删除草稿 */
   async deleteDraft(id: string): Promise<{ ok: boolean; data?: boolean; error?: string }> {
-    return tauriCallSafe<boolean>('delete_draft', { id })
+    return tauriCallSafe('delete_draft', { id })
   }
 
   // ── Docsy 模板 ──
 
   /** 列出所有可用 Docsy 模板 */
-  async listTemplates(): Promise<{ ok: boolean; data?: DocsyTemplateListResponse; error?: string }> {
-    return tauriCallSafe<DocsyTemplateListResponse>('list_docsy_templates', {})
+  async listTemplates(): Promise<{ ok: boolean; data?: TemplateListResponse; error?: string }> {
+    return tauriCallSafe('list_docsy_templates', {})
   }
 
   /** 渲染模板（用案件数据填充占位符，返回 html/text/缺失字段） */
-  async renderTemplate(templateId: string, caseId: string): Promise<{ ok: boolean; data?: DocsyRenderResult; error?: string }> {
-    return tauriCallSafe<DocsyRenderResult>('render_docsy_template', { templateId, caseId })
+  async renderTemplate(templateId: string, caseId: string): Promise<{ ok: boolean; data?: RenderResponse; error?: string }> {
+    return tauriCallSafe('render_docsy_template', { templateId, caseId })
   }
 
   /** 导出 DOCX（可指定输出路径） */
@@ -131,11 +96,24 @@ export class DocsService extends Service {
     templateId: string,
     caseId: string,
     outputPath?: string | null
-  ): Promise<{ ok: boolean; data?: DocsyExportResult; error?: string }> {
-    return tauriCallSafe<DocsyExportResult>('export_docx', {
+  ): Promise<{ ok: boolean; data?: ExportResponse; error?: string }> {
+    return tauriCallSafe('export_docx', {
       templateId,
       caseId,
       outputPath: outputPath ?? null,
+    })
+  }
+
+  /** 将所见即所得编辑器的结构化文档交给 Rust 原生导出。 */
+  async exportEditedDocx(data: {
+    document: RichTextDocument
+    title: string
+    outputPath?: string | null
+  }): Promise<{ ok: boolean; data?: ExportResponse; error?: string }> {
+    return tauriCallSafe('export_edited_docx', {
+      document: data.document,
+      title: data.title,
+      outputPath: data.outputPath ?? null,
     })
   }
 }

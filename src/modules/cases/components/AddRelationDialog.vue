@@ -110,7 +110,7 @@ async function handleSubmit() {
           <el-option
             v-for="c in selectableCases"
             :key="c.id"
-            :label="c.caseName || c.caseNo || c.id"
+            :label="c.caseName || c.caseNo || '未命名案件'"
             :value="c.id"
           >
             <span style="float: left">{{ c.caseName || '未知案名' }}</span>

@@ -604,6 +604,66 @@ pub async fn import_pageindex_to_knowledge(
     }).await
 }
 
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeExportDto {
+    pub output_path: String,
+    pub file_size: u64,
+    pub exported_at: String,
+}
+
+fn export_knowledge_markdown_inner(
+    conn: &rusqlite::Connection,
+    item_id: &str,
+    output_path: &str,
+) -> anyhow::Result<KnowledgeExportDto> {
+    // 安全（审查 P0-5）：原本仅校验「绝对路径 + .md 扩展名」，未消除 `..` 穿越，
+    // 也未校验目录归属。统一走导出路径校验：绝对路径 + 扩展名白名单 +
+    // canonicalize 父目录后重建完整路径。
+    let path = crate::docsy_engine::output_path::resolve_explicit_output_path(
+        output_path,
+        &["md", "markdown"],
+    )?;
+
+    let (title, content): (String, String) = conn
+        .query_row(
+            "SELECT title, content FROM knowledge_items WHERE id=?1",
+            [item_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| anyhow::anyhow!("知识条目不存在: {item_id}"))?;
+
+    let markdown = if content.trim().is_empty() {
+        format!("# {}\n", title.trim())
+    } else {
+        format!("{}\n", content.trim_end())
+    };
+    std::fs::write(&path, markdown.as_bytes())?;
+    let metadata = std::fs::metadata(&path)?;
+    Ok(KnowledgeExportDto {
+        output_path: path.to_string_lossy().into_owned(),
+        file_size: metadata.len(),
+        exported_at: chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string(),
+    })
+}
+
+/// 导出单篇知识笔记 Markdown。
+///
+/// 正文始终从已保存的数据库读取，前端必须先 flush/save 当前编辑事务，避免导出旧内容。
+#[tauri::command]
+pub async fn export_knowledge_markdown(
+    item_id: String,
+    output_path: String,
+) -> Result<KnowledgeExportDto, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        export_knowledge_markdown_inner(&conn, &item_id, &output_path)
+    })
+    .await
+}
+
 /// 恢复历史版本（可测内层）：归属校验 + before_restore 快照 + Wiki 双链重同步
 fn restore_version_inner(
     conn: &mut rusqlite::Connection,
@@ -1547,5 +1607,30 @@ mod tests {
             [], |r| r.get(0),
         ).unwrap();
         assert_eq!(total, 3, "旧子树已清理，恰好一棵新树");
+    }
+
+    #[test]
+    fn test_export_knowledge_markdown_uses_saved_content_and_validates_extension() {
+        let conn = test_conn();
+        insert_note(&conn, "note-export", "导出测试", "# 导出测试\n\n中文正文 [[关联笔记]]");
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("导出测试.md");
+
+        let result = export_knowledge_markdown_inner(
+            &conn,
+            "note-export",
+            output.to_str().unwrap(),
+        )
+        .unwrap();
+
+        assert!(result.file_size > 0);
+        let exported = std::fs::read_to_string(&output).unwrap();
+        assert_eq!(exported, "# 导出测试\n\n中文正文 [[关联笔记]]\n");
+        assert!(export_knowledge_markdown_inner(
+            &conn,
+            "note-export",
+            temp.path().join("bad.txt").to_str().unwrap(),
+        )
+        .is_err());
     }
 }
