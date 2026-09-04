@@ -12,15 +12,15 @@ export class BackupService extends Service {
   static inject: string[] = []
 
   async create(): Promise<{ ok: boolean; data?: BackupFileDto; error?: string }> {
-    return tauriCallSafe<BackupFileDto>('create_backup', {})
+    return tauriCallSafe('create_backup', {})
   }
 
   async list(): Promise<{ ok: boolean; data?: BackupFileDto[]; error?: string }> {
-    return tauriCallSafe<BackupFileDto[]>('list_backups', {})
+    return tauriCallSafe('list_backups', {})
   }
 
   /** 恢复后必须重启应用；UI 层负责确认与提示 */
   async restore(filename: string): Promise<{ ok: boolean; data?: boolean; error?: string }> {
-    return tauriCallSafe<boolean>('restore_backup', { filename })
+    return tauriCallSafe('restore_backup', { filename })
   }
 }

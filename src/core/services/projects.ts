@@ -12,7 +12,7 @@ export class ProjectsService extends Service {
   static inject: string[] = []
 
   async list(query?: string): Promise<{ ok: boolean; data?: ProjectRow[]; error?: string }> {
-    return tauriCallSafe<ProjectRow[]>('list_projects', query ? { query } : {})
+    return tauriCallSafe('list_projects', query ? { query } : {})
   }
 
   async createPersonal(data: {
@@ -21,17 +21,17 @@ export class ProjectsService extends Service {
     areaId?: string | null
     color?: string | null
   }): Promise<{ ok: boolean; data?: ProjectRow; error?: string }> {
-    return tauriCallSafe<ProjectRow>('create_personal_project', { data })
+    return tauriCallSafe('create_personal_project', { data })
   }
 
   async updatePersonal(
     id: string,
     data: { name?: string; description?: string | null; status?: string; areaId?: string | null; color?: string | null }
   ): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<null>('update_personal_project', { id, data })
+    return tauriCallSafe('update_personal_project', { id, data })
   }
 
   async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<null>('delete_project', { id })
+    return tauriCallSafe('delete_project', { id })
   }
 }
