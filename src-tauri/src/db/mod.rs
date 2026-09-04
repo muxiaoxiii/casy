@@ -98,6 +98,22 @@ pub fn get_or_create_encryption_key() -> Result<String> {
         return Ok(key.clone());
     }
 
+    // 隔离 profile 不读取或写入正式 Keychain，密钥只保存在测试目录。
+    if crate::runtime_paths::isolated_data_root().is_some() {
+        let key = if let Some(key) = read_key_file()? {
+            key
+        } else {
+            let mut buffer = [0u8; 32];
+            getrandom::getrandom(&mut buffer)
+                .map_err(|error| anyhow::anyhow!("生成测试数据库密钥失败: {error}"))?;
+            let key = hex::encode(buffer);
+            write_key_file(&key)?;
+            key
+        };
+        let _ = ENCRYPTION_KEY.set(key.clone());
+        return Ok(key);
+    }
+
     // 1. 尝试 keychain（发布环境优先）
     if let Ok(key) = keychain_get() {
         let _ = ENCRYPTION_KEY.set(key.clone());
@@ -145,10 +161,7 @@ fn keychain_set(key: &str) -> Result<()> {
 
 /// 密钥文件路径
 fn key_file_path() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Casy")
-        .join(KEY_FILE_NAME)
+    crate::runtime_paths::data_root().join(KEY_FILE_NAME)
 }
 
 /// 读取本地密钥文件
@@ -304,10 +317,7 @@ fn db_path() -> PathBuf {
             std::env::temp_dir().join(format!("casy_test_{}.db", uuid::Uuid::new_v4()))
         }).clone();
     }
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Casy")
-        .join("casy.db")
+    crate::runtime_paths::data_root().join("casy.db")
 }
 
 /// 获取数据库文件路径（公开接口）

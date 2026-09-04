@@ -31,6 +31,10 @@ pub fn start_inbox_watcher() -> notify::Result<()> {
                 Ok(event) => {
                     if let EventKind::Create(_) = event.kind {
                         for path in &event.paths {
+                            // 只处理真实文件：目录（含 inbox 目录本身的元数据事件）不导入
+                            if !path.is_file() {
+                                continue;
+                            }
                             // 跳过已存在的文件（启动前就有）
                             if existing_files.contains(path) {
                                 continue;
@@ -59,10 +63,7 @@ pub fn start_inbox_watcher() -> notify::Result<()> {
 
 /// 获取收件箱目录路径
 fn inbox_path() -> PathBuf {
-    dirs::document_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Casy")
-        .join("inbox")
+    crate::runtime_paths::documents_root().join("inbox")
 }
 
 /// 扫描目录中已存在的文件
@@ -87,6 +88,10 @@ fn is_temp_file(path: &std::path::Path) -> bool {
 
 /// 将文件导入收件箱
 fn import_file_to_inbox(path: &PathBuf) {
+    // 双保险：目录/不存在路径直接拒绝（防 watcher 事件把 inbox 目录本身导入）
+    if !path.is_file() {
+        return;
+    }
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())

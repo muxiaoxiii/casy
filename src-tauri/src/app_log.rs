@@ -4,9 +4,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 /// 日志文件目录：~/Library/Logs/Casy/
 fn log_dir() -> PathBuf {
-    let dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Library/Logs/Casy");
+    let dir = crate::runtime_paths::log_root();
     std::fs::create_dir_all(&dir).ok();
     dir
 }

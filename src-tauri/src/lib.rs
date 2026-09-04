@@ -13,6 +13,7 @@ mod files;
 mod formula;
 mod mcp;
 mod parse;
+mod runtime_paths;
 mod sync;
 mod tray;
 pub mod types;

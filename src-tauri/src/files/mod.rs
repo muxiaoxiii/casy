@@ -5,10 +5,7 @@ use crate::db;
 
 /// 案件文件夹根目录
 pub fn case_folder_base() -> PathBuf {
-    dirs::document_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Casy")
-        .join("cases")
+    crate::runtime_paths::documents_root().join("cases")
 }
 
 /// 从模板 JSON 解析子目录列表
