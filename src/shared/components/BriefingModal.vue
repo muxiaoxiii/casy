@@ -59,6 +59,10 @@ const {
 const sealSrc = computed(() => (activeMeta.value.seal === 'gold' ? waxSealAntiqueGold : waxSealOxblood))
 const reportStyleVars = computed(() => ({ '--paper-texture': `url(${paperFiberWarm})` }))
 
+// 审查 P2-1：模板 v-html 里直接调用 renderBriefingMarkdown(displayContent) 会在每次重渲染都重跑渲染。
+// 这里预计算 renderedContent，仅在简报内容变化时渲染一次（内容先转义，输出受控 HTML）。
+const renderedContent = computed(() => renderBriefingMarkdown(displayContent.value))
+
 function close() {
   emit('update:visible', false)
 }
@@ -254,7 +258,7 @@ async function exportImage() {
                 <span class="section-number">02</span>
                 <h2>简报摘要</h2>
               </div>
-              <div class="markdown-body" v-html="renderBriefingMarkdown(displayContent)"></div>
+              <div class="markdown-body" v-html="renderedContent"></div>
             </section>
 
             <div class="detail-grid" :class="{ 'without-narrative': !displayContent }">

@@ -92,7 +92,7 @@
           <div v-if="renderResult" class="render-preview">
             <el-tabs v-model="previewTab">
               <el-tab-pane label="HTML 预览" name="html">
-                <div class="html-preview" v-html="sanitizePreviewHtml(displayHtml)"></div>
+                <div class="html-preview" v-html="safePreviewHtml"></div>
               </el-tab-pane>
               <el-tab-pane label="纯文本" name="text">
                 <pre class="text-preview">{{ displayText }}</pre>
@@ -297,6 +297,10 @@ const hasUnsavedEdits = computed(
 const displayHtml = computed(() =>
   isEditedFromRender.value ? editedHtml.value : renderResult.value?.html || ''
 )
+
+// HTML 预览 tab 的消毒结果：模板中直接调用 sanitizePreviewHtml 会在每次重渲染都重跑 DOMPurify，
+// 这里在 computed 里预计算一次（审查 P2-1）。displayHtml 含 Rust 模板渲染结果与用户可编辑 HTML。
+const safePreviewHtml = computed(() => sanitizePreviewHtml(displayHtml.value))
 
 // 纯文本 tab：编辑后从编辑内容提取文本同步展示
 // 审查 P2-2：改用惰性 DOMParser（htmlToText）而非 innerHTML 临时元素，避免把编辑内容当可执行 HTML

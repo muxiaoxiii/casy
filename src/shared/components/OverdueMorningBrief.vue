@@ -136,7 +136,7 @@ onMounted(async () => {
     <template #header>
       <div class="brief-header">
         <div class="brief-icon">
-          <el-icon :size="24" color="#E6A23C"><Bell /></el-icon>
+          <el-icon :size="24" color="var(--c-warning)"><Bell /></el-icon>
         </div>
         <div>
           <h3 class="brief-title">早安，今日概览</h3>
@@ -147,7 +147,7 @@ onMounted(async () => {
 
     <!-- 统计卡片（加载失败时展示明确错误态，不伪造数字） -->
     <div v-if="briefError" class="brief-error">
-      <el-icon color="#F56C6C"><Warning /></el-icon>
+      <el-icon color="var(--c-danger)"><Warning /></el-icon>
       <span>早报数据加载失败，请到提醒中心查看</span>
     </div>
     <div v-else class="brief-stats" v-loading="loading">
@@ -194,7 +194,7 @@ onMounted(async () => {
 
     <!-- 提示语 -->
     <div class="brief-tip" v-if="brief.overdueDeadlines > 0 || brief.overdueTasks > 0">
-      <el-icon color="#F56C6C"><Warning /></el-icon>
+      <el-icon color="var(--c-danger)"><Warning /></el-icon>
       <span>有 {{ brief.overdueDeadlines + brief.overdueTasks }} 项已逾期，请尽快处理</span>
     </div>
 
@@ -223,7 +223,7 @@ onMounted(async () => {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: #FDF6EC;
+  background: var(--bg-warning-weak);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -234,7 +234,7 @@ onMounted(async () => {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--c-text);
 }
 
 .brief-subtitle {
@@ -258,8 +258,8 @@ onMounted(async () => {
   gap: 12px;
   padding: 14px;
   border-radius: 8px;
-  background: #FAFAFA;
-  border: 1px solid #F0F0F0;
+  background: var(--c-bg-subtle);
+  border: 1px solid var(--c-border);
 }
 
 .stat-icon {
@@ -273,24 +273,24 @@ onMounted(async () => {
 }
 
 .stat-icon.overdue {
-  background: #FEF0F0;
-  color: #F56C6C;
+  background: var(--bg-risk-weak);
+  color: var(--c-danger);
 }
 
 .stat-icon.today {
-  background: #FDF6EC;
-  color: #E6A23C;
+  background: var(--bg-warning-weak);
+  color: var(--c-warning);
 }
 
 .stat-icon.hearing {
-  background: #ECF5FF;
-  color: #409EFF;
+  background: var(--c-primary-light);
+  color: var(--c-primary);
 }
 
 .stat-num {
   font-size: 22px;
   font-weight: 700;
-  color: #303133;
+  color: var(--c-text);
   line-height: 1;
 }
 
@@ -309,10 +309,10 @@ onMounted(async () => {
   min-height: 96px;
   padding: 16px;
   border-radius: 8px;
-  background: #FEF0F0;
-  border: 1px solid #FDE2E2;
+  background: var(--bg-risk-weak);
+  border: 1px solid var(--c-danger-light);
   font-size: 13px;
-  color: #F56C6C;
+  color: var(--c-danger);
 }
 
 /* 提示语 */
@@ -322,9 +322,9 @@ onMounted(async () => {
   gap: 6px;
   padding: 10px 14px;
   border-radius: 6px;
-  background: #FEF0F0;
+  background: var(--bg-risk-weak);
   font-size: 13px;
-  color: #F56C6C;
+  color: var(--c-danger);
   margin-bottom: 8px;
 }
 

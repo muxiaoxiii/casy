@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { mdToHtml, htmlToMd, mdToSafeHtml } from '../../src/shared/markdown/mdBridge'
+import {
+  mdToHtml,
+  htmlToMd,
+  mdToSafeHtml,
+  sanitizeInlineHtml,
+  sanitizePreviewHtml,
+} from '../../src/shared/markdown/mdBridge'
 
 /** 语义等价断言：去掉首尾空白后比较，允许内部空白差异 */
 function expectRoundTrip(md: string, expected?: string) {
@@ -201,5 +207,47 @@ describe('mdBridge · 安全预览', () => {
     expect(safe).toContain('<table>')
     expect(safe).toContain('data-wiki-link')
     expect(safe).toContain('https://example.com')
+  })
+})
+
+describe('mdBridge · sanitizeInlineHtml（首页 AI 建议 / FTS5 snippet 行内片段）', () => {
+  // 首页 AI 建议文本以模板字面量生成 <strong>，正文部分来自任务名/案件名（跨信任边界）。
+  // 审查 P2-1：HomeView/KnowledgeSidebar 将其预计算为 computed。
+  it('保留展示型标签 <strong>/<b>，用于高亮', () => {
+    const safe = sanitizeInlineHtml('检测到任务<strong>「专利无效答辩」</strong>需要处理')
+    expect(safe).toContain('<strong>「专利无效答辩」</strong>')
+  })
+
+  it('剥离一切属性与事件（含 onclick/事件属性）', () => {
+    const safe = sanitizeInlineHtml('<strong onclick="alert(1)">文本</strong><b style="color:red">加粗</b>')
+    const box = document.createElement('div')
+    box.innerHTML = safe
+    expect(box.querySelector('[onclick],[onload],[style]')).toBeNull()
+    expect(safe).toContain('文本')
+    expect(safe).toContain('加粗')
+  })
+
+  it('移除危险标签（img/script/svg）与事件载荷', () => {
+    const safe = sanitizeInlineHtml('片段 <img src=x onerror=alert(1)> <script>alert(1)</script>')
+    expect(safe).not.toContain('onerror')
+    expect(safe).not.toContain('<script')
+    expect(safe).not.toContain('<img')
+  })
+})
+
+describe('mdBridge · sanitizePreviewHtml（文书模板渲染结果 HTML 预览）', () => {
+  // DocumentGenView 的 HTML 预览 tab 走此函数（审查 P2-1：已预计算为 computed）。
+  it('保留白名单内标签（table/img/h1）', () => {
+    const safe = sanitizePreviewHtml('<h1>标题</h1><table><tr><td>单元格</td></tr></table><img src="asset://x.png" alt="图">')
+    expect(safe).toContain('<h1>标题</h1>')
+    expect(safe).toContain('<table>')
+    expect(safe).toContain('单元格')
+  })
+
+  it('移除脚本、事件属性与危险协议链接', () => {
+    const safe = sanitizePreviewHtml('<script>alert(1)</script><a href="javascript:alert(1)">点我</a><img src=x onerror=alert(1)>')
+    expect(safe).not.toContain('<script')
+    expect(safe).not.toContain('javascript:')
+    expect(safe).not.toContain('onerror')
   })
 })

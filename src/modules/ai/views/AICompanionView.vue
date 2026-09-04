@@ -405,6 +405,12 @@ function renderMarkdown(md) {
   return html
 }
 
+// 审查 P2-1：v-html 里直接调用 renderMarkdown(s.content) 会在每次重渲染都重跑渲染函数。
+// 这里预计算 renderedContent，仅在 summaries 变化时渲染一次（内容来自 AI/规则引擎，需先转义）。
+const renderedSummaries = computed(() =>
+  (summaries.value || []).map(s => ({ ...s, renderedContent: renderMarkdown(s.content) }))
+)
+
 onMounted(async () => {
   loadAIData()
   await tasksStore.loadTasks()
@@ -685,7 +691,7 @@ onMounted(async () => {
                 报表服务暂不可用
               </div>
               <template v-else>
-                <div v-for="s in summaries" :key="s.id" class="summary-item">
+                <div v-for="s in renderedSummaries" :key="s.id" class="summary-item">
                   <div class="summary-head" @click="toggleSummary(s.id)">
                     <span class="summary-period">{{ s.periodStart || '-' }} ~ {{ s.periodEnd || '-' }}</span>
                     <el-tag
@@ -700,7 +706,7 @@ onMounted(async () => {
                   <div
                     v-if="expandedSummaryId === s.id"
                     class="summary-content"
-                    v-html="renderMarkdown(s.content)"
+                    v-html="s.renderedContent"
                   ></div>
                 </div>
                 <div v-if="summaries.length === 0 && !summariesLoading" class="recommend-empty">
