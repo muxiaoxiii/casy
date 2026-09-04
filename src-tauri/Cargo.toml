@@ -78,6 +78,7 @@ arboard = "3"
 specta = { version = "1.0.5", features = ["export"] }
 pdf-extract = "0.12.0"
 lopdf = "0.36.0"
+docx-rs = "0.4.22"
 
 [dev-dependencies]
 tempfile = "3"

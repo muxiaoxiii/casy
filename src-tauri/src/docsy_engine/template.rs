@@ -38,8 +38,7 @@ pub struct DocsyTemplate {
 /// 获取模板目录路径
 /// 优先使用 ~/Documents/Casy/templates/，不存在则创建
 fn get_template_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("无法获取用户主目录")?;
-    let template_dir = home.join("Documents").join("Casy").join("templates");
+    let template_dir = crate::runtime_paths::template_root();
 
     if !template_dir.exists() {
         fs::create_dir_all(&template_dir)?;

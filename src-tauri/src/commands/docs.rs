@@ -11,7 +11,14 @@ pub struct TemplateListResponse {
 }
 
 /// 渲染结果响应
+///
+/// 契约（审查 P1-1）：Tauri v2 **只对入参**做 camelCase→snake_case 自动转换，
+/// 返回值序列化完全由 serde 决定。缺 rename_all 时下行 JSON 为 snake_case，
+/// 而前端 `core/services/docs.ts:46-59` 按 camelCase 断言，导致
+/// `usedFields` / `missingFields` 恒为 undefined —— 「有 N 个字段未填充」
+/// 告警永不显示（生成正式文书时唯一的占位符防线）。
 #[derive(Debug, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct RenderResponse {
     pub html: String,
     pub text: String,
@@ -20,7 +27,12 @@ pub struct RenderResponse {
 }
 
 /// 导出结果响应
+///
+/// 契约（审查 P1-1）：同上。缺 rename_all 时前端 `result.data.outputPath`
+/// 恒为 undefined，表现为「DOCX 已导出: undefined」且导出后「打开文件」必然失败
+/// （`DocumentGenView.vue:499` / `:506`）。
 #[derive(Debug, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportResponse {
     pub output_path: String,
     pub file_size: u64,
@@ -95,6 +107,24 @@ pub async fn export_docx(
         // 5. 导出 DOCX
         let result = docsy_engine::export_docx(&template.path, &values, output_path.as_deref())?;
 
+        Ok(ExportResponse {
+            output_path: result.output_path,
+            file_size: result.file_size,
+            exported_at: result.exported_at,
+        })
+    })
+    .await
+}
+
+/// 将所见即所得编辑器的结构化内容原生导出为 DOCX。
+#[tauri::command]
+pub async fn export_edited_docx(
+    document: serde_json::Value,
+    title: String,
+    output_path: Option<String>,
+) -> Result<ExportResponse, String> {
+    run_blocking(move || {
+        let result = docsy_engine::export_rich_docx(document, &title, output_path.as_deref())?;
         Ok(ExportResponse {
             output_path: result.output_path,
             file_size: result.file_size,

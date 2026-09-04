@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -28,8 +28,9 @@ pub fn export_docx(
     }
 
     // 确定输出路径
+    // 安全（审查 P0-4）：显式路径必须经统一校验（绝对路径 + .docx + 消除 `..` 穿越）
     let output = match output_path {
-        Some(p) => PathBuf::from(p),
+        Some(p) => crate::docsy_engine::output_path::resolve_explicit_output_path(p, &["docx"])?,
         None => generate_output_path(template)?,
     };
 
@@ -174,8 +175,7 @@ fn escape_xml(s: &str) -> String {
 
 /// 生成输出文件路径
 fn generate_output_path(template: &Path) -> Result<PathBuf> {
-    let home = dirs::home_dir().context("无法获取用户主目录")?;
-    let output_dir = home.join("Documents").join("Casy").join("exports");
+    let output_dir = crate::runtime_paths::export_root();
 
     fs::create_dir_all(&output_dir)?;
 

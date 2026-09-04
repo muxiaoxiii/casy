@@ -213,6 +213,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::create_task,
         tasks::toggle_task,
         tasks::delete_task,
+        tasks::restore_task,
         tasks::snooze_task,
         tasks::update_task,
         tasks::search_tasks,
@@ -317,6 +318,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         docs::list_docsy_templates,
         docs::render_docsy_template,
         docs::export_docx,
+        docs::export_edited_docx,
         // 邮件监听命令
         crate::email::configure_imap,
         crate::email::start_email_monitor,
