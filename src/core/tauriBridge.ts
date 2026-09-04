@@ -58,6 +58,16 @@ export async function tauriCallSafe(
  * 调用 Tauri 命令，失败时自动显示 ElMessage.error
  * 返回 result 数据，失败返回 null
  */
+export async function tauriCall<K extends keyof CommandMap & string>(
+  command: K,
+  args: CommandMap[K]['params'],
+  options?: TauriCallOptions
+): Promise<CommandMap[K]['result'] | null>
+export async function tauriCall<T = unknown>(
+  command: string,
+  args?: Record<string, unknown>,
+  options?: TauriCallOptions
+): Promise<T | null>
 export async function tauriCall<T = unknown>(
   command: string,
   args: Record<string, unknown> = {},

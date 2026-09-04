@@ -1,7 +1,7 @@
 /**
  * AI 提案网关前端封装（W1：Cursor 式 Diff 确认视图 + @ 引用沙箱）
  *
- * - 新命令未登记进 CommandMap，一律走 tauriCall 动态泛型形态
+ * - 命令、参数与返回值均由 CommandMap 推导
  * - TS interface 与后端 #[serde(rename_all = "camelCase")] 对齐
  */
 
@@ -67,17 +67,17 @@ export interface RefChip extends ContextRef {
 
 /** 获取提案预览（字段级 before→after diff） */
 export function getProposalPreview(proposalId: string) {
-  return tauriCall<ProposalPreviewDto>('get_proposal_preview', { proposalId })
+  return tauriCall('get_proposal_preview', { proposalId })
 }
 
 /** 用户授权通过提案，返回一次性 auth_token */
 export function approveProposal(proposalId: string) {
-  return tauriCall<string>('approve_ai_proposal', { proposalId })
+  return tauriCall('approve_ai_proposal', { proposalId })
 }
 
 /** 用户拒绝提案 */
 export function rejectProposal(proposalId: string) {
-  return tauriCall<null>('reject_ai_proposal', { proposalId })
+  return tauriCall('reject_ai_proposal', { proposalId })
 }
 
 export interface CreateProposalInput {
@@ -91,7 +91,7 @@ export interface CreateProposalInput {
 
 /** 创建 AI 写操作提案（初始 pending，默认 5 分钟有效期） */
 export function createAiProposal(input: CreateProposalInput) {
-  return tauriCall<AiProposal>('create_ai_proposal', {
+  return tauriCall('create_ai_proposal', {
     toolName: input.toolName,
     targetEntityType: input.targetEntityType,
     targetEntityId: input.targetEntityId ?? null,

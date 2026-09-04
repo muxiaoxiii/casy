@@ -99,6 +99,7 @@ import type {
 } from './bindings'
 import type { InboxStatus } from './index'
 import type { Case as BusinessCase, CaseListResponse, Task } from './index'
+import type { AiProposal } from '../core/ai/proposals'
 
 export interface Cmd<P = Record<string, unknown>, R = unknown> {
   readonly params: P
@@ -393,7 +394,17 @@ export type CommandMap = {
   delete_whiteboard_edge: Cmd<{ id: string }, void>
 
   // ==========================================W1 AI Proposal 预览（Cursor 式 Diff 确认）
-  get_proposal_preview: Cmd<{ proposalId: string }, ProposalPreviewDto>
+  get_proposal_preview: Cmd<{ proposalId: string }, import('../core/ai/proposals').ProposalPreviewDto>
+  approve_ai_proposal: Cmd<{ proposalId: string }, string>
+  reject_ai_proposal: Cmd<{ proposalId: string }, null>
+  create_ai_proposal: Cmd<{
+    toolName: string
+    targetEntityType: string
+    targetEntityId: string | null
+    preStateHash: string | null
+    payloadJson: string
+    ttlSeconds: number | null
+  }, AiProposal>
 
   // ====================================契约门禁补齐（tests/contract.commands.test.ts 防回退）
   // 以下命令此前由前端调用但未登记 CommandMap（frontend ⊄ CommandMap）。
