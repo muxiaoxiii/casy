@@ -212,7 +212,7 @@ export class CasesService extends Service {
       appToken: string
       tableId: string
       tableName: string
-      tables: Array<{ tableId: string; name: string; revision?: number }>
+      tables: Array<{ tableId: string; name: string; revision: number | null }>
       totalRecords: number
       columns: Array<{
         columnIndex: number

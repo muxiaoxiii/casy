@@ -101,7 +101,7 @@ import type { InboxStatus } from './index'
 import type { Case as BusinessCase, CaseListResponse, Task } from './index'
 import type { AiProposal } from '../core/ai/proposals'
 
-export interface Cmd<P = Record<string, unknown>, R = unknown> {
+export interface Cmd<P, R> {
   readonly params: P
   readonly result: R
 }
@@ -121,6 +121,24 @@ export interface ProjectRow {
 }
 
 /** 案卷目录树条目 */
+export interface HearingInput {
+  caseId: string
+  hearingDate: string
+  hearingName?: string | null
+  court?: string | null
+  venue?: string | null
+  judges?: string | null
+  caseLevel?: string | null
+  contactInfo?: string | null
+  actualStatus?: string | null
+}
+
+export interface AiUsage {
+  usedToday: number
+  dailyLimit: number
+  remaining: number
+}
+
 export interface CaseDirEntry {
   name: string
   relPath: string
@@ -164,9 +182,9 @@ export type CommandMap = {
   get_case: Cmd<{ id: string }, BusinessCase>
   list_cases: Cmd<{ filter?: Partial<CaseFilter> }, CaseListResponse>
   search_cases: Cmd<{ query: string }, BusinessCase[]>
-  case_stats: Cmd<Record<string, unknown>, CaseStats>
-  get_dashboard_stats: Cmd<Record<string, unknown>, DashboardStats>
-  update_case_status: Cmd<Record<string, unknown>, BusinessCase>
+  case_stats: Cmd<{}, CaseStats>
+  get_dashboard_stats: Cmd<{}, DashboardStats>
+  update_case_status: Cmd<{}, BusinessCase>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
   // B1 类型化：create_case/update_case 参数因「缺键跳过 vs null 清除」三态语义复杂，保持 Record
   create_case: Cmd<{ data: Record<string, unknown> }, BusinessCase>
@@ -174,9 +192,9 @@ export type CommandMap = {
   // B1 类型化：新增类型化命令
   list_field_groups: Cmd<{ caseType?: string }, FieldGroup[]>
   get_case_unified_view: Cmd<{ filters?: Record<string, unknown> }, CaseUnifiedView[]>
-  get_today_stats: Cmd<Record<string, unknown>, TodayStats>
+  get_today_stats: Cmd<{}, TodayStats>
   get_case_type_metrics: Cmd<{ caseId: string }, CaseTypeMetrics>
-  get_all_case_type_metrics: Cmd<Record<string, unknown>, CaseTypeMetrics[]>
+  get_all_case_type_metrics: Cmd<{}, CaseTypeMetrics[]>
 
   // ── 关系 / 时间线 ──
   add_relation: Cmd<{ caseId: string; targetId: string; relationType: string; merge_data?: Record<string, unknown> }, CaseRelation>
@@ -189,19 +207,19 @@ export type CommandMap = {
   list_case_files: Cmd<{ caseId: string }, CaseFile[]>
 
   // ── 仪表盘（B4 数据可视化）──
-  get_project_status_distribution: Cmd<Record<string, unknown>, NameCount[]>
-  get_track_distribution: Cmd<Record<string, unknown>, NameCount[]>
+  get_project_status_distribution: Cmd<{}, NameCount[]>
+  get_track_distribution: Cmd<{}, NameCount[]>
   get_monthly_task_trend: Cmd<{ months?: number }, MonthTrendPoint[]>
   get_upcoming_hearings: Cmd<{ days?: number }, UpcomingHearing[]>
-  get_today_kpis: Cmd<Record<string, unknown>, TodayKpis>
-  seed_demo_data: Cmd<Record<string, unknown>, { cases: number; projectsPersonal: number; tasks: number; areas: number; knowledge: number; hearings: number }>
+  get_today_kpis: Cmd<{}, TodayKpis>
+  seed_demo_data: Cmd<{}, { cases: number; projectsPersonal: number; tasks: number; areas: number; knowledge: number; hearings: number }>
   add_case_file: Cmd<{ caseId: string; fileName: string; filePath: string; category: string }, CaseFile>
 
   // ── 提醒域 ──
-  list_reminder_rules: Cmd<Record<string, unknown>, ReminderRule[]>
+  list_reminder_rules: Cmd<{}, ReminderRule[]>
   get_reminder_log: Cmd<{ limit?: number }, ReminderLogEntry[]>
-  get_deadline_warnings: Cmd<Record<string, unknown>, DeadlineResult[]>
-  get_deadline_warnings_with_levels: Cmd<Record<string, unknown>, DeadlineWarning[]>
+  get_deadline_warnings: Cmd<{}, DeadlineResult[]>
+  get_deadline_warnings_with_levels: Cmd<{}, DeadlineWarning[]>
   test_reminder: Cmd<{ ruleId: string; channel: string; message: string }, ReminderLogEntry>
 
   // ── 备份域 ──
@@ -210,17 +228,17 @@ export type CommandMap = {
   restore_backup: Cmd<{ filename: string }, boolean>
 
   // ── 同步域 ──
-  get_sync_status: Cmd<Record<string, unknown>, SyncStatus>
-  webdav_push: Cmd<Record<string, unknown>, SyncResult>
-  webdav_pull: Cmd<Record<string, unknown>, SyncResult>
-  webdav_startup_sync: Cmd<Record<string, unknown>, SyncResult>
+  get_sync_status: Cmd<{}, SyncStatus>
+  webdav_push: Cmd<{}, SyncResult>
+  webdav_pull: Cmd<{}, SyncResult>
+  webdav_startup_sync: Cmd<{}, SyncResult>
   webdav_resolve_keep_local: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_resolve_keep_remote: Cmd<{ url: string; username: string; password: string }, SyncResult>
   sync_feishu_pull: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
   sync_feishu_push: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
   get_folder_template: Cmd<{ templateId: string }, FolderTemplateOutput>
-  list_folder_templates: Cmd<Record<string, unknown>, FolderTemplateOutput[]>
-  get_folder_naming_settings: Cmd<Record<string, unknown>, FolderNamingSettingsOutput>
+  list_folder_templates: Cmd<{}, FolderTemplateOutput[]>
+  get_folder_naming_settings: Cmd<{}, FolderNamingSettingsOutput>
 
   feishu_import_all: Cmd<{
     appToken: string
@@ -237,7 +255,7 @@ export type CommandMap = {
   sync_export_whiteboards_to_blob: Cmd<{}, string>
 
   import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
-  sync_reminders_to_calendar: Cmd<Record<string, unknown>, CalendarSyncReport>
+  sync_reminders_to_calendar: Cmd<{}, CalendarSyncReport>
 
   // ── AI 域 ──
   ai_chat: Cmd<{
@@ -248,10 +266,10 @@ export type CommandMap = {
     purpose?: string
     contextRefs?: ContextRef[]
   }, AiChatResult>
-  get_ai_config: Cmd<Record<string, unknown>, AiConfig>
-  get_command_route_info: Cmd<Record<string, unknown>, CommandRoute>
+  get_ai_config: Cmd<{}, AiConfig>
+  get_command_route_info: Cmd<{}, CommandRoute>
   quick_judge_inbox_item: Cmd<{ id: string }, QuickJudgeResult>
-  list_mcp_pending_writes: Cmd<Record<string, unknown>, McpPendingWrite[]>
+  list_mcp_pending_writes: Cmd<{}, McpPendingWrite[]>
 
   // ── 任务域 ──
   list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, TaskDto[]>
@@ -267,15 +285,15 @@ export type CommandMap = {
 
 
   search_knowledge: Cmd<{ query: string }, SearchKnowledgeDto[]>
-  global_search: Cmd<{ query: string }, any[]>
+  global_search: Cmd<{ query: string }, import('./bindings').GlobalSearchResult[]>
   list_knowledge_blocks: Cmd<{ parentId: string }, KnowledgeBlockDto[]>
   get_knowledge_with_blocks: Cmd<{ id: string }, KnowledgeWithBlocksDto>
-  knowledge_stats: Cmd<Record<string, unknown>, KnowledgeStatsDto>
+  knowledge_stats: Cmd<{}, KnowledgeStatsDto>
   list_knowledge_versions: Cmd<{ itemId: string }, KnowledgeVersionDto[]>
   diff_knowledge_versions: Cmd<{ versionId1: string; versionId2: string }, KnowledgeDiffVersionsResult>
   diff_knowledge_with_current: Cmd<{ versionId: string; itemId: string }, KnowledgeDiffCurrentResult>
   get_knowledge_graph: Cmd<{ limit?: number }, KnowledgeGraphDto>
-  list_knowledge_document_sources: Cmd<Record<string, unknown>, KnowledgeDocumentSourceDto[]>
+  list_knowledge_document_sources: Cmd<{}, KnowledgeDocumentSourceDto[]>
   import_pageindex_to_knowledge: Cmd<{ fileId: string }, PageIndexImportResultDto>
   restore_knowledge_version: Cmd<{ itemId: string; versionId: string }, void>
   export_knowledge_markdown: Cmd<
@@ -287,7 +305,7 @@ export type CommandMap = {
   create_knowledge: Cmd<{ data: CreateKnowledgeInput }, string>
 
   // ── 领域域（DomainCommand 样板）──
-  list_areas: Cmd<Record<string, unknown>, AreaDto[]>
+  list_areas: Cmd<{}, AreaDto[]>
   get_area: Cmd<{ id: string }, AreaDto>
   create_area: Cmd<{ data: CreateAreaInput }, CreateAreaOutput>
   update_area: Cmd<{ id: string; data: UpdateAreaInput }, void>
@@ -306,7 +324,7 @@ export type CommandMap = {
   process_inbox_item: Cmd<{ id: string }, ProcessedInboxResult>
   file_inbox_item: Cmd<{ itemId: string; caseId: string; category: string }, void>
   dismiss_inbox_item: Cmd<{ id: string }, void>
-  get_inbox_progress: Cmd<Record<string, unknown>, InboxProgress>
+  get_inbox_progress: Cmd<{}, InboxProgress>
   parse_holiday_notice: Cmd<{ content: string }, HolidayNotice>
 
   // ── 日历域 ──
@@ -318,7 +336,7 @@ export type CommandMap = {
   delete_calendar_event: Cmd<{ id: string }, void>
 
   // ── 文书引擎 ──
-  list_docsy_templates: Cmd<Record<string, unknown>, TemplateListResponse>
+  list_docsy_templates: Cmd<{}, TemplateListResponse>
   render_docsy_template: Cmd<{ templateId: string; caseId: string }, RenderResponse>
   export_docx: Cmd<{ templateId: string; caseId: string; outputPath?: string | null }, ExportResponse>
   export_edited_docx: Cmd<{
@@ -331,7 +349,7 @@ export type CommandMap = {
   hybrid_search_knowledge: Cmd<{ query: string; limit?: number }, SearchResult>
 
   // ── 草稿 ──
-  list_drafts: Cmd<Record<string, unknown>, Draft[]>
+  list_drafts: Cmd<{}, Draft[]>
   get_draft: Cmd<{ id: string }, Draft>
   create_draft: Cmd<
     { title: string; content?: string | null; caseId?: string | null; templatePath?: string | null },
@@ -345,17 +363,17 @@ export type CommandMap = {
 
   // ── 对标灵感落地（2026-09-01 · Schema v20）──
   // W2 通知中心（Linear 式 Inbox-Zero）
-  list_notifications: Cmd<Record<string, unknown>, AppNotification[]>
-  unread_notification_count: Cmd<Record<string, unknown>, number>
+  list_notifications: Cmd<{}, AppNotification[]>
+  unread_notification_count: Cmd<{}, number>
   create_notification: Cmd<{ kind: string; title: string; body?: string | null; payloadJson?: string | null }, string>
   mark_notification_read: Cmd<{ id: string }, void>
   dismiss_notification: Cmd<{ id: string }, void>
-  dismiss_all_notifications: Cmd<Record<string, unknown>, number>
+  dismiss_all_notifications: Cmd<{}, number>
   // W2 Defer Date（OmniFocus 式推迟日）
   defer_task: Cmd<{ taskId: string; until: string }, void>
   clear_task_defer: Cmd<{ taskId: string }, void>
   // W3 期限规则（LawToolBox 式可审计）
-  list_deadline_rules: Cmd<Record<string, unknown>, DeadlineRuleDto[]>
+  list_deadline_rules: Cmd<{}, DeadlineRuleDto[]>
   upsert_deadline_rule: Cmd<{ id?: string | null; track: string; ruleName: string; legalBasis: string; triggerField: string; offsetValue: number; offsetUnit: string; calcMethod: string; procedureTypes?: string | null; deadlineSource: string; priority: number }, string>
   toggle_deadline_rule: Cmd<{ id: string; enabled: boolean }, void>
   delete_deadline_rule: Cmd<{ id: string }, void>
@@ -367,14 +385,14 @@ export type CommandMap = {
   list_links_for: Cmd<{ sourceType: string; sourceId: string }, LinkDto[]>
   get_backlinks: Cmd<{ targetType: string; targetId: string }, LinkDto[]>
   // W5 Smart Rules + 本地 OCR（DEVONthink 式）
-  list_smart_rules: Cmd<Record<string, unknown>, SmartRuleDto[]>
+  list_smart_rules: Cmd<{}, SmartRuleDto[]>
   upsert_smart_rule: Cmd<{ id?: string | null; name: string; enabled: boolean; matchField: string; matchPattern: string; actionType: string; actionPayload: string }, string>
   delete_smart_rule: Cmd<{ id: string }, void>
   apply_smart_rules: Cmd<{ fileId: string }, SmartRuleApplyResult>
-  run_smart_rules_for_all: Cmd<Record<string, unknown>, number>
-  list_pending_ocr_files: Cmd<Record<string, unknown>, [string, string, string][]>
+  run_smart_rules_for_all: Cmd<{}, number>
+  list_pending_ocr_files: Cmd<{}, [string, string, string][]>
   ocr_case_file: Cmd<{ fileId: string }, string>
-  ocr_all_pending: Cmd<Record<string, unknown>, number>
+  ocr_all_pending: Cmd<{}, number>
   list_case_ocr_states: Cmd<{ caseId: string }, FileOcrStateDto[]>
   get_file_ocr_text: Cmd<{ fileId: string }, string | null>
   // W6 对象化实体（Capacities 式）
@@ -415,20 +433,20 @@ export type CommandMap = {
   // 以下命令此前由前端调用但未登记 CommandMap（frontend ⊄ CommandMap）。
   // 多为复杂/尚未收口的契约：params 按调用现场尽量核定，result 以 any/unknown
   // 收口避免漏项（仍能为已登记调用提供参数检查），随后续收口逐步收紧。
-  reasoning_search: Cmd<{ query: string; scope: string[] }, unknown>
-  get_document_engine_status: Cmd<Record<string, unknown>, unknown>
-  queue_document_processing: Cmd<{ fileId: string }, unknown>
-  list_document_jobs: Cmd<{ fileId: string }, unknown>
-  retry_document_job: Cmd<{ jobId: string }, unknown>
-  list_case_hearings: Cmd<{ caseId: string }, any>
-  create_case_hearing: Cmd<{ payload: Record<string, unknown> }, any>
-  update_case_hearing: Cmd<{ id: string; payload: Record<string, unknown> }, void>
+  reasoning_search: Cmd<{ query: string; scope: string[] }, string>
+  get_document_engine_status: Cmd<{}, import('./bindings').DocumentEngineStatus>
+  queue_document_processing: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto>
+  list_document_jobs: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto[]>
+  retry_document_job: Cmd<{ jobId: string }, void>
+  list_case_hearings: Cmd<{ caseId: string }, import('./bindings').HearingDto[]>
+  create_case_hearing: Cmd<{ payload: HearingInput }, import('./bindings').HearingDto>
+  update_case_hearing: Cmd<{ id: string; payload: Partial<HearingInput> }, void>
   delete_case_hearing: Cmd<{ id: string }, void>
-  excel_get_sheets: Cmd<{ filePath: string }, any>
-  excel_inspect_sheet: Cmd<{ filePath: string; sheetName: string; headerRowOverride?: number | null }, any>
-  feishu_check_config: Cmd<Record<string, unknown>, any>
-  feishu_inspect_bitable: Cmd<{ urlOrToken: string; tableIdOverride?: string | null }, any>
-  get_ai_usage: Cmd<Record<string, unknown>, any>
-  trigger_feishu_push: Cmd<Record<string, unknown>, unknown>
-  start_clipboard_monitor: Cmd<Record<string, unknown>, any>
+  excel_get_sheets: Cmd<{ filePath: string }, import('./bindings').SheetInfo[]>
+  excel_inspect_sheet: Cmd<{ filePath: string; sheetName: string; headerRowOverride?: number | null }, import('./bindings').ExcelInspectResult>
+  feishu_check_config: Cmd<{}, import('./bindings').FeishuConfigStatus>
+  feishu_inspect_bitable: Cmd<{ urlOrToken: string; tableIdOverride?: string | null }, import('./bindings').FeishuBitableInspectResult>
+  get_ai_usage: Cmd<{}, AiUsage>
+  trigger_feishu_push: Cmd<{}, string>
+  start_clipboard_monitor: Cmd<{}, void>
 }
