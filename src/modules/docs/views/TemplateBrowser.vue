@@ -140,13 +140,13 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  border-right: 1px solid #e0e0e0;
-  background: #fafafa;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-bg-subtle);
 }
 
 .search-bar {
   padding: 12px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--c-border);
 }
 
 .template-list {
@@ -170,13 +170,13 @@ onMounted(async () => {
 }
 
 .category-header:hover {
-  background: #ecf5ff;
+  background: var(--c-primary-light);
 }
 
 .category-name {
   font-size: 13px;
   font-weight: 500;
-  color: #606266;
+  color: var(--c-text-secondary);
 }
 
 .category-items {
@@ -196,14 +196,14 @@ onMounted(async () => {
 }
 
 .template-card:hover {
-  background: #ecf5ff;
-  border-color: #d9ecff;
+  background: var(--c-primary-light);
+  border-color: var(--c-primary-light);
 }
 
 .template-card.active {
-  background: #ecf5ff;
-  border-color: #409eff;
-  box-shadow: 0 0 0 1px #409eff inset;
+  background: var(--c-primary-light);
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 1px var(--c-primary) inset;
 }
 
 .template-icon {
@@ -218,7 +218,7 @@ onMounted(async () => {
 
 .template-name {
   font-size: 14px;
-  color: #303133;
+  color: var(--c-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -235,8 +235,8 @@ onMounted(async () => {
 
 .field-count {
   padding: 1px 6px;
-  background: #f0f9eb;
-  color: #67c23a;
+  background: var(--bg-success-weak);
+  color: var(--c-success);
   border-radius: 3px;
   font-size: 11px;
 }

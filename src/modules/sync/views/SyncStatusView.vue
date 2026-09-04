@@ -531,11 +531,11 @@ onMounted(() => {
 }
 
 .conflict-card.local {
-  border-left: 4px solid #409eff;
+  border-left: 4px solid var(--c-primary);
 }
 
 .conflict-card.remote {
-  border-left: 4px solid #e6a23c;
+  border-left: 4px solid var(--c-warning);
 }
 
 .conflict-card-header {

@@ -103,23 +103,23 @@ onUnmounted(() => { if (unlisten) unlisten() })
   right: 20px;
   width: 340px;
   background: #fff;
-  border: 1px solid #dcdfe6;
-  border-left: 3px solid #e6a23c;
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-warning);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 3000;
   padding: 14px 16px;
 }
 .rt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.rt-icon { color: #e6a23c; font-size: 16px; }
+.rt-icon { color: var(--c-warning); font-size: 16px; }
 .rt-title { font-weight: 600; font-size: 13px; flex: 1; }
 .rt-time { font-size: 11px; color: var(--gray-400); }
 .rt-body {
   font-size: 13px;
-  color: #303133;
+  color: var(--c-text);
   line-height: 1.7;
   white-space: pre-line;
-  background: #fafafa;
+  background: var(--c-bg-subtle);
   border-radius: 6px;
   padding: 10px;
   margin-bottom: 10px;

@@ -86,7 +86,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  background: #FDF6EC;
+  background: var(--bg-warning-weak);
   border-bottom: 2px solid var(--c-warning);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
@@ -110,7 +110,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
 .banner-text {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--c-text);
 }
 
 .banner-time {
