@@ -1,4 +1,5 @@
 import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
 import { Suggestion } from '@tiptap/suggestion'
 import { casyContext } from '../../../core/plugin/context'
 
@@ -109,6 +110,6 @@ export const KnowledgeReferenceSuggestion = Extension.create({
     }
   },
   addProseMirrorPlugins() {
-    return [Suggestion({ editor: this.editor, ...this.options.suggestion })]
+    return [Suggestion({ editor: this.editor, ...this.options.suggestion, pluginKey: new PluginKey('knowledgeReferenceSuggestion') })]
   },
 })

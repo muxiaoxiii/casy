@@ -1,211 +1,139 @@
 <script setup lang="ts">
-import { computed, type PropType } from 'vue'
-import {
-  Refresh,
-  CopyDocument,
-  Printer,
-  Close,
-  Check,
-  Warning,
-  Clock,
-  Briefcase,
-  OfficeBuilding,
-  Document,
-  TrendCharts,
-  Calendar,
-  Finished,
-} from '@element-plus/icons-vue'
+import { computed, nextTick, ref, type PropType } from 'vue'
+import { Close, CopyDocument, Download, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import html2canvas from 'html2canvas'
+import waxSealOxblood from '../../assets/briefing/wax-seal-oxblood.png'
+import waxSealAntiqueGold from '../../assets/briefing/wax-seal-antique-gold.png'
+import paperFiberWarm from '../../assets/briefing/paper-fiber-warm.png'
+import { briefingStyleMeta } from '../briefingStyles'
+
+type BriefingType = 'daily' | 'weekly'
+
+interface FocusItem {
+  taskName?: string
+  description?: string
+  caseName?: string
+  caseCode?: string
+}
+
+interface RedlineItem {
+  id?: string | number
+  title?: string
+  caseTitle?: string
+  timeText?: string
+}
+
+interface HearingItem {
+  id?: string | number
+  time?: string
+  title?: string
+  court?: string
+  timeRemaining?: string
+}
+
+interface ReportMetrics {
+  committedHours?: string | number
+  freeSpaceHours?: string | number
+  waitingCount?: number
+  completedCount?: number
+  totalCases?: number
+}
 
 const props = defineProps({
-  visible: {
-    type: Boolean,
-    default: false,
-  },
-  type: {
-    type: String, // 'daily' | 'weekly'
-    default: 'daily',
-  },
-  styleVariant: {
-    type: String,
-    default: '',
-  },
-  title: {
-    type: String,
-    default: '',
-  },
-  dateText: {
-    type: String,
-    default: '',
-  },
-  content: {
-    type: String,
-    default: '',
-  },
-  dateRange: {
-    type: String,
-    default: '',
-  },
-  loading: {
-    type: Boolean,
-    default: false,
-  },
-  // 结构化数据
-  nextAction: {
-    type: Object as PropType<any>,
-    default: null,
-  },
-  redlines: {
-    type: Array as PropType<any[]>,
-    default: () => [],
-  },
-  hearings: {
-    type: Array as PropType<any[]>,
-    default: () => [],
-  },
+  visible: { type: Boolean, default: false },
+  type: { type: String as PropType<BriefingType>, default: 'daily' },
+  styleVariant: { type: String, default: '' },
+  title: { type: String, default: '' },
+  dateText: { type: String, default: '' },
+  content: { type: String, default: '' },
+  dateRange: { type: String, default: '' },
+  loading: { type: Boolean, default: false },
+  preview: { type: Boolean, default: false },
+  nextAction: { type: Object as PropType<FocusItem | null>, default: null },
+  redlines: { type: Array as PropType<RedlineItem[]>, default: () => [] },
+  hearings: { type: Array as PropType<HearingItem[]>, default: () => [] },
   metrics: {
-    type: Object as PropType<any>,
-    default: () => ({
-      committedHours: '0.0',
-      freeSpaceHours: '8.5h',
-      waitingCount: 0,
-      completedCount: 0,
-      totalCases: 0,
-    }),
+    type: Object as PropType<ReportMetrics>,
+    default: () => ({ committedHours: '0.0', freeSpaceHours: '8.5h', waitingCount: 0, completedCount: 0, totalCases: 0 }),
   },
 })
 
 const emit = defineEmits(['update:visible', 'regenerate'])
+const reportSheetRef = ref<HTMLElement | null>(null)
+const exporting = ref(false)
+const generatedAt = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date())
 
-const activeStyle = computed(() => {
-  if (props.styleVariant) return props.styleVariant
-  return props.type === 'daily' ? 'gazette' : 'dossier'
-})
-
-const effectiveTitle = computed(() => {
-  if (props.title) return props.title
-  return props.type === 'daily' ? 'Casy·日报' : 'Casy·本周周报'
-})
+const activeStyle = computed(() => props.styleVariant || (props.type === 'daily' ? 'gazette' : 'dossier'))
+const activeMeta = computed(() => briefingStyleMeta[activeStyle.value] || briefingStyleMeta.gazette)
+const reportTypeLabel = computed(() => (props.type === 'daily' ? 'DAILY BRIEF' : 'WEEKLY REVIEW'))
+const reportTypeCn = computed(() => (props.type === 'daily' ? '每日早报' : '每周复盘'))
+const effectiveTitle = computed(() => props.title || (props.type === 'daily' ? '今日办案简报' : '本周工作复盘'))
 
 const effectiveDate = computed(() => {
-  if (props.type === 'weekly' && props.dateRange) {
-    return props.dateRange
-  }
+  if (props.type === 'weekly' && props.dateRange) return props.dateRange
   if (props.dateText) return props.dateText
   const now = new Date()
   return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
 })
 
-// 情绪价值文案种子库 (空状态语录) - 易于扩展和更新
-const emptyStateSeeds = [
-  {
-    taskName: '当前无焦点任务',
-    description: '您的待办列表处于清空状态。去喝杯咖啡，或者主动找点案源开拓一下吧！',
-    caseName: '系统状态',
-    caseCode: 'SYSTEM'
-  },
-  {
-    taskName: '享受当下的宁静',
-    description: '今天没有任何紧急硬性任务在追赶你，保持这种良好的节奏，享受清醒的头脑。',
-    caseName: '身心管理',
-    caseCode: 'ZEN'
-  },
-  {
-    taskName: '一切尽在掌握中',
-    description: '当前暂无焦点待办任务，您可以把精力留给深度思考、案卷沉淀与战略筹划。',
-    caseName: '状态播报',
-    caseCode: 'CLEAR'
-  },
-  {
-    taskName: '给自己放个短假',
-    description: '没有永远打不完的仗，既然今天没有紧迫的焦点任务，不如提前规划一下本周的长期目标。',
-    caseName: '精力恢复',
-    caseCode: 'REST'
-  },
-  {
-    taskName: '静水流深，厚积薄发',
-    description: '手头暂无紧急火情。不妨整理一下过去的案卷文档，看看有哪些经验可以沉淀到您的专属知识库。',
-    caseName: '知识沉淀',
-    caseCode: 'BUILD'
-  },
-  {
-    taskName: '预言家日报：一切安好',
-    description: '魔法部的傲罗们似乎今天没有派发新的通缉令，魔法界迎来了一个和平的早晨，请安心享用黄油啤酒。',
-    caseName: '魔法部日程',
-    caseCode: 'MAGIC'
-  },
-  {
-    taskName: '时间转换器的闲暇',
-    description: '你不需要使用赫敏的时间转换器来赶进度了。当下就是最好的时间，用来研读一本厚重的魔法咒语书吧。',
-    caseName: '时空管理',
-    caseCode: 'RETRO'
-  },
-  {
-    taskName: '活点地图：无人来访',
-    description: '活点地图上没有正在靠近的麻烦，你的领地十分安全。现在是恶作剧完毕、好好休息的绝佳时机。',
-    caseName: '安全确认',
-    caseCode: 'MAP'
-  },
-  {
-    taskName: '有求必应屋的宁静',
-    description: '当你有求于清闲时，这间屋子便为你屏蔽了外界的喧嚣。案卷已经封印，享受纯粹的阅读时光。',
-    caseName: '隐秘之境',
-    caseCode: 'ROOM'
-  },
-  {
-    taskName: '冥想盆里的沉淀',
-    description: '记忆已经抽取，烦恼已被封存。与其向外索求，不如在冥想盆中回顾曾经的经典战役。',
-    caseName: '记忆沉思',
-    caseCode: 'PENS'
-  },
-  {
-    taskName: '福灵剂的幸运时刻',
-    description: '似乎你今天喝下了一剂福灵剂——所有麻烦都自动绕开了你。保持直觉，去做你最想做的那件事。',
-    caseName: '幸运满溢',
-    caseCode: 'LUCK'
-  },
-  {
-    taskName: '守护神已巡视完毕',
-    description: '你的守护神在周围盘旋，驱散了所有的摄魂怪与焦虑。今天是个阳光明媚的绝佳工作日。',
-    caseName: '守护时刻',
-    caseCode: 'PATR'
-  },
-  {
-    taskName: '霍格沃茨特快列车',
-    description: '列车正平稳行驶在苏格兰高地，没有突发的紧急制动。放松心情，看看窗外掠过的风景。',
-    caseName: '平稳旅程',
-    caseCode: 'TRAIN'
-  },
-  {
-    taskName: '老魔杖的暂时歇息',
-    description: '即使是最强大的法器也需要休息。今天没有需要你火力全开的辩护，收起魔杖，享受午后红茶。',
-    caseName: '魔力恢复',
-    caseCode: 'WAND'
-  },
-  {
-    taskName: '猫头鹰尚未带来信件',
-    description: '早晨的猫头鹰棚屋静悄悄的，说明外界并无急情。你可以按自己的节奏，翻开新的一页。',
-    caseName: '静谧清晨',
-    caseCode: 'OWL'
-  },
-  {
-    taskName: '邓布利多的微笑',
-    description: '校长在打量着你，并为你出色的清空待办事项的能力而微微颔首。去吧，去探寻更有趣的魔法知识。',
-    caseName: '智慧启迪',
-    caseCode: 'WISE'
-  }
+const reportCode = computed(() => {
+  const compactDate = effectiveDate.value.replace(/\D/g, '').slice(0, 16) || 'CURRENT'
+  return `CASY-${props.type === 'daily' ? 'D' : 'W'}-${compactDate}`
+})
+
+const sampleFocus: FocusItem = {
+  taskName: '复核证据目录与庭审提纲',
+  description: '确认引用材料与原件索引一致，并标记仍需补证的条目。',
+  caseName: '示例案件',
+  caseCode: 'SAMPLE-01',
+}
+
+const emptyFocus: FocusItem = {
+  taskName: '暂无重点行动',
+  description: '当前没有可展示的焦点任务。请结合任务列表与案件进度自行确认下一步。',
+  caseName: '未指定案件',
+  caseCode: 'NO-DATA',
+}
+
+const sampleRedlines: RedlineItem[] = [
+  { id: 'sample-r1', title: '提交证据交换清单', caseTitle: '示例案件', timeText: '今日 17:00' },
+  { id: 'sample-r2', title: '确认客户授权范围', caseTitle: '示例咨询', timeText: '明日到期' },
 ]
 
-const displayNextAction = computed(() => {
-  if (props.nextAction) return props.nextAction
-  // 使用当前日期(一年中的第几天)来选择种子，保证每天不同但刷新不抖动
-  const now = new Date()
-  const start = new Date(now.getFullYear(), 0, 0)
-  const diff = now.getTime() - start.getTime()
-  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24))
-  return emptyStateSeeds[dayOfYear % emptyStateSeeds.length]
+const sampleHearings: HearingItem[] = [
+  { id: 'sample-h1', time: '09:30', title: '庭前会议', court: '第二审判法庭', timeRemaining: '今日排期' },
+]
+
+const displayNextAction = computed(() => props.nextAction || (props.preview ? sampleFocus : emptyFocus))
+const displayRedlines = computed(() => (props.preview && props.redlines.length === 0 ? sampleRedlines : props.redlines))
+const displayHearings = computed(() => (props.preview && props.hearings.length === 0 ? sampleHearings : props.hearings))
+const displayContent = computed(() => {
+  if (props.content) return props.content
+  if (!props.preview) return ''
+  return '本报告用于展示排版与导出效果。示例内容不会写入案件、任务或日历数据。'
 })
+
+const displayMetrics = computed(() => {
+  if (!props.preview) return props.metrics
+  return {
+    committedHours: props.metrics.committedHours && Number(props.metrics.committedHours) > 0 ? props.metrics.committedHours : '6.5',
+    freeSpaceHours: props.metrics.freeSpaceHours !== '8.5h' ? props.metrics.freeSpaceHours : '2.0h',
+    waitingCount: props.metrics.waitingCount || 3,
+    completedCount: props.metrics.completedCount || 12,
+    totalCases: props.metrics.totalCases || 4,
+  }
+})
+
+const metricCards = computed(() => [
+  { label: '期限事项', value: String(displayRedlines.value.length).padStart(2, '0'), note: '以当前列表为准' },
+  { label: '排期事项', value: String(displayHearings.value.length).padStart(2, '0'), note: '庭审与硬日程' },
+  { label: '承诺负荷', value: `${displayMetrics.value.committedHours ?? '0.0'}h`, note: `余量 ${displayMetrics.value.freeSpaceHours ?? '0.0h'}` },
+  { label: '已完成', value: String(displayMetrics.value.completedCount ?? 0).padStart(2, '0'), note: `等待 ${displayMetrics.value.waitingCount ?? 0}` },
+])
+
+const sealSrc = computed(() => (activeMeta.value.seal === 'gold' ? waxSealAntiqueGold : waxSealOxblood))
+const reportStyleVars = computed(() => ({ '--paper-texture': `url(${paperFiberWarm})` }))
 
 function close() {
   emit('update:visible', false)
@@ -215,137 +143,139 @@ function onRegenerate() {
   emit('regenerate')
 }
 
+function itemKey(item: RedlineItem | HearingItem, index: number) {
+  return item.id ?? `${index}-${item.title || ('time' in item ? item.time : '')}`
+}
+
 async function copyContent() {
-  const fullText = `【${effectiveTitle.value} · ${effectiveDate.value}】\n\n` +
-    `首要焦点：${displayNextAction.value.taskName}\n` +
-    `硬性红线：${props.redlines?.map((r: any) => `• ${r.title} (${r.timeText})`).join('\n') || '今日无到期红线'}\n` +
-    `排期日程：${props.hearings?.map((h: any) => `• ${h.time} ${h.title} [${h.court}]`).join('\n') || '无开庭'}\n` +
-    `负荷指标：已排期 ${props.metrics?.committedHours}h，弹性余量 ${props.metrics?.freeSpaceHours}。\n\n` +
-    (props.content ? `正文详述：\n${props.content}` : '')
+  const redlineText = displayRedlines.value.length
+    ? displayRedlines.value.map((item) => `• ${item.title || '未命名事项'}（${item.timeText || '时间未标注'}）`).join('\n')
+    : '当前没有可展示的期限数据'
+  const hearingText = displayHearings.value.length
+    ? displayHearings.value.map((item) => `• ${item.time || '时间未标注'} ${item.title || '未命名排期'} ${item.court ? `｜${item.court}` : ''}`).join('\n')
+    : '当前没有可展示的排期数据'
+  const fullText = [
+    `【${effectiveTitle.value} · ${effectiveDate.value}】`,
+    `首要焦点：${displayNextAction.value.taskName || '暂无重点行动'}`,
+    displayNextAction.value.description || '',
+    `\n期限事项：\n${redlineText}`,
+    `\n排期事项：\n${hearingText}`,
+    `\n负荷：已排期 ${displayMetrics.value.committedHours ?? '0.0'}h，弹性余量 ${displayMetrics.value.freeSpaceHours ?? '0.0h'}`,
+    displayContent.value ? `\n简报正文：\n${displayContent.value}` : '',
+  ].filter(Boolean).join('\n')
 
   try {
     await navigator.clipboard.writeText(fullText)
-    ElMessage.success('报告内容已复制到剪贴板')
+    ElMessage.success('报告内容已复制')
   } catch {
-    ElMessage.info(fullText)
+    ElMessage.error('复制失败，请检查剪贴板权限')
   }
+}
+
+async function decodeImages(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll('img'))
+  await Promise.all(images.map(async (image) => {
+    if (image.complete) return
+    try {
+      await image.decode()
+    } catch {
+      await new Promise<void>((resolve) => {
+        image.addEventListener('load', () => resolve(), { once: true })
+        image.addEventListener('error', () => resolve(), { once: true })
+      })
+    }
+  }))
 }
 
 async function exportImage() {
-  const element = document.querySelector('.brief-modal-shell') as HTMLElement
-  if (!element) return
-
-  // Clone the element to avoid touching the live UI and to guarantee full capture
-  const clone = element.cloneNode(true) as HTMLElement
-  
-  // Apply full border-radius to paper-card for the image
-  const paperCard = clone.querySelector('.paper-card') as HTMLElement
-  if (paperCard) {
-    paperCard.style.borderRadius = 'var(--c-radius-xl)';
-    paperCard.style.overflow = 'visible';
-  }
-
-  // Add exporting class to handle html2canvas quirks (like gradient text)
-  clone.classList.add('exporting-mode')
-
-  // Inject dark background for glassmorphism so it doesn't export as transparent/white
-  if (activeStyle.value === 'glassmorphism') {
-    clone.style.background = '#0f172a';
-    const paper = clone.querySelector('.glass-paper') as HTMLElement
-    if (paper) {
-      paper.style.backdropFilter = 'none'
-      paper.style.setProperty('-webkit-backdrop-filter', 'none')
-      paper.style.background = 'rgba(255, 255, 255, 0.15)'
-    }
-  }
-
-  // Remove max-height and overflow to render full content
-  const scrollContents = clone.querySelectorAll('.paper-scroll-content')
-  scrollContents.forEach((el) => {
-    (el as HTMLElement).style.maxHeight = 'none';
-    (el as HTMLElement).style.overflowY = 'visible';
-    (el as HTMLElement).style.height = 'auto';
-  })
-
-  // Hide the footer so it's not in the image
-  const footer = clone.querySelector('.modal-control-footer') as HTMLElement
-  if (footer) footer.style.display = 'none'
-
-  // 根据样式动态选择打码字符
-  const getRedactChar = (style: string) => {
-    if (['cyber', 'analytics'].includes(style)) return '░░░░' // 赛博/暗黑：数字杂讯感
-    if (['dossier', 'typewriter'].includes(style)) return '[REDACTED]' // 绝密档案/打字机：英文涂改感
-    if (['executive', 'ledger', 'partner-brief', 'gazette'].includes(style)) return '***' // 商业简报：星号脱敏
-    if (['narrative-air', 'vogue', 'swiss-grid', 'glassmorphism', 'milestones'].includes(style)) return '某某' // 优雅现代风格：中式化名
-    return 'XXX' // 默认占位
-  }
-  
-  const rep = getRedactChar(activeStyle.value)
-
-  // Redact sensitive text
-  const redact = (text: string) => {
-    return text
-      .replace(/[\u4e00-\u9fa5]+人民法院/g, `${rep}人民法院`)
-      .replace(/[\u4e00-\u9fa5]{2,}知识产权法院/g, `${rep}知识产权法院`)
-      .replace(/[\u4e00-\u9fa5]{2,}法院/g, `${rep}法院`)
-      .replace(/([a-zA-Z\u4e00-\u9fa5]+)(股份|科技|有限|责任)公司/g, `${rep}$2公司`)
-  }
-
-  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT, null)
-  let node
-  while ((node = walker.nextNode())) {
-    if (node.nodeValue) {
-      node.nodeValue = redact(node.nodeValue)
-    }
-  }
-
-  // Mount clone off-screen
-  clone.style.position = 'absolute'
-  clone.style.top = '-9999px'
-  clone.style.left = '0'
-  clone.style.margin = '0'
-  clone.style.width = '620px' // Keep original width
-  document.body.appendChild(clone)
+  if (!reportSheetRef.value || exporting.value) return
+  exporting.value = true
+  let stage: HTMLDivElement | null = null
 
   try {
-    const canvas = await html2canvas(clone, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: null
+    await nextTick()
+    await document.fonts?.ready
+    const source = reportSheetRef.value
+    const clone = source.cloneNode(true) as HTMLElement
+    clone.classList.add('is-exporting')
+    Object.assign(clone.style, {
+      width: '780px',
+      maxWidth: 'none',
+      minHeight: '1040px',
+      margin: '0',
+      boxShadow: 'none',
+      borderRadius: '2px',
     })
-    
-    document.body.removeChild(clone)
 
+    stage = document.createElement('div')
+    stage.setAttribute('aria-hidden', 'true')
+    Object.assign(stage.style, {
+      position: 'fixed',
+      left: '-12000px',
+      top: '0',
+      width: '876px',
+      padding: '48px',
+      boxSizing: 'border-box',
+      background: getComputedStyle(source).getPropertyValue('--export-mat').trim() || '#d8d2c7',
+    })
+    stage.appendChild(clone)
+    document.body.appendChild(stage)
+
+    await decodeImages(clone)
+    const scale = clone.scrollHeight > 2600 ? 2 : 2.5
+    const canvas = await html2canvas(stage, {
+      scale,
+      useCORS: true,
+      backgroundColor: null,
+      logging: false,
+      imageTimeout: 15000,
+    })
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) throw new Error('PNG encoding failed')
+
+    const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.download = `CASY_Report_${effectiveDate.value}.png`
-    link.href = canvas.toDataURL('image/png')
+    const safeDate = effectiveDate.value.replace(/[^0-9.\-年月日]/g, '') || 'report'
+    link.download = `CASY_${props.type === 'daily' ? '早报' : '周报'}_${safeDate}.png`
+    link.href = url
     link.click()
-    ElMessage.success('已成功保存为长图')
-  } catch (e) {
-    document.body.removeChild(clone)
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    ElMessage.success('高清长图已保存，内容未自动脱敏')
+  } catch (error) {
+    console.error('Briefing export failed', error)
     ElMessage.error('导出图片失败，请重试')
+  } finally {
+    stage?.remove()
+    exporting.value = false
   }
 }
 
-function renderMarkdown(md: string) {
-  if (!md) return ''
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const inline = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+function renderMarkdown(markdown: string) {
+  if (!markdown) return ''
+  const escapeHtml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const inline = (value: string) => escapeHtml(value).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
   let html = ''
   let inList = false
-  for (const line of md.split('\n')) {
-    const t = line.trim()
-    if (t.startsWith('- ') || t.startsWith('* ')) {
-      if (!inList) { html += '<ul class="brief-ul">'; inList = true }
-      html += `<li class="brief-li">${inline(t.slice(2))}</li>`
+
+  for (const line of markdown.split('\n')) {
+    const text = line.trim()
+    if (text.startsWith('- ') || text.startsWith('* ')) {
+      if (!inList) {
+        html += '<ul class="brief-ul">'
+        inList = true
+      }
+      html += `<li class="brief-li">${inline(text.slice(2))}</li>`
       continue
     }
-    if (inList) { html += '</ul>'; inList = false }
-    if (!t) continue
-    if (t.startsWith('### ')) html += `<h5 class="brief-h5">${inline(t.slice(4))}</h5>`
-    else if (t.startsWith('## ')) html += `<h4 class="brief-h4">${inline(t.slice(3))}</h4>`
-    else if (t.startsWith('# ')) html += `<h3 class="brief-h3">${inline(t.slice(2))}</h3>`
-    else html += `<p class="brief-p">${inline(t)}</p>`
+    if (inList) {
+      html += '</ul>'
+      inList = false
+    }
+    if (!text) continue
+    if (text.startsWith('### ')) html += `<h5 class="brief-h5">${inline(text.slice(4))}</h5>`
+    else if (text.startsWith('## ')) html += `<h4 class="brief-h4">${inline(text.slice(3))}</h4>`
+    else if (text.startsWith('# ')) html += `<h3 class="brief-h3">${inline(text.slice(2))}</h3>`
+    else html += `<p class="brief-p">${inline(text)}</p>`
   }
   if (inList) html += '</ul>'
   return html
@@ -355,1367 +285,766 @@ function renderMarkdown(md: string) {
 <template>
   <transition name="brief-modal-fade">
     <div v-if="visible" class="brief-modal-backdrop" @click.self="close">
-      <div class="brief-modal-shell" :class="[`style-${activeStyle}`, `type-${type}`]">
-        <!-- ═══ 1. GAZETTE / DISPATCH 风格 (复古报纸与小票) ═══ -->
-        <div v-if="activeStyle === 'gazette'" class="paper-card gazette-paper">
-          <div class="receipt-clip-top"><span class="clip-bar"></span></div>
-          <div class="gazette-masthead">
-            <div class="masthead-preline">
-              <span>LEGAL DISPATCH · CASY INTELLIGENCE</span>
-              <span>ISSUE #{{ new Date().getDate() }}</span>
-            </div>
-            <h1 class="gazette-title">{{ type === 'daily' ? 'CASY DAILY' : 'CASY WEEKLY' }}</h1>
-            <div class="gazette-sub">{{ effectiveTitle }} · {{ effectiveDate }}</div>
-            <div class="gazette-double-line"></div>
-          </div>
+      <section class="brief-modal-shell" role="dialog" aria-modal="true" :aria-label="effectiveTitle">
+        <button class="modal-close" type="button" aria-label="关闭报告" title="关闭" @click="close">
+          <el-icon><Close /></el-icon>
+        </button>
 
-          <div class="paper-scroll-content">
-            <div v-if="content" class="md-article-view" v-html="renderMarkdown(content)"></div>
-            <div v-else class="structured-editorial-flow">
-              <div class="editorial-box">
-                <div class="kicker-tag">✦ LEAD HEADLINE / 重点聚焦</div>
-                <h3 class="lead-h3">{{ displayNextAction.taskName }}</h3>
-                <p class="lead-p">{{ displayNextAction.description }}</p>
-              </div>
-              <div class="thin-rule"></div>
-              <div class="editorial-box">
-                <div class="kicker-tag">✦ STATUTORY REDLINES / 硬性红线</div>
-                <div class="redlines-stack">
-                  <div v-for="r in redlines" :key="r.id" class="redline-row">
-                    <span class="dot-red"></span>
-                    <div class="r-text"><strong>{{ r.title }}</strong><small>{{ r.caseTitle }} · {{ r.timeText }}</small></div>
-                  </div>
-                </div>
-              </div>
-              <div class="thin-rule"></div>
-              <div class="editorial-box">
-                <div class="kicker-tag">✦ DAILY DOCKET / 庭审排期</div>
-                <div class="hearings-stack">
-                  <div v-for="h in hearings" :key="h.id" class="hearing-row">
-                    <span class="h-time">{{ h.time }}</span>
-                    <div class="h-text"><strong>{{ h.title }}</strong><small>{{ h.court }} ({{ h.judge }})</small></div>
-                  </div>
-                </div>
-              </div>
+        <div class="report-viewport">
+          <article
+            ref="reportSheetRef"
+            class="report-sheet"
+            :class="`style-${activeStyle}`"
+            :data-style="activeStyle"
+            :data-family="activeMeta.family"
+            :data-type="type"
+            :style="reportStyleVars"
+          >
+            <div class="material-rule material-rule-top" aria-hidden="true"></div>
+            <div class="report-corner report-corner-a" aria-hidden="true"></div>
+            <div class="report-corner report-corner-b" aria-hidden="true"></div>
+            <div class="skin-ornaments" aria-hidden="true">
+              <span class="ornament-medallion">C</span>
+              <span class="ornament-route">{{ reportTypeLabel }}</span>
+              <span class="ornament-serial">{{ reportCode }}</span>
+              <span class="ornament-pin ornament-pin-a"></span>
+              <span class="ornament-pin ornament-pin-b"></span>
             </div>
-          </div>
+            <div v-if="preview" class="sample-ribbon">SAMPLE / 仅作样式预览</div>
 
-          <div class="tear-barcode-section">
-            <div class="cut-dash">✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
-            <div class="barcode-row">
-              <div class="barcode-bars">|||| | |||| || | ||||| | ||| |||||</div>
-              <span class="barcode-num">CASY-AUTH-{{ new Date().getFullYear() }}-{{ String(new Date().getMonth()+1).padStart(2,'0') }}</span>
-            </div>
-          </div>
-          <div class="sawtooth-bottom"></div>
-        </div>
+            <header class="report-header">
+              <div class="brand-lockup">
+                <span class="brand-mark">C</span>
+                <span class="brand-copy">
+                  <strong>CASY</strong>
+                  <small>CASE INTELLIGENCE</small>
+                </span>
+              </div>
+              <div class="report-index">
+                <span>{{ reportTypeLabel }}</span>
+                <strong>{{ reportCode }}</strong>
+              </div>
+            </header>
 
-        <!-- ═══ 2. TYPEWRITER 风格 (打字机黑白公文) ═══ -->
-        <div v-else-if="activeStyle === 'typewriter'" class="paper-card typewriter-paper">
-          <div class="typewriter-header">
-            <div class="tw-doc-id">MEMORANDUM // {{ effectiveDate }}</div>
-            <h1 class="tw-main-title">[ EXECUTIVE SUMMARY // {{ effectiveTitle.toUpperCase() }} ]</h1>
-            <div class="tw-meta-line">CLASSIFICATION: ATTORNEY WORK PRODUCT · RESTRICTED</div>
-            <div class="tw-divider-thick"></div>
-          </div>
-          <div class="paper-scroll-content tw-font">
-            <div v-if="content" v-html="renderMarkdown(content)"></div>
-            <div v-else class="tw-content-body">
-              <p><strong>01. PRIMARY DIRECTIVE:</strong><br>> {{ displayNextAction.taskName }} (CASE: {{ displayNextAction.caseCode }})<br>{{ displayNextAction.description }}</p>
-              <div class="tw-dash-divider">--------------------------------------------------</div>
-              <p><strong>02. TIME-SENSITIVE STATUTORY EXPOSURE:</strong></p>
-              <div v-for="r in redlines" :key="r.id" class="tw-item-line">
-                [!] {{ r.title }} -- {{ r.caseTitle }} (DUE: {{ r.timeText }})
-              </div>
-              <div class="tw-dash-divider">--------------------------------------------------</div>
-              <p><strong>03. PROCEEDINGS & HEARINGS:</strong></p>
-              <div v-for="h in hearings" :key="h.id" class="tw-item-line">
-                [*] {{ h.time }} // {{ h.title }} // LOC: {{ h.court }}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 3. SWISS GRID 风格 (瑞士国际主义网格) ═══ -->
-        <div v-else-if="activeStyle === 'swiss-grid'" class="paper-card swiss-paper">
-          <div class="swiss-top-bar">
-            <div class="swiss-big-num">{{ new Date().getDate() }}</div>
-            <div class="swiss-title-block">
-              <span class="swiss-kicker">SWISS GRID REPORT · DISPATCH</span>
-              <h1 class="swiss-title">{{ effectiveTitle }}</h1>
-            </div>
-          </div>
-          <div class="swiss-grid-cols">
-            <div class="swiss-col-left">
-              <div class="swiss-metric-big">
-                <span class="s-val">{{ redlines.length }}</span>
-                <span class="s-lbl">CRITICAL DEADLINES</span>
-              </div>
-              <div class="swiss-metric-big">
-                <span class="s-val">{{ metrics.committedHours }}h</span>
-                <span class="s-lbl">COMMITTED HOURS</span>
-              </div>
-            </div>
-            <div class="swiss-col-right paper-scroll-content">
-              <h4 class="swiss-h4">ACTION PRIORITIES</h4>
-              <div class="swiss-card-box">
-                <strong>{{ displayNextAction.taskName }}</strong>
-                <p>{{ displayNextAction.description }}</p>
-              </div>
-              <h4 class="swiss-h4">COURT PROCEEDINGS</h4>
-              <div v-for="h in hearings" :key="h.id" class="swiss-h-card">
-                <span class="badge-red">{{ h.time }}</span>
-                <span>{{ h.title }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 4. VOGUE EDITORIAL (时尚杂志) ═══ -->
-        <div v-else-if="activeStyle === 'vogue'" class="paper-card vogue-paper">
-          <div class="vogue-head">
-            <span class="vogue-issue">ISSUE NO. {{ new Date().getMonth()+1 }}</span>
-            <h1 class="vogue-title">CASY<br>VOGUE</h1>
-            <div class="vogue-date">{{ effectiveDate }}</div>
-          </div>
-          <div class="paper-scroll-content vogue-body">
-            <h2 class="vogue-lead">{{ effectiveTitle }}</h2>
-            <div class="vogue-divider"></div>
-            <div class="vogue-focus">
-              <span class="v-tag">THE FOCUS</span>
-              <h3>{{ displayNextAction.taskName }}</h3>
-              <p>{{ displayNextAction.description }}</p>
-            </div>
-            <div class="vogue-grid">
-              <div class="vogue-col">
-                <span class="v-tag">DEADLINES</span>
-                <div v-for="r in redlines" :key="r.id" class="v-redline">{{ r.title }}<br><small>{{ r.timeText }}</small></div>
-              </div>
-              <div class="vogue-col">
-                <span class="v-tag">HEARINGS</span>
-                <div v-for="h in hearings" :key="h.id" class="v-hearing">{{ h.time }} // {{ h.title }}<br><small>{{ h.court }}</small></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- ═══ 5. NARRATIVE AIR 风格 (清风优雅叙事) ═══ -->
-        <div v-else-if="activeStyle === 'narrative-air'" class="paper-card air-paper">
-          <div class="air-header">
-            <span class="air-date-pill">{{ effectiveDate }}</span>
-            <h1 class="air-title">{{ effectiveTitle }}</h1>
-            <p class="air-lead">静水流深 · 每日秩序律动与重点关注</p>
-          </div>
-          <div class="paper-scroll-content air-body">
-            <p class="air-prose">
-              今日核心推进工作集中在<strong>「{{ displayNextAction.taskName }}」</strong>。请重点跟进相关证据对照与法条检索。
-            </p>
-            <div class="air-card-quote">
-              <div class="quote-bar"></div>
-              <div>
-                <strong>当前硬性绝限：</strong>
-                <span v-for="r in redlines" :key="r.id">【{{ r.title }}（{{ r.timeText }}）】 </span>
-              </div>
-            </div>
-            <p class="air-prose">
-              今日法庭庭审共计 {{ hearings.length }} 场，全天已承诺办案负荷为 {{ metrics.committedHours }} 小时，保持 {{ metrics.freeSpaceHours }} 的弹性应对窗口。
-            </p>
-          </div>
-        </div>
-
-        <!-- ═══ 6. GLASSMORPHISM (毛玻璃光晕) ═══ -->
-        <div v-else-if="activeStyle === 'glassmorphism'" class="paper-card glass-paper">
-          <div class="glass-bg-blob blob-1"></div>
-          <div class="glass-bg-blob blob-2"></div>
-          <div class="glass-content-wrap">
-            <div class="glass-header">
-              <div class="g-date-pill">{{ effectiveDate }}</div>
+            <div class="title-block">
+              <p class="style-kicker">{{ activeMeta.name }} / {{ activeMeta.label }}</p>
               <h1>{{ effectiveTitle }}</h1>
-            </div>
-            <div class="paper-scroll-content glass-body">
-              <div class="glass-card g-focus">
-                <strong>⚡️ TODAY'S FOCUS</strong>
-                <h2>{{ displayNextAction.taskName }}</h2>
-                <p>{{ displayNextAction.description }}</p>
-              </div>
-              <div class="glass-row">
-                <div class="glass-card g-alert">
-                  <strong>🚨 REDLINES</strong>
-                  <div v-for="r in redlines" :key="r.id">{{ r.title }} ({{ r.timeText }})</div>
-                </div>
-                <div class="glass-card g-schedule">
-                  <strong>📅 COURT SCHEDULE</strong>
-                  <div v-for="h in hearings" :key="h.id">{{ h.time }} - {{ h.title }}</div>
-                </div>
+              <div class="title-meta">
+                <span>{{ effectiveDate }}</span>
+                <span>{{ reportTypeCn }}</span>
               </div>
             </div>
-          </div>
-        </div>
-        <!-- ═══ 7. ACTION KANBAN 风格 (便签行动看板) ═══ -->
-        <div v-else-if="activeStyle === 'action-board'" class="paper-card kanban-board-paper">
-          <div class="kb-header">
-            <h2 class="kb-title">📌 {{ effectiveTitle }} · 便签卡片</h2>
-            <span class="kb-date">{{ effectiveDate }}</span>
-          </div>
-          <div class="paper-scroll-content kb-cols-grid">
-            <div class="kb-sticky-col yellow">
-              <div class="kb-col-head">🔥 今日必达 (Must Do)</div>
-              <div class="kb-note-card">
-                <strong>{{ displayNextAction.taskName }}</strong>
-                <p>{{ displayNextAction.description }}</p>
-              </div>
-            </div>
-            <div class="kb-sticky-col red">
-              <div class="kb-col-head">⚠️ 红线绝限 (Redlines)</div>
-              <div v-for="r in redlines" :key="r.id" class="kb-note-card mini">
-                <strong>{{ r.title }}</strong>
-                <small>{{ r.timeText }}</small>
-              </div>
-            </div>
-            <div class="kb-sticky-col blue">
-              <div class="kb-col-head">⚖️ 庭审会见 (Schedule)</div>
-              <div v-for="h in hearings" :key="h.id" class="kb-note-card mini">
-                <strong>{{ h.time }} · {{ h.title }}</strong>
-                <small>{{ h.court }}</small>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <!-- ═══ 8. EXECUTIVE MEMO 风格 (律所高管简报) ═══ -->
-        <div v-else-if="activeStyle === 'executive'" class="paper-card executive-paper">
-          <div class="exec-header">
-            <div class="exec-seal">⚖️</div>
-            <div class="exec-header-text">
-              <span class="exec-sup">PARTNER LEVEL BRIEFING</span>
-              <h1 class="exec-title">{{ effectiveTitle }}</h1>
-              <span class="exec-date">{{ effectiveDate }} · CONFIDENTIAL</span>
-            </div>
-          </div>
-          <div class="exec-gold-divider"></div>
-          <div class="paper-scroll-content exec-body">
-            <div class="exec-kpi-row">
-              <div class="exec-kpi-item">
-                <span class="lbl">FOCUS CASE</span>
-                <strong>{{ displayNextAction.caseName || '重点专案' }}</strong>
-              </div>
-              <div class="exec-kpi-item">
-                <span class="lbl">REDLINE RISK</span>
-                <strong class="text-risk">{{ redlines.length }} 项需关注</strong>
-              </div>
-              <div class="exec-kpi-item">
-                <span class="lbl">TOTAL LOAD</span>
-                <strong>{{ metrics.committedHours }} 小时</strong>
-              </div>
-            </div>
-            <div class="exec-content-block">
-              <h4>战略要务推进</h4>
-              <p><strong>{{ displayNextAction.taskName }}</strong>：{{ displayNextAction.description }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 9. DOSSIER (绝密归档) ═══ -->
-        <div v-else-if="activeStyle === 'dossier'" class="paper-card dossier-paper">
-          <div class="dossier-stamp">CONFIDENTIAL</div>
-          <div class="dossier-header">
-            <span class="dossier-file-no">FILE REF: WK-{{ new Date().getFullYear() }}-{{ String(new Date().getMonth()+1).padStart(2,'0') }}</span>
-            <h1 class="dossier-title">{{ effectiveTitle }}</h1>
-            <div class="dossier-sub">{{ effectiveDate }} · LEGAL DOSSIER</div>
-          </div>
-          <div class="dossier-rule"></div>
-          <div class="paper-scroll-content dossier-body">
-            <div class="dossier-grid-two">
-              <div class="dossier-section">
-                <h3>[I] MAJOR LITIGATION</h3>
-                <p class="d-val">{{ displayNextAction.taskName || '重点专案推进' }}</p>
-                <p>{{ displayNextAction.description }}</p>
-              </div>
-              <div class="dossier-section">
-                <h3>[II] CRITICAL EXPOSURE</h3>
-                <div v-for="r in redlines" :key="r.id" class="dossier-bullet">
-                  <strong>X</strong> {{ r.title }} <em>({{ r.timeText }})</em>
+            <section class="focus-panel">
+              <div class="section-number">01</div>
+              <div class="focus-copy">
+                <p class="section-label">首要焦点 / PRIMARY FOCUS</p>
+                <h2>{{ displayNextAction.taskName || '暂无重点行动' }}</h2>
+                <p>{{ displayNextAction.description || '当前没有可展示的行动说明。' }}</p>
+                <div class="matter-reference">
+                  <span>{{ displayNextAction.caseName || '未指定案件' }}</span>
+                  <strong>{{ displayNextAction.caseCode || 'NO-CODE' }}</strong>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
+            </section>
 
-        <!-- ═══ 10. NEON DASHBOARD (暗黑仪表盘) ═══ -->
-        <div v-else-if="activeStyle === 'analytics'" class="paper-card neon-dash-paper">
-          <div class="neon-head">
-            <h1>{{ effectiveTitle }}</h1>
-            <span class="neon-badge">{{ effectiveDate }}</span>
-          </div>
-          <div class="paper-scroll-content neon-body">
-            <div class="neon-kpi-grid">
-              <div class="n-card">
-                <span class="n-lbl">COMPLETED</span>
-                <strong class="n-val text-blue">{{ metrics.completedCount || 18 }}</strong>
+            <section class="metric-grid" aria-label="简报指标">
+              <div v-for="metric in metricCards" :key="metric.label" class="metric-cell">
+                <span>{{ metric.label }}</span>
+                <strong>{{ metric.value }}</strong>
+                <small>{{ metric.note }}</small>
               </div>
-              <div class="n-card">
-                <span class="n-lbl">HOURS</span>
-                <strong class="n-val text-purple">{{ metrics.committedHours || 32 }}h</strong>
-              </div>
-              <div class="n-card">
-                <span class="n-lbl">PENDING</span>
-                <strong class="n-val text-pink">{{ metrics.waitingCount || 4 }}</strong>
-              </div>
-            </div>
-            <div class="n-card glow-card mt-3">
-              <span class="n-lbl">PRIORITY METRIC</span>
-              <h3>{{ displayNextAction.taskName }}</h3>
-              <div class="neon-progress"><div class="n-bar" style="width:75%"></div></div>
-            </div>
-          </div>
-        </div>
+            </section>
 
-        <!-- ═══ 11. SUPREME LEDGER (黑金台账) ═══ -->
-        <div v-else-if="activeStyle === 'ledger'" class="paper-card luxury-ledger-paper">
-          <div class="lux-header">
-            <div class="lux-logo">CASY</div>
-            <div class="lux-title-box">
-              <h2>{{ effectiveTitle }}</h2>
-              <span>{{ effectiveDate }} // WEEKLY LEDGER</span>
-            </div>
-          </div>
-          <div class="paper-scroll-content lux-body">
-            <table class="lux-table">
-              <thead>
-                <tr>
-                  <th>MATTER / ITEM</th>
-                  <th>STATUS</th>
-                  <th>VARIANCE</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{{ displayNextAction.taskName }}</td>
-                  <td>ACTIVE</td>
-                  <td class="t-gold">ON TRACK</td>
-                </tr>
-                <tr v-for="r in redlines" :key="r.id">
-                  <td>{{ r.title }}</td>
-                  <td>{{ r.timeText }}</td>
-                  <td class="t-red">URGENT</td>
-                </tr>
-                <tr v-for="h in hearings" :key="h.id">
-                  <td>{{ h.title }} ({{ h.court }})</td>
-                  <td>{{ h.time }}</td>
-                  <td>SCHEDULED</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+            <section v-if="displayContent" class="narrative-section">
+              <div class="section-heading">
+                <span class="section-number">02</span>
+                <h2>简报摘要</h2>
+              </div>
+              <div class="markdown-body" v-html="renderMarkdown(displayContent)"></div>
+            </section>
 
-        <!-- ═══ 12. FLUID MILESTONES (流体时间轴) ═══ -->
-        <div v-else-if="activeStyle === 'milestones'" class="paper-card fluid-ms-paper">
-          <div class="fluid-head">
-            <h1>{{ effectiveTitle }}</h1>
-            <p>{{ effectiveDate }}</p>
-          </div>
-          <div class="paper-scroll-content fluid-body">
-            <div class="fluid-track">
-              <div class="f-node done">
-                <div class="f-bubble"></div>
-                <div class="f-content">
-                  <strong>Initiation</strong>
-                  <p>Filings completed</p>
+            <div class="detail-grid" :class="{ 'without-narrative': !displayContent }">
+              <section class="detail-section redline-section">
+                <div class="section-heading">
+                  <span class="section-number">{{ displayContent ? '03' : '02' }}</span>
+                  <div><p>DEADLINES</p><h2>期限与红线</h2></div>
                 </div>
-              </div>
-              <div class="f-node active">
-                <div class="f-bubble glow"></div>
-                <div class="f-content">
-                  <strong>Current Phase</strong>
-                  <p>{{ displayNextAction.taskName }}</p>
+                <div v-if="displayRedlines.length" class="item-list">
+                  <article v-for="(item, index) in displayRedlines" :key="itemKey(item, index)" class="report-item">
+                    <div class="item-sequence">{{ String(index + 1).padStart(2, '0') }}</div>
+                    <div class="item-copy">
+                      <strong>{{ item.title || '未命名事项' }}</strong>
+                      <span>{{ item.caseTitle || '未关联案件' }}</span>
+                    </div>
+                    <time>{{ item.timeText || '时间未标注' }}</time>
+                  </article>
                 </div>
-              </div>
-              <div class="f-node">
-                <div class="f-bubble"></div>
-                <div class="f-content">
-                  <strong>Upcoming</strong>
-                  <p>Awaiting court decision</p>
+                <p v-else class="honest-empty">当前没有可展示的期限数据</p>
+              </section>
+
+              <section class="detail-section schedule-section">
+                <div class="section-heading">
+                  <span class="section-number">{{ displayContent ? '04' : '03' }}</span>
+                  <div><p>SCHEDULE</p><h2>排期与庭审</h2></div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 13. PARTNER LETTER (合伙人复盘信函) ═══ -->
-        <div v-else-if="activeStyle === 'partner-brief'" class="paper-card partner-letter-paper">
-          <div class="letter-head">
-            <div class="letter-firm-name">CASY PARTNERSHIP ATTORNEYS AT LAW</div>
-            <div class="letter-meta-row"><span>DATE: {{ effectiveDate }}</span><span>MEMORANDUM TO PARTNERS</span></div>
-          </div>
-          <div class="letter-divider"></div>
-          <div class="paper-scroll-content letter-body">
-            <p>Dear Partner,</p>
-            <p>本周业务推进平稳有序。我们在<strong>「{{ displayNextAction.caseName || '重点专案' }}」</strong>取得了关键进展，完成了庭审证据链反驳工作。</p>
-            <p>在风险控制方面，本周共有 {{ redlines.length }} 项法定绝限得到严密监控与执行，无逾期违规情况。</p>
-            <p class="letter-sign">Respectfully submitted,<br><span class="sig-font">Casy Lead Counsel</span></p>
-          </div>
-        </div>
-
-        <!-- ═══ 14. NEO BRUTALISM (新粗野主义) ═══ -->
-        <div v-else-if="activeStyle === 'focus-matrix'" class="paper-card brutal-paper">
-          <div class="brutal-head">
-            <h1>{{ effectiveTitle }}</h1>
-            <span class="brutal-tag">{{ effectiveDate }}</span>
-          </div>
-          <div class="paper-scroll-content brutal-grid">
-            <div class="brutal-box b-pink">
-              <h3>FOCUS</h3>
-              <p>{{ displayNextAction.taskName }}</p>
-            </div>
-            <div class="brutal-box b-yellow">
-              <h3>DUE / EXPOSURE</h3>
-              <p v-for="r in redlines" :key="r.id">{{ r.title }} ({{ r.timeText }})</p>
-            </div>
-            <div class="brutal-box b-blue">
-              <h3>HEARINGS</h3>
-              <p v-for="h in hearings" :key="h.id">{{ h.time }} - {{ h.title }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 15. CHRONICLE (编年史) ═══ -->
-        <div v-else-if="activeStyle === 'chronicle'" class="paper-card dark-chronicle-paper">
-          <div class="chronicle-head">
-            <h1>THE WEEKLY CHRONICLE</h1>
-            <span>{{ effectiveDate }}</span>
-          </div>
-          <div class="paper-scroll-content dark-chron-flow">
-            <div class="dc-row"><div class="dc-dot"></div><strong>MON</strong><span>立案受理与客户沟通会议完成</span></div>
-            <div class="dc-row"><div class="dc-dot glow"></div><strong>WED</strong><span class="t-highlight">{{ displayNextAction.taskName }}</span></div>
-            <div class="dc-row"><div class="dc-dot"></div><strong>FRI</strong><span>法庭庭审质证及周度总结</span></div>
-          </div>
-        </div>
-
-        <!-- ═══ 16. CYBER MATRIX (赛博战力周报) ═══ -->
-        <div v-else-if="activeStyle === 'cyber-matrix'" class="paper-card cyber-paper">
-          <div class="cyber-head">
-            <span class="cyber-glitch">[ CYBER_ORDER_MATRIX // WEEKLY ]</span>
-            <h2>HUD BATTLE REPORT</h2>
-          </div>
-          <div class="paper-scroll-content cyber-body">
-            <div class="cyber-stat-bar">POWER INDEX: 98.4% // ORDERS COMPLETED: {{ metrics.completedCount || 18 }}</div>
-            <div class="cyber-box">
-              TARGET LOCKED: {{ displayNextAction.taskName }}
-            </div>
-            <div class="cyber-grid">
-              <div v-for="r in redlines" :key="r.id" class="c-danger">[!] {{ r.title }} ({{ r.timeText }})</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 17. MAGIC PROPHET (预言家日报) ═══ -->
-        <div v-else-if="activeStyle === 'magic-prophet'" class="paper-card prophet-paper">
-          <div class="prophet-head">
-            <div class="prophet-ornament">⚯͛</div>
-            <h1>The Daily Prophet</h1>
-            <div class="prophet-meta">{{ effectiveDate }} · EXCLUSIVE EDITION</div>
-          </div>
-          <div class="prophet-divider"></div>
-          <div class="paper-scroll-content prophet-body">
-            <h2 class="prophet-lead">{{ effectiveTitle }}</h2>
-            <div class="prophet-grid">
-              <div class="p-col-main">
-                <h3>MAGIC FOCUS</h3>
-                <p><strong>{{ displayNextAction.taskName }}</strong></p>
-                <p class="p-desc">{{ displayNextAction.description }}</p>
-              </div>
-              <div class="p-col-side">
-                <h3>CRITICAL</h3>
-                <div v-for="r in redlines" :key="r.id" class="p-red">{{ r.title }}<br><small>{{ r.timeText }}</small></div>
-                <h3 class="mt-2">HEARINGS</h3>
-                <div v-for="h in hearings" :key="h.id" class="p-hear">{{ h.time }} - {{ h.title }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 18. HOGWARTS LETTER (霍格沃茨录取信) ═══ -->
-        <div v-else-if="activeStyle === 'hogwarts-letter'" class="paper-card hogwarts-paper">
-          <div class="hogwarts-head">
-            <div class="h-crest">H</div>
-            <h2>HOGWARTS SCHOOL of WITCHCRAFT and WIZARDRY</h2>
-            <p>Headmaster: Albus Dumbledore</p>
-          </div>
-          <div class="paper-scroll-content hogwarts-body">
-            <p>Dear Mr/Ms,</p>
-            <p>We are pleased to inform you that your summary for <strong>{{ effectiveTitle }}</strong> ({{ effectiveDate }}) is complete.</p>
-            <p>Your primary focus shall be <strong>{{ displayNextAction.taskName }}</strong>. {{ displayNextAction.description }}</p>
-            <p v-if="redlines.length">Please note the following critical exposures:<br>
-              <span v-for="r in redlines" :key="r.id"> - {{ r.title }} ({{ r.timeText }})<br></span>
-            </p>
-            <p>Yours sincerely,</p>
-            <div class="h-sig">Minerva McGonagall<br><span>Deputy Headmistress</span></div>
-          </div>
-          <div class="wax-seal">
-            <div class="seal-inner">H</div>
-          </div>
-        </div>
-
-        <!-- ═══ 19. TELEGRAPH (复古电报) ═══ -->
-        <div v-else-if="activeStyle === 'telegraph'" class="paper-card telegraph-paper">
-          <div class="tele-stamp">RECEIVED {{ effectiveDate }}</div>
-          <div class="tele-head">
-            <h2>INTERNATIONAL TELEGRAPH</h2>
-            <p>CASY COMMUNICATION NETWORK</p>
-          </div>
-          <div class="paper-scroll-content tele-body">
-            <p>URGENT DISPATCH STOP</p>
-            <p>FOCUS ITEM: {{ displayNextAction.taskName }} STOP</p>
-            <p>{{ displayNextAction.description }} STOP</p>
-            <p v-if="redlines.length">WARNING: {{ redlines[0].title }} DUE {{ redlines[0].timeText }} STOP</p>
-            <p>END OF MESSAGE STOP</p>
-          </div>
-        </div>
-
-        <!-- ═══ 20. BULLETIN (通缉令/警情通报) ═══ -->
-        <div v-else-if="activeStyle === 'bulletin'" class="paper-card bulletin-paper">
-          <div class="bull-head">
-            <h1>WANTED</h1>
-            <h2>FOR IMMEDIATE ACTION</h2>
-            <p>REWARD ISSUED BY CASY DEPT.</p>
-          </div>
-          <div class="paper-scroll-content bull-body">
-            <div class="bull-img-placeholder">PHOTO NOT AVAILABLE</div>
-            <h3>{{ displayNextAction.taskName }}</h3>
-            <p>{{ displayNextAction.description }}</p>
-            <div class="bull-details">
-              <strong>CRIMES/EXPOSURE:</strong>
-              <div v-for="r in redlines" :key="r.id">{{ r.title }} ({{ r.timeText }})</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 21. BLUEPRINT (工业蓝图) ═══ -->
-        <div v-else-if="activeStyle === 'blueprint'" class="paper-card blueprint-paper">
-          <div class="bp-grid-overlay"></div>
-          <div class="bp-content">
-            <div class="bp-head">
-              <h1>PROJECT ARCHITECTURE</h1>
-              <div class="bp-meta">
-                <span>DATE: {{ effectiveDate }}</span>
-                <span>SCALE: 1:1</span>
-                <span>DRW: CASY-{{ metrics.committedHours }}</span>
-              </div>
-            </div>
-            <div class="paper-scroll-content bp-body">
-              <div class="bp-box">
-                <div class="bp-lbl">ELEVATION A: FOCUS</div>
-                <h3>{{ displayNextAction.taskName }}</h3>
-                <p>{{ displayNextAction.description }}</p>
-              </div>
-              <div class="bp-row">
-                <div class="bp-box">
-                  <div class="bp-lbl">STRUCTURAL REDLINES</div>
-                  <div v-for="r in redlines" :key="r.id">-> {{ r.title }} ({{ r.timeText }})</div>
+                <div v-if="displayHearings.length" class="item-list">
+                  <article v-for="(item, index) in displayHearings" :key="itemKey(item, index)" class="report-item">
+                    <time class="schedule-time">{{ item.time || '待定' }}</time>
+                    <div class="item-copy">
+                      <strong>{{ item.title || '未命名排期' }}</strong>
+                      <span>{{ item.court || item.timeRemaining || '地点未标注' }}</span>
+                    </div>
+                  </article>
                 </div>
-                <div class="bp-box">
-                  <div class="bp-lbl">TIMELINE</div>
-                  <div v-for="h in hearings" :key="h.id">-> {{ h.time }} {{ h.title }}</div>
-                </div>
+                <p v-else class="honest-empty">当前没有可展示的排期数据</p>
+              </section>
+            </div>
+
+            <footer class="report-signoff">
+              <div>
+                <span>CASY BRIEFING</span>
+                <small>生成时间 {{ generatedAt }} / 当前数据快照</small>
               </div>
-            </div>
-          </div>
+              <img v-if="activeMeta.seal !== 'none'" class="material-seal" :src="sealSrc" alt="Casy 火漆章" />
+              <strong>{{ reportCode }}</strong>
+            </footer>
+            <div class="material-rule material-rule-bottom" aria-hidden="true"></div>
+          </article>
         </div>
 
-        <!-- ═══ 22. TERMINAL (复古终端机) ═══ -->
-        <div v-else-if="activeStyle === 'terminal'" class="paper-card terminal-paper">
-          <div class="term-head">
-            CASY DOS V1.0 (C) 1985<br>
-            C:\> RUN {{ type === 'daily' ? 'DAILY.EXE' : 'WEEKLY.EXE' }}
-          </div>
-          <div class="paper-scroll-content term-body">
-            <div>Loading data... OK.</div>
-            <br>
-            <div>[FOCUS] {{ displayNextAction.taskName }}</div>
-            <div>[DESC] {{ displayNextAction.description }}</div>
-            <br>
-            <div v-if="redlines.length">[WARNINGS]</div>
-            <div v-for="r in redlines" :key="r.id">> {{ r.title }} ERRCD:{{ r.timeText }}</div>
-            <br>
-            <div class="term-cursor">_</div>
-          </div>
-        </div>
-
-        <!-- ═══ 23. POLAROID (拍立得相纸) ═══ -->
-        <div v-else-if="activeStyle === 'polaroid'" class="paper-card polaroid-paper">
-          <div class="pol-photo">
-            <div class="pol-inner">
-              <div class="pol-text-overlay">
-                <h3>{{ displayNextAction.taskName }}</h3>
-                <p>{{ displayNextAction.description }}</p>
-                <div class="pol-reds">
-                  <div v-for="r in redlines" :key="r.id">! {{ r.title }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="pol-marker">{{ effectiveTitle }} - {{ effectiveDate }}</div>
-        </div>
-
-        <!-- ═══ 24. THEATRE TICKET (复古票根) ═══ -->
-        <div v-else-if="activeStyle === 'ticket'" class="paper-card ticket-paper">
-          <div class="tick-stub">
-            <div class="tick-vert">ADMIT ONE</div>
-          </div>
-          <div class="tick-main">
-            <div class="tick-head">CASY GRAND THEATRE</div>
-            <div class="paper-scroll-content tick-body">
-              <div class="tick-title">{{ effectiveTitle }}</div>
-              <div class="tick-date">{{ effectiveDate }}</div>
-              <div class="tick-feat">FEATURING: {{ displayNextAction.taskName }}</div>
-              <div class="tick-desc">{{ displayNextAction.description }}</div>
-              <div class="tick-row" v-if="hearings.length">
-                <span>SHOWTIME: {{ hearings[0].time }}</span>
-                <span>SEAT: {{ hearings[0].court }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 25. SCROLL (东方卷轴) ═══ -->
-        <div v-else-if="activeStyle === 'scroll'" class="paper-card scroll-paper">
-          <div class="scroll-head">
-            <div class="scroll-inkan">律</div>
-            <h1>{{ effectiveTitle }}</h1>
-            <span class="scroll-date">{{ effectiveDate }}</span>
-          </div>
-          <div class="paper-scroll-content scroll-body">
-            <p class="s-lead">今日所重：{{ displayNextAction.taskName }}</p>
-            <p class="s-desc">{{ displayNextAction.description }}</p>
-            <div v-if="redlines.length" class="s-danger">
-              <p>急迫事项：</p>
-              <p v-for="r in redlines" :key="r.id">· {{ r.title }} ({{ r.timeText }})</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 26. CLASSIFIED FILE (冷战绝密档案) ═══ -->
-        <div v-else-if="activeStyle === 'classified-file'" class="paper-card classified-paper">
-          <div class="class-tab">FILE No. 4077</div>
-          <div class="class-top-stamp">TOP SECRET</div>
-          <div class="paper-scroll-content class-body">
-            <h2>SUBJECT: {{ displayNextAction.taskName }}</h2>
-            <p><strong>DATE:</strong> {{ effectiveDate }}</p>
-            <div class="class-redact-box">
-              <p><strong>DETAILS:</strong> {{ displayNextAction.description }}</p>
-            </div>
-            <h3>EXPOSURES</h3>
-            <ul class="class-list">
-              <li v-for="r in redlines" :key="r.id">{{ r.title }} [DUE: {{ r.timeText }}]</li>
-            </ul>
-          </div>
-          <div class="class-clip"></div>
-        </div>
-
-        <!-- ═══ 27. VINYL RECORD (黑胶唱片) ═══ -->
-        <div v-else-if="activeStyle === 'vinyl-record'" class="paper-card vinyl-paper">
-          <div class="vinyl-record-bg"></div>
-          <div class="vinyl-sleeve">
-            <div class="v-band-name">CASY SOUNDS PRESENTS</div>
-            <h1 class="v-album">{{ effectiveTitle }}</h1>
-            <div class="paper-scroll-content v-tracklist">
-              <h3>SIDE A (FOCUS)</h3>
-              <p>1. {{ displayNextAction.taskName }}</p>
-              <h3>SIDE B (EXPOSURE)</h3>
-              <p v-for="(r, i) in redlines" :key="r.id">{{ i+2 }}. {{ r.title }} ({{ r.timeText }})</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 28. TAROT (神秘塔罗牌) ═══ -->
-        <div v-else-if="activeStyle === 'tarot'" class="paper-card tarot-paper">
-          <div class="tarot-border">
-            <div class="tarot-num">XIV</div>
-            <div class="tarot-art">
-              <div class="t-moon"></div>
-              <div class="t-stars">✦ ✧ ✦</div>
-            </div>
-            <div class="paper-scroll-content tarot-body">
-              <h2>{{ displayNextAction.taskName }}</h2>
-              <p>{{ displayNextAction.description }}</p>
-              <div class="t-fate" v-if="redlines.length">
-                <span>OMENS</span>
-                <div v-for="r in redlines" :key="r.id">{{ r.title }}</div>
-              </div>
-            </div>
-            <div class="tarot-bottom">{{ effectiveTitle }}</div>
-          </div>
-        </div>
-
-        <!-- ═══ 29. BANK NOTE (复古钞票) ═══ -->
-        <div v-else-if="activeStyle === 'bank-note'" class="paper-card bank-paper">
-          <div class="bank-border">
-            <div class="bank-corners">
-              <span>{{ metrics.completedCount || 100 }}</span><span>{{ metrics.completedCount || 100 }}</span>
-            </div>
-            <div class="bank-head">
-              <h2>CASY RESERVE NOTE</h2>
-              <p>LEGAL TENDER FOR ALL DEBTS, PUBLIC AND PRIVATE</p>
-            </div>
-            <div class="paper-scroll-content bank-body">
-              <div class="bank-center-art">
-                <div class="b-seal">C</div>
-                <div class="b-text">
-                  <h3>{{ displayNextAction.taskName }}</h3>
-                  <p>{{ displayNextAction.description }}</p>
-                </div>
-              </div>
-            </div>
-            <div class="bank-corners bottom">
-              <span>{{ effectiveDate }}</span><span>{{ effectiveDate }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 30. PASSPORT (国际护照) ═══ -->
-        <div v-else-if="activeStyle === 'passport'" class="paper-card passport-paper">
-          <div class="pass-head">
-            <div class="pass-crest">⚖️</div>
-            <h1>PASSPORT</h1>
-            <p>CASY REPUBLIC</p>
-          </div>
-          <div class="pass-inner">
-            <div class="pass-photo"></div>
-            <div class="paper-scroll-content pass-data">
-              <div class="p-row"><span>Type/P</span><span>Code/CAS</span><span>No. 198234</span></div>
-              <div class="p-row"><span>Name</span><strong>{{ displayNextAction.taskName }}</strong></div>
-              <div class="p-row"><span>Details</span><strong>{{ displayNextAction.description }}</strong></div>
-              <div class="p-row"><span>Date</span><strong>{{ effectiveDate }}</strong></div>
-            </div>
-          </div>
-          <div class="pass-mrz">
-            P&lt;CAS&lt;&lt;{{ effectiveDate.replace(/\D/g, '') }}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br>
-            {{ String(displayNextAction.caseCode).padEnd(20, '<') }}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
-          </div>
-        </div>
-
-        <!-- ═══ 31. STEAMPUNK (蒸汽朋克) ═══ -->
-        <div v-else-if="activeStyle === 'steampunk'" class="paper-card steampunk-paper">
-          <div class="steam-border">
-            <div class="rivet r1"></div><div class="rivet r2"></div><div class="rivet r3"></div><div class="rivet r4"></div>
-            <div class="steam-head">
-              <h1>THE BRASS CHRONICLE</h1>
-              <p>-- {{ effectiveDate }} --</p>
-            </div>
-            <div class="paper-scroll-content steam-body">
-              <div class="s-gear-bg"></div>
-              <h2>⚙️ PRIMARY DIRECTIVE</h2>
-              <p><strong>{{ displayNextAction.taskName }}</strong></p>
-              <p>{{ displayNextAction.description }}</p>
-              <div v-if="redlines.length">
-                <h2>⏱️ PRESSURE VALVES</h2>
-                <p v-for="r in redlines" :key="r.id">>> {{ r.title }} ({{ r.timeText }})</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 32. ROYAL DECREE (王室诏书) ═══ -->
-        <div v-else class="paper-card decree-paper">
-          <div class="decree-head">
-            <div class="d-crown">♔</div>
-            <h1>Royal Decree</h1>
-            <p>By the Grace of Casy</p>
-          </div>
-          <div class="paper-scroll-content decree-body">
-            <p class="d-dropcap">
-              <span class="d-first-letter">W</span>hereas it has been brought to our attention that the matter of <strong>{{ displayNextAction.taskName }}</strong> requires immediate action.
-            </p>
-            <p>{{ displayNextAction.description }}</p>
-            <p v-if="redlines.length">Furthermore, we mandate compliance with the following:</p>
-            <ul class="d-list">
-              <li v-for="r in redlines" :key="r.id">{{ r.title }} by {{ r.timeText }}</li>
-            </ul>
-            <div class="d-sign">
-              <span>Given this {{ effectiveDate }}</span>
-              <div class="d-wax"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══ 底部统一工具栏 ═══ -->
-        <div class="modal-control-footer">
-          <div class="footer-left-meta">
-            <span>样式：{{ activeStyle }}</span>
-            <span class="type-pill">{{ type === 'daily' ? '日报模态' : '周报模态' }}</span>
-          </div>
-          <div class="footer-btn-group">
-            <button class="btn-tool" :disabled="loading" @click="onRegenerate">
+        <footer class="modal-control-footer">
+          <p>图片按当前显示内容生成，不自动脱敏</p>
+          <div class="footer-actions">
+            <button v-if="!preview" class="utility-action" type="button" :disabled="loading" title="重新生成" @click="onRegenerate">
               <el-icon><Refresh /></el-icon>
-              <span>{{ loading ? '生成中…' : '重新生成' }}</span>
+              <span>{{ loading ? '生成中' : '重新生成' }}</span>
             </button>
-            <button class="btn-tool" @click="copyContent">
+            <button v-if="!preview" class="utility-action" type="button" title="复制全文" @click="copyContent">
               <el-icon><CopyDocument /></el-icon>
-              <span>复制全文</span>
+              <span>复制</span>
             </button>
-            <button class="btn-tool" @click="exportImage">
-              <el-icon><Printer /></el-icon>
-              <span>保存为图片</span>
-            </button>
-            <button class="btn-tool-close" @click="close">
-              <el-icon><Close /></el-icon>
-              <span>关闭</span>
+            <button class="export-action" type="button" :disabled="exporting" @click="exportImage">
+              <el-icon><Download /></el-icon>
+              <span>{{ exporting ? '正在导出' : '导出高清图片' }}</span>
             </button>
           </div>
-        </div>
-      </div>
+        </footer>
+      </section>
     </div>
   </transition>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════
-   Universal Briefing & Reports Modal Styles (16 Styles)
-   ═══════════════════════════════════════════════════════════ */
 .brief-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 3000;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  display: flex;
+  display: grid;
+  place-items: center;
   padding: 24px;
-  overflow-y: auto;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(16px) saturate(0.85);
+  -webkit-backdrop-filter: blur(16px) saturate(0.85);
 }
 
 .brief-modal-shell {
   position: relative;
-  max-width: 620px;
-  width: 100%;
+  width: min(840px, 100%);
   margin: auto;
-  perspective: 1000px;
 }
 
-.paper-card {
+.report-viewport {
+  max-height: calc(100dvh - 126px);
+  overflow: auto;
+  border-radius: 3px 3px 0 0;
+  box-shadow: 0 34px 90px rgba(2, 6, 23, 0.42);
+}
+
+.report-sheet {
+  --paper: #f8f5ed;
+  --ink: #17191d;
+  --muted: #65635e;
+  --accent: #8f252b;
+  --accent-contrast: #fff9f2;
+  --line: rgba(23, 25, 29, 0.24);
+  --export-mat: #d8d2c7;
+  --texture-opacity: 0.28;
+  --display-font: Georgia, 'Songti SC', 'STSong', serif;
+  --body-font: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono-font: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   position: relative;
-  background: var(--c-bg-card);
-  color: var(--c-text);
-  border-radius: var(--c-radius-xl) var(--c-radius-xl) 0 0;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
-  padding: 24px 28px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  isolation: isolate;
+  min-height: 960px;
+  padding: 54px 58px 38px;
   overflow: hidden;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--body-font);
+  -webkit-font-smoothing: antialiased;
 }
 
-.paper-scroll-content {
-  max-height: 420px;
-  overflow-y: auto;
-  padding-right: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.report-sheet::before {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  background-image: var(--paper-texture);
+  background-size: 760px 760px;
+  opacity: var(--texture-opacity);
+  mix-blend-mode: multiply;
 }
 
-/* 1. GAZETTE (报纸小票) */
-.gazette-paper {
-  background: var(--c-bg-card);
-  border: 1px solid var(--c-border);
+.report-sheet::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  opacity: 0.8;
 }
-.receipt-clip-top { display: flex; justify-content: center; margin-bottom: 2px; }
-.clip-bar { width: 45px; height: 4px; background: var(--c-border-strong); border-radius: 2px; }
-.gazette-masthead { text-align: center; display: flex; flex-direction: column; gap: 4px; }
-.masthead-preline { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--slate-gray-light); font-weight: 700; }
-.gazette-title { font-family: 'Times New Roman', serif; font-size: 24px; font-weight: 900; letter-spacing: 2px; color: var(--c-text-heading); margin: 0; }
-.gazette-sub { font-size: 12px; color: var(--slate-gray-light); }
-.gazette-double-line { height: 4px; border-top: 2px solid var(--c-text-heading); border-bottom: 1px solid var(--c-text-heading); margin-top: 6px; }
-.kicker-tag { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--c-primary); }
-.lead-h3 { font-size: 14.5px; font-weight: 700; color: var(--c-text-heading); margin: 2px 0 0; }
-.lead-p { font-size: 12px; color: var(--c-text-secondary); margin: 2px 0 0; line-height: 1.5; }
-.thin-rule { height: 1px; background: var(--c-border); margin: 6px 0; }
-.redlines-stack, .hearings-stack { display: flex; flex-direction: column; gap: 6px; }
-.redline-row, .hearing-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--c-bg-page); border-radius: var(--c-radius); border: 1px solid var(--c-border); font-size: 12px; }
-.dot-red { width: 7px; height: 7px; border-radius: 50%; background: var(--status-risk); flex-shrink: 0; }
-.h-time { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--c-primary); flex-shrink: 0; }
-.cut-dash { text-align: center; font-family: var(--font-mono); font-size: 10px; color: var(--slate-gray-light); letter-spacing: 2px; }
-.barcode-row { display: flex; flex-direction: column; align-items: center; gap: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--slate-gray-light); }
-.barcode-bars { font-size: 18px; letter-spacing: 1px; color: var(--c-text-heading); }
-.sawtooth-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: radial-gradient(circle, transparent, transparent 50%, var(--c-bg-card) 50%, var(--c-bg-card) 100%); background-size: 12px 12px; }
 
-/* 2. TYPEWRITER (打字机公文) */
-.typewriter-paper {
-  background: #fdfdfd;
-  color: #111;
-  border: 1px solid #111;
-  font-family: 'Courier New', Courier, monospace;
-}
-.tw-doc-id { font-size: 11px; color: #666; font-weight: bold; }
-.tw-main-title { font-size: 16px; font-weight: 900; margin: 4px 0; letter-spacing: 1px; }
-.tw-meta-line { font-size: 10.5px; color: #444; }
-.tw-divider-thick { height: 3px; background: #111; margin-top: 6px; }
-.tw-dash-divider { color: #888; margin: 8px 0; }
-.tw-content-body { font-size: 12px; line-height: 1.6; }
-.tw-item-line { margin: 4px 0; }
-
-/* 3. SWISS GRID (瑞士网格) */
-.swiss-paper {
-  background: #ffffff;
-  color: #000;
-  border-left: 6px solid #B4554F;
-  border-top: 2px solid #000;
-}
-.swiss-top-bar { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #000; padding-bottom: 10px; }
-.swiss-big-num { font-size: 38px; font-weight: 900; line-height: 1; color: #000; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-.swiss-title-block { display: flex; flex-direction: column; }
-.swiss-kicker { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #B4554F; }
-.swiss-title { font-size: 18px; font-weight: 900; margin: 0; color: #000; }
-.swiss-grid-cols { display: grid; grid-template-columns: 140px 1fr; gap: 16px; }
-.swiss-metric-big { padding: 10px; background: #f4f4f5; border-radius: 4px; margin-bottom: 8px; }
-.s-val { font-size: 22px; font-weight: 900; color: #000; display: block; }
-.s-lbl { font-size: 9px; font-weight: 700; color: #71717a; }
-.swiss-h4 { font-size: 11px; font-weight: 800; margin: 6px 0 4px; color: #000; letter-spacing: 0.5px; }
-.swiss-card-box { padding: 8px; border: 1px solid #000; font-size: 12px; margin-bottom: 8px; }
-.swiss-h-card { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #e4e4e7; }
-.badge-red { background: #000; color: #fff; padding: 1px 4px; font-size: 10px; font-weight: 700; }
-
-/* 4. VOGUE EDITORIAL */
-.vogue-paper { background: #fff; color: #111; font-family: 'Times New Roman', Times, serif; border: 12px solid #f8f8f8; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
-.vogue-head { text-align: center; border-bottom: 1px solid #111; padding-bottom: 20px; margin-bottom: 20px; }
-.vogue-issue { font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; display: block; margin-bottom: 10px; }
-.vogue-title { font-size: 48px; font-weight: 400; line-height: 0.85; margin: 0; letter-spacing: -1px; }
-.vogue-date { margin-top: 10px; font-size: 12px; font-style: italic; }
-.vogue-lead { font-size: 18px; text-align: center; font-weight: normal; margin: 0 0 10px; }
-.vogue-divider { width: 40px; height: 1px; background: #111; margin: 0 auto 20px; }
-.vogue-focus { text-align: center; margin-bottom: 20px; }
-.vogue-focus h3 { font-size: 20px; margin: 8px 0; font-weight: normal; }
-.vogue-focus p { font-size: 14px; color: #555; }
-.v-tag { font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #111; padding-bottom: 2px; margin-bottom: 8px; display: inline-block; }
-.vogue-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; }
-.vogue-col { border-top: 1px solid #eee; padding-top: 10px; }
-.v-redline, .v-hearing { font-size: 13px; margin-bottom: 10px; line-height: 1.4; }
-
-/* 5. NARRATIVE AIR (清风散文叙事) */
-.air-paper {
-  background: #fdfdfd;
-  border: 1px solid #e2e8f0;
-}
-.air-date-pill { padding: 2px 8px; border-radius: 20px; background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 600; display: inline-block; }
-.air-title { font-size: 20px; font-weight: 700; margin: 6px 0 2px; color: #0f172a; }
-.air-lead { font-size: 12.5px; color: #64748b; margin: 0; }
-.air-prose { font-size: 13.5px; line-height: 1.7; color: #334155; }
-.air-card-quote { padding: 12px 14px; background: #f8fafc; border-radius: 8px; display: flex; gap: 10px; font-size: 12.5px; }
-.quote-bar { width: 3px; background: #3b82f6; border-radius: 2px; }
-
-/* 6. GLASSMORPHISM */
-.glass-paper { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); overflow: hidden; }
-.glass-bg-blob { position: absolute; z-index: 0; opacity: 0.8; pointer-events: none; }
-.blob-1 { width: 300px; height: 300px; background: radial-gradient(circle, rgba(168,85,247,0.7) 0%, rgba(168,85,247,0) 70%); top: -100px; left: -100px; }
-.blob-2 { width: 250px; height: 250px; background: radial-gradient(circle, rgba(236,72,153,0.7) 0%, rgba(236,72,153,0) 70%); bottom: -50px; right: -50px; }
-.glass-content-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-.glass-header { margin-bottom: 20px; }
-.g-date-pill { display: inline-block; padding: 4px 12px; background: rgba(255,255,255,0.2); border-radius: 20px; font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 8px; }
-.glass-header h1 { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -0.5px; }
-.glass-card { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); border-radius: 12px; padding: 16px; margin-bottom: 12px; backdrop-filter: blur(10px); }
-.g-focus strong, .g-alert strong, .g-schedule strong { font-size: 11px; opacity: 0.9; margin-bottom: 6px; display: block; }
-.g-focus h2 { font-size: 18px; margin: 0 0 4px; }
-.g-focus p { font-size: 13px; opacity: 0.8; margin: 0; }
-.glass-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.g-alert div, .g-schedule div { font-size: 12px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-
-/* 7. ACTION KANBAN (便签看板) */
-.kanban-board-paper {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-}
-.kb-header { display: flex; justify-content: space-between; align-items: center; }
-.kb-title { font-size: 16px; font-weight: 700; margin: 0; color: #0f172a; }
-.kb-cols-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.kb-sticky-col { padding: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
-.kb-sticky-col.yellow { background: #fef9c3; border: 1px solid #fef08a; color: #713f12; }
-.kb-sticky-col.red { background: #fee2e2; border: 1px solid #fecaca; color: #7f1d1d; }
-.kb-sticky-col.blue { background: #e0f2fe; border: 1px solid #bae6fd; color: #0c4a6e; }
-.kb-col-head { font-size: 11.5px; font-weight: 700; }
-.kb-note-card { background: #fff; padding: 6px 8px; border-radius: 6px; box-shadow: var(--shadow-sm); font-size: 11.5px; }
-
-/* 8. EXECUTIVE (律所高管简报) */
-.executive-paper {
-  background: #181d28;
-  color: #f1f5f9;
-  border: 1.5px solid #d97706;
-}
-.exec-header { display: flex; align-items: center; gap: 12px; }
-.exec-seal { font-size: 26px; }
-.exec-sup { font-size: 10px; color: #fbbf24; letter-spacing: 1px; font-weight: 700; }
-.exec-title { font-size: 18px; font-weight: 800; margin: 2px 0; color: #fff; }
-.exec-gold-divider { height: 2px; background: linear-gradient(90deg, #d97706, #fbbf24, transparent); margin: 8px 0; }
-.exec-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
-.exec-kpi-item { background: #222838; padding: 8px 10px; border-radius: 6px; }
-.exec-kpi-item .lbl { font-size: 9.5px; color: #94a3b8; display: block; }
-.exec-kpi-item strong { font-size: 13px; color: #fff; }
-
-/* 9. DOSSIER */
-.dossier-paper { background: #efebe4; color: #2a2826; border: 2px solid #8b3a3a; font-family: 'Courier New', Courier, monospace; box-shadow: inset 0 0 30px rgba(0,0,0,0.05); }
-.dossier-stamp { position: absolute; right: 20px; top: 30px; border: 3px solid #b91c1c; color: #b91c1c; padding: 4px 12px; font-size: 14px; font-weight: 900; transform: rotate(15deg); opacity: 0.8; letter-spacing: 2px; }
-.dossier-file-no { font-size: 10px; color: #8b3a3a; font-weight: 700; display: block; margin-bottom: 4px; }
-.dossier-title { font-size: 22px; font-weight: 800; margin: 0; color: #111; font-family: 'Times New Roman', serif; }
-.dossier-sub { font-size: 12px; color: #555; }
-.dossier-rule { height: 2px; background: #8b3a3a; margin: 12px 0; }
-.dossier-grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.dossier-section h3 { font-size: 14px; font-weight: 900; margin: 0 0 8px; color: #8b3a3a; border-bottom: 1px dashed #8b3a3a; padding-bottom: 4px; }
-.d-val { font-weight: bold; font-size: 14px; }
-.dossier-bullet { font-size: 12px; margin-bottom: 6px; }
-
-/* 10. NEON DASHBOARD */
-.neon-dash-paper { background: #0f172a; color: #e2e8f0; border: 1px solid #1e293b; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-.neon-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.neon-head h1 { font-size: 20px; font-weight: 800; margin: 0; background: linear-gradient(90deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; color: transparent; }
-.exporting-mode .neon-head h1 { background: none !important; -webkit-background-clip: initial !important; color: #8b5cf6 !important; text-shadow: 0 0 10px rgba(139,92,246,0.5); }
-.neon-badge { background: rgba(59,130,246,0.2); color: #60a5fa; padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: bold; border: 1px solid #3b82f6; }
-.neon-kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.n-card { background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #334155; }
-.n-lbl { font-size: 10px; color: #94a3b8; font-weight: 700; display: block; margin-bottom: 4px; }
-.n-val { font-size: 24px; font-weight: 900; }
-.text-blue { color: #3b82f6; text-shadow: 0 0 10px rgba(59,130,246,0.5); }
-.text-purple { color: #8b5cf6; text-shadow: 0 0 10px rgba(139,92,246,0.5); }
-.text-pink { color: #ec4899; text-shadow: 0 0 10px rgba(236,72,153,0.5); }
-.glow-card { border-color: #3b82f6; box-shadow: 0 0 15px rgba(59,130,246,0.15); }
-.glow-card h3 { font-size: 16px; margin: 0 0 12px; color: #fff; }
-.neon-progress { height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden; }
-.n-bar { height: 100%; background: linear-gradient(90deg, #3b82f6, #ec4899); box-shadow: 0 0 8px #ec4899; }
-
-/* 11. SUPREME LEDGER */
-.luxury-ledger-paper { background: #111; color: #d4d4d4; border: 2px solid #d4af37; border-radius: 4px; }
-.lux-header { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #333; padding-bottom: 16px; margin-bottom: 16px; }
-.lux-logo { font-size: 28px; font-family: 'Times New Roman', serif; color: #d4af37; border-right: 1px solid #333; padding-right: 16px; }
-.lux-title-box h2 { font-size: 16px; margin: 0; color: #fff; font-weight: 600; letter-spacing: 1px; }
-.lux-title-box span { font-size: 10px; color: #d4af37; font-family: var(--font-mono); letter-spacing: 2px; }
-.lux-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-mono); }
-.lux-table th { text-align: left; padding: 10px 8px; border-bottom: 1px solid #d4af37; color: #d4af37; font-weight: normal; }
-.lux-table td { padding: 12px 8px; border-bottom: 1px solid #222; }
-.t-gold { color: #d4af37; }
-.t-red { color: #ef4444; }
-
-/* 12. FLUID MILESTONES */
-.fluid-ms-paper { background: #fdf2f8; border: none; border-top: 6px solid #ec4899; box-shadow: 0 10px 30px rgba(236,72,153,0.1); }
-.fluid-head h1 { font-size: 22px; color: #831843; margin: 0; font-weight: 800; }
-.fluid-head p { font-size: 12px; color: #be185d; margin: 4px 0 16px; }
-.fluid-track { display: flex; flex-direction: column; gap: 0; position: relative; padding-left: 20px; }
-.fluid-track::before { content: ''; position: absolute; left: 24px; top: 10px; bottom: 10px; width: 2px; background: linear-gradient(to bottom, #ec4899, #fbcfe8); }
-.f-node { display: flex; gap: 16px; padding: 12px 0; position: relative; z-index: 1; }
-.f-bubble { width: 10px; height: 10px; border-radius: 50%; background: #fbcfe8; border: 2px solid #fff; margin-top: 4px; flex-shrink: 0; }
-.f-node.done .f-bubble { background: #ec4899; }
-.f-node.active .f-bubble.glow { background: #db2777; box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.2); }
-.f-content strong { display: block; font-size: 14px; color: #831843; }
-.f-content p { margin: 2px 0 0; font-size: 12px; color: #9d174d; }
-
-/* 13. PARTNER LETTER */
-.partner-letter-paper { background: #fdfbf7; border: 1px solid #d4c5b9; font-family: Georgia, serif; }
-.letter-firm-name { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: #433; text-align: center; margin-bottom: 10px; }
-.letter-meta-row { display: flex; justify-content: space-between; font-size: 11px; color: #655; text-transform: uppercase; }
-.letter-divider { height: 1px; background: #a89f91; margin: 12px 0; }
-.letter-body { font-size: 14px; line-height: 1.8; color: #222; }
-.letter-sign { margin-top: 20px; }
-.sig-font { font-family: 'Brush Script MT', 'Lucida Handwriting', 'Segoe Print', cursive; font-size: 24px; color: #111; display: block; margin-top: 8px; }
-
-/* 14. NEO BRUTALISM */
-.brutal-paper { background: #fff; border: 4px solid #000; box-shadow: 8px 8px 0px #000; border-radius: 0; }
-.brutal-head { border-bottom: 4px solid #000; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-end; }
-.brutal-head h1 { font-size: 28px; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: -1px; }
-.brutal-tag { font-family: var(--font-mono); font-weight: bold; background: #000; color: #fff; padding: 4px 8px; font-size: 12px; }
-.brutal-grid { display: flex; flex-direction: column; gap: 16px; }
-.brutal-box { border: 3px solid #000; padding: 12px; box-shadow: 4px 4px 0px #000; }
-.b-pink { background: #fbcfe8; }
-.b-yellow { background: #fef08a; }
-.b-blue { background: #bfdbfe; }
-.brutal-box h3 { font-size: 14px; font-weight: 900; margin: 0 0 8px; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 2px; }
-.brutal-box p { font-size: 13px; font-weight: 600; margin: 4px 0; }
-
-/* 15. CHRONICLE */
-.dark-chronicle-paper { background: #18181b; color: #fafafa; border: 1px solid #3f3f46; border-radius: 12px; }
-.chronicle-head { margin-bottom: 20px; }
-.chronicle-head h1 { font-size: 22px; margin: 0 0 4px; font-weight: 800; letter-spacing: -0.5px; }
-.chronicle-head span { font-size: 12px; color: #a1a1aa; }
-.dark-chron-flow { display: flex; flex-direction: column; gap: 16px; }
-.dc-row { display: flex; align-items: center; gap: 12px; font-size: 13px; background: #27272a; padding: 12px; border-radius: 8px; }
-.dc-dot { width: 8px; height: 8px; border-radius: 50%; background: #52525b; }
-.dc-dot.glow { background: #10b981; box-shadow: 0 0 8px #10b981; }
-.dc-row strong { font-family: var(--font-mono); color: #d4d4d8; }
-.t-highlight { color: #34d399; font-weight: 600; }
-
-/* 16. CYBER MATRIX */
-.cyber-paper { background: #020617; color: #0ea5e9; border: 1px solid #0369a1; font-family: var(--font-mono); }
-.cyber-head { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px dashed #0369a1; padding-bottom: 12px; margin-bottom: 12px; }
-.cyber-glitch { font-size: 10px; color: #38bdf8; letter-spacing: 2px; }
-.cyber-head h2 { font-size: 20px; font-weight: 800; margin: 0; color: #bae6fd; }
-.cyber-stat-bar { background: #0c4a6e; color: #e0f2fe; padding: 8px; font-size: 11px; font-weight: 700; margin-bottom: 12px; border-left: 4px solid #38bdf8; }
-.cyber-box { border: 1px solid #0284c7; background: rgba(2,132,199,0.1); padding: 12px; font-size: 12px; margin-bottom: 12px; }
-.c-danger { color: #f43f5e; font-size: 11px; margin-bottom: 6px; }
-
-/* 17. MAGIC PROPHET (预言家日报) */
-.prophet-paper { background: #fdf6e3; color: #292524; border: 4px double #78350f; font-family: 'Times New Roman', serif; box-shadow: inset 0 0 40px rgba(120,53,15,0.1); }
-.prophet-head { text-align: center; border-bottom: 2px solid #78350f; padding-bottom: 8px; margin-bottom: 4px; }
-.prophet-ornament { font-size: 24px; color: #78350f; margin-bottom: -4px; }
-.prophet-head h1 { font-size: 32px; font-weight: 900; margin: 0; font-family: Georgia, serif; text-transform: uppercase; letter-spacing: -1px; text-shadow: 1px 1px 0px rgba(0,0,0,0.2); }
-.prophet-meta { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 2px; color: #57534e; }
-.prophet-divider { height: 1px; background: #78350f; margin-bottom: 12px; }
-.prophet-lead { font-size: 22px; text-align: center; margin: 0 0 16px; border-bottom: 1px dashed #a8a29e; padding-bottom: 12px; font-style: italic; }
-.prophet-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
-.p-col-main, .p-col-side { display: flex; flex-direction: column; gap: 8px; }
-.p-col-main h3, .p-col-side h3 { font-size: 14px; font-weight: 900; margin: 0; text-transform: uppercase; border-bottom: 2px solid #78350f; display: inline-block; padding-bottom: 2px; }
-.p-desc { font-size: 13px; line-height: 1.6; text-align: justify; }
-.p-red, .p-hear { font-size: 12px; border-bottom: 1px solid #d6d3d1; padding-bottom: 4px; }
-
-/* 18. HOGWARTS LETTER (霍格沃茨录取信) */
-.hogwarts-paper { background: #fefce8; color: #14532d; border: 1px solid #dcfce7; font-family: Georgia, serif; }
-.hogwarts-head { text-align: center; border-bottom: 1px solid #86efac; padding-bottom: 16px; margin-bottom: 20px; }
-.h-crest { width: 40px; height: 40px; margin: 0 auto 8px; border: 2px solid #14532d; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; font-family: 'Times New Roman', serif; }
-.hogwarts-head h2 { font-size: 16px; font-weight: 900; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 1px; }
-.hogwarts-head p { font-size: 11px; margin: 0; font-style: italic; }
-.hogwarts-body p { font-size: 14px; line-height: 1.8; margin-bottom: 12px; }
-.h-sig { margin-top: 24px; font-family: 'Brush Script MT', 'Lucida Handwriting', 'Segoe Print', cursive; font-size: 24px; line-height: 1; }
-.h-sig span { font-family: Georgia, serif; font-size: 11px; color: #166534; font-style: italic; }
-.wax-seal { position: absolute; bottom: 30px; right: 40px; width: 60px; height: 60px; background: #991b1b; border-radius: 50%; box-shadow: inset 0 0 10px rgba(0,0,0,0.5), 2px 4px 6px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; transform: rotate(-15deg); }
-.seal-inner { width: 44px; height: 44px; border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.8); font-size: 28px; font-family: 'Times New Roman', serif; }
-
-/* 19. TELEGRAPH (复古电报) */
-.telegraph-paper { background: #fef08a; color: #422006; font-family: 'Courier New', Courier, monospace; border: none; box-shadow: inset 0 0 20px rgba(161,98,7,0.2); }
-.tele-stamp { position: absolute; top: 16px; right: 20px; border: 2px dashed #b45309; color: #b45309; padding: 4px 8px; transform: rotate(5deg); font-weight: bold; font-size: 12px; }
-.tele-head { border-bottom: 2px solid #422006; padding-bottom: 12px; margin-bottom: 16px; }
-.tele-head h2 { font-size: 24px; margin: 0; letter-spacing: -1px; }
-.tele-head p { font-size: 12px; margin: 4px 0 0; }
-.tele-body p { font-size: 14px; text-transform: uppercase; margin-bottom: 12px; line-height: 1.5; font-weight: 700; border-bottom: 1px solid rgba(66,32,6,0.1); padding-bottom: 4px; }
-
-/* 20. BULLETIN (通缉令/警情通报) */
-.bulletin-paper { background: #ffedd5; color: #451a03; border: 8px solid #78350f; outline: 2px solid #ffedd5; outline-offset: -12px; font-family: 'Times New Roman', serif; text-align: center; }
-.bull-head h1 { font-size: 48px; font-weight: 900; margin: 0; letter-spacing: 4px; text-transform: uppercase; }
-.bull-head h2 { font-size: 18px; margin: 4px 0 8px; }
-.bull-head p { font-size: 12px; margin: 0; font-family: var(--font-mono); }
-.bull-img-placeholder { width: 100%; height: 160px; border: 4px solid #78350f; margin: 16px 0; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; color: #a8a29e; background: #f5f5f4; }
-.bull-body h3 { font-size: 24px; margin: 0 0 8px; text-transform: uppercase; }
-.bull-body p { font-size: 14px; margin: 0 0 16px; }
-.bull-details { border-top: 2px dashed #78350f; padding-top: 12px; text-align: left; }
-.bull-details strong { display: block; margin-bottom: 6px; font-size: 16px; }
-.bull-details div { font-size: 14px; margin-bottom: 4px; }
-
-/* 21. BLUEPRINT (工业蓝图) */
-.blueprint-paper { background: #1e3a8a; color: #eff6ff; font-family: 'Courier New', Courier, monospace; position: relative; border: 4px solid #eff6ff; }
-.bp-grid-overlay { position: absolute; inset: 0; background-size: 20px 20px; background-image: linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px); pointer-events: none; z-index: 0; }
-.bp-content { position: relative; z-index: 1; }
-.bp-head { border-bottom: 2px solid #eff6ff; padding-bottom: 12px; margin-bottom: 16px; }
-.bp-head h1 { font-size: 24px; font-weight: 400; letter-spacing: 2px; margin: 0 0 8px; }
-.bp-meta { display: flex; justify-content: space-between; font-size: 11px; }
-.bp-box { border: 1px solid #eff6ff; padding: 12px; margin-bottom: 16px; background: rgba(30,58,138,0.5); }
-.bp-lbl { font-size: 10px; border-bottom: 1px solid #eff6ff; display: inline-block; padding-bottom: 2px; margin-bottom: 8px; }
-.bp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.bp-box h3 { font-size: 16px; margin: 0 0 8px; font-weight: 400; }
-.bp-box p { font-size: 12px; margin: 0; }
-.bp-box div { font-size: 11px; margin-bottom: 4px; }
-
-/* 22. TERMINAL (复古终端机) */
-.terminal-paper { background: #000; color: #22c55e; font-family: 'Courier New', Courier, monospace; border: 12px solid #111; border-radius: 8px; }
-.term-head { margin-bottom: 20px; font-size: 14px; font-weight: bold; }
-.term-body { font-size: 14px; line-height: 1.5; }
-.term-cursor { display: inline-block; width: 10px; height: 16px; background: #22c55e; animation: blink 1s step-end infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-
-/* 23. POLAROID (拍立得相纸) */
-.polaroid-paper { background: #fafafa; border: none; border-radius: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); padding: 16px 16px 40px; }
-.pol-photo { width: 100%; height: 320px; background: #111; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
-.pol-inner { position: absolute; inset: 0; background: linear-gradient(45deg, #1e293b, #0f172a); padding: 20px; display: flex; align-items: flex-end; }
-.pol-text-overlay { background: rgba(255,255,255,0.9); padding: 12px; border-radius: 4px; width: 100%; color: #111; }
-.pol-text-overlay h3 { font-size: 16px; margin: 0 0 4px; }
-.pol-text-overlay p { font-size: 12px; margin: 0 0 8px; }
-.pol-reds div { font-size: 11px; color: #b91c1c; font-family: var(--font-mono); }
-.pol-marker { text-align: center; font-family: 'Brush Script MT', 'Lucida Handwriting', 'Segoe Print', cursive; font-size: 24px; color: #111; transform: rotate(-2deg); }
-
-/* 24. THEATRE TICKET (复古票根) */
-.ticket-paper { background: #fef2f2; color: #881337; border: 2px solid #881337; border-radius: 8px; display: flex; flex-direction: row; padding: 0; overflow: visible; position: relative; }
-.tick-stub { width: 60px; border-right: 2px dashed #881337; display: flex; align-items: center; justify-content: center; position: relative; }
-.tick-stub::before, .tick-stub::after { content: ''; position: absolute; right: -10px; width: 20px; height: 20px; background: rgba(0,0,0,0.65); border-radius: 50%; }
-.tick-stub::before { top: -10px; }
-.tick-stub::after { bottom: -10px; }
-.tick-vert { transform: rotate(-90deg); font-weight: 900; letter-spacing: 4px; font-size: 18px; white-space: nowrap; }
-.tick-main { flex: 1; padding: 20px; }
-.tick-head { text-align: center; font-weight: 900; letter-spacing: 2px; font-size: 14px; border-bottom: 2px solid #881337; padding-bottom: 8px; margin-bottom: 12px; }
-.tick-title { font-size: 32px; font-family: 'Times New Roman', serif; text-align: center; margin: 0 0 4px; }
-.tick-date { text-align: center; font-family: var(--font-mono); font-size: 12px; margin-bottom: 16px; }
-.tick-feat { font-size: 14px; font-weight: bold; background: #881337; color: #fff; padding: 4px 8px; display: inline-block; margin-bottom: 8px; }
-.tick-desc { font-size: 12px; margin-bottom: 16px; }
-.tick-row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; border-top: 1px solid #881337; padding-top: 8px; }
-
-/* 25. SCROLL (东方卷轴) */
-.scroll-paper { background: #fffcf0; color: #27272a; border-top: 12px solid #b91c1c; border-bottom: 12px solid #b91c1c; font-family: 'STKaiti', 'KaiTi', '楷体', 'BiauKai', serif; padding: 32px; }
-.scroll-head { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; border-bottom: 1px solid #d4d4d8; padding-bottom: 16px; }
-.scroll-inkan { width: 32px; height: 32px; border: 2px solid #b91c1c; color: #b91c1c; font-size: 18px; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 4px; }
-.scroll-head h1 { font-size: 28px; font-weight: normal; margin: 0; letter-spacing: 2px; }
-.scroll-date { font-size: 14px; color: #71717a; margin-left: auto; }
-.s-lead { font-size: 18px; font-weight: bold; margin: 0 0 12px; }
-.s-desc { font-size: 15px; line-height: 1.8; margin: 0 0 20px; }
-.s-danger p { font-size: 14px; color: #b91c1c; margin: 4px 0; }
-
-/* 26. CLASSIFIED FILE (冷战绝密档案) */
-.classified-paper { background: #fde68a; color: #111; border: none; position: relative; border-radius: 0 8px 8px 8px; margin-top: 20px; }
-.class-tab { position: absolute; top: -20px; left: 0; background: #fde68a; padding: 4px 16px; font-family: var(--font-mono); font-size: 10px; border-radius: 8px 8px 0 0; }
-.class-top-stamp { font-size: 32px; font-family: 'Times New Roman', serif; font-weight: 900; color: #b91c1c; border: 4px double #b91c1c; padding: 4px 12px; display: inline-block; transform: rotate(-5deg); margin-bottom: 20px; letter-spacing: 2px; opacity: 0.8; }
-.class-body h2 { font-size: 20px; font-family: var(--font-mono); border-bottom: 2px solid #111; padding-bottom: 4px; margin: 0 0 8px; }
-.class-body p { font-family: var(--font-mono); font-size: 13px; margin: 0 0 12px; }
-.class-redact-box { background: rgba(0,0,0,0.05); padding: 12px; border-left: 4px solid #111; margin-bottom: 20px; }
-.class-list { list-style: square; padding-left: 20px; font-family: var(--font-mono); font-size: 12px; color: #b91c1c; font-weight: bold; }
-.class-clip { position: absolute; top: 10px; right: 20px; width: 12px; height: 40px; border: 2px solid #94a3b8; border-radius: 10px; background: transparent; transform: rotate(15deg); }
-
-/* 27. VINYL RECORD (黑胶唱片) */
-.vinyl-paper { background: #f97316; color: #fffcf0; border: none; padding: 0; display: flex; position: relative; overflow: hidden; }
-.vinyl-record-bg { position: absolute; right: -50px; top: 50%; transform: translateY(-50%); width: 200px; height: 200px; background: radial-gradient(circle, #111 30%, #333 40%, #111 50%, #333 60%, #111 70%); border-radius: 50%; border: 4px solid #111; z-index: 0; }
-.vinyl-sleeve { position: relative; z-index: 1; padding: 32px; width: 80%; background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 10px 0 20px rgba(0,0,0,0.5); }
-.v-band-name { font-size: 10px; font-weight: bold; letter-spacing: 2px; margin-bottom: 4px; }
-.v-album { font-size: 32px; font-family: Georgia, serif; font-weight: 900; font-style: italic; margin: 0 0 24px; text-shadow: 2px 2px 0 rgba(0,0,0,0.2); }
-.v-tracklist h3 { font-size: 14px; font-weight: bold; border-bottom: 1px solid #fffcf0; padding-bottom: 4px; margin: 16px 0 8px; }
-.v-tracklist p { font-size: 12px; margin: 4px 0; }
-
-/* 28. TAROT (神秘塔罗牌) */
-.tarot-paper { background: #1e1b4b; color: #fef08a; border: 12px solid #312e81; padding: 12px; text-align: center; font-family: 'Times New Roman', serif; }
-.tarot-border { border: 2px solid #fef08a; padding: 16px; height: 100%; display: flex; flex-direction: column; }
-.tarot-num { font-size: 18px; font-weight: bold; letter-spacing: 4px; margin-bottom: 12px; }
-.tarot-art { height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid rgba(254,240,138,0.3); margin-bottom: 16px; }
-.t-moon { width: 30px; height: 30px; border-radius: 50%; box-shadow: -6px 6px 0 0 #fef08a; margin-bottom: 8px; }
-.t-stars { font-size: 12px; letter-spacing: 8px; }
-.tarot-body h2 { font-size: 20px; text-transform: uppercase; margin: 0 0 8px; font-weight: normal; letter-spacing: 2px; }
-.tarot-body p { font-size: 13px; line-height: 1.6; margin: 0 0 16px; font-style: italic; }
-.t-fate span { font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #fef08a; padding-bottom: 2px; display: inline-block; margin-bottom: 6px; }
-.t-fate div { font-size: 12px; margin-bottom: 4px; }
-.tarot-bottom { margin-top: auto; font-size: 16px; font-weight: bold; letter-spacing: 2px; border-top: 2px solid #fef08a; padding-top: 12px; }
-
-/* 29. BANK NOTE (复古钞票) */
-.bank-paper { background: #f0fdf4; color: #14532d; border: 12px solid #14532d; padding: 8px; font-family: Georgia, serif; text-align: center; }
-.bank-border { border: 2px solid #14532d; padding: 16px; position: relative; height: 100%; display: flex; flex-direction: column; }
-.bank-corners { position: absolute; top: -6px; left: -6px; right: -6px; display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; background: #f0fdf4; padding: 0 4px; }
-.bank-corners.bottom { top: auto; bottom: -6px; font-size: 10px; font-family: var(--font-mono); }
-.bank-head h2 { font-size: 24px; font-weight: 900; letter-spacing: 2px; margin: 0 0 4px; }
-.bank-head p { font-size: 8px; letter-spacing: 1px; margin: 0 0 16px; }
-.bank-center-art { border: 2px solid #14532d; border-radius: 40px; padding: 20px; display: flex; align-items: center; gap: 16px; text-align: left; background: repeating-linear-gradient(45deg, rgba(20,83,45,0.05), rgba(20,83,45,0.05) 2px, transparent 2px, transparent 4px); }
-.b-seal { width: 60px; height: 60px; border: 4px solid #14532d; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 900; background: #fff; }
-.b-text h3 { font-size: 14px; margin: 0 0 4px; text-transform: uppercase; }
-.b-text p { font-size: 11px; margin: 0; line-height: 1.4; }
-
-/* 30. PASSPORT (国际护照) */
-.passport-paper { background: #f8fafc; color: #0f172a; border-left: 20px solid #1e40af; font-family: var(--font-mono); }
-.pass-head { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #cbd5e1; padding-bottom: 12px; margin-bottom: 16px; }
-.pass-crest { font-size: 24px; }
-.pass-head h1 { font-size: 24px; font-weight: bold; margin: 0; letter-spacing: 2px; }
-.pass-head p { font-size: 12px; color: #64748b; margin: 0; }
-.pass-inner { display: flex; gap: 16px; margin-bottom: 20px; }
-.pass-photo { width: 100px; height: 120px; background: #e2e8f0; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; }
-.pass-data { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-.p-row { font-size: 10px; color: #64748b; display: flex; gap: 12px; }
-.p-row strong { font-size: 12px; color: #0f172a; display: block; margin-top: 2px; }
-.pass-mrz { background: #f1f5f9; padding: 10px; font-size: 12px; font-weight: bold; letter-spacing: 2px; border-radius: 4px; }
-
-/* 31. STEAMPUNK (蒸汽朋克) */
-.steampunk-paper { background: #292524; color: #fcd34d; border: 8px solid #b45309; position: relative; font-family: 'Times New Roman', serif; }
-.steam-border { border: 2px solid #fcd34d; padding: 20px; position: relative; height: 100%; display: flex; flex-direction: column; }
-.rivet { position: absolute; width: 12px; height: 12px; background: radial-gradient(circle, #fcd34d, #b45309); border-radius: 50%; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
-.r1 { top: -6px; left: -6px; } .r2 { top: -6px; right: -6px; } .r3 { bottom: -6px; left: -6px; } .r4 { bottom: -6px; right: -6px; }
-.steam-head { text-align: center; border-bottom: 1px dashed #fcd34d; padding-bottom: 16px; margin-bottom: 16px; }
-.steam-head h1 { font-size: 28px; font-weight: 900; margin: 0; letter-spacing: 2px; text-shadow: 2px 2px 0 #78350f; }
-.steam-head p { font-size: 12px; margin: 4px 0 0; font-family: var(--font-mono); }
-.steam-body { position: relative; }
-.s-gear-bg { position: absolute; right: 0; bottom: 0; width: 100px; height: 100px; border: 10px dashed rgba(252,211,77,0.1); border-radius: 50%; z-index: 0; pointer-events: none; }
-.steam-body h2 { font-size: 16px; margin: 0 0 8px; position: relative; z-index: 1; }
-.steam-body p { font-size: 13px; margin: 0 0 12px; line-height: 1.5; position: relative; z-index: 1; }
-
-/* 32. ROYAL DECREE (王室诏书) */
-.decree-paper { background: #fefce8; color: #4c0519; border: 1px solid #fde047; font-family: Georgia, serif; box-shadow: inset 0 0 30px rgba(253,224,71,0.2); }
-.decree-head { text-align: center; margin-bottom: 24px; }
-.d-crown { font-size: 32px; color: #ca8a04; margin-bottom: -8px; }
-.decree-head h1 { font-size: 36px; font-weight: normal; margin: 0; font-style: italic; }
-.decree-head p { font-size: 14px; margin: 0; color: #831843; }
-.d-dropcap { font-size: 14px; line-height: 1.8; margin-bottom: 16px; }
-.d-first-letter { float: left; font-size: 48px; line-height: 0.8; padding-right: 8px; color: #ca8a04; font-family: 'Times New Roman', serif; }
-.decree-body p { font-size: 14px; line-height: 1.8; margin-bottom: 12px; }
-.d-list { list-style: none; padding: 0; font-size: 13px; margin: 0 0 24px; border-left: 2px solid #ca8a04; padding-left: 12px; }
-.d-list li { margin-bottom: 4px; }
-.d-sign { display: flex; align-items: center; gap: 16px; font-style: italic; font-size: 16px; }
-.d-wax { width: 40px; height: 40px; background: #9f1239; border-radius: 50%; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); position: relative; }
-.d-wax::after { content: 'C'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.5); font-family: 'Times New Roman', serif; font-size: 20px; }
-
-/* 底部操作栏 */
-.modal-control-footer {
+.report-header, .brand-lockup, .report-index, .title-meta, .matter-reference,
+.section-heading, .report-item, .report-signoff, .modal-control-footer, .footer-actions {
   display: flex;
   align-items: center;
+}
+
+.report-header {
   justify-content: space-between;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  border-radius: 0 0 var(--c-radius-xl) var(--c-radius-xl);
+  gap: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
 }
 
-.footer-left-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--slate-gray-light);
+.brand-lockup { gap: 10px; }
+.brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  font: 700 21px/1 var(--display-font);
+}
+.brand-copy { display: grid; gap: 1px; }
+.brand-copy strong { font: 800 13px/1 var(--body-font); letter-spacing: 0.12em; }
+.brand-copy small { color: var(--muted); font: 600 8px/1.2 var(--mono-font); letter-spacing: 0.13em; }
+
+.report-index { align-items: flex-end; flex-direction: column; gap: 3px; text-align: right; }
+.report-index span, .report-index strong { font-family: var(--mono-font); letter-spacing: 0.08em; }
+.report-index span { color: var(--accent); font-size: 9px; font-weight: 800; }
+.report-index strong { color: var(--muted); font-size: 9px; font-weight: 600; }
+
+.title-block { padding: 62px 0 38px; }
+.style-kicker { margin: 0 0 14px; color: var(--accent); font: 800 10px/1.3 var(--mono-font); letter-spacing: 0.12em; text-transform: uppercase; }
+.title-block h1 { max-width: 650px; margin: 0; color: var(--ink); font: 600 clamp(42px, 7vw, 72px)/0.98 var(--display-font); letter-spacing: -0.045em; }
+.title-meta { justify-content: space-between; gap: 24px; margin-top: 26px; color: var(--muted); font: 700 10px/1.3 var(--mono-font); letter-spacing: 0.08em; }
+
+.focus-panel {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 24px;
+  padding: 28px 0 30px;
+  border-top: 3px solid var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.section-number { color: var(--accent); font: 800 11px/1 var(--mono-font); letter-spacing: 0.05em; }
+.section-label { margin: 0 0 9px; color: var(--muted); font: 800 9px/1.2 var(--mono-font); letter-spacing: 0.11em; }
+.focus-copy h2 { margin: 0 0 10px; font: 600 28px/1.2 var(--display-font); letter-spacing: -0.02em; }
+.focus-copy > p:not(.section-label) { max-width: 620px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.75; }
+.matter-reference { gap: 8px; margin-top: 17px; }
+.matter-reference span, .matter-reference strong { padding: 4px 7px; border: 1px solid var(--line); font: 700 9px/1.2 var(--mono-font); letter-spacing: 0.04em; }
+.matter-reference strong { color: var(--accent); border-color: var(--accent); }
+
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin: 28px 0 40px; border-block: 1px solid var(--line); }
+.metric-cell { display: grid; align-content: start; min-height: 116px; padding: 18px 18px 16px; border-right: 1px solid var(--line); }
+.metric-cell:last-child { border-right: 0; }
+.metric-cell span { color: var(--muted); font: 800 9px/1.2 var(--mono-font); letter-spacing: 0.07em; }
+.metric-cell strong { margin: 9px 0 5px; font: 600 32px/1 var(--display-font); font-variant-numeric: tabular-nums; }
+.metric-cell small { color: var(--muted); font-size: 9px; line-height: 1.35; }
+
+.narrative-section { margin-bottom: 42px; }
+.section-heading { align-items: flex-start; gap: 18px; margin-bottom: 17px; }
+.section-heading > div { display: grid; gap: 3px; }
+.section-heading p { margin: 0; color: var(--accent); font: 800 8px/1 var(--mono-font); letter-spacing: 0.12em; }
+.section-heading h2 { margin: 0; font: 600 19px/1.1 var(--display-font); }
+.markdown-body { padding-left: 35px; color: var(--muted); font: 13px/1.75 var(--body-font); }
+.markdown-body :deep(.brief-p) { margin: 0 0 10px; }
+.markdown-body :deep(.brief-ul) { margin: 8px 0 12px; padding-left: 20px; }
+.markdown-body :deep(.brief-h3), .markdown-body :deep(.brief-h4), .markdown-body :deep(.brief-h5) { margin: 18px 0 8px; color: var(--ink); font-family: var(--display-font); }
+
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; padding-top: 34px; border-top: 1px solid var(--line); }
+.detail-grid.without-narrative { margin-top: 4px; }
+.detail-section { min-width: 0; }
+.item-list { display: grid; }
+.report-item { align-items: flex-start; gap: 11px; padding: 13px 0; border-top: 1px solid var(--line); }
+.report-item:first-child { border-top-color: var(--ink); }
+.item-sequence { flex: 0 0 auto; padding-top: 2px; color: var(--accent); font: 700 9px/1 var(--mono-font); }
+.item-copy { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.item-copy strong { font: 600 12px/1.45 var(--body-font); }
+.item-copy span { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; line-height: 1.35; }
+.report-item > time { flex: 0 0 auto; max-width: 92px; color: var(--accent); font: 800 9px/1.35 var(--mono-font); text-align: right; }
+.report-item > .schedule-time { min-width: 44px; color: var(--ink); font-size: 11px; text-align: left; }
+.honest-empty { margin: 0; padding: 18px 0; border-block: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+.report-signoff { justify-content: space-between; min-height: 92px; gap: 20px; margin-top: 54px; padding-top: 22px; border-top: 3px solid var(--ink); }
+.report-signoff > div { display: grid; gap: 4px; }
+.report-signoff span { font: 800 10px/1 var(--mono-font); letter-spacing: 0.12em; }
+.report-signoff small { color: var(--muted); font: 600 9px/1.4 var(--mono-font); }
+.report-signoff > strong { margin-left: auto; color: var(--muted); font: 700 9px/1.2 var(--mono-font); letter-spacing: 0.05em; }
+.material-seal { width: 90px; height: 90px; margin: -24px 0 -16px; object-fit: contain; transform: rotate(-8deg); filter: drop-shadow(0 6px 8px rgba(30, 16, 8, 0.2)); }
+
+.sample-ribbon { position: absolute; z-index: 5; top: 16px; left: -41px; width: 160px; padding: 5px 0; color: var(--accent-contrast); background: var(--accent); transform: rotate(-34deg); font: 800 8px/1 var(--mono-font); letter-spacing: 0.05em; text-align: center; }
+.material-rule, .report-corner { position: absolute; pointer-events: none; }
+.material-rule { right: 58px; left: 58px; height: 1px; background: var(--line); }
+.material-rule-top { top: 14px; }
+.material-rule-bottom { bottom: 14px; }
+.report-corner { width: 17px; height: 17px; border-color: var(--accent); opacity: 0.66; }
+.report-corner-a { top: 24px; left: 24px; border-top: 1px solid; border-left: 1px solid; }
+.report-corner-b { right: 24px; bottom: 24px; border-right: 1px solid; border-bottom: 1px solid; }
+
+.skin-ornaments, .skin-ornaments span { position: absolute; pointer-events: none; }
+.skin-ornaments { z-index: -1; inset: 0; overflow: hidden; }
+.skin-ornaments span { display: none; }
+.ornament-medallion { place-items: center; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; font: 500 24px/1 var(--display-font); }
+.ornament-route, .ornament-serial { color: var(--muted); font: 700 8px/1 var(--mono-font); letter-spacing: 0.12em; text-transform: uppercase; }
+.ornament-pin { width: 9px; height: 9px; border: 1px solid var(--accent); border-radius: 50%; }
+
+.modal-close { position: absolute; z-index: 10; top: 14px; right: -52px; display: grid; width: 38px; height: 38px; place-items: center; color: #f8fafc; background: rgba(15, 23, 42, 0.58); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 50%; cursor: pointer; backdrop-filter: blur(8px); }
+.modal-close:hover { background: rgba(15, 23, 42, 0.86); }
+.modal-control-footer { justify-content: space-between; gap: 16px; padding: 12px 14px; color: var(--c-text-secondary); background: var(--c-bg-card); border-top: 1px solid var(--c-border); border-radius: 0 0 var(--c-radius-lg) var(--c-radius-lg); box-shadow: 0 18px 50px rgba(2, 6, 23, 0.22); }
+.modal-control-footer p { margin: 0; font-size: 10.5px; }
+.footer-actions { gap: 6px; }
+.utility-action, .export-action { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 10px; border-radius: var(--c-radius-md); font-size: 11px; font-weight: 700; cursor: pointer; }
+.utility-action { color: var(--c-text); background: transparent; border: 1px solid transparent; }
+.utility-action:hover { background: var(--c-bg-hover); border-color: var(--c-border); }
+.export-action { padding-inline: 14px; color: var(--c-primary-contrast); background: var(--c-primary); border: 1px solid var(--c-primary); }
+.export-action:hover { filter: brightness(1.06); }
+.utility-action:disabled, .export-action:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* Editorial */
+.style-gazette { --paper: #f5f1e7; --ink: #171512; --muted: #666057; --accent: #82252a; --export-mat: #bdb4a4; }
+.style-gazette::after { background: repeating-linear-gradient(90deg, transparent 0 31px, rgba(0, 0, 0, 0.022) 31px 32px); }
+.style-gazette .report-header { padding-top: 10px; border-top: 6px double var(--ink); border-bottom: 2px solid var(--ink); }
+.style-gazette .title-block { padding-block: 34px 30px; text-align: center; border-bottom: 1px solid var(--ink); }
+.style-gazette .title-block h1 { margin-inline: auto; font-weight: 800; letter-spacing: -0.055em; text-transform: uppercase; }
+.style-gazette .title-meta { justify-content: center; gap: 32px; }
+.style-gazette .focus-copy > p:not(.section-label)::first-letter { float: left; margin: 5px 6px 0 0; color: var(--accent); font: 700 34px/0.75 var(--display-font); }
+.style-gazette .detail-grid { gap: 24px; border-top: 4px double var(--ink); }
+
+.style-vogue { --paper: #fbfaf7; --ink: #121212; --muted: #6d6962; --accent: #111; --export-mat: #dedbd5; --texture-opacity: 0.08; }
+.style-vogue .brand-mark { color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 50%; }
+.style-vogue .report-header { border-bottom: 0; }
+.style-vogue .title-block { padding-block: 102px 72px; text-align: center; }
+.style-vogue .style-kicker { margin-bottom: 24px; letter-spacing: 0.28em; }
+.style-vogue .title-block h1 { max-width: 700px; margin-inline: auto; font-size: clamp(56px, 9vw, 94px); font-weight: 400; line-height: 0.86; }
+.style-vogue .title-meta { justify-content: center; margin-top: 38px; }
+.style-vogue .title-meta span + span::before { content: '/'; margin-right: 24px; }
+.style-vogue .focus-panel { padding-inline: 50px; border-top-width: 1px; }
+.style-vogue .metric-grid { margin-inline: 50px; }
+.style-vogue .metric-cell { min-height: 100px; text-align: center; }
+
+.style-chronicle { --paper: #f2eee5; --ink: #1e2933; --muted: #6d7277; --accent: #36546c; --export-mat: #aeb7be; }
+.style-chronicle::after { background: linear-gradient(90deg, transparent 48px, rgba(54, 84, 108, 0.18) 49px, rgba(54, 84, 108, 0.18) 50px, transparent 51px); }
+.style-chronicle .ornament-serial { right: -44px; top: 340px; display: block; transform: rotate(90deg); }
+.style-chronicle .title-block { padding-left: 44px; }
+.style-chronicle .title-block h1 { font-style: italic; font-weight: 500; }
+.style-chronicle .focus-panel { grid-template-columns: 70px 1fr; border-top: 1px solid var(--accent); }
+.style-chronicle .section-number { display: grid; width: 34px; height: 34px; place-items: center; color: var(--paper); background: var(--accent); border-radius: 50%; }
+.style-chronicle .detail-grid { position: relative; padding-left: 44px; }
+.style-chronicle .detail-grid::before { position: absolute; top: 28px; bottom: 0; left: 16px; width: 1px; content: ''; background: var(--accent); opacity: 0.45; }
+
+/* Documents */
+.style-typewriter, .style-telegraph, .style-dossier, .style-classified-file {
+  --display-font: 'Courier New', Courier, monospace;
+  --body-font: 'Courier New', Courier, monospace;
+}
+.style-typewriter { --paper: #f7f6f2; --ink: #151515; --muted: #595959; --accent: #151515; --export-mat: #c9c9c5; --texture-opacity: 0.18; padding-left: 86px; }
+.style-typewriter::after { background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(0, 0, 0, 0.045) 27px 28px), linear-gradient(90deg, transparent 63px, rgba(166, 57, 57, 0.32) 64px, transparent 65px); }
+.style-typewriter .ornament-pin { left: 25px; display: block; width: 15px; height: 15px; border: 2px solid #9e9b93; box-shadow: inset 0 0 0 3px var(--paper); }
+.style-typewriter .ornament-pin-a { top: 200px; }
+.style-typewriter .ornament-pin-b { top: 520px; }
+.style-typewriter .report-header { border-bottom-style: dashed; }
+.style-typewriter .title-block h1 { font-size: clamp(40px, 6vw, 62px); letter-spacing: -0.04em; text-transform: uppercase; }
+.style-typewriter .style-kicker::before { content: 'REF: '; }
+.style-typewriter .focus-panel, .style-typewriter .detail-grid { border-top-style: dashed; }
+.style-typewriter .report-item { border-top-style: dotted; }
+
+.style-telegraph { --paper: #e7d9ad; --ink: #372d22; --muted: #6d5d49; --accent: #a03e28; --export-mat: #9b876c; --texture-opacity: 0.42; padding-top: 76px; }
+.style-telegraph::after { background: radial-gradient(circle at 9px 12px, var(--export-mat) 0 3px, transparent 3.5px) 0 0 / 18px 24px repeat-x; opacity: 0.48; }
+.style-telegraph .ornament-route { top: 28px; left: 58px; display: block; padding: 8px 12px; color: var(--accent); border: 2px solid var(--accent); transform: rotate(-1deg); }
+.style-telegraph .report-header { border-block: 1px dashed var(--ink); padding-block: 14px; }
+.style-telegraph .title-block { padding-block: 36px 28px; }
+.style-telegraph .title-block h1 { font-size: clamp(44px, 7vw, 68px); line-height: 0.92; text-transform: uppercase; }
+.style-telegraph .focus-panel { padding: 24px; border: 2px dashed var(--ink); }
+.style-telegraph .metric-grid { border: 2px dashed rgba(55, 45, 34, 0.55); }
+.style-telegraph .report-item { border-top-style: dashed; }
+
+.style-dossier { --paper: #d7bd91; --ink: #30251b; --muted: #6f5b48; --accent: #8f252b; --export-mat: #6b4a36; --texture-opacity: 0.4; padding-top: 80px; }
+.style-dossier::after { inset: 22px; border: 1px solid rgba(48, 37, 27, 0.38); box-shadow: inset 8px 0 rgba(78, 53, 33, 0.1); }
+.style-dossier .ornament-route { top: 22px; right: 58px; display: block; min-width: 180px; padding: 12px 18px 18px; color: #f3e5ca; background: #6f4d32; text-align: center; clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%); }
+.style-dossier .ornament-serial { top: 92px; right: 58px; display: block; color: var(--accent); border-bottom: 2px solid var(--accent); }
+.style-dossier .report-header::after { content: 'FILE COPY'; margin-left: 12px; padding: 5px 8px; color: var(--accent); border: 2px solid var(--accent); transform: rotate(-3deg); font: 800 9px/1 var(--mono-font); }
+.style-dossier .title-block { padding-block: 44px 28px; }
+.style-dossier .focus-panel { padding: 26px; background: rgba(255, 245, 222, 0.22); border: 1px solid rgba(48, 37, 27, 0.4); }
+.style-dossier .report-signoff { border-top-style: double; }
+
+.style-classified-file { --paper: #d6b676; --ink: #201b14; --muted: #655239; --accent: #a1121a; --export-mat: #564536; --texture-opacity: 0.45; padding-top: 78px; }
+.style-classified-file::after { background: linear-gradient(112deg, transparent 0 70%, rgba(48, 34, 18, 0.055) 70% 71%, transparent 71%), repeating-linear-gradient(0deg, transparent 0 39px, rgba(72, 48, 25, 0.035) 39px 40px); }
+.style-classified-file .ornament-route { top: 0; left: 0; display: block; width: 100%; padding: 15px 0; color: #f5d8c0; background: var(--accent); text-align: center; letter-spacing: 0.42em; }
+.style-classified-file .style-kicker { width: max-content; padding: 6px 9px; border: 3px double var(--accent); transform: rotate(-2deg); }
+.style-classified-file .title-block h1 { max-width: 560px; font-weight: 800; text-transform: uppercase; }
+.style-classified-file .metric-grid { border: 2px solid var(--ink); }
+.style-classified-file .metric-cell { border-right-width: 2px; }
+.style-classified-file .report-signoff strong { padding: 6px 9px; color: var(--accent); border: 2px solid var(--accent); transform: rotate(2deg); }
+
+/* Grid and action */
+.style-swiss-grid { --paper: #f7f7f5; --ink: #050505; --muted: #5d5d5d; --accent: #c62f24; --export-mat: #c5c5c0; --texture-opacity: 0.05; --display-font: Arial, Helvetica, sans-serif; }
+.style-swiss-grid::after { background: repeating-linear-gradient(90deg, transparent 0 107px, rgba(0, 0, 0, 0.075) 107px 108px); }
+.style-swiss-grid .ornament-medallion { top: 86px; right: 42px; display: grid; width: 138px; height: 138px; color: var(--accent); border: 12px solid var(--accent); border-radius: 0; font: 900 98px/1 Arial, sans-serif; opacity: 0.12; }
+.style-swiss-grid .report-header { border-bottom: 6px solid var(--ink); }
+.style-swiss-grid .title-block { padding-block: 54px 44px; }
+.style-swiss-grid .title-block h1 { max-width: 520px; font-size: clamp(52px, 8vw, 84px); font-weight: 900; line-height: 0.86; text-transform: uppercase; }
+.style-swiss-grid .style-kicker { display: inline-block; padding: 5px 8px; color: white; background: var(--accent); }
+.style-swiss-grid .focus-panel { grid-template-columns: 88px 1fr; border-top-width: 10px; }
+.style-swiss-grid .section-number { color: var(--ink); font-size: 30px; }
+.style-swiss-grid .metric-grid { border: 4px solid var(--ink); }
+.style-swiss-grid .metric-cell { border-right: 4px solid var(--ink); }
+
+.style-focus-matrix { --paper: #f6ff56; --ink: #090909; --muted: #323232; --accent: #ed3e98; --accent-contrast: #090909; --export-mat: #6448d8; --texture-opacity: 0.03; --display-font: Arial, Helvetica, sans-serif; border: 8px solid var(--ink); }
+.style-focus-matrix::after { background: linear-gradient(135deg, transparent 0 78%, rgba(100, 72, 216, 0.23) 78%); }
+.style-focus-matrix .ornament-route { top: 78px; right: -35px; display: block; padding: 9px 48px; color: #fff; background: #6448d8; transform: rotate(36deg); }
+.style-focus-matrix .report-header { border-bottom: 4px solid var(--ink); }
+.style-focus-matrix .brand-mark { box-shadow: 4px 4px 0 #6448d8; }
+.style-focus-matrix .title-block h1 { font: 900 clamp(48px, 8vw, 82px)/0.84 Arial, sans-serif; text-transform: uppercase; }
+.style-focus-matrix .focus-panel, .style-focus-matrix .metric-grid { box-shadow: 6px 6px 0 var(--ink); }
+.style-focus-matrix .focus-panel { padding: 24px; background: #fff; border: 3px solid var(--ink); transform: rotate(-0.4deg); }
+.style-focus-matrix .metric-grid { background: #6ae6d3; border: 3px solid var(--ink); transform: rotate(0.3deg); }
+.style-focus-matrix .detail-section:first-child { padding: 20px; background: #ff98ca; border: 3px solid var(--ink); }
+.style-focus-matrix .detail-section:last-child { padding: 20px; background: #fff; border: 3px solid var(--ink); }
+
+.style-action-board { --paper: #ece7dc; --ink: #1e2933; --muted: #66717b; --accent: #be6b17; --export-mat: #8c8172; --texture-opacity: 0.2; }
+.style-action-board::after { background: linear-gradient(90deg, rgba(93, 69, 36, 0.035) 1px, transparent 1px), linear-gradient(rgba(93, 69, 36, 0.035) 1px, transparent 1px); background-size: 24px 24px; }
+.style-action-board .ornament-route { top: 160px; left: 46%; display: block; width: 120px; height: 22px; overflow: hidden; color: transparent; background: rgba(224, 193, 133, 0.78); transform: rotate(3deg); }
+.style-action-board .ornament-pin { display: block; width: 12px; height: 12px; background: #b84c3c; border: 2px solid rgba(89, 30, 24, 0.5); box-shadow: 0 3px 6px rgba(57, 43, 20, 0.25); }
+.style-action-board .ornament-pin-a { top: 190px; left: 51%; }
+.style-action-board .ornament-pin-b { right: 80px; bottom: 330px; background: #3f7187; }
+.style-action-board .focus-panel { padding: 30px; background: #f6df83; border: 0; box-shadow: 0 10px 22px rgba(57, 43, 20, 0.16); transform: rotate(-0.6deg); }
+.style-action-board .metric-grid { gap: 9px; border: 0; }
+.style-action-board .metric-cell { background: rgba(255, 255, 255, 0.62); border: 0; box-shadow: 0 5px 12px rgba(57, 43, 20, 0.08); }
+.style-action-board .detail-section { padding: 22px; background: rgba(255, 255, 255, 0.58); box-shadow: 0 8px 20px rgba(57, 43, 20, 0.11); }
+.style-action-board .detail-section:first-child { transform: rotate(0.35deg); }
+.style-action-board .detail-section:last-child { transform: rotate(-0.35deg); }
+
+/* Atmospheric */
+.style-narrative-air { --paper: #f6fbf9; --ink: #183a35; --muted: #60766f; --accent: #318875; --export-mat: #afc7c0; --texture-opacity: 0.1; }
+.style-narrative-air::after { background: radial-gradient(circle at 94% 8%, rgba(120, 194, 175, 0.22), transparent 29%), radial-gradient(circle at 2% 58%, rgba(216, 185, 121, 0.12), transparent 25%); }
+.style-narrative-air .ornament-medallion { top: 118px; right: 66px; display: grid; width: 90px; height: 90px; border: 1px solid rgba(49, 136, 117, 0.28); font-size: 42px; opacity: 0.32; }
+.style-narrative-air .report-header { border-bottom-color: rgba(49, 136, 117, 0.18); }
+.style-narrative-air .title-block { max-width: 590px; padding-block: 94px 64px; }
+.style-narrative-air .title-block h1 { font-weight: 400; line-height: 1.05; }
+.style-narrative-air .focus-panel { padding: 34px; background: rgba(178, 222, 210, 0.27); border: 1px solid rgba(49, 136, 117, 0.25); border-radius: 22px; }
+.style-narrative-air .metric-grid { gap: 9px; border: 0; }
+.style-narrative-air .metric-cell { border: 0; border-radius: 12px; background: rgba(255, 255, 255, 0.62); }
+.style-narrative-air .detail-grid { gap: 46px; border-top-color: rgba(49, 136, 117, 0.18); }
+
+.style-glassmorphism { --paper: #101827; --ink: #f3f7fb; --muted: #9eb0c5; --accent: #75e6da; --accent-contrast: #08121d; --line: rgba(211, 236, 255, 0.2); --export-mat: #07101d; --texture-opacity: 0.04; }
+.style-glassmorphism::after { background: radial-gradient(circle at 12% 18%, rgba(36, 166, 185, 0.34), transparent 30%), radial-gradient(circle at 88% 82%, rgba(88, 101, 242, 0.3), transparent 36%); }
+.style-glassmorphism .ornament-medallion { right: -46px; top: 118px; display: grid; width: 210px; height: 210px; color: rgba(117, 230, 218, 0.28); border-color: rgba(117, 230, 218, 0.22); font-size: 88px; }
+.style-glassmorphism .report-header { padding: 14px 16px; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--line); }
+.style-glassmorphism .title-block { padding: 70px 20px 44px; }
+.style-glassmorphism .title-block h1 { text-shadow: 0 0 32px rgba(117, 230, 218, 0.18); }
+.style-glassmorphism .focus-panel, .style-glassmorphism .metric-cell, .style-glassmorphism .detail-section { background: rgba(255, 255, 255, 0.055); border: 1px solid var(--line); }
+.style-glassmorphism .focus-panel { padding: 28px; }
+.style-glassmorphism .metric-grid { gap: 8px; border: 0; }
+.style-glassmorphism .metric-cell { border-radius: 2px; }
+.style-glassmorphism .detail-grid { gap: 12px; border: 0; }
+.style-glassmorphism .detail-section { padding: 22px; }
+
+.style-milestones { --paper: #fff8fb; --ink: #3a2240; --muted: #7f667f; --accent: #b94080; --export-mat: #d0b4c7; --texture-opacity: 0.06; }
+.style-milestones::after { background: radial-gradient(circle at 92% 6%, rgba(235, 115, 172, 0.25), transparent 28%), radial-gradient(circle at 0 70%, rgba(112, 208, 210, 0.18), transparent 32%); }
+.style-milestones .ornament-route { top: 112px; right: 58px; display: block; width: 110px; height: 22px; overflow: hidden; color: transparent; border-block: 1px solid rgba(185, 64, 128, 0.35); transform: rotate(-7deg); }
+.style-milestones .title-block h1 { font-weight: 400; }
+.style-milestones .focus-panel { padding: 28px; border: 1px solid rgba(185, 64, 128, 0.22); border-radius: 30px 8px 30px 8px; }
+.style-milestones .metric-grid { gap: 10px; border: 0; }
+.style-milestones .metric-cell { border: 0; border-radius: 18px 5px 18px 5px; background: rgba(255, 255, 255, 0.66); }
+.style-milestones .metric-cell strong { color: var(--accent); }
+.style-milestones .detail-section { position: relative; padding-left: 27px; }
+.style-milestones .detail-section::before { position: absolute; top: 4px; bottom: 4px; left: 6px; width: 2px; content: ''; background: linear-gradient(var(--accent), #70bfc2); opacity: 0.5; }
+.style-milestones .report-item::before { width: 7px; height: 7px; margin: 4px 0 0 -25px; content: ''; background: var(--paper); border: 2px solid var(--accent); border-radius: 50%; }
+
+/* Executive */
+.style-executive { --paper: #f6f1e5; --ink: #172335; --muted: #69717c; --accent: #a97728; --accent-contrast: #fff9eb; --export-mat: #172335; --texture-opacity: 0.22; padding-left: 86px; }
+.style-executive::after { inset: 14px; border: 1px solid rgba(169, 119, 40, 0.46); box-shadow: inset 18px 0 #172335; }
+.style-executive .ornament-serial { top: 280px; left: 25px; display: block; color: #f3ead7; transform: rotate(-90deg); transform-origin: left top; }
+.style-executive .report-header { border-bottom: 2px solid var(--accent); }
+.style-executive .title-block { padding-block: 52px 38px; }
+.style-executive .title-block h1 { max-width: 570px; font-weight: 500; }
+.style-executive .focus-panel { padding: 28px; border: 1px solid rgba(169, 119, 40, 0.45); }
+.style-executive .metric-grid { background: #172335; border: 0; }
+.style-executive .metric-cell { color: #f6f1e5; border-color: rgba(246, 241, 229, 0.18); }
+.style-executive .metric-cell span, .style-executive .metric-cell small { color: #c2bdaF; }
+.style-executive .metric-cell strong { color: #d9b66c; }
+
+.style-ledger { --paper: #111418; --ink: #f4e8c6; --muted: #aea487; --accent: #d4a84e; --accent-contrast: #111418; --line: rgba(212, 168, 78, 0.28); --export-mat: #050607; --texture-opacity: 0.04; }
+.style-ledger::after { inset: 17px; border: 3px double rgba(212, 168, 78, 0.5); background: repeating-linear-gradient(0deg, transparent 0 31px, rgba(212, 168, 78, 0.025) 31px 32px); }
+.style-ledger .ornament-medallion { top: 116px; right: 62px; display: grid; width: 74px; height: 74px; border: 3px double var(--accent); border-radius: 2px; font-size: 38px; opacity: 0.68; }
+.style-ledger .report-header { border-bottom: 3px double var(--accent); }
+.style-ledger .title-block h1 { font-weight: 400; letter-spacing: -0.015em; }
+.style-ledger .focus-panel { border-block: 3px double var(--accent); }
+.style-ledger .metric-grid { border: 1px solid var(--accent); }
+.style-ledger .metric-cell { min-height: 104px; border-color: var(--accent); }
+.style-ledger .metric-cell strong { color: var(--accent); }
+.style-ledger .detail-grid { border-top: 3px double var(--accent); }
+.style-ledger .report-item { display: grid; grid-template-columns: 28px 1fr auto; border-top-color: rgba(212, 168, 78, 0.44); }
+
+.style-partner-brief { --paper: #f8f2e4; --ink: #392919; --muted: #776856; --accent: #8e6335; --export-mat: #5b4631; --texture-opacity: 0.3; padding-inline: 82px; }
+.style-partner-brief .ornament-route { top: 46px; right: 82px; display: block; padding-bottom: 7px; color: var(--accent); border-bottom: 1px solid var(--accent); }
+.style-partner-brief .brand-mark { color: var(--accent); background: transparent; border: 0; font-size: 34px; }
+.style-partner-brief .report-header { align-items: flex-end; border-bottom: 1px solid var(--accent); }
+.style-partner-brief .title-block { padding-block: 88px 58px; }
+.style-partner-brief .title-block h1 { font-style: italic; font-weight: 400; line-height: 1.05; }
+.style-partner-brief .focus-panel { display: block; padding: 34px 0; border-top: 1px solid var(--line); }
+.style-partner-brief .focus-panel > .section-number { display: none; }
+.style-partner-brief .focus-copy > p:not(.section-label) { font-family: var(--display-font); font-size: 15px; line-height: 1.9; }
+.style-partner-brief .metric-grid { border: 0; border-left: 1px solid var(--accent); }
+.style-partner-brief .report-signoff { align-items: flex-end; border-top: 1px solid var(--accent); }
+.style-partner-brief .material-seal { margin-left: auto; }
+
+/* Heritage */
+.style-magic-prophet { --paper: #dfc994; --ink: #302517; --muted: #6f5e44; --accent: #6f271f; --export-mat: #57483a; --texture-opacity: 0.48; }
+.style-magic-prophet::after { background: radial-gradient(ellipse at center, transparent 52%, rgba(72, 47, 27, 0.15)), repeating-linear-gradient(90deg, transparent 0 190px, rgba(65, 43, 25, 0.055) 190px 191px); }
+.style-magic-prophet .ornament-medallion { top: 104px; left: 50%; display: grid; width: 68px; height: 68px; color: var(--accent); border: 3px double var(--accent); transform: translateX(-50%); opacity: 0.7; }
+.style-magic-prophet .report-header { border-block: 4px double var(--ink); padding-block: 10px; }
+.style-magic-prophet .title-block { padding-top: 92px; text-align: center; }
+.style-magic-prophet .title-block h1 { margin-inline: auto; font-weight: 800; text-align: center; text-transform: uppercase; }
+.style-magic-prophet .style-kicker, .style-magic-prophet .title-meta { justify-content: center; text-align: center; }
+.style-magic-prophet .focus-panel { border-block: 4px double var(--ink); }
+.style-magic-prophet .detail-grid { gap: 22px; border-top: 4px double var(--ink); }
+
+.style-bulletin { --paper: #d9bb79; --ink: #3a2417; --muted: #6d513c; --accent: #8d281f; --export-mat: #5d4430; --texture-opacity: 0.5; border: 12px solid #573723; outline: 2px solid #b98b57; outline-offset: -22px; }
+.style-bulletin::after { inset: 30px; border: 1px solid rgba(87, 55, 35, 0.48); }
+.style-bulletin .ornament-route { top: 30px; left: 50%; display: block; min-width: 210px; padding: 8px 24px; color: #eed7ae; background: #573723; transform: translateX(-50%); text-align: center; }
+.style-bulletin .report-header { padding-top: 30px; border-bottom: 4px solid var(--ink); }
+.style-bulletin .title-block { padding-block: 48px 34px; text-align: center; }
+.style-bulletin .title-block h1 { margin-inline: auto; font-size: clamp(52px, 8vw, 84px); font-weight: 900; line-height: 0.88; text-transform: uppercase; }
+.style-bulletin .focus-panel { padding: 28px; border: 4px solid var(--ink); }
+.style-bulletin .metric-grid { border-block: 4px solid var(--ink); }
+.style-bulletin .report-signoff { border-top: 4px solid var(--ink); }
+
+.style-scroll { --paper: #f7f0df; --ink: #24231f; --muted: #706c63; --accent: #a12c27; --export-mat: #8c352f; --texture-opacity: 0.34; --display-font: 'STKaiti', 'KaiTi', 'Kaiti SC', serif; border-block: 16px solid #8f252b; padding-inline: 82px; }
+.style-scroll::after { background: linear-gradient(90deg, rgba(161, 44, 39, 0.1) 0 18px, transparent 18px calc(100% - 18px), rgba(161, 44, 39, 0.1) calc(100% - 18px)); }
+.style-scroll .ornament-route { top: 124px; right: 28px; display: block; color: var(--accent); writing-mode: vertical-rl; letter-spacing: 0.28em; }
+.style-scroll .report-header { border-bottom: 1px solid var(--accent); }
+.style-scroll .title-block { text-align: center; }
+.style-scroll .title-block h1 { margin-inline: auto; font-weight: 400; letter-spacing: 0.1em; }
+.style-scroll .brand-mark { border-radius: 4px; }
+.style-scroll .focus-panel { border-block-color: var(--accent); }
+.style-scroll .section-number { width: 24px; height: 24px; padding-top: 5px; color: white; background: var(--accent); text-align: center; }
+.style-scroll .report-signoff { border-top: 1px solid var(--accent); }
+
+.style-hogwarts-letter { --paper: #eee2bd; --ink: #183f35; --muted: #5b6e65; --accent: #9a252c; --export-mat: #405b52; --texture-opacity: 0.42; padding-inline: 84px; }
+.style-hogwarts-letter::after { background: linear-gradient(0deg, transparent 49%, rgba(24, 63, 53, 0.08) 49.1%, transparent 49.3%), linear-gradient(90deg, transparent 49%, rgba(24, 63, 53, 0.08) 49.1%, transparent 49.3%); }
+.style-hogwarts-letter .ornament-medallion { top: 112px; left: 50%; display: grid; width: 82px; height: 82px; color: #174b3c; border: 3px double #174b3c; transform: translateX(-50%); }
+.style-hogwarts-letter .report-header { border-bottom: 2px solid #174b3c; }
+.style-hogwarts-letter .title-block { padding-top: 112px; text-align: center; }
+.style-hogwarts-letter .title-block h1 { margin-inline: auto; color: #174b3c; font-style: italic; font-weight: 400; }
+.style-hogwarts-letter .title-meta { justify-content: center; }
+.style-hogwarts-letter .focus-panel { display: block; padding-block: 36px; border-block: 1px solid #174b3c; }
+.style-hogwarts-letter .focus-panel > .section-number { display: none; }
+.style-hogwarts-letter .detail-grid { border-top: 1px solid #174b3c; }
+
+/* Technical */
+.style-blueprint { --paper: #153e71; --ink: #eefaff; --muted: #b9d5e7; --accent: #7fe9f0; --accent-contrast: #153e71; --line: rgba(238, 250, 255, 0.34); --export-mat: #092541; --texture-opacity: 0.03; --display-font: 'Courier New', Courier, monospace; }
+.style-blueprint::after { background-image: linear-gradient(rgba(255, 255, 255, 0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.075) 1px, transparent 1px); background-size: 20px 20px; }
+.style-blueprint .ornament-pin { display: block; width: 16px; height: 16px; border-radius: 0; }
+.style-blueprint .ornament-pin::before, .style-blueprint .ornament-pin::after { position: absolute; content: ''; background: var(--accent); }
+.style-blueprint .ornament-pin::before { top: 7px; left: -7px; width: 28px; height: 1px; }
+.style-blueprint .ornament-pin::after { top: -7px; left: 7px; width: 1px; height: 28px; }
+.style-blueprint .ornament-pin-a { top: 34px; left: 34px; }
+.style-blueprint .ornament-pin-b { right: 34px; bottom: 34px; }
+.style-blueprint .report-header { border: 1px solid var(--ink); padding: 12px; }
+.style-blueprint .title-block h1 { font-weight: 400; letter-spacing: -0.03em; text-transform: uppercase; }
+.style-blueprint .focus-panel { padding: 24px; border: 1px solid var(--ink); }
+.style-blueprint .metric-grid, .style-blueprint .metric-cell { border-color: var(--ink); }
+.style-blueprint .detail-section { padding: 18px; border: 1px solid var(--line); }
+.style-blueprint .report-signoff { display: grid; grid-template-columns: 1fr auto auto; padding: 14px; border: 1px solid var(--ink); }
+
+.style-terminal { --paper: #080d0a; --ink: #9fffb5; --muted: #61aa73; --accent: #d7ff5b; --accent-contrast: #080d0a; --line: rgba(159, 255, 181, 0.25); --export-mat: #020503; --texture-opacity: 0.02; --display-font: 'Courier New', Courier, monospace; --body-font: 'Courier New', Courier, monospace; border: 10px solid #171d19; }
+.style-terminal::after { background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(159, 255, 181, 0.04) 3px 4px), radial-gradient(circle at center, transparent 45%, rgba(0, 0, 0, 0.5)); }
+.style-terminal .ornament-route { top: 27px; left: 58px; display: block; color: var(--accent); }
+.style-terminal .ornament-route::before { content: '[SYS] '; }
+.style-terminal .report-header { padding-top: 12px; border-top: 1px solid var(--line); }
+.style-terminal .brand-mark { border-radius: 50%; box-shadow: 0 0 14px rgba(159, 255, 181, 0.25); }
+.style-terminal .title-block h1::before { content: '> '; color: var(--accent); }
+.style-terminal .focus-panel { padding: 22px; border: 1px solid var(--accent); }
+.style-terminal .metric-grid { gap: 7px; border: 0; }
+.style-terminal .metric-cell { border: 1px solid var(--line); }
+.style-terminal .section-heading h2::before { content: './'; color: var(--accent); }
+.style-terminal .report-signoff { border-top: 1px dashed var(--accent); }
+
+.style-analytics { --paper: #0d1728; --ink: #edf5ff; --muted: #9badc5; --accent: #55b6ff; --accent-contrast: #07111e; --line: rgba(132, 187, 255, 0.2); --export-mat: #050a13; --texture-opacity: 0.03; }
+.style-analytics::after { background: linear-gradient(135deg, rgba(44, 108, 180, 0.18), transparent 45%), repeating-linear-gradient(90deg, transparent 0 79px, rgba(85, 182, 255, 0.04) 79px 80px); }
+.style-analytics .ornament-serial { top: 30px; right: 58px; display: block; color: var(--accent); }
+.style-analytics .report-header { padding-top: 18px; border-top: 2px solid var(--accent); }
+.style-analytics .title-block { padding-block: 46px 34px; }
+.style-analytics .focus-panel { padding: 24px; background: rgba(85, 182, 255, 0.055); border: 1px solid rgba(85, 182, 255, 0.35); }
+.style-analytics .metric-grid { gap: 9px; border: 0; }
+.style-analytics .metric-cell { position: relative; min-height: 128px; overflow: hidden; background: rgba(85, 182, 255, 0.055); border: 1px solid var(--line); }
+.style-analytics .metric-cell::after { position: absolute; right: 16px; bottom: 13px; left: 16px; height: 2px; content: ''; background: linear-gradient(90deg, var(--accent) 0 36%, rgba(85, 182, 255, 0.16) 36%); }
+.style-analytics .metric-cell strong { color: #9dd6ff; }
+.style-analytics .detail-grid { gap: 12px; border: 0; }
+.style-analytics .detail-section { padding: 20px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--line); }
+
+.style-cyber-matrix { --paper: #08131d; --ink: #d9fbff; --muted: #75aab0; --accent: #33e6d7; --accent-contrast: #04100f; --line: rgba(51, 230, 215, 0.24); --export-mat: #02080c; --texture-opacity: 0.02; --display-font: 'Courier New', Courier, monospace; border: 1px solid var(--accent); box-shadow: inset 0 0 46px rgba(51, 230, 215, 0.07); }
+.style-cyber-matrix::after { background-image: linear-gradient(rgba(51, 230, 215, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(51, 230, 215, 0.045) 1px, transparent 1px); background-size: 36px 36px; }
+.style-cyber-matrix .ornament-pin { display: block; width: 36px; height: 36px; border-radius: 0; }
+.style-cyber-matrix .ornament-pin-a { top: 24px; left: 24px; border-right: 0; border-bottom: 0; }
+.style-cyber-matrix .ornament-pin-b { right: 24px; bottom: 24px; border-top: 0; border-left: 0; }
+.style-cyber-matrix .ornament-route { top: 24px; left: 50%; display: block; color: var(--accent); transform: translateX(-50%); }
+.style-cyber-matrix .report-header { padding: 12px; background: rgba(51, 230, 215, 0.035); border: 1px solid var(--line); }
+.style-cyber-matrix .title-block h1 { color: var(--ink); text-shadow: 0 0 20px rgba(51, 230, 215, 0.22); }
+.style-cyber-matrix .focus-panel { padding: 26px; border: 1px solid var(--accent); box-shadow: inset 3px 0 var(--accent); }
+.style-cyber-matrix .metric-grid { border: 1px solid var(--accent); }
+.style-cyber-matrix .metric-cell { border-color: var(--accent); }
+.style-cyber-matrix .section-number::before { content: '['; }
+.style-cyber-matrix .section-number::after { content: ']'; }
+
+/* Collectible */
+.style-polaroid { --paper: #f7f5ee; --ink: #20252a; --muted: #73716c; --accent: #466985; --export-mat: #7d8488; --texture-opacity: 0.13; padding: 34px 34px 86px; }
+.style-polaroid::after { inset: 12px; border: 1px solid rgba(32, 37, 42, 0.08); box-shadow: inset 0 -64px rgba(229, 225, 214, 0.75); }
+.style-polaroid .ornament-route { right: 48px; bottom: 36px; display: block; color: #4a4a45; font-family: 'STKaiti', 'KaiTi', cursive; font-size: 12px; transform: rotate(-3deg); }
+.style-polaroid .report-header { margin-inline: 12px; border-bottom: 0; }
+.style-polaroid .title-block { min-height: 390px; display: flex; flex-direction: column; justify-content: flex-end; margin-top: 14px; padding: 46px; color: white; background: linear-gradient(155deg, #233a4d, #617a82 54%, #c7b99b); box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.24); }
+.style-polaroid .title-block::before { content: ''; position: absolute; width: 160px; height: 22px; top: 124px; left: 50%; background: rgba(235, 222, 191, 0.72); transform: translateX(-50%) rotate(-2deg); }
+.style-polaroid .title-block h1, .style-polaroid .title-block .style-kicker, .style-polaroid .title-block .title-meta { color: #fff; }
+.style-polaroid .title-block h1 { max-width: 560px; font-weight: 400; }
+.style-polaroid .focus-panel, .style-polaroid .metric-grid, .style-polaroid .narrative-section, .style-polaroid .detail-grid, .style-polaroid .report-signoff { margin-inline: 20px; }
+.style-polaroid .report-signoff { padding-bottom: 12px; }
+
+.style-ticket { --paper: #f5e4df; --ink: #641c33; --muted: #875b68; --accent: #9c2348; --export-mat: #6d263d; --texture-opacity: 0.18; border: 2px solid var(--accent); }
+.style-ticket::after { left: 72px; right: auto; width: 1px; border-left: 2px dashed rgba(100, 28, 51, 0.45); background: radial-gradient(circle at 0 14px, var(--export-mat) 0 5px, transparent 5.5px) 0 0 / 12px 28px repeat-y; }
+.style-ticket .ornament-serial { top: 105px; left: 27px; display: block; color: var(--accent); writing-mode: vertical-rl; }
+.style-ticket .ornament-pin { left: 64px; display: block; width: 16px; height: 16px; background: var(--export-mat); border: 0; }
+.style-ticket .ornament-pin-a { top: 220px; }
+.style-ticket .ornament-pin-b { bottom: 220px; }
+.style-ticket .report-header, .style-ticket .title-block, .style-ticket .focus-panel, .style-ticket .metric-grid, .style-ticket .narrative-section, .style-ticket .detail-grid, .style-ticket .report-signoff { margin-left: 42px; }
+.style-ticket .report-header { border-bottom: 3px double var(--accent); }
+.style-ticket .title-block h1 { font-style: italic; font-weight: 500; }
+.style-ticket .focus-panel { border-block-color: var(--accent); }
+.style-ticket .metric-grid { border: 1px solid var(--accent); }
+
+.style-vinyl-record { --paper: #d45b32; --ink: #fff3d7; --muted: #f4c6a9; --accent: #1e1a18; --accent-contrast: #fff3d7; --line: rgba(255, 243, 215, 0.32); --export-mat: #28211e; --texture-opacity: 0.06; }
+.style-vinyl-record::after { right: 0; left: auto; top: 70px; width: 300px; height: 420px; border-radius: 55% 0 0 55%; background: repeating-radial-gradient(circle at 85% 50%, #161412 0 4px, #28231f 5px 8px); opacity: 0.34; }
+.style-vinyl-record .ornament-medallion { top: 185px; right: 0; display: grid; width: 88px; height: 88px; color: #1e1a18; background: #e7be65; border: 15px solid #1e1a18; font-size: 28px; }
+.style-vinyl-record .report-header { border-bottom: 4px solid var(--ink); }
+.style-vinyl-record .title-block { min-height: 320px; padding-right: 230px; }
+.style-vinyl-record .title-block h1 { max-width: 420px; font-style: italic; font-weight: 400; }
+.style-vinyl-record .focus-panel { border-block: 4px solid var(--ink); }
+.style-vinyl-record .metric-grid { background: rgba(30, 26, 24, 0.15); border-color: var(--ink); }
+.style-vinyl-record .detail-grid { border-top: 4px solid var(--ink); }
+.style-vinyl-record .item-sequence::before { content: 'A'; margin-right: 2px; }
+
+.style-passport { --paper: #e9edf0; --ink: #182c46; --muted: #657487; --accent: #204d83; --accent-contrast: #f8fbff; --export-mat: #182c46; --texture-opacity: 0.1; --display-font: Georgia, serif; --body-font: 'SFMono-Regular', Consolas, monospace; border-left: 18px solid #173b67; padding-left: 74px; }
+.style-passport::after { background: repeating-linear-gradient(135deg, transparent 0 11px, rgba(32, 77, 131, 0.04) 11px 12px), linear-gradient(90deg, rgba(23, 59, 103, 0.1) 0 34px, transparent 34px); }
+.style-passport .ornament-medallion { top: 118px; right: 64px; display: grid; width: 110px; height: 110px; border: 3px double var(--accent); font-size: 54px; opacity: 0.28; }
+.style-passport .ornament-serial { right: 70px; bottom: 35px; display: block; color: var(--ink); letter-spacing: 0.2em; }
+.style-passport .report-header { border-bottom: 3px double var(--accent); }
+.style-passport .title-block h1 { max-width: 500px; font-weight: 400; }
+.style-passport .focus-panel { padding: 24px; border: 1px solid var(--accent); }
+.style-passport .matter-reference span, .style-passport .matter-reference strong { padding: 12px 8px; border-radius: 50%; transform: rotate(-4deg); }
+.style-passport .metric-grid { border: 1px solid var(--accent); }
+.style-passport .report-signoff { padding-bottom: 30px; border-top: 3px double var(--accent); }
+
+/* Ceremonial */
+.style-tarot { --paper: #17152f; --ink: #f2e5ad; --muted: #bdb28a; --accent: #d2ac54; --accent-contrast: #17152f; --line: rgba(210, 172, 84, 0.35); --export-mat: #080716; --texture-opacity: 0.03; border: 14px solid #28234b; outline: 1px solid var(--accent); outline-offset: -24px; text-align: center; }
+.style-tarot::after { inset: 30px; border: 1px solid rgba(210, 172, 84, 0.4); background: radial-gradient(circle at 18% 14%, var(--accent) 0 1px, transparent 2px), radial-gradient(circle at 82% 23%, var(--accent) 0 1px, transparent 2px), radial-gradient(circle at 24% 78%, var(--accent) 0 1px, transparent 2px), radial-gradient(circle at 76% 72%, var(--accent) 0 1px, transparent 2px); }
+.style-tarot .ornament-medallion { top: 118px; left: 50%; display: grid; width: 96px; height: 96px; border: 3px double var(--accent); transform: translateX(-50%); font-size: 46px; }
+.style-tarot .report-header, .style-tarot .title-meta, .style-tarot .report-signoff { justify-content: center; }
+.style-tarot .report-index, .style-tarot .report-signoff > strong { display: none; }
+.style-tarot .title-block { padding-top: 140px; }
+.style-tarot .title-block h1 { margin-inline: auto; max-width: 560px; font-weight: 400; }
+.style-tarot .focus-panel { display: block; margin-inline: 46px; padding: 30px; border: 3px double var(--accent); }
+.style-tarot .focus-panel > .section-number { display: none; }
+.style-tarot .metric-grid { margin-inline: 46px; border: 1px solid var(--accent); }
+.style-tarot .detail-grid { margin-inline: 46px; border-top: 3px double var(--accent); }
+
+.style-bank-note { --paper: #dfe7d7; --ink: #174c36; --muted: #547263; --accent: #8a5c2f; --accent-contrast: #f6f1dc; --export-mat: #365c4b; --texture-opacity: 0.18; border: 12px double #174c36; padding-inline: 70px; }
+.style-bank-note::after { inset: 24px; border: 1px solid rgba(23, 76, 54, 0.55); background: repeating-radial-gradient(ellipse at center, transparent 0 15px, rgba(23, 76, 54, 0.055) 16px 17px); }
+.style-bank-note .ornament-medallion { top: 118px; left: 50%; display: grid; width: 112px; height: 112px; color: var(--accent); border: 5px double var(--ink); box-shadow: 0 0 0 8px rgba(23, 76, 54, 0.12); transform: translateX(-50%); font-size: 52px; }
+.style-bank-note .ornament-serial { right: 42px; bottom: 52px; display: block; color: var(--ink); transform: rotate(-90deg); }
+.style-bank-note .report-header { border-block: 3px double var(--ink); padding-block: 10px; }
+.style-bank-note .title-block { padding-top: 146px; text-align: center; }
+.style-bank-note .title-block h1 { margin-inline: auto; font-weight: 500; }
+.style-bank-note .focus-panel { padding: 26px; border: 3px double var(--ink); }
+.style-bank-note .metric-grid { border: 3px double var(--ink); }
+.style-bank-note .detail-grid { border-top: 3px double var(--ink); }
+
+.style-steampunk { --paper: #27231f; --ink: #f0d596; --muted: #b7a16f; --accent: #c58434; --accent-contrast: #1e1a17; --line: rgba(197, 132, 52, 0.35); --export-mat: #100e0c; --texture-opacity: 0.04; border: 10px ridge #9a632d; }
+.style-steampunk::after { background: radial-gradient(circle at 90% 10%, transparent 0 44px, rgba(197, 132, 52, 0.2) 45px 53px, transparent 54px), radial-gradient(circle at 5% 88%, transparent 0 68px, rgba(197, 132, 52, 0.14) 69px 78px, transparent 79px), repeating-linear-gradient(90deg, transparent 0 13px, rgba(197, 132, 52, 0.025) 13px 14px); }
+.style-steampunk .ornament-pin { display: block; width: 13px; height: 13px; background: radial-gradient(circle, #f1c26c 0 2px, #7c4b20 3px 6px, #d19a50 7px); border: 1px solid #e0af63; box-shadow: 0 2px 5px #000; }
+.style-steampunk .ornament-pin-a { top: 25px; left: 25px; }
+.style-steampunk .ornament-pin-b { right: 25px; bottom: 25px; }
+.style-steampunk .ornament-medallion { top: 118px; right: 58px; display: grid; width: 104px; height: 104px; border: 10px double var(--accent); box-shadow: inset 0 0 0 8px rgba(197, 132, 52, 0.12); font-size: 48px; transform: rotate(9deg); }
+.style-steampunk .report-header { padding: 12px; border: 3px double var(--accent); }
+.style-steampunk .title-block h1 { max-width: 500px; font-weight: 400; }
+.style-steampunk .focus-panel, .style-steampunk .metric-grid { border-color: var(--accent); }
+.style-steampunk .metric-grid { border: 3px double var(--accent); }
+.style-steampunk .detail-section { padding: 20px; border: 1px solid var(--line); }
+
+.style-wax-sealed-parchment { --paper: #ede0b9; --ink: #4b2430; --muted: #77605e; --accent: #a46e1f; --accent-contrast: #fff8df; --export-mat: #6a293c; --texture-opacity: 0.44; padding-inline: 82px; }
+.style-wax-sealed-parchment::after { inset: 20px; border: 3px double rgba(164, 110, 31, 0.52); box-shadow: inset 0 0 60px rgba(94, 48, 34, 0.1); }
+.style-wax-sealed-parchment .ornament-medallion { top: 120px; left: 50%; display: grid; width: 86px; height: 86px; color: var(--accent); border: 3px double var(--accent); transform: translateX(-50%); font-size: 42px; opacity: 0.72; }
+.style-wax-sealed-parchment .ornament-route { top: 226px; left: 50%; display: block; color: var(--accent); transform: translateX(-50%); letter-spacing: 0.22em; }
+.style-wax-sealed-parchment .report-header { justify-content: center; padding-bottom: 22px; border-bottom: 3px double var(--accent); }
+.style-wax-sealed-parchment .report-index { display: none; }
+.style-wax-sealed-parchment .title-block { padding-top: 146px; text-align: center; }
+.style-wax-sealed-parchment .title-block h1 { margin-inline: auto; max-width: 600px; font-style: italic; font-weight: 400; }
+.style-wax-sealed-parchment .title-meta { justify-content: center; }
+.style-wax-sealed-parchment .focus-panel { padding: 34px; border: 3px double var(--accent); }
+.style-wax-sealed-parchment .focus-copy h2::first-letter { color: var(--accent); font-size: 2.2em; font-family: var(--display-font); }
+.style-wax-sealed-parchment .metric-grid { border: 3px double var(--accent); }
+.style-wax-sealed-parchment .report-signoff { border-top: 3px double var(--accent); }
+.style-wax-sealed-parchment .material-seal { width: 112px; height: 112px; }
+
+.is-exporting { box-sizing: border-box; }
+.is-exporting .sample-ribbon { print-color-adjust: exact; }
+
+.brief-modal-fade-enter-active, .brief-modal-fade-leave-active { transition: opacity 180ms ease-out; }
+.brief-modal-fade-enter-active .brief-modal-shell, .brief-modal-fade-leave-active .brief-modal-shell { transition: transform 180ms ease-out; }
+.brief-modal-fade-enter-from, .brief-modal-fade-leave-to { opacity: 0; }
+.brief-modal-fade-enter-from .brief-modal-shell, .brief-modal-fade-leave-to .brief-modal-shell { transform: translateY(10px) scale(0.985); }
+
+@media (max-width: 940px) {
+  .modal-close { top: -45px; right: 0; }
 }
 
-.type-pill {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--c-bg-subtle);
-  font-family: var(--font-mono);
+@media (max-width: 700px) {
+  .brief-modal-backdrop { padding: 54px 10px 10px; }
+  .report-sheet { min-height: 0; padding: 38px 26px 30px; }
+  .title-block { padding-block: 46px 30px; }
+  .title-block h1 { font-size: 42px; }
+  .focus-panel { grid-template-columns: 34px 1fr; gap: 12px; }
+  .metric-grid { grid-template-columns: 1fr 1fr; }
+  .metric-cell:nth-child(2) { border-right: 0; }
+  .metric-cell:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+  .detail-grid { grid-template-columns: 1fr; }
+  .report-header { align-items: flex-start; }
+  .report-signoff { flex-wrap: wrap; }
+  .material-rule { right: 26px; left: 26px; }
+  .modal-control-footer { align-items: flex-start; flex-direction: column; }
+  .modal-control-footer p { display: none; }
+  .footer-actions { width: 100%; justify-content: flex-end; }
+  .utility-action span { display: none; }
+  .style-ticket .report-header, .style-ticket .title-block, .style-ticket .focus-panel, .style-ticket .metric-grid, .style-ticket .narrative-section, .style-ticket .detail-grid, .style-ticket .report-signoff { margin-left: 18px; }
 }
 
-.footer-btn-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border-radius: var(--c-radius-md);
-  border: 1px solid var(--c-border);
-  background: var(--c-bg-page);
-  color: var(--c-text);
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--motion-fast);
-}
-
-.btn-tool:hover {
-  background: var(--c-bg-hover);
-  border-color: var(--c-primary);
-  color: var(--c-primary);
-}
-
-.btn-tool-close {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 14px;
-  border-radius: var(--c-radius-md);
-  border: none;
-  background: var(--c-primary);
-  color: var(--c-primary-contrast);
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--motion-fast);
-}
-
-.btn-tool-close:hover {
-  filter: brightness(1.1);
-}
-
-.brief-modal-fade-enter-active,
-.brief-modal-fade-leave-active {
-  transition: all 0.25s ease-out;
-}
-
-.brief-modal-fade-enter-from,
-.brief-modal-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.94) translateY(10px);
+@media (prefers-reduced-motion: reduce) {
+  .brief-modal-fade-enter-active, .brief-modal-fade-leave-active,
+  .brief-modal-fade-enter-active .brief-modal-shell, .brief-modal-fade-leave-active .brief-modal-shell { transition: none; }
 }
 </style>

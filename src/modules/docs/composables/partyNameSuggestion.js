@@ -1,4 +1,5 @@
 import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
 import { Suggestion } from '@tiptap/suggestion'
 
 function getSuggestionItems({ query, editor }) {
@@ -110,6 +111,6 @@ export const PartyNameSuggestion = Extension.create({
     }
   },
   addProseMirrorPlugins() {
-    return [Suggestion({ editor: this.editor, ...this.options.suggestion })]
+    return [Suggestion({ editor: this.editor, ...this.options.suggestion, pluginKey: new PluginKey('partyNameSuggestion') })]
   },
 })

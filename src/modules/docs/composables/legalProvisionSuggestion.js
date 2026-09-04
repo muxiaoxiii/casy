@@ -1,4 +1,5 @@
 import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
 import { Suggestion } from '@tiptap/suggestion'
 
 // 本地法条数据库（常用专利法条）
@@ -126,6 +127,6 @@ export const LegalProvisionSuggestion = Extension.create({
     }
   },
   addProseMirrorPlugins() {
-    return [Suggestion({ editor: this.editor, ...this.options.suggestion })]
+    return [Suggestion({ editor: this.editor, ...this.options.suggestion, pluginKey: new PluginKey('legalProvisionSuggestion') })]
   },
 })

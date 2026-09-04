@@ -23,10 +23,10 @@
               <el-option
                 v-for="c in cases"
                 :key="c.id"
-                :label="`${c.caseName || c.caseNo || c.id}`"
+                :label="`${c.caseName || c.caseNo || '未命名案件'}`"
                 :value="c.id"
               >
-                <span>{{ c.caseName || c.caseNo || c.id }}</span>
+                <span>{{ c.caseName || c.caseNo || '未命名案件' }}</span>
                 <span style="float: right; color: #8492a6; font-size: 12px">
                   {{ c.clientName }}
                 </span>
@@ -92,10 +92,56 @@
           <div v-if="renderResult" class="render-preview">
             <el-tabs v-model="previewTab">
               <el-tab-pane label="HTML 预览" name="html">
-                <div class="html-preview" v-html="renderResult.html"></div>
+                <div class="html-preview" v-html="sanitizePreviewHtml(displayHtml)"></div>
               </el-tab-pane>
               <el-tab-pane label="纯文本" name="text">
-                <pre class="text-preview">{{ renderResult.text }}</pre>
+                <pre class="text-preview">{{ displayText }}</pre>
+              </el-tab-pane>
+              <el-tab-pane name="edit">
+                <template #label>
+                  <span class="edit-tab-label">
+                    所见即所得编辑
+                    <span
+                      v-if="hasUnsavedEdits"
+                      class="dirty-dot"
+                      title="有未保存的修改"
+                    ></span>
+                  </span>
+                </template>
+                <div class="edit-toolbar">
+                  <span
+                    :class="['edit-status', { dirty: hasUnsavedEdits }]"
+                  >
+                    {{ hasUnsavedEdits ? '已修改，尚未保存为草稿' : draftId ? '已保存为草稿' : '与渲染结果一致' }}
+                  </span>
+                  <div class="edit-toolbar-actions">
+                    <el-button
+                      size="small"
+                      :disabled="!isEditedFromRender"
+                      @click="handleRevertEdits"
+                    >
+                      放弃修改
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="savingDraft"
+                      @click="handleSaveDraft"
+                    >
+                      保存为草稿
+                    </el-button>
+                  </div>
+                </div>
+                <div class="generated-editor-wrapper">
+                  <LegalEditor
+                    ref="legalEditorRef"
+                    v-model="editedHtml"
+                    :case-data="selectedCase || {}"
+                    :all-cases="cases"
+                    :case-id="selectedCaseId"
+                  />
+                </div>
               </el-tab-pane>
             </el-tabs>
 
@@ -130,7 +176,7 @@
             <el-button
               size="large"
               :disabled="!canGenerate"
-              :loading="previewing"
+              :loading="renderLoading"
               @click="handlePreview"
             >
               <el-icon><View /></el-icon>
@@ -149,11 +195,12 @@
 
             <el-button
               size="large"
-              :disabled="!canGenerate"
-              @click="handleCreateDraft"
+              :disabled="!renderResult"
+              :loading="savingDraft"
+              @click="handleSaveDraft"
             >
               <el-icon><EditPen /></el-icon>
-              创建草稿
+              保存为草稿
             </el-button>
           </div>
 
@@ -186,11 +233,17 @@ import {
   mapToFieldRows,
 } from '../composables/useDocsyBridge.js'
 import TemplateBrowser from './TemplateBrowser.vue'
+import LegalEditor from '../components/LegalEditor.vue'
+// 审查 P0-3：displayHtml 含 Rust 模板渲染结果与用户可编辑 HTML，渲染前必须消毒
+import { sanitizePreviewHtml } from '../../../shared/markdown/mdBridge'
+// 审查 P2-2：displayText 用惰性 DOMParser 提取纯文本，避免 innerHTML 将编辑内容当可执行 HTML
+import { htmlToText } from '../../../shared/utils/htmlToText'
 
 const {
-  loading: bridgeLoading,
   renderResult,
+  renderLoading,
   renderTemplate,
+  clearRenderResult,
   exportDocx,
 } = useDocsyBridge()
 
@@ -201,21 +254,64 @@ const cases = ref([])
 const fieldFilter = ref('')
 const previewTab = ref('html')
 const generating = ref(false)
-const previewing = ref(false)
 const exporting = ref(false)
+const savingDraft = ref(false)
+const draftId = ref(null)
+const lastSavedHtml = ref('')
+const renderIdentity = ref(null)
+const legalEditorRef = ref(null)
+
+// 所见即所得编辑内容（初始与渲染结果一致，编辑后分叉）
+const editedHtml = ref('')
 
 // 计算属性
 const canGenerate = computed(
   () => selectedTemplate.value && selectedCaseId.value
 )
 
+const identityMatchesSelection = computed(() =>
+  !!renderIdentity.value &&
+  renderIdentity.value.templateId === selectedTemplate.value?.id &&
+  renderIdentity.value.caseId === selectedCaseId.value
+)
+
 const canExport = computed(
-  () => canGenerate.value && renderResult.value
+  () => canGenerate.value && renderResult.value && identityMatchesSelection.value
 )
 
 const selectedCase = computed(() =>
   cases.value.find((c) => c.id === selectedCaseId.value)
 )
+
+// 是否偏离模板渲染结果（决定是否走“编辑稿”导出）
+const isEditedFromRender = computed(
+  () => !!renderResult.value && editedHtml.value !== renderResult.value.html
+)
+
+// 是否偏离最近一次成功保存的草稿（决定脏点和丢弃确认）
+const hasUnsavedEdits = computed(
+  () => !!renderResult.value && editedHtml.value !== lastSavedHtml.value
+)
+
+// HTML 预览 tab：编辑后同步展示编辑结果
+const displayHtml = computed(() =>
+  isEditedFromRender.value ? editedHtml.value : renderResult.value?.html || ''
+)
+
+// 纯文本 tab：编辑后从编辑内容提取文本同步展示
+// 审查 P2-2：改用惰性 DOMParser（htmlToText）而非 innerHTML 临时元素，避免把编辑内容当可执行 HTML
+const displayText = computed(() => {
+  if (!renderResult.value) return ''
+  if (!isEditedFromRender.value) return renderResult.value.text || ''
+  return htmlToText(editedHtml.value)
+})
+
+// 新渲染结果到达时重置编辑内容（覆盖防护在渲染触发前完成）
+watch(renderResult, (val) => {
+  editedHtml.value = val?.html || ''
+  lastSavedHtml.value = val?.html || ''
+  draftId.value = null
+})
 
 // 字段行数据
 const fieldRows = computed(() => {
@@ -243,53 +339,115 @@ async function loadCases() {
   }
 }
 
-// 模板选择回调
-function onTemplateSelect(tpl) {
-  // 如果已选择案件，自动预览
-  if (selectedCaseId.value) {
-    handlePreview()
+function rollbackSelectionToRenderedIdentity() {
+  const identity = renderIdentity.value
+  if (!identity) return
+  selectedTemplate.value = identity.template
+  selectedCaseId.value = identity.caseId
+}
+
+function clearRenderedDocument() {
+  clearRenderResult()
+  renderIdentity.value = null
+  editedHtml.value = ''
+  lastSavedHtml.value = ''
+  draftId.value = null
+}
+
+// 模板选择回调：v-model 已先更新，取消丢弃时必须显式回滚。
+async function onTemplateSelect() {
+  if (!(await confirmDiscardEdits())) {
+    rollbackSelectionToRenderedIdentity()
+    return
+  }
+  if (selectedTemplate.value && selectedCaseId.value) {
+    await runPreview(false)
+  } else {
+    clearRenderedDocument()
   }
 }
 
-// 案件选择回调
-function onCaseChange() {
-  // 如果已选择模板，自动预览
-  if (selectedTemplate.value && selectedCaseId.value) {
-    handlePreview()
+// 案件选择回调：与模板选择使用同一提交式状态语义。
+async function onCaseChange() {
+  if (!(await confirmDiscardEdits())) {
+    rollbackSelectionToRenderedIdentity()
+    return
   }
+  if (selectedTemplate.value && selectedCaseId.value) {
+    await runPreview(false)
+  } else {
+    clearRenderedDocument()
+  }
+}
+
+// 有未保存编辑时的丢弃确认（重新渲染会覆盖编辑内容）
+async function confirmDiscardEdits() {
+  if (!hasUnsavedEdits.value) return true
+  try {
+    await ElMessageBox.confirm(
+      '重新渲染将丢弃当前未保存的编辑内容，是否继续？如需保留请先「保存为草稿」。',
+      '有未保存的修改',
+      {
+        confirmButtonText: '丢弃修改并继续',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function runPreview(requireConfirmation = true) {
+  if (!canGenerate.value) return
+  if (requireConfirmation && !(await confirmDiscardEdits())) return false
+
+  const template = selectedTemplate.value
+  const caseId = selectedCaseId.value
+
+  // 预览忙碌态由 composable 的 renderLoading（请求序号派生）统一驱动：
+  // 重叠预览时仅最新请求持有/释放它，旧请求（stale）不会提前关掉 spinner。
+  const result = await renderTemplate(template.id, caseId)
+
+  // 旧请求结果对当前选择无意义，不覆盖 renderIdentity 也不弹错。
+  if (result.stale) return false
+  if (!result.ok) {
+    renderIdentity.value = null
+    ElMessage.error('渲染模板失败: ' + result.error)
+    return false
+  }
+
+  renderIdentity.value = {
+    templateId: template.id,
+    template,
+    caseId,
+    requestId: result.requestId,
+  }
+  return true
 }
 
 // 预览
 async function handlePreview() {
-  if (!canGenerate.value) return
-
-  previewing.value = true
-  await renderTemplate(selectedTemplate.value.id, selectedCaseId.value)
-  previewing.value = false
+  await runPreview(true)
 }
 
 // 生成文书（创建草稿）
 async function handleGenerate() {
   if (!canGenerate.value) return
+  if (!(await confirmDiscardEdits())) return
 
   generating.value = true
-
-  // 先渲染模板
-  const result = await renderTemplate(
-    selectedTemplate.value.id,
-    selectedCaseId.value
-  )
-
-  if (!result.ok) {
+  const rendered = await runPreview(false)
+  if (!rendered || !renderIdentity.value || !renderResult.value) {
     generating.value = false
-    ElMessage.error('渲染模板失败: ' + result.error)
     return
   }
 
   // 创建草稿
   const draftResult = await casyContext.docs.createDraft({
     title: `${selectedTemplate.value.name} - ${selectedCase.value?.caseName || ''}`,
-    content: result.data.html,
+    content: renderResult.value.html,
     caseId: selectedCaseId.value,
     templatePath: selectedTemplate.value.path,
   })
@@ -297,59 +455,112 @@ async function handleGenerate() {
   generating.value = false
 
   if (draftResult.ok) {
+    draftId.value = draftResult.data?.id || null
+    lastSavedHtml.value = renderResult.value.html
     ElMessage.success('文书已生成并保存为草稿')
   } else {
     ElMessage.error('创建草稿失败: ' + draftResult.error)
   }
 }
 
-// 导出 DOCX
+// 导出 DOCX：未编辑内容继续走模板保真导出；编辑稿走 Rust 原生 DOCX 生成。
 async function handleExport() {
   if (!canExport.value) return
 
   exporting.value = true
-
-  const result = await exportDocx(
-    selectedTemplate.value.id,
-    selectedCaseId.value
-  )
-
-  exporting.value = false
-
-  if (result.ok) {
-    ElMessage.success(`DOCX 已导出: ${result.data.outputPath}`)
-    // 询问是否打开文件
-    try {
-      await ElMessageBox.confirm('是否打开导出的文件？', '导出成功', {
-        confirmButtonText: '打开',
-        cancelButtonText: '关闭',
-        type: 'success',
+  try {
+    let result
+    if (isEditedFromRender.value) {
+      const document = legalEditorRef.value?.getDocumentJson?.()
+      if (!document) {
+        ElMessage.error('编辑器内容尚未就绪，无法导出')
+        return
+      }
+      result = await casyContext.docs.exportEditedDocx({
+        document,
+        title: `${selectedTemplate.value?.name || '文书'} - ${selectedCase.value?.caseName || ''}（已编辑）`,
       })
-      // 打开文件
-      await casyContext.files.open(result.data.outputPath)
-    } catch {
-      // 用户取消，忽略
+    } else {
+      result = await exportDocx(
+        selectedTemplate.value.id,
+        selectedCaseId.value
+      )
     }
-  } else {
-    ElMessage.error('导出失败: ' + result.error)
+    await handleExportResult(result)
+  } finally {
+    exporting.value = false
   }
 }
 
-// 创建草稿（不渲染，直接跳转编辑）
-async function handleCreateDraft() {
-  if (!canGenerate.value) return
+async function handleExportResult(result) {
+  if (!result.ok) {
+    ElMessage.error('导出失败: ' + result.error)
+    return
+  }
+  ElMessage.success(`DOCX 已导出: ${result.data.outputPath}`)
+  try {
+    await ElMessageBox.confirm('是否打开导出的文件？', '导出成功', {
+      confirmButtonText: '打开',
+      cancelButtonText: '关闭',
+      type: 'success',
+    })
+    await casyContext.files.open(result.data.outputPath)
+  } catch {
+    // 用户取消，忽略
+  }
+}
 
-  const draftResult = await casyContext.docs.createDraft({
-    title: `${selectedTemplate.value.name} - ${selectedCase.value?.caseName || ''}`,
-    content: '',
-    caseId: selectedCaseId.value,
-    templatePath: selectedTemplate.value.path,
-  })
+// 保存为草稿（编辑后内容优先，可在文书工坊中继续编辑）
+async function handleSaveDraft() {
+  if (!renderResult.value || !renderIdentity.value) return
+  if (!identityMatchesSelection.value) {
+    ElMessage.error('当前案件或模板与预览结果不一致，请重新预览后再保存')
+    return
+  }
+
+  savingDraft.value = true
+  const payload = {
+    title: `${renderIdentity.value.template.name} - ${selectedCase.value?.caseName || ''}`,
+    content: editedHtml.value,
+    caseId: renderIdentity.value.caseId,
+    templatePath: renderIdentity.value.template.path,
+  }
+  const draftResult = draftId.value
+    ? await casyContext.docs.updateDraft(draftId.value, {
+        title: payload.title,
+        content: payload.content,
+        caseId: payload.caseId,
+      })
+    : await casyContext.docs.createDraft(payload)
+
+  savingDraft.value = false
 
   if (draftResult.ok) {
-    ElMessage.success('草稿已创建，可在文书工坊中编辑')
+    draftId.value = draftResult.data?.id || draftId.value
+    lastSavedHtml.value = editedHtml.value
+    ElMessage.success('草稿已保存，可在文书工坊中继续编辑')
   } else {
-    ElMessage.error('创建草稿失败: ' + draftResult.error)
+    ElMessage.error('保存草稿失败: ' + draftResult.error)
+  }
+}
+
+// 放弃编辑修改，回退到原始渲染结果
+async function handleRevertEdits() {
+  if (!isEditedFromRender.value) return
+  try {
+    await ElMessageBox.confirm(
+      '确定放弃所有编辑修改，恢复为模板渲染的原始内容吗？',
+      '放弃修改',
+      {
+        confirmButtonText: '放弃修改',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    editedHtml.value = renderResult.value?.html || ''
+    ElMessage.info('已恢复为原始渲染内容')
+  } catch {
+    // 用户取消，忽略
   }
 }
 
@@ -503,6 +714,62 @@ onMounted(() => {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 所见即所得编辑 tab */
+.edit-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dirty-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--el-color-warning, #e6a23c);
+  flex-shrink: 0;
+}
+
+.edit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--c-border, var(--el-border-color-light));
+  background: var(--c-bg-subtle, transparent);
+}
+
+.edit-status {
+  font-size: 12px;
+  color: var(--c-text-secondary, var(--el-text-color-secondary));
+  transition: color var(--motion-fast, 120ms) ease;
+}
+
+.edit-status.dirty {
+  color: var(--el-color-warning, #e6a23c);
+  font-weight: 600;
+}
+
+.edit-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.generated-editor-wrapper {
+  height: 480px;
+  overflow: hidden;
+  background: var(--c-bg-card, var(--el-bg-color));
+}
+
+.generated-editor-wrapper :deep(.notion-legal-editor-shell) {
+  height: 100%;
+}
+
+.generated-editor-wrapper :deep(.editor-content-area) {
+  padding: 24px 32px 64px;
 }
 
 .gen-actions {

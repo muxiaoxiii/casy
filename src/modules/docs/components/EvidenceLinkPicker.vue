@@ -39,7 +39,7 @@
           <el-option
             v-for="c in caseOptions"
             :key="c.id"
-            :label="c.caseName || c.caseNo || c.id"
+            :label="c.caseName || c.caseNo || '未命名案件'"
             :value="c.id"
           />
         </el-select>
@@ -234,7 +234,7 @@ const displayEntities = computed<EntityOption[]>(() => {
   if (targetType.value === 'case') {
     const list = caseOptions.value.map(c => ({
       id: c.id,
-      name: c.caseName || c.caseNo || c.id,
+      name: c.caseName || c.caseNo || '未命名案件',
       meta: c.caseNo || undefined,
     }))
     return q ? list.filter(e => e.name.toLowerCase().includes(q)) : list
@@ -301,7 +301,7 @@ async function searchEntities() {
       const data = await tauriCall<CaseLite[]>('search_cases', { query: q })
       searchResults.value = (data || []).map(c => ({
         id: c.id,
-        name: c.caseName || c.caseNo || c.id,
+        name: c.caseName || c.caseNo || '未命名案件',
         meta: c.caseNo || undefined,
       }))
     }

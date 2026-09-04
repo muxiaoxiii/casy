@@ -159,10 +159,20 @@ export const WikiLinkSuggestion = Extension.create<WikiLinkSuggestionOptions>({
                   gap: 8px;
                   ${index === pluginState.selectedIndex ? 'background: #f5f7fa;' : ''}
                 `
-                div.innerHTML = `
-                  <span style="font-weight: 500;">${item.title}</span>
-                  ${item.category ? `<span style="font-size: 12px; color: #999; margin-left: auto;">${item.category}</span>` : ''}
-                `
+                // 安全（审查 P0-2）：item.title / item.category 来自知识条目
+                // （用户输入 / 导入 / 同步），原本未转义直接进 innerHTML 会被执行。
+                // 改用 textContent，与 4 个平行 suggestion composable 对齐。
+                const titleEl = document.createElement('span')
+                titleEl.style.cssText = 'font-weight: 500;'
+                titleEl.textContent = item.title || ''
+                div.appendChild(titleEl)
+
+                if (item.category) {
+                  const categoryEl = document.createElement('span')
+                  categoryEl.style.cssText = 'font-size: 12px; color: #999; margin-left: auto;'
+                  categoryEl.textContent = item.category
+                  div.appendChild(categoryEl)
+                }
                 div.addEventListener('click', () => {
                   options.onSelect(item)
                 })

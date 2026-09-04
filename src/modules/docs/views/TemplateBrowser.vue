@@ -70,7 +70,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { useDocsyBridge } from '../composables/useDocsyBridge.js'
 
 const props = defineProps({
@@ -87,6 +87,10 @@ const { templates, loading, loadTemplates, searchTemplates, templatesByCategory 
 
 const searchText = ref('')
 const selected = ref(props.modelValue)
+
+watch(() => props.modelValue, value => {
+  selected.value = value
+})
 
 // 分类展开状态
 const expandedCategories = reactive({})

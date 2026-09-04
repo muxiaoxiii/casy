@@ -11,6 +11,13 @@ export function useDocsyBridge() {
   const error = ref(null)
   const renderResult = ref(null)
   const exportResult = ref(null)
+  // 渲染请求序号/派生状态（P2-3 竞态修复）：
+  // - renderRequestId 单调递增，仅“最新”请求允许写入 renderResult/error 并释放渲染忙碌状态；
+  // - renderLoading 是渲染忙碌的唯一状态源：stale 请求绝不触碰它，
+  //   因此旧请求既不会提前复位（把 spinner 关掉）也不会悬挂（最新请求或 clearRenderResult 必释放）。
+  // - 与模板列表/导出共用 loading 不同，渲染用独立的 renderLoading，避免双重状态源互相打架。
+  let renderRequestId = 0
+  const renderLoading = ref(false)
 
   /**
    * 加载模板列表
@@ -38,13 +45,20 @@ export function useDocsyBridge() {
    * @param {string} caseId - 案件 ID
    */
   async function renderTemplate(templateId, caseId) {
-    loading.value = true
+    const requestId = ++renderRequestId
+    renderLoading.value = true
     error.value = null
 
     const result = await tauriCallSafe('render_docsy_template', {
       templateId,
       caseId,
     })
+
+    // 连续切换案件/模板时，旧请求不得覆盖较新的选择，
+    // 也不得提前释放渲染忙碌状态（那属于最新请求的职责）。
+    if (requestId !== renderRequestId) {
+      return { ...result, stale: true, requestId }
+    }
 
     if (result.ok) {
       renderResult.value = result.data
@@ -53,8 +67,15 @@ export function useDocsyBridge() {
       renderResult.value = null
     }
 
-    loading.value = false
-    return result
+    renderLoading.value = false
+    return { ...result, stale: false, requestId }
+  }
+
+  function clearRenderResult() {
+    renderRequestId += 1
+    renderResult.value = null
+    error.value = null
+    renderLoading.value = false
   }
 
   /**
@@ -120,6 +141,7 @@ export function useDocsyBridge() {
     loading,
     error,
     renderResult,
+    renderLoading,
     exportResult,
 
     // 计算属性
@@ -128,6 +150,7 @@ export function useDocsyBridge() {
     // 方法
     loadTemplates,
     renderTemplate,
+    clearRenderResult,
     exportDocx,
     searchTemplates,
   }

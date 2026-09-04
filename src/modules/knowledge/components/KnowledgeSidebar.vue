@@ -25,7 +25,7 @@
 
     <div class="ks-results" v-loading="loading">
       <div
-        v-for="item in results"
+        v-for="item in safeResults"
         :key="item.id"
         class="ks-result-item"
         draggable="true"
@@ -39,7 +39,7 @@
           <span class="ks-item-category">{{ item.category }}</span>
         </div>
         <div class="ks-item-title">{{ item.title }}</div>
-        <div class="ks-item-snippet" v-html="item.snippet"></div>
+        <div class="ks-item-snippet" v-html="item.safeSnippet"></div>
       </div>
       
       <el-empty v-if="!loading && results.length === 0" description="输入关键词开始检索" :image-size="60" />
@@ -48,9 +48,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { Collection, Close, Search } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
+// 审查 P0-3：SQLite FTS5 的 snippet() 只插入 <b> 高亮、不转义原文，渲染前必须消毒
+import { sanitizeInlineHtml } from '../../../shared/markdown/mdBridge'
 
 const emit = defineEmits(['close', 'insert'])
 
@@ -58,6 +60,16 @@ const searchQuery = ref('')
 const results = ref([])
 const loading = ref(false)
 let debounceTimer = null
+
+// 审查 P2-1：搜索结果 snippet 来自 SQLite FTS5 的 snippet()（只插 <b>、不转义原文），
+// 渲染前必须消毒（sanitizeInlineHtml）。原写法在模板 v-for 内每次渲染都调用一次，
+// 属 O(结果项 × 渲染次数)。此处预先映射为 { ...item, safeSnippet }，仅在 results 变化时计算一次。
+const safeResults = computed(() =>
+  (results.value || []).map(item => ({
+    ...item,
+    safeSnippet: sanitizeInlineHtml(item.snippet ?? ''),
+  }))
+)
 
 function handleSearch() {
   if (debounceTimer) clearTimeout(debounceTimer)

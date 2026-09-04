@@ -3,18 +3,12 @@ import { ref } from 'vue'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
 import {
-  Check,
   View,
-  Document,
   Reading,
   DataAnalysis,
-  Calendar,
-  Grid,
-  Memo,
-  Postcard,
-  Cpu,
 } from '@element-plus/icons-vue'
 import BriefingModal from '../../../shared/components/BriefingModal.vue'
+import { dailyBriefingStyles as dailyStyles, weeklyBriefingStyles as weeklyStyles } from '../../../shared/briefingStyles'
 
 const settingsStore = useSettingsStore()
 
@@ -22,270 +16,6 @@ const settingsStore = useSettingsStore()
 const previewVisible = ref(false)
 const previewType = ref<'daily' | 'weekly'>('daily')
 const previewStyle = ref('')
-
-// 8 大早报样式
-const dailyStyles = [
-  {
-    id: 'gazette',
-    name: 'The Casy Dispatch',
-    tagline: '复古早报 · 锯齿撕边小票',
-    tags: ['Newspaper', 'Tear-Off Receipt', 'Official Seal'],
-    desc: '经典律政晨报与官方核验小票排版，带有报头刊号、硬红线专栏与条形码。',
-    themeColor: '#244481',
-  },
-  {
-    id: 'typewriter',
-    name: 'Typewriter Classic',
-    tagline: '打字机公文 · 极简黑白',
-    tags: ['Serif Mono', 'Monochrome', 'High Contrast'],
-    desc: '模仿经典机械打字机与正式律师备忘录，纯文本高对比度呈现。',
-    themeColor: '#18181b',
-  },
-  {
-    id: 'swiss-grid',
-    name: 'Swiss Grid',
-    tagline: '瑞士国际主义网格',
-    tags: ['Modular Grid', 'Bold Sans', 'Metric-Forward'],
-    desc: '严谨包豪斯/瑞士设计网格，大号数字指标与醒目红黑警报。',
-    themeColor: '#b91c1c',
-  },
-  {
-    id: 'vogue',
-    name: 'Vogue Editorial',
-    tagline: '时尚杂志 · 优雅衬线',
-    tags: ['Fashion', 'Serif', 'Editorial'],
-    desc: '宛如高级时尚杂志的排版，大号衬线字体与极致留白，提供优雅的晨读体验。',
-    themeColor: '#0f172a',
-  },
-  {
-    id: 'narrative-air',
-    name: 'Narrative Air',
-    tagline: '清风叙事 · 散文晨读',
-    tags: ['Prose', 'Low Cognitive Load', 'Elegant'],
-    desc: '段落式自然连贯叙述，大面积留白与柔和圆角，极低认知负荷。',
-    themeColor: '#059669',
-  },
-  {
-    id: 'glassmorphism',
-    name: 'Aura Glass',
-    tagline: '毛玻璃 · 弥散光晕',
-    tags: ['Glassmorphism', 'Vibrant', 'Blur'],
-    desc: '极具现代感的毛玻璃半透明材质与鲜艳弥散渐变光晕，带来时尚前卫的视觉冲击。',
-    themeColor: '#a855f7',
-  },
-  {
-    id: 'action-board',
-    name: 'Action Kanban',
-    tagline: '行动便签看板',
-    tags: ['Sticky Notes', '3-Column Kanban', 'Actionable'],
-    desc: '便签式三栏卡片（必达、红线、排期），手账与便签张贴感。',
-    themeColor: '#ca8a04',
-  },
-  {
-    id: 'executive',
-    name: 'Executive Memo',
-    tagline: '管理合伙人简报',
-    tags: ['Gold Trim', 'KPI Row', 'High-End Legal'],
-    desc: '律所执行合伙人专享简报，金色烫金饰边与高阶 KPI 聚焦。',
-    themeColor: '#d97706',
-  },
-  {
-    id: 'magic-prophet',
-    name: 'The Daily Prophet',
-    tagline: '魔法预言家日报',
-    tags: ['Wizardry', 'Parchment', 'Serif Headline'],
-    desc: '充满魔法气息的泛黄羊皮纸底纹，古典英伦衬线报头与密集排版。',
-    themeColor: '#78350f',
-  },
-  {
-    id: 'telegraph',
-    name: 'Vintage Telegram',
-    tagline: '老式电报机打字带',
-    tags: ['Telegram', 'Monospace', 'Typewriter'],
-    desc: '泛黄老旧的电报纸带，等宽大写字体，还原上世纪的紧迫复古感。',
-    themeColor: '#d97706',
-  },
-  {
-    id: 'bulletin',
-    name: 'Police Bulletin',
-    tagline: '复古警情通报 / 通缉令',
-    tags: ['Wild West', 'Wanted Poster', 'Slab Serif'],
-    desc: '粗重的西部风格字体与做旧纸张，仿佛张贴在警局门口的紧急布告。',
-    themeColor: '#92400e',
-  },
-  {
-    id: 'blueprint',
-    name: 'Architectural Blueprint',
-    tagline: '工程师蓝图 · 青花白线',
-    tags: ['Cyanotype', 'Grid', 'Technical'],
-    desc: '严谨的深蓝色底图配白色网格与制图手写体，展现极致的工程控制感。',
-    themeColor: '#1e3a8a',
-  },
-  {
-    id: 'terminal',
-    name: 'Retro Terminal',
-    tagline: '80年代终端机 · MS-DOS',
-    tags: ['CLI', 'Phosphor Green', 'Hacker'],
-    desc: '黑底绿字的复古计算机终端界面，块状光标与像素感极强的呈现。',
-    themeColor: '#22c55e',
-  },
-  {
-    id: 'polaroid',
-    name: 'Vintage Polaroid',
-    tagline: '拍立得底片 · 手写记事',
-    tags: ['Polaroid', 'Marker Font', 'Shadow'],
-    desc: '仿佛用马克笔写在拍立得相纸下方的随性记录，带着随性的生活气息。',
-    themeColor: '#fafafa',
-  },
-  {
-    id: 'ticket',
-    name: 'Theatre Ticket',
-    tagline: '复古剧院票根 / 登机牌',
-    tags: ['Perforated', 'Barcode', 'Boarding Pass'],
-    desc: '带有打孔边缘、流水号与虚线撕口的复古票根，极具收藏质感。',
-    themeColor: '#be123c',
-  },
-  {
-    id: 'scroll',
-    name: 'Ancient Scroll',
-    tagline: '东方卷轴 · 水墨印泥',
-    tags: ['Scroll', 'Calligraphy', 'Inkan Seal'],
-    desc: '宣纸纹理与朱砂红印泥，留白意境深远，如展开一幅水墨画轴。',
-    themeColor: '#991b1b',
-  },
-]
-
-// 8 大周报样式
-const weeklyStyles = [
-  {
-    id: 'dossier',
-    name: 'Executive Dossier',
-    tagline: '卷宗档案特刊 · 绝密归档',
-    tags: ['Folder Cover', 'Risk Exposure', 'Two-Column'],
-    desc: '律政绝密档案封套质感，印章与双栏重大专案推进综述。',
-    themeColor: '#8c5338',
-  },
-  {
-    id: 'analytics',
-    name: 'Neon Dashboard',
-    tagline: '暗黑仪表盘 · 极光渐变',
-    tags: ['Dark Mode', 'Neon', 'Dashboard'],
-    desc: '深色模式下的沉浸式数据看板，荧光色彩与发光组件凸显关键数据。',
-    themeColor: '#3b82f6',
-  },
-  {
-    id: 'ledger',
-    name: 'Supreme Ledger',
-    tagline: '高定黑金台账',
-    tags: ['Luxury', 'Black & Gold', 'Finance'],
-    desc: '深邃黑底与烫金配色的奢华碰撞，将复式办案台账升格为顶级金融报告质感。',
-    themeColor: '#fbbf24',
-  },
-  {
-    id: 'milestones',
-    name: 'Fluid Milestones',
-    tagline: '流体时间轴 · 动感流线',
-    tags: ['Fluid Design', 'Gradients', 'Timeline'],
-    desc: '采用流体渐变与圆润气泡设计，让原本枯燥的案件流程呈现生动的视觉流向。',
-    themeColor: '#ec4899',
-  },
-  {
-    id: 'partner-brief',
-    name: 'Senior Partner Review',
-    tagline: '合伙人复盘信 · 典雅信函',
-    tags: ['Formal Letter', 'Georgia Serif', 'Strategic Focus'],
-    desc: '高级合伙人专属书信体（Dear Partner），宏观把控全局风控策略。',
-    themeColor: '#78350f',
-  },
-  {
-    id: 'focus-matrix',
-    name: 'Neo Brutalism',
-    tagline: '新粗野主义 · 潮流波普',
-    tags: ['Neo Brutalism', 'Pop Art', 'High Contrast'],
-    desc: '极具冲击力的粗体边框与明亮色块组合，新粗野主义设计打破沉闷。',
-    themeColor: '#000000',
-  },
-  {
-    id: 'chronicle',
-    name: 'The Weekly Chronicle',
-    tagline: '周度编年史 · 时序纵览',
-    tags: ['Timeline Journal', 'Daily Flow', 'Archival'],
-    desc: '周一至周五办案日志编年史，沉淀律所诉讼经验与裁判要旨。',
-    themeColor: '#1e293b',
-  },
-  {
-    id: 'cyber-matrix',
-    name: 'Cyber Grid',
-    tagline: '赛博战力周报 · HUD 仪表盘',
-    tags: ['Cyberpunk HUD', 'Power Index', 'Glow Neon'],
-    desc: 'HUD 战力评估仪表盘，AI 辅助量化战力指数与案件攻防态势。',
-    themeColor: '#0284c7',
-  },
-  {
-    id: 'hogwarts-letter',
-    name: 'Hogwarts Acceptance',
-    tagline: '魔法学校录取信函',
-    tags: ['Emerald Ink', 'Wax Seal', 'Parchment'],
-    desc: '厚重的羊皮纸，翡翠绿色的手写体，带有鲜红的火漆印章。',
-    themeColor: '#065f46',
-  },
-  {
-    id: 'classified-file',
-    name: 'Classified Dossier',
-    tagline: '冷战绝密档案 · TOP SECRET',
-    tags: ['Manila Folder', 'Red Stamp', 'Redacted'],
-    desc: '牛皮纸袋配色，醒目的红色机密印章与回形针，极具悬疑与保密氛围。',
-    themeColor: '#ca8a04',
-  },
-  {
-    id: 'vinyl-record',
-    name: 'Vintage Vinyl',
-    tagline: '70年代黑胶唱片封套',
-    tags: ['Retro 70s', 'Circular Grooves', 'Groovy'],
-    desc: '唱片纹路底纹与怀旧的70年代暖色系，带来如爵士乐般的复古情调。',
-    themeColor: '#ea580c',
-  },
-  {
-    id: 'tarot',
-    name: 'Mystic Tarot',
-    tagline: '神秘塔罗牌 · 哥特占星',
-    tags: ['Gothic', 'Gold Ornaments', 'Mystic'],
-    desc: '中世纪哥特风格与繁复对称的烫金边框，散发神秘学与星空元素。',
-    themeColor: '#4c1d95',
-  },
-  {
-    id: 'bank-note',
-    name: 'Vintage Banknote',
-    tagline: '复古防伪证券 / 纸钞',
-    tags: ['Guilloche', 'Engraving', 'Currency'],
-    desc: '繁复的防伪扭索纹理与复古雕刻排版，如同高价值的历史证券。',
-    themeColor: '#166534',
-  },
-  {
-    id: 'passport',
-    name: 'International Passport',
-    tagline: '签证护照 · 出入境盖章',
-    tags: ['Passport Cover', 'Visa Stamps', 'MRZ'],
-    desc: '深蓝皮纹，内部印满签证图章，底部附带防伪机读码。',
-    themeColor: '#1e40af',
-  },
-  {
-    id: 'steampunk',
-    name: 'Steampunk Brass',
-    tagline: '蒸汽朋克 · 齿轮与黄铜',
-    tags: ['Victorian', 'Gears', 'Leather'],
-    desc: '黄铜渐变、齿轮装饰与铆钉镶边，展现维多利亚时代的复古机械美学。',
-    themeColor: '#b45309',
-  },
-  {
-    id: 'wax-sealed-parchment',
-    name: 'Royal Decree',
-    tagline: '文艺复兴王室诏书',
-    tags: ['Drop Caps', 'Blackletter', 'Gold Wax'],
-    desc: '哥特黑体与华丽的下沉首字母（Drop Caps），辅以金箔与重火漆印。',
-    themeColor: '#831843',
-  },
-]
 
 async function selectDailyStyle(id: string) {
   settingsStore.daily_brief_style = id
@@ -312,12 +42,12 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
       <div class="header-titles">
         <h3 class="sec-title">早报与周报样式 (Briefing & Reports)</h3>
         <p class="sec-desc">
-          为您的工作台配置自动化「每日早报」与「每周复盘报告」的视觉呈现风格。所有样式均支持一键全屏弹窗、复制与打印便签。
+          32 套皮肤共享同一份可信数据，只改变排版与材质。预览使用明确标注的样例数据，导出生成高清 PNG 长图。
         </p>
       </div>
     </div>
 
-    <!-- ═══ 1. 每日早报样式选择器 (8 种) ═══ -->
+    <!-- ═══ 1. 每日早报样式选择器 (16 种) ═══ -->
     <div class="report-style-group">
       <div class="group-title-bar">
         <div class="bar-left">
@@ -341,10 +71,19 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
             <span>当前使用</span>
           </div>
 
-          <!-- 卡片头部色块与缩略图标 -->
-          <div class="card-thumb-mock" :style="{ borderColor: item.themeColor }">
-            <div class="thumb-inner-pattern" :class="`pattern-${item.id}`">
-              <span class="thumb-label">{{ item.name }}</span>
+          <div
+            class="card-thumb-mock"
+            :data-style="item.id"
+            :data-tone="item.tone"
+            :data-family="item.family"
+            :style="{ '--style-color': item.themeColor }"
+          >
+            <div class="thumb-sheet">
+              <span class="thumb-ornament" aria-hidden="true">C</span>
+              <span class="thumb-kicker">CASY / {{ item.label }}</span>
+              <strong>{{ item.name }}</strong>
+              <div class="thumb-rule"></div>
+              <div class="thumb-columns"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -369,20 +108,14 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
                 <el-icon><View /></el-icon>
                 <span>预览效果</span>
               </button>
-              <button
-                class="btn-select"
-                :class="{ 'is-selected': settingsStore.daily_brief_style === item.id }"
-              >
-                <el-icon v-if="settingsStore.daily_brief_style === item.id"><Check /></el-icon>
-                <span>{{ settingsStore.daily_brief_style === item.id ? '已应用' : '点击应用' }}</span>
-              </button>
+              <span class="apply-hint">{{ settingsStore.daily_brief_style === item.id ? '已应用' : '点击卡片应用' }}</span>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ═══ 2. 每周报告样式选择器 (8 种) ═══ -->
+    <!-- ═══ 2. 每周报告样式选择器 (16 种) ═══ -->
     <div class="report-style-group mt-8">
       <div class="group-title-bar">
         <div class="bar-left">
@@ -406,10 +139,19 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
             <span>当前使用</span>
           </div>
 
-          <!-- 卡片头部色块与缩略图标 -->
-          <div class="card-thumb-mock" :style="{ borderColor: item.themeColor }">
-            <div class="thumb-inner-pattern" :class="`pattern-${item.id}`">
-              <span class="thumb-label">{{ item.name }}</span>
+          <div
+            class="card-thumb-mock"
+            :data-style="item.id"
+            :data-tone="item.tone"
+            :data-family="item.family"
+            :style="{ '--style-color': item.themeColor }"
+          >
+            <div class="thumb-sheet">
+              <span class="thumb-ornament" aria-hidden="true">C</span>
+              <span class="thumb-kicker">CASY / {{ item.label }}</span>
+              <strong>{{ item.name }}</strong>
+              <div class="thumb-rule"></div>
+              <div class="thumb-columns"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -434,13 +176,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
                 <el-icon><View /></el-icon>
                 <span>预览效果</span>
               </button>
-              <button
-                class="btn-select"
-                :class="{ 'is-selected': settingsStore.weekly_report_style === item.id }"
-              >
-                <el-icon v-if="settingsStore.weekly_report_style === item.id"><Check /></el-icon>
-                <span>{{ settingsStore.weekly_report_style === item.id ? '已应用' : '点击应用' }}</span>
-              </button>
+              <span class="apply-hint">{{ settingsStore.weekly_report_style === item.id ? '已应用' : '点击卡片应用' }}</span>
             </div>
           </div>
         </div>
@@ -452,6 +188,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
       v-model:visible="previewVisible"
       :type="previewType"
       :style-variant="previewStyle"
+      preview
     />
   </div>
 </template>
@@ -576,33 +313,167 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
 }
 
 .card-thumb-mock {
-  height: 72px;
-  background: var(--c-bg-page);
-  border-bottom: 2px solid var(--c-border);
+  --style-color: var(--c-primary);
+  --thumb-paper: #f5f0e5;
+  --thumb-ink: #27231f;
+  height: 112px;
+  padding: 13px 18px 0;
+  background: #d8d5ce;
+  border-bottom: 1px solid var(--c-border);
   position: relative;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.thumb-inner-pattern {
-  width: 90%;
-  height: 70%;
-  border-radius: 4px;
-  background: var(--c-bg-card);
-  border: 1px dashed var(--c-border-strong);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.thumb-sheet {
+  position: relative;
+  height: 100%;
+  padding: 12px 14px;
+  overflow: hidden;
+  color: var(--thumb-ink);
+  background: var(--thumb-paper);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 7px 18px rgba(15, 23, 42, 0.18);
+  transform: rotate(-0.4deg);
 }
 
-.thumb-label {
+.thumb-ornament {
+  position: absolute;
+  top: 10px;
+  right: 11px;
+  display: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--style-color);
+  border: 1px solid var(--style-color);
+  border-radius: 50%;
+  font: 700 13px/1 Georgia, serif;
+  opacity: 0.55;
+}
+
+.thumb-kicker {
+  display: block;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 7px;
   font-weight: 700;
-  color: var(--c-text-secondary);
+  color: var(--style-color);
+  letter-spacing: 0.06em;
 }
+
+.thumb-sheet strong {
+  display: block;
+  margin-top: 7px;
+  overflow: hidden;
+  font-family: Georgia, serif;
+  font-size: 13px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thumb-rule {
+  height: 2px;
+  margin: 8px 0 6px;
+  background: var(--style-color);
+}
+
+.thumb-columns {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 5px;
+}
+
+.thumb-columns i {
+  display: block;
+  height: 13px;
+  border-top: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  opacity: 0.42;
+}
+
+.card-thumb-mock[data-tone='dark'] { --thumb-paper: #111b29; --thumb-ink: #edf6f7; background: #111827; }
+.card-thumb-mock[data-tone='vivid'] { background: var(--style-color); }
+.card-thumb-mock[data-tone='vivid'] .thumb-sheet { --thumb-paper: #f6ff56; --thumb-ink: #111; border: 2px solid #111; box-shadow: 5px 5px 0 #111; }
+.card-thumb-mock[data-family='technical'] .thumb-sheet { font-family: var(--font-mono); background-image: linear-gradient(rgba(127, 233, 240, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(127, 233, 240, 0.06) 1px, transparent 1px); background-size: 10px 10px; }
+.card-thumb-mock[data-family='collectible'] .thumb-sheet { border-left: 5px solid var(--style-color); }
+.card-thumb-mock[data-family='ceremonial'] .thumb-sheet { outline: 1px double var(--style-color); outline-offset: -7px; }
+.card-thumb-mock[data-family='action'] .thumb-sheet { background: #f5df88; transform: rotate(-1.2deg); }
+.card-thumb-mock[data-family='grid'] .thumb-sheet strong { font-family: Arial, sans-serif; font-weight: 900; text-transform: uppercase; }
+.card-thumb-mock[data-family='document'] .thumb-sheet strong { font-family: 'Courier New', monospace; }
+.card-thumb-mock[data-family='heritage'] .thumb-sheet { background-color: #eadbb7; }
+
+.card-thumb-mock[data-style='gazette'] .thumb-sheet { border-top: 4px double #27231f; }
+.card-thumb-mock[data-style='gazette'] .thumb-columns { grid-template-columns: repeat(3, 1fr); }
+.card-thumb-mock[data-style='typewriter'] { background: #bdbdb9; }
+.card-thumb-mock[data-style='typewriter'] .thumb-sheet { padding-left: 22px; background-image: linear-gradient(90deg, transparent 13px, rgba(170, 45, 45, 0.35) 14px, transparent 15px), repeating-linear-gradient(0deg, transparent 0 11px, rgba(0, 0, 0, 0.05) 11px 12px); }
+.card-thumb-mock[data-style='swiss-grid'] { background: #c62f24; }
+.card-thumb-mock[data-style='swiss-grid'] .thumb-sheet { transform: none; border-top: 7px solid #111; }
+.card-thumb-mock[data-style='swiss-grid'] .thumb-sheet strong { max-width: 70%; font-size: 17px; line-height: 0.82; white-space: normal; }
+.card-thumb-mock[data-style='vogue'] { background: #e7e3dd; }
+.card-thumb-mock[data-style='vogue'] .thumb-sheet { text-align: center; transform: none; }
+.card-thumb-mock[data-style='vogue'] .thumb-sheet strong { margin-top: 18px; font-size: 18px; font-weight: 400; }
+.card-thumb-mock[data-style='narrative-air'] { background: #b7d3ca; }
+.card-thumb-mock[data-style='narrative-air'] .thumb-sheet { --thumb-paper: #f4fbf8; border-radius: 18px 18px 0 0; transform: none; }
+.card-thumb-mock[data-style='narrative-air'] .thumb-rule { width: 46%; border-radius: 3px; }
+.card-thumb-mock[data-style='glassmorphism'] .thumb-sheet { background-image: radial-gradient(circle at 15% 15%, rgba(66, 209, 205, 0.25), transparent 36%); border: 1px solid rgba(117, 230, 218, 0.3); transform: none; }
+.card-thumb-mock[data-style='action-board'] { background: #807565; }
+.card-thumb-mock[data-style='action-board'] .thumb-sheet { box-shadow: 6px 7px 0 rgba(246, 223, 131, 0.35); }
+.card-thumb-mock[data-style='executive'] { background: #172335; }
+.card-thumb-mock[data-style='executive'] .thumb-sheet { border-left: 9px solid #172335; outline: 1px solid #a97728; outline-offset: -6px; }
+.card-thumb-mock[data-style='magic-prophet'] .thumb-sheet { border-block: 4px double #302517; text-align: center; }
+.card-thumb-mock[data-style='magic-prophet'] .thumb-ornament { display: grid; top: 42px; right: 50%; transform: translateX(50%); }
+.card-thumb-mock[data-style='telegraph'] { background: #876f4f; }
+.card-thumb-mock[data-style='telegraph'] .thumb-sheet { --thumb-paper: #e7d9ad; border: 1px dashed #372d22; }
+.card-thumb-mock[data-style='telegraph'] .thumb-rule { background: transparent; border-top: 1px dashed #372d22; }
+.card-thumb-mock[data-style='bulletin'] .thumb-sheet { --thumb-paper: #d9bb79; border: 5px solid #573723; outline: 1px solid #8d281f; outline-offset: -8px; text-align: center; }
+.card-thumb-mock[data-style='blueprint'] { background: #092541; }
+.card-thumb-mock[data-style='blueprint'] .thumb-sheet { --thumb-paper: #153e71; --thumb-ink: #eefaff; border: 1px solid #7fe9f0; transform: none; }
+.card-thumb-mock[data-style='terminal'] .thumb-sheet { --thumb-paper: #080d0a; --thumb-ink: #9fffb5; border: 4px solid #171d19; transform: none; }
+.card-thumb-mock[data-style='terminal'] .thumb-sheet strong::before { content: '> '; color: #d7ff5b; }
+.card-thumb-mock[data-style='polaroid'] { background: #72797d; padding-inline: 28px; }
+.card-thumb-mock[data-style='polaroid'] .thumb-sheet { padding-top: 48px; border: 7px solid #f7f5ee; border-bottom-width: 22px; background: linear-gradient(155deg, #233a4d, #617a82 55%, #c7b99b); box-shadow: 0 7px 18px rgba(15, 23, 42, 0.28); }
+.card-thumb-mock[data-style='polaroid'] .thumb-kicker, .card-thumb-mock[data-style='polaroid'] .thumb-rule, .card-thumb-mock[data-style='polaroid'] .thumb-columns { display: none; }
+.card-thumb-mock[data-style='polaroid'] .thumb-sheet strong { color: #fff; }
+.card-thumb-mock[data-style='ticket'] { background: #6d263d; }
+.card-thumb-mock[data-style='ticket'] .thumb-sheet { --thumb-paper: #f5e4df; --thumb-ink: #641c33; padding-left: 28px; border: 2px solid #9c2348; background-image: linear-gradient(90deg, transparent 15px, rgba(156, 35, 72, 0.5) 16px, transparent 17px); }
+.card-thumb-mock[data-style='scroll'] .thumb-sheet { --thumb-paper: #f7f0df; border-block: 8px solid #8f252b; text-align: center; }
+.card-thumb-mock[data-style='dossier'] { background: #6b4a36; padding-top: 22px; }
+.card-thumb-mock[data-style='dossier'] .thumb-sheet { --thumb-paper: #d7bd91; padding-top: 20px; border-left: 8px solid #6f4d32; }
+.card-thumb-mock[data-style='dossier'] .thumb-sheet::before { position: absolute; top: -1px; right: 12px; width: 58px; height: 10px; content: ''; background: #6f4d32; }
+.card-thumb-mock[data-style='analytics'] .thumb-sheet { background-image: repeating-linear-gradient(90deg, transparent 0 29px, rgba(85, 182, 255, 0.07) 29px 30px); border-top: 2px solid #55b6ff; transform: none; }
+.card-thumb-mock[data-style='ledger'] .thumb-sheet { --thumb-paper: #111418; --thumb-ink: #f4e8c6; border: 3px double #d4a84e; transform: none; }
+.card-thumb-mock[data-style='ledger'] .thumb-columns i { border-color: #d4a84e; }
+.card-thumb-mock[data-style='milestones'] { background: #d0b4c7; }
+.card-thumb-mock[data-style='milestones'] .thumb-sheet { --thumb-paper: #fff8fb; border-radius: 20px 5px 0 0; transform: none; }
+.card-thumb-mock[data-style='milestones'] .thumb-columns i { border: 0; border-left: 3px solid #b94080; border-radius: 8px; }
+.card-thumb-mock[data-style='partner-brief'] { background: #5b4631; padding-inline: 30px; }
+.card-thumb-mock[data-style='partner-brief'] .thumb-sheet { --thumb-paper: #f8f2e4; --thumb-ink: #392919; padding-inline: 19px; transform: none; }
+.card-thumb-mock[data-style='partner-brief'] .thumb-sheet strong { margin-top: 16px; font-style: italic; font-weight: 400; }
+.card-thumb-mock[data-style='focus-matrix'] .thumb-sheet { transform: rotate(-0.7deg); }
+.card-thumb-mock[data-style='focus-matrix'] .thumb-rule { height: 5px; background: #ed3e98; }
+.card-thumb-mock[data-style='chronicle'] .thumb-sheet { --thumb-paper: #f2eee5; --thumb-ink: #1e2933; padding-left: 24px; background-image: linear-gradient(90deg, transparent 14px, rgba(54, 84, 108, 0.35) 15px, transparent 16px); }
+.card-thumb-mock[data-style='chronicle'] .thumb-sheet strong { font-style: italic; }
+.card-thumb-mock[data-style='cyber-matrix'] .thumb-sheet { --thumb-paper: #08131d; --thumb-ink: #d9fbff; border: 1px solid #33e6d7; transform: none; box-shadow: inset 0 0 18px rgba(51, 230, 215, 0.12); }
+.card-thumb-mock[data-style='hogwarts-letter'] { background: #405b52; padding-inline: 28px; }
+.card-thumb-mock[data-style='hogwarts-letter'] .thumb-sheet { --thumb-paper: #eee2bd; --thumb-ink: #183f35; text-align: center; transform: none; }
+.card-thumb-mock[data-style='hogwarts-letter'] .thumb-ornament { display: grid; top: 42px; right: 50%; transform: translateX(50%); }
+.card-thumb-mock[data-style='classified-file'] { background: #564536; padding-top: 22px; }
+.card-thumb-mock[data-style='classified-file'] .thumb-sheet { --thumb-paper: #d6b676; --thumb-ink: #201b14; border-top: 12px solid #a1121a; }
+.card-thumb-mock[data-style='vinyl-record'] { background: #28211e; }
+.card-thumb-mock[data-style='vinyl-record'] .thumb-sheet { --thumb-paper: #d45b32; --thumb-ink: #fff3d7; transform: none; }
+.card-thumb-mock[data-style='vinyl-record'] .thumb-sheet::after { position: absolute; top: 12px; right: -19px; width: 76px; height: 76px; content: ''; border-radius: 50%; background: repeating-radial-gradient(circle, #181513 0 3px, #2d2824 4px 6px); opacity: 0.75; }
+.card-thumb-mock[data-style='tarot'] .thumb-sheet { --thumb-paper: #17152f; --thumb-ink: #f2e5ad; border: 5px solid #28234b; outline: 1px solid #d2ac54; text-align: center; transform: none; }
+.card-thumb-mock[data-style='tarot'] .thumb-ornament { display: grid; top: 38px; right: 50%; transform: translateX(50%); }
+.card-thumb-mock[data-style='bank-note'] { background: #365c4b; }
+.card-thumb-mock[data-style='bank-note'] .thumb-sheet { --thumb-paper: #dfe7d7; --thumb-ink: #174c36; border: 5px double #174c36; text-align: center; transform: none; background-image: repeating-radial-gradient(ellipse, transparent 0 7px, rgba(23, 76, 54, 0.07) 8px 9px); }
+.card-thumb-mock[data-style='bank-note'] .thumb-ornament { display: grid; top: 39px; right: 50%; transform: translateX(50%); }
+.card-thumb-mock[data-style='passport'] { background: #182c46; }
+.card-thumb-mock[data-style='passport'] .thumb-sheet { --thumb-paper: #e9edf0; --thumb-ink: #182c46; padding-left: 24px; border-left: 9px solid #173b67; transform: none; background-image: repeating-linear-gradient(135deg, transparent 0 8px, rgba(32, 77, 131, 0.06) 8px 9px); }
+.card-thumb-mock[data-style='steampunk'] .thumb-sheet { --thumb-paper: #27231f; --thumb-ink: #f0d596; border: 6px ridge #9a632d; transform: none; }
+.card-thumb-mock[data-style='steampunk'] .thumb-ornament { display: grid; border: 5px double #c58434; border-radius: 50%; }
+.card-thumb-mock[data-style='wax-sealed-parchment'] { background: #6a293c; padding-inline: 28px; }
+.card-thumb-mock[data-style='wax-sealed-parchment'] .thumb-sheet { --thumb-paper: #ede0b9; --thumb-ink: #4b2430; border: 5px double #a46e1f; text-align: center; transform: none; }
+.card-thumb-mock[data-style='wax-sealed-parchment'] .thumb-ornament { display: grid; top: 40px; right: 50%; transform: translateX(50%); }
 
 .card-info-body {
   padding: 12px;
@@ -690,30 +561,10 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
   background: var(--c-primary-light);
 }
 
-.btn-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--c-bg-page);
-  border: 1px solid var(--c-border);
-  color: var(--c-text-regular);
+.apply-hint {
   font-size: 11px;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: var(--c-radius-sm);
-  cursor: pointer;
-  transition: all var(--motion-fast);
-}
-
-.btn-select.is-selected {
-  background: var(--c-primary);
-  color: var(--c-primary-contrast);
-  border-color: var(--c-primary);
-}
-
-.btn-select:hover:not(.is-selected) {
-  background: var(--c-bg-hover);
-  border-color: var(--c-border-strong);
+  color: var(--c-text-secondary);
 }
 
 .mt-8 { margin-top: 24px; }

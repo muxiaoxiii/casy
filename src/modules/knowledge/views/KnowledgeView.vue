@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
 import BacklinksPanel from '../components/BacklinksPanel.vue'
+import MarkdownWysiwygEditor from '../components/MarkdownWysiwygEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -629,11 +630,10 @@ onMounted(async () => {
           <el-input v-model="addBlockForm.title" placeholder="子块标题" maxlength="100" />
         </el-form-item>
         <el-form-item label="内容">
-          <el-input
+          <MarkdownWysiwygEditor
             v-model="addBlockForm.content"
-            type="textarea"
-            :rows="6"
-            placeholder="子块内容"
+            compact
+            placeholder="子块内容（支持加粗、列表、链接等富文本）"
           />
         </el-form-item>
       </el-form>

@@ -1,7 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
+import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
 
 /**
  * 命令类型注册（TipTap 约定）：让 editor.commands.insertBlockReference 获得完整类型
@@ -62,7 +63,18 @@ const BlockReferenceNodeView = {
     onMounted(loadBlock)
     watch(() => [props.node.attrs.knowledgeId, props.node.attrs.blockId], loadBlock)
 
-    return { blockData, loading, error }
+    // 安全（审查 P0-1）：知识库正文是跨信任边界数据（导入 Markdown / OCR 卷宗 /
+    // 飞书同步 / AI 生成），可含 `<img onerror>`。此处原本裸 v-html 执行。
+    // 正文为 Markdown，与知识笔记本同源，故统一走 mdToSafeHtml（渲染 + DOM 白名单消毒）。
+    const safeContent = computed(() => {
+      const raw =
+        (blockData.value?.block?.content as string | undefined) ||
+        (blockData.value?.item?.content as string | undefined) ||
+        ''
+      return raw ? mdToSafeHtml(raw) : ''
+    })
+
+    return { blockData, loading, error, safeContent }
   },
   template: `
     <node-view-wrapper class="block-reference" :class="{ 'is-loading': loading, 'is-error': error }">
@@ -80,7 +92,7 @@ const BlockReferenceNodeView = {
           <span class="block-ref-title">{{ blockData.item?.title || '未知知识' }}</span>
           <span v-if="blockData.block?.blockType" class="block-ref-type">{{ blockData.block.blockType }}</span>
         </div>
-        <div class="block-ref-body" v-html="blockData.block?.content || blockData.item?.content || ''" />
+        <div class="block-ref-body" v-html="safeContent" />
       </div>
     </node-view-wrapper>
   `,

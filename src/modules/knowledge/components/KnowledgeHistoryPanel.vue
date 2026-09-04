@@ -4,7 +4,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, RefreshLeft } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
 
-const props = defineProps({ note: { type: Object, default: null } })
+const props = defineProps({
+  note: { type: Object, default: null },
+  beforeRestore: { type: Function, default: null },
+})
 const emit = defineEmits(['restored'])
 const versions = ref([])
 const loading = ref(false)
@@ -38,6 +41,7 @@ async function restore() {
   try {
     await ElMessageBox.confirm('恢复后，当前正文会先保存为一个快照，可以再次找回。', '恢复历史版本', { type: 'warning', confirmButtonText: '恢复' })
   } catch { return }
+  if (props.beforeRestore && !(await props.beforeRestore())) return
   restoring.value = true
   const result = await casyContext.knowledge.restoreVersion(props.note.id, selected.value.id)
   restoring.value = false

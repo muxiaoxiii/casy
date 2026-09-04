@@ -106,7 +106,7 @@
               <el-option
                 v-for="c in cases"
                 :key="c.id"
-                :label="c.caseName || c.caseNo || c.id"
+                :label="c.caseName || c.caseNo || '未命名案件'"
                 :value="c.id"
               />
             </el-select>
@@ -164,7 +164,6 @@ import { Collection, Link } from '@element-plus/icons-vue'
 import LegalEditor from '../components/LegalEditor.vue'
 import KnowledgeSidebar from '../../knowledge/components/KnowledgeSidebar.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
-import { saveAs } from 'file-saver'
 import { ElMessage } from 'element-plus'
 import debounce from 'lodash-es/debounce'
 
@@ -318,45 +317,20 @@ async function exportToDocx() {
   if (!currentDraft.value) return
   exporting.value = true
   try {
-    const htmlToDocx = (await import('html-to-docx')).default
-    let processedHtml = currentDraft.value.content
-
-    // EvidenceLink 脚注映射后处理
-    if (processedHtml.includes('data-type="evidence-link"')) {
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(processedHtml, 'text/html')
-      const links = doc.querySelectorAll('span[data-type="evidence-link"]')
-      const references = []
-      
-      links.forEach((link, index) => {
-        const num = index + 1
-        const label = link.getAttribute('data-label') || '未知引用'
-        const anchor = link.getAttribute('data-anchor') || ''
-        
-        references.push(`<li>${label} ${anchor ? '(' + anchor + ')' : ''}</li>`)
-        
-        const sup = doc.createElement('sup')
-        sup.textContent = `[${num}]`
-        link.parentNode?.replaceChild(sup, link)
-      })
-      
-      if (references.length > 0) {
-        const refSection = doc.createElement('div')
-        refSection.innerHTML = `<hr/><h3>参考证据列表</h3><ol>${references.join('')}</ol>`
-        doc.body.appendChild(refSection)
-      }
-      processedHtml = doc.body.innerHTML
+    const document = legalEditorRef.value?.getDocumentJson?.()
+    if (!document) {
+      ElMessage.error('编辑器内容尚未就绪，无法导出')
+      return
     }
-
-    const htmlString = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${processedHtml}</body></html>`
-    const fileBuffer = await htmlToDocx(htmlString, null, {
-      table: { row: { cantSplit: true } },
-      footer: true,
-      pageNumber: true,
+    const result = await casyContext.docs.exportEditedDocx({
+      document,
+      title: currentDraft.value.title || '未命名文书',
     })
-    const blob = new Blob([fileBuffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-    saveAs(blob, `${currentDraft.value.title || '未命名文书'}.docx`)
-    ElMessage.success('Word 文档导出成功')
+    if (!result.ok) {
+      ElMessage.error('导出失败: ' + result.error)
+      return
+    }
+    ElMessage.success(`Word 文档已导出: ${result.data.outputPath}`)
   } catch (err) {
     console.error('导出 Word 失败', err)
     ElMessage.error('导出失败')

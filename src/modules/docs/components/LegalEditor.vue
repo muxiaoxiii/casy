@@ -246,7 +246,6 @@ import { useRouter } from 'vue-router'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
@@ -256,6 +255,7 @@ import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
 import Typography from '@tiptap/extension-typography'
 import TextAlign from '@tiptap/extension-text-align'
+import Image from '@tiptap/extension-image'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import {
@@ -316,11 +316,11 @@ const editor = useEditor({
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
     }),
-    Underline,
     Typography,
     TextAlign.configure({
       types: ['heading', 'paragraph'],
     }),
+    Image.configure({ allowBase64: true, inline: false }),
     TaskList,
     TaskItem.configure({
       nested: true,
@@ -491,7 +491,11 @@ function navigateEvidenceLink({ targetType, targetId, anchor, caseId }) {
   }
 }
 
-defineExpose({ openEvidenceLinkPicker })
+function getDocumentJson() {
+  return editor.value?.getJSON() || { type: 'doc', content: [] }
+}
+
+defineExpose({ openEvidenceLinkPicker, getDocumentJson })
 
 // ── 右键知识入库 ──
 function handleContextMenu(e) {
