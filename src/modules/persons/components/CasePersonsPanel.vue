@@ -45,7 +45,7 @@ const grouped = computed(() => {
 
 async function load() {
   loading.value = true
-  const data = await tauriCall<CasePersonDto[]>('list_case_persons', { caseId: props.caseId })
+  const data = await tauriCall('list_case_persons', { caseId: props.caseId })
   links.value = data ?? []
   loading.value = false
 }
@@ -85,7 +85,7 @@ function openAttach() {
 
 async function searchPersons(keyword: string) {
   searching.value = true
-  const data = await tauriCall<PersonDto[]>('list_persons', {
+  const data = await tauriCall('list_persons', {
     kind: null,
     keyword: keyword || null,
   })
@@ -103,7 +103,7 @@ async function confirmAttach() {
         ElMessage.warning('请填写名称')
         return
       }
-      const res = await tauriCallSafe<string>('upsert_person', {
+      const res = await tauriCallSafe('upsert_person', {
         id: null,
         kind: newKind.value,
         name: newName.value.trim(),
@@ -125,7 +125,7 @@ async function confirmAttach() {
       return
     }
 
-    const res = await tauriCallSafe<string>('attach_person_to_case', {
+    const res = await tauriCallSafe('attach_person_to_case', {
       caseId: props.caseId,
       personId,
       role: role.value.trim() || null,
@@ -157,7 +157,7 @@ async function detach(item: CasePersonDto) {
     return
   }
   detachingId.value = item.linkId
-  const res = await tauriCallSafe<void>('detach_person_from_case', { linkId: item.linkId })
+  const res = await tauriCallSafe('detach_person_from_case', { linkId: item.linkId })
   detachingId.value = ''
   if (!res.ok) {
     ElMessage.error(res.error || '解除失败')

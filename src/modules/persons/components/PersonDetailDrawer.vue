@@ -37,7 +37,7 @@ watch(
   async ([open, id]) => {
     if (!open || !id) return
     loadingCases.value = true
-    const data = await tauriCall<PersonCaseDto[]>('list_person_cases', { personId: id })
+    const data = await tauriCall('list_person_cases', { personId: id })
     cases.value = data ?? []
     loadingCases.value = false
   }
@@ -63,7 +63,7 @@ async function detach(c: PersonCaseDto) {
     return
   }
   detachingId.value = c.linkId
-  const res = await tauriCallSafe<void>('detach_person_from_case', { linkId: c.linkId })
+  const res = await tauriCallSafe('detach_person_from_case', { linkId: c.linkId })
   detachingId.value = ''
   if (!res.ok) {
     ElMessage.error(res.error || '解除失败')
@@ -86,7 +86,7 @@ async function remove() {
   } catch {
     return
   }
-  const res = await tauriCallSafe<void>('delete_person', { id: p.id })
+  const res = await tauriCallSafe('delete_person', { id: p.id })
   if (!res.ok) {
     ElMessage.error(res.error || '删除失败')
     return

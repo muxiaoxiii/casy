@@ -26,7 +26,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 async function load() {
   loading.value = true
-  const data = await tauriCall<PersonDto[]>('list_persons', {
+  const data = await tauriCall('list_persons', {
     kind: activeKind.value || null,
     keyword: keyword.value.trim() || null,
   })
@@ -73,7 +73,7 @@ async function remove(p: PersonDto) {
   } catch {
     return
   }
-  const res = await tauriCallSafe<void>('delete_person', { id: p.id })
+  const res = await tauriCallSafe('delete_person', { id: p.id })
   if (!res.ok) {
     ElMessage.error(res.error || '删除失败')
     return

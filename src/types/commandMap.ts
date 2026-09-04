@@ -30,6 +30,8 @@ import type {
   CalendarEventRow,
   CalendarSyncReport,
   CaseFile,
+  CaseImportConfig,
+  CaseImportReport,
   CaseFilter,
   CaseRelation,
   CaseStats,
@@ -89,6 +91,8 @@ import type {
   SyncResult,
   SearchTaskDto,
   SyncStatus,
+  SubtableImportConfig,
+  SubtableImportReport,
   TaskDto,
   TaskFilter,
   UpdateAreaInput,
@@ -98,9 +102,20 @@ import type {
   TodayStats,
 } from './bindings'
 import type { InboxStatus } from './index'
-import type { Case as BusinessCase, CaseListResponse, Task } from './index'
+import type {
+  CalendarEvent as BusinessCalendarEvent,
+  Case as BusinessCase,
+  CaseListResponse,
+  DashboardStats as BusinessDashboardStats,
+  Task,
+} from './index'
 import type { AiProposal } from '../core/ai/proposals'
 import type { RichTextDocument } from '../core/services/docs'
+import type {
+  CasePersonDto as BusinessCasePersonDto,
+  PersonCaseDto as BusinessPersonCaseDto,
+  PersonDto as BusinessPersonDto,
+} from '../modules/persons/types'
 
 export interface Cmd<P, R> {
   readonly params: P
@@ -184,7 +199,7 @@ export type CommandMap = {
   list_cases: Cmd<{ filter?: Partial<CaseFilter> }, CaseListResponse>
   search_cases: Cmd<{ query: string }, BusinessCase[]>
   case_stats: Cmd<{}, CaseStats>
-  get_dashboard_stats: Cmd<{}, DashboardStats>
+  get_dashboard_stats: Cmd<{}, BusinessDashboardStats>
   update_case_status: Cmd<{}, BusinessCase>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
   // B1 类型化：create_case/update_case 参数因「缺键跳过 vs null 清除」三态语义复杂，保持 Record
@@ -205,7 +220,8 @@ export type CommandMap = {
   remove_relation: Cmd<{ id: string }, void>
 
   // ── 文件 ──
-  list_case_files: Cmd<{ caseId: string }, CaseFile[]>
+  list_case_files: Cmd<{ caseId: string; category?: string | null }, CaseFile[]>
+  delete_case_file: Cmd<{ id: string }, void>
 
   // ── 仪表盘（B4 数据可视化）──
   get_project_status_distribution: Cmd<{}, NameCount[]>
@@ -271,12 +287,14 @@ export type CommandMap = {
     apiUrl?: string
     model?: string
     purpose?: string
-    contextRefs?: ContextRef[]
+    contextRefs?: ContextRef[] | null
   }, AiChatResult>
   get_ai_config: Cmd<{}, AiConfig>
   get_command_route_info: Cmd<{}, CommandRoute>
   quick_judge_inbox_item: Cmd<{ id: string }, QuickJudgeResult>
   list_mcp_pending_writes: Cmd<{}, McpPendingWrite[]>
+  get_feishu_auto_push_status: Cmd<{}, { enabled: boolean; pending: boolean; hasTimer: boolean; configured: boolean }>
+  set_feishu_auto_push: Cmd<{ enabled: boolean }, void>
 
   // ── 任务域 ──
   list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, Task[]>
@@ -292,6 +310,9 @@ export type CommandMap = {
 
 
   search_knowledge: Cmd<{ query: string }, SearchKnowledgeDto[]>
+  list_knowledge: Cmd<{
+    filter?: { category?: string | null; caseId?: string | null; lawName?: string | null } | null
+  }, KnowledgeItemDto[]>
   global_search: Cmd<{ query: string }, import('./bindings').GlobalSearchResult[]>
   list_knowledge_blocks: Cmd<{ parentId: string }, KnowledgeBlockDto[]>
   get_knowledge_with_blocks: Cmd<{ id: string }, KnowledgeWithBlocksDto>
@@ -335,7 +356,7 @@ export type CommandMap = {
   parse_holiday_notice: Cmd<{ content: string }, HolidayNotice>
 
   // ── 日历域 ──
-  get_calendar_events: Cmd<{ year: number; month: number }, CalendarEvent[]>
+  get_calendar_events: Cmd<{ year: number; month: number }, BusinessCalendarEvent[]>
   list_calendar_events: Cmd<{ startDate: string; endDate: string }, CalendarEventRow[]>
   create_calendar_event: Cmd<{ data: Record<string, unknown> }, CalendarEventRow>
   update_calendar_event: Cmd<{ id: string; data: Record<string, unknown> }, void>
@@ -392,7 +413,10 @@ export type CommandMap = {
   list_links_for: Cmd<{ sourceType: string; sourceId: string }, LinkDto[]>
   get_backlinks: Cmd<{ targetType: string; targetId: string }, LinkDto[]>
   // W5 Smart Rules + 本地 OCR（DEVONthink 式）
-  list_smart_rules: Cmd<{}, SmartRuleDto[]>
+  list_smart_rules: Cmd<{}, Array<Omit<SmartRuleDto, 'matchField' | 'actionType'> & {
+    matchField: 'filename' | 'ocr_text'
+    actionType: 'set_category' | 'mark_urgent' | 'add_keyword'
+  }>>
   upsert_smart_rule: Cmd<{ id?: string | null; name: string; enabled: boolean; matchField: string; matchPattern: string; actionType: string; actionPayload: string }, string>
   delete_smart_rule: Cmd<{ id: string }, void>
   apply_smart_rules: Cmd<{ fileId: string }, SmartRuleApplyResult>
@@ -403,13 +427,13 @@ export type CommandMap = {
   list_case_ocr_states: Cmd<{ caseId: string }, FileOcrStateDto[]>
   get_file_ocr_text: Cmd<{ fileId: string }, string | null>
   // W6 对象化实体（Capacities 式）
-  list_persons: Cmd<{ kind?: string | null; keyword?: string | null }, PersonDto[]>
+  list_persons: Cmd<{ kind?: string | null; keyword?: string | null }, BusinessPersonDto[]>
   upsert_person: Cmd<{ id?: string | null; kind: string; name: string; org?: string | null; phone?: string | null; email?: string | null; preferences?: string | null; notes?: string | null }, string>
   delete_person: Cmd<{ id: string }, void>
   attach_person_to_case: Cmd<{ caseId: string; personId: string; role?: string | null }, string>
   detach_person_from_case: Cmd<{ linkId: string }, void>
-  list_case_persons: Cmd<{ caseId: string }, CasePersonDto[]>
-  list_person_cases: Cmd<{ personId: string }, PersonCaseDto[]>
+  list_case_persons: Cmd<{ caseId: string }, BusinessCasePersonDto[]>
+  list_person_cases: Cmd<{ personId: string }, BusinessPersonCaseDto[]>
   // W7 事实白板（LiquidText 式）
   list_whiteboards: Cmd<{ caseId: string }, WhiteboardDto[]>
   create_whiteboard: Cmd<{ caseId: string; name: string }, string>
@@ -456,4 +480,27 @@ export type CommandMap = {
   get_ai_usage: Cmd<{}, AiUsage>
   trigger_feishu_push: Cmd<{}, string>
   start_clipboard_monitor: Cmd<{}, void>
+  capture_screenshot: Cmd<{}, string>
+  capture_clipboard: Cmd<{}, string>
+  save_voice_note: Cmd<{ audioData: string; mimeType: string }, { path: string }>
+  delete_case: Cmd<{ id: string; origin?: string | null; proposalToken?: string | null }, void>
+  add_case_log: Cmd<{
+    caseId: string
+    eventSummary: string
+    eventType: string
+    eventDate: string
+    content: string | null
+  }, string>
+  excel_import_cases: Cmd<{
+    filePath: string
+    sheetName: string
+    config: Omit<CaseImportConfig, 'defaultTrack'> & { defaultTrack?: string | null }
+  }, CaseImportReport>
+  feishu_import_bitable_cases: Cmd<{
+    appToken: string
+    tableId: string
+    config: Omit<CaseImportConfig, 'defaultTrack'> & { defaultTrack?: string | null }
+  }, CaseImportReport>
+  excel_import_subtable: Cmd<{ filePath: string; sheetName: string; config: SubtableImportConfig }, SubtableImportReport>
+  feishu_import_bitable_subtable: Cmd<{ appToken: string; tableId: string; config: SubtableImportConfig }, SubtableImportReport>
 }

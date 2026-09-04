@@ -26,7 +26,7 @@ export function installToolAuditWriter(): void {
     const p = (raw ?? {}) as ToolExecutedPayload
     if (!p.name) return
     const outcome = p.declined ? 'cancelled' : p.ok ? 'executed' : 'failed'
-    void tauriCallSafe<void>('record_ai_tool_audit', {
+    void tauriCallSafe('record_ai_tool_audit', {
       tool: p.name,
       turnId: p.turnId ?? '',
       outcome,

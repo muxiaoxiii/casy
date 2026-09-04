@@ -6,15 +6,15 @@ export class SettingsService extends Service {
   static inject: string[] = []
 
   async get(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
-    return tauriCallSafe<Record<string, unknown>>('get_settings', {})
+    return tauriCallSafe('get_settings', {})
   }
 
   async save(settings: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('save_settings', { settings })
+    return tauriCallSafe('save_settings', { settings })
   }
 
   async configureAi(opts: { mode: string; apiUrl?: string; apiKey?: string; model?: string; dailyLimit?: number }): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('configure_ai', {
+    return tauriCallSafe('configure_ai', {
       mode: opts.mode,
       apiUrl: opts.apiUrl ?? null,
       apiKey: opts.apiKey ?? null,
@@ -50,25 +50,25 @@ export class SettingsService extends Service {
   // ── 保存的筛选器（filters store 使用） ──
 
   async savedFilters(module: string): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
-    return tauriCallSafe<unknown[]>('list_saved_filters', { module })
+    return tauriCallSafe('list_saved_filters', { module })
   }
 
   async saveFilter(filter: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('save_filter', { filter })
+    return tauriCallSafe('save_filter', { filter })
   }
 
   async deleteFilter(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_filter', { id })
+    return tauriCallSafe('delete_filter', { id })
   }
 
   // ── 律师画像（profile store 使用） ──
 
   async profile(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
-    return tauriCallSafe<Record<string, unknown>>('get_lawyer_profile', {})
+    return tauriCallSafe('get_lawyer_profile', {})
   }
 
   async saveProfile(profile: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('save_lawyer_profile', { profile })
+    return tauriCallSafe('save_lawyer_profile', { profile })
   }
 
   // ── 文件夹模板 ──
@@ -79,76 +79,76 @@ export class SettingsService extends Service {
   }
 
   async folderTemplates(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
-    return tauriCallSafe<unknown[]>('list_folder_templates', {})
+    return tauriCallSafe('list_folder_templates', {})
   }
 
   async saveFolderTemplate(data: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('save_folder_template', { data })
+    return tauriCallSafe('save_folder_template', { data })
   }
 
   async deleteFolderTemplate(templateId: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_folder_template', { templateId })
+    return tauriCallSafe('delete_folder_template', { templateId })
   }
 
   async folderNamingSettings(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
-    return tauriCallSafe<Record<string, unknown>>('get_folder_naming_settings', {})
+    return tauriCallSafe('get_folder_naming_settings', {})
   }
 
   async saveFolderNamingSettings(data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('save_folder_naming_settings', { data })
+    return tauriCallSafe('save_folder_naming_settings', { data })
   }
 
   // ── 节假日日历（期限引擎工作日顺延） ──
 
   async holidaysSummary(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_holidays_summary', {})
+    return tauriCallSafe('get_holidays_summary', {})
   }
 
   async importHolidaysJson(jsonPath: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('import_holidays_json', { jsonPath })
+    return tauriCallSafe('import_holidays_json', { jsonPath })
   }
 
   // ── 邮件监听（IMAP） ──
 
   async emailMonitorStatus(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_email_monitor_status', {})
+    return tauriCallSafe('get_email_monitor_status', {})
   }
 
   async imapAccounts(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
-    return tauriCallSafe<unknown[]>('list_imap_accounts', {})
+    return tauriCallSafe('list_imap_accounts', {})
   }
 
   async configureImap(account: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('configure_imap', { account })
+    return tauriCallSafe('configure_imap', { account })
   }
 
   async deleteImapAccount(emailAddress: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_imap_account', { emailAddress })
+    return tauriCallSafe('delete_imap_account', { emailAddress })
   }
 
   async startEmailMonitor(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('start_email_monitor', {})
+    return tauriCallSafe('start_email_monitor', {})
   }
 
   async stopEmailMonitor(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('stop_email_monitor', {})
+    return tauriCallSafe('stop_email_monitor', {})
   }
 
   // ── 钥匙串 / MCP 写操作队列 ──
 
   async keychainStatus(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('check_keychain_status', {})
+    return tauriCallSafe('check_keychain_status', {})
   }
 
   async mcpPendingWrites(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
-    return tauriCallSafe<unknown[]>('list_mcp_pending_writes', {})
+    return tauriCallSafe('list_mcp_pending_writes', {})
   }
 
   async approveMcpWrite(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('approve_mcp_write', { id })
+    return tauriCallSafe('approve_mcp_write', { id })
   }
 
   async rejectMcpWrite(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('reject_mcp_write', { id })
+    return tauriCallSafe('reject_mcp_write', { id })
   }
 }

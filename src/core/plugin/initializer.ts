@@ -58,12 +58,7 @@ const PROVIDER_DEFS: Array<Pick<CasyProvider, 'id' | 'name' | 'mode' | 'apiUrl'>
  * 注册 AI 提供商：后端已配置的模式/模型并入对应提供商，未配置则用默认
  */
 async function registerProviders(): Promise<void> {
-  const cfg = await tauriCallSafe<{
-    mode?: string
-    apiUrl?: string | null
-    apiKey?: string | null
-    model?: string | null
-  }>('get_ai_config', {})
+  const cfg = await tauriCallSafe('get_ai_config', {})
 
   const configured = cfg.ok && cfg.data ? cfg.data : null
 

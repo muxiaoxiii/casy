@@ -266,7 +266,7 @@ async function loadCaseFiles() {
     return
   }
   filesLoading.value = true
-  const data = await tauriCall<CaseFileDto[]>('list_case_files', {
+  const data = await tauriCall('list_case_files', {
     caseId: fileCaseId.value,
     category: null,
   })
@@ -283,14 +283,14 @@ async function searchEntities() {
   searching.value = true
   try {
     if (targetType.value === 'knowledge') {
-      const data = await tauriCall<SearchKnowledgeDto[]>('search_knowledge', { query: q })
+      const data = await tauriCall('search_knowledge', { query: q })
       searchResults.value = (data || []).map(k => ({
         id: k.id,
         name: k.title,
         meta: k.lawName || k.tags || undefined,
       }))
     } else if (targetType.value === 'task') {
-      const data = await tauriCall<SearchTaskDto[]>('search_tasks', { query: q })
+      const data = await tauriCall('search_tasks', { query: q })
       searchResults.value = (data || []).map(t => ({
         id: t.id,
         name: t.taskName,
@@ -298,7 +298,7 @@ async function searchEntities() {
       }))
     } else if (targetType.value === 'case') {
       // allCases 为空时回退到后端 FTS 检索
-      const data = await tauriCall<CaseLite[]>('search_cases', { query: q })
+      const data = await tauriCall('search_cases', { query: q })
       searchResults.value = (data || []).map(c => ({
         id: c.id,
         name: c.caseName || c.caseNo || '未命名案件',
@@ -328,7 +328,7 @@ async function confirmInsert() {
     targetType.value === 'file' && pageNo.value ? `page:${pageNo.value}` : null
   const finalLabel = label.value.trim() || selected.value.name
 
-  const link = await tauriCall<LinkDto>('create_link', {
+  const link = await tauriCall('create_link', {
     sourceType: 'doc',
     sourceId: props.sourceId,
     targetType: targetType.value,

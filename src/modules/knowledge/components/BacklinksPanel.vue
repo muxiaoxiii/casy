@@ -154,17 +154,16 @@ async function resolveSourceNames(links: LinkDto[]) {
 
   await Promise.all(types.map(async t => {
     if (t === 'doc') {
-      const drafts = await tauriCall<DraftLite[]>('list_drafts', {}, { silent: true })
+      const drafts = await tauriCall('list_drafts', {}, { silent: true })
       for (const d of drafts || []) map[`doc:${d.id}`] = d.title || '未命名文书'
     } else if (t === 'knowledge') {
-      const res = await tauriCall<KnowledgeLite[] | KnowledgeListResultLite>('list_knowledge', { filter: null }, { silent: true })
-      const items = Array.isArray(res) ? res : (res?.items || [])
-      for (const k of items) map[`knowledge:${k.id}`] = k.title || '未命名知识'
+      const res = await tauriCall('list_knowledge', { filter: null }, { silent: true })
+      for (const k of res || []) map[`knowledge:${k.id}`] = k.title || '未命名知识'
     } else if (t === 'task') {
-      const tasks = await tauriCall<TaskLite[]>('list_tasks', { filter: {} }, { silent: true })
+      const tasks = await tauriCall('list_tasks', { filter: {} }, { silent: true })
       for (const task of tasks || []) map[`task:${task.id}`] = task.taskName || '未命名任务'
     } else if (t === 'case') {
-      const res = await tauriCall<CaseListResultLite | CaseLite[]>('list_cases', { filter: {} }, { silent: true })
+      const res = await tauriCall('list_cases', { filter: {} }, { silent: true })
       const items = Array.isArray(res) ? res : (res?.items || [])
       for (const c of items) map[`case:${c.id}`] = c.caseName || c.caseNo || c.id
     }
@@ -184,7 +183,7 @@ async function loadBacklinks() {
   // 竞态防护：快速切换 targetId 时旧响应不得覆盖新数据
   const reqId = ++loadSeq
   loading.value = true
-  const data = await tauriCall<LinkDto[]>('get_backlinks', {
+  const data = await tauriCall('get_backlinks', {
     targetType: props.targetType,
     targetId: props.targetId,
   }, { silent: true })
@@ -229,7 +228,7 @@ async function confirmRemove(link: LinkDto) {
   } catch {
     return // 用户取消
   }
-  const result = await tauriCallSafe<null>('remove_link', { id: link.id })
+  const result = await tauriCallSafe('remove_link', { id: link.id })
   if (result.ok) {
     backlinks.value = backlinks.value.filter(l => l.id !== link.id)
     ElMessage.success('反链已删除')

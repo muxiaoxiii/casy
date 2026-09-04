@@ -375,11 +375,7 @@ class AiToolCaller {
     provider: CasyProvider | undefined,
     contextRefs?: ContextRef[]
   ): Promise<{ content: string; runId: string | null; usedRefs: UsedRef[] }> {
-    const result = await tauriCallSafe<{
-      content?: string
-      runId?: string | null
-      usedRefs?: UsedRef[]
-    }>('ai_chat', {
+    const result = await tauriCallSafe('ai_chat', {
       messages: history,
       mode: provider?.mode,
       apiUrl: provider?.apiUrl,

@@ -78,7 +78,7 @@ async function save() {
     return
   }
   saving.value = true
-  const res = await tauriCallSafe<string>('upsert_person', {
+  const res = await tauriCallSafe('upsert_person', {
     id: props.person?.id ?? null,
     kind: form.kind,
     name: form.name.trim(),

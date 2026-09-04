@@ -52,7 +52,7 @@ export class CasesService extends Service {
   }
 
   async remove(id: string, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
-    const result = await tauriCallSafe<void>('delete_case', { id, ...(aiAuth ?? {}) })
+    const result = await tauriCallSafe('delete_case', { id, ...(aiAuth ?? {}) })
     if (result.ok) {
       this.ctx.emit('case:deleted', { id })
     }
@@ -68,32 +68,32 @@ export class CasesService extends Service {
   }
   
   async stats(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('case_stats', {})
+    return tauriCallSafe('case_stats', {})
   }
 
   /** 导出案件（CSV，保存到下载目录，返回文件路径） */
   async exportCases(format: string, filter: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: string; error?: string }> {
-    return tauriCallSafe<string>('export_cases', { format, filter })
+    return tauriCallSafe('export_cases', { format, filter })
   }
 
   /** 今日面板统计（硬性日程/今日到期/等待超时/需回顾） */
   async todayStats(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_today_stats', {})
+    return tauriCallSafe('get_today_stats', {})
   }
 
   /** 案件类型差异化评估指标（get_case_type_metrics） */
   async caseTypeMetrics(caseId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_case_type_metrics', { caseId })
+    return tauriCallSafe('get_case_type_metrics', { caseId })
   }
 
   /** 案件时间线（日志/庭审/任务聚合） */
   async timeline(caseId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_case_timeline', { caseId })
+    return tauriCallSafe('get_case_timeline', { caseId })
   }
 
   /** 添加办案日志 */
   async addLog(opts: { caseId: string; eventSummary: string; eventType: string; eventDate: string; content?: string | null }): Promise<{ ok: boolean; data?: string; error?: string }> {
-    return tauriCallSafe<string>('add_case_log', {
+    return tauriCallSafe('add_case_log', {
       caseId: opts.caseId,
       eventSummary: opts.eventSummary,
       eventType: opts.eventType,
@@ -104,7 +104,7 @@ export class CasesService extends Service {
 
   /** 案件关联关系（双向） */
   async relations(caseId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_relations', { caseId })
+    return tauriCallSafe('get_relations', { caseId })
   }
 
   /** 添加关联关系并可选合并数据 */
@@ -115,7 +115,7 @@ export class CasesService extends Service {
     label?: string,
     mergeData?: boolean
   ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('add_relation', {
+    return tauriCallSafe('add_relation', {
       caseId,
       relatedId,
       relationType,
@@ -186,7 +186,7 @@ export class CasesService extends Service {
     }
     error?: string
   }> {
-    const result = await tauriCallSafe<any>('excel_import_cases', { filePath, sheetName, config })
+    const result = await tauriCallSafe('excel_import_cases', { filePath, sheetName, config })
     if (result.ok) {
       this.ctx.emit('case:imported', result.data)
     }
@@ -255,7 +255,7 @@ export class CasesService extends Service {
     }
     error?: string
   }> {
-    const result = await tauriCallSafe<any>('feishu_import_bitable_cases', {
+    const result = await tauriCallSafe('feishu_import_bitable_cases', {
       appToken,
       tableId,
       config,
@@ -289,7 +289,7 @@ export class CasesService extends Service {
     }
     error?: string
   }> {
-    const result = await tauriCallSafe<any>('excel_import_subtable', { filePath, sheetName, config })
+    const result = await tauriCallSafe('excel_import_subtable', { filePath, sheetName, config })
     if (result.ok) {
       this.ctx.emit('case:imported', result.data)
     }
@@ -319,7 +319,7 @@ export class CasesService extends Service {
     }
     error?: string
   }> {
-    const result = await tauriCallSafe<any>('feishu_import_bitable_subtable', {
+    const result = await tauriCallSafe('feishu_import_bitable_subtable', {
       appToken,
       tableId,
       config,

@@ -77,7 +77,7 @@ function actionSummary(rule: SmartRule): string {
 
 async function loadRules() {
   loading.value = true
-  const data = await tauriCall<SmartRule[]>('list_smart_rules', {}, { silent: true })
+  const data = await tauriCall('list_smart_rules', {}, { silent: true })
   if (data) rules.value = data
   loading.value = false
 }
@@ -125,7 +125,7 @@ async function saveRule() {
     actionType: f.actionType,
     actionPayload: f.actionType === 'mark_urgent' ? '' : f.actionPayload.trim(),
   }
-  const id = await tauriCall<string>('upsert_smart_rule', payload, {
+  const id = await tauriCall('upsert_smart_rule', payload, {
     errorMessage: '保存规则失败',
   })
   saving.value = false
@@ -137,7 +137,7 @@ async function saveRule() {
 }
 
 async function toggleRule(rule: SmartRule, enabled: boolean) {
-  const id = await tauriCall<string>('upsert_smart_rule', {
+  const id = await tauriCall('upsert_smart_rule', {
     id: rule.id,
     name: rule.name,
     enabled,
@@ -182,7 +182,7 @@ async function runForAll() {
     return
   }
   runningAll.value = true
-  const affected = await tauriCall<number>('run_smart_rules_for_all', {})
+  const affected = await tauriCall('run_smart_rules_for_all', {})
   runningAll.value = false
   if (affected !== null) {
     ElMessage.success(`执行完成，${affected} 个文件命中了规则`)

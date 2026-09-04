@@ -7,11 +7,11 @@ export class InboxService extends Service {
   static inject: string[] = []
 
   async list(status?: string): Promise<{ ok: boolean; data?: InboxItem[]; error?: string }> {
-    return tauriCallSafe<InboxItem[]>('list_inbox_items', { status: status || null })
+    return tauriCallSafe('list_inbox_items', { status: status || null })
   }
 
   async add(sourceType: string, contentText?: string, sourcePath?: string): Promise<{ ok: boolean; data?: string; error?: string }> {
-    return tauriCallSafe<string>('add_inbox_item', {
+    return tauriCallSafe('add_inbox_item', {
       sourceType,
       contentText: contentText ?? null,
       sourcePath: sourcePath ?? null,
@@ -24,7 +24,7 @@ export class InboxService extends Service {
   }
 
   async file(id: string, caseId: string, category?: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('file_inbox_item', {
+    return tauriCallSafe('file_inbox_item', {
       itemId: id,
       caseId,
       category: category || '',
@@ -32,17 +32,17 @@ export class InboxService extends Service {
   }
 
   async dismiss(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('dismiss_inbox_item', { id })
+    return tauriCallSafe('dismiss_inbox_item', { id })
   }
 
   /** 即时意图判断（本地规则，0ms）：文件 → 归档推荐；文本 → 任务/期限/知识/案件/提醒推荐 */
   async quickJudge(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('quick_judge_inbox_item', { id })
+    return tauriCallSafe('quick_judge_inbox_item', { id })
   }
 
   /** AI 分析（带缓存） */
   async aiAnalyze(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('ai_analyze_inbox_item', { id })
+    return tauriCallSafe('ai_analyze_inbox_item', { id })
   }
 
   /**
@@ -56,7 +56,7 @@ export class InboxService extends Service {
     action?: string
     intent?: Record<string, unknown> | null
   }): Promise<{ ok: boolean; data?: string; error?: string }> {
-    return tauriCallSafe<string>('confirm_inbox_action', {
+    return tauriCallSafe('confirm_inbox_action', {
       inboxItemId: opts.inboxItemId,
       targetCaseId: opts.targetCaseId ?? null,
       targetCategory: opts.targetCategory ?? null,
@@ -67,7 +67,7 @@ export class InboxService extends Service {
 
   /** 语音转写（需 OpenAI 兼容 STT） */
   async transcribeVoiceNote(inboxItemId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('transcribe_voice_note', { inboxItemId })
+    return tauriCallSafe('transcribe_voice_note', { inboxItemId })
   }
 
   /**
@@ -82,7 +82,7 @@ export class InboxService extends Service {
     reason?: string
     intent?: Record<string, unknown> | null
   }): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('reject_inbox_recommendation', {
+    return tauriCallSafe('reject_inbox_recommendation', {
       inboxItemId: opts.inboxItemId,
       action: opts.action,
       reason: opts.reason ?? null,
@@ -92,18 +92,18 @@ export class InboxService extends Service {
 
   /** 批量 AI 处理队列控制 */
   async startBatch(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('start_inbox_batch', {})
+    return tauriCallSafe('start_inbox_batch', {})
   }
   async pauseBatch(): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('pause_inbox_batch', {})
+    return tauriCallSafe('pause_inbox_batch', {})
   }
   async resumeBatch(): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('resume_inbox_batch', {})
+    return tauriCallSafe('resume_inbox_batch', {})
   }
   async cancelBatch(): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('cancel_inbox_batch', {})
+    return tauriCallSafe('cancel_inbox_batch', {})
   }
   async getBatchProgress(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_inbox_progress', {})
+    return tauriCallSafe('get_inbox_progress', {})
   }
 }
