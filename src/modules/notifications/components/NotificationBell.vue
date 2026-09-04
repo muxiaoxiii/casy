@@ -42,13 +42,13 @@ const bellRef = ref<HTMLElement | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 async function refreshUnread() {
-  const n = await tauriCall<number>('unread_notification_count', {}, { silent: true })
+  const n = await tauriCall('unread_notification_count', {}, { silent: true })
   if (typeof n === 'number') unreadCount.value = n
 }
 
 async function loadList() {
   listLoading.value = true
-  const list = await tauriCall<AppNotification[]>('list_notifications', {}, { silent: true })
+  const list = await tauriCall('list_notifications', {}, { silent: true })
   if (Array.isArray(list)) notifications.value = list
   listLoading.value = false
 }

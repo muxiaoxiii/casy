@@ -70,7 +70,7 @@ const trackOptions = computed(() => {
 async function loadRules() {
   loading.value = true
   try {
-    const data = await tauriCall<DeadlineRuleDto[]>('list_deadline_rules', {}, { silent: true })
+    const data = await tauriCall('list_deadline_rules', {}, { silent: true })
     rules.value = data || []
   } finally {
     loading.value = false
@@ -79,7 +79,7 @@ async function loadRules() {
 
 // ── 重算（规则变更后触发；命令未注册时静默跳过计数提示）─────
 async function recalcTrack(track: string, baseMsg: string) {
-  const n = await tauriCall<number>('recalculate_deadlines_for_track', { track }, { silent: true })
+  const n = await tauriCall('recalculate_deadlines_for_track', { track }, { silent: true })
   if (typeof n === 'number') {
     ElMessage.success(`${baseMsg}，已重算 ${n} 个案件期限`)
   } else {
@@ -180,7 +180,7 @@ async function saveRule() {
 
   saving.value = true
   try {
-    const id = await tauriCall<string>('upsert_deadline_rule', {
+    const id = await tauriCall('upsert_deadline_rule', {
       id: editingRule.value ? editingRule.value.id : null,
       track: form.track.trim(),
       ruleName: form.ruleName.trim(),

@@ -101,7 +101,7 @@ async function loadCase() {
 async function loadWhiteboards(preferId?: string) {
   if (!caseId.value) return
   boardsLoading.value = true
-  const list = await tauriCall<WhiteboardDto[]>('list_whiteboards', { caseId: caseId.value })
+  const list = await tauriCall('list_whiteboards', { caseId: caseId.value })
   boardsLoading.value = false
   whiteboards.value = Array.isArray(list) ? list : []
 
@@ -123,7 +123,7 @@ async function loadNodes() {
   const reqId = ++nodesLoadSeq
   const boardId = currentBoardId.value
   nodesLoading.value = true
-  const list = await tauriCall<FactNodeDto[]>('list_fact_nodes', { whiteboardId: boardId })
+  const list = await tauriCall('list_fact_nodes', { whiteboardId: boardId })
   if (reqId !== nodesLoadSeq) return
   nodesLoading.value = false
   nodes.value = Array.isArray(list) ? list : []
@@ -132,7 +132,7 @@ async function loadNodes() {
 
   // 同时加载连线
   edgesLoading.value = true
-  const edgeList = await tauriCall<WhiteboardEdgeDto[]>('list_whiteboard_edges', { whiteboardId: boardId })
+  const edgeList = await tauriCall('list_whiteboard_edges', { whiteboardId: boardId })
   if (reqId !== nodesLoadSeq) return
   edgesLoading.value = false
   edges.value = Array.isArray(edgeList) ? edgeList : []
@@ -169,7 +169,7 @@ async function createBoard() {
   } catch {
     return
   }
-  const id = await tauriCall<string>('create_whiteboard', { caseId: caseId.value, name })
+  const id = await tauriCall('create_whiteboard', { caseId: caseId.value, name })
   if (!id) return
   ElMessage.success('白板已创建')
   await loadWhiteboards(id)
@@ -435,7 +435,7 @@ async function openAddDialog() {
   addForm.value = { fileId: '', page: null, excerpt: '', note: '' }
   addDialogVisible.value = true
   filesLoading.value = true
-  const list = await tauriCall<CaseFileLite[]>('list_case_files', { caseId: caseId.value, category: null })
+  const list = await tauriCall('list_case_files', { caseId: caseId.value, category: null })
   filesLoading.value = false
   caseFiles.value = Array.isArray(list) ? list : []
 }
@@ -448,7 +448,7 @@ async function submitAdd() {
   }
   addSubmitting.value = true
   const pos = nextNodePosition()
-  const id = await tauriCall<string>('create_fact_node', {
+  const id = await tauriCall('create_fact_node', {
     whiteboardId: currentBoardId.value,
     fileId: addForm.value.fileId || null,
     page: addForm.value.page ?? null,

@@ -23,7 +23,7 @@ const loading = ref(false)
 async function reload() {
   if (!props.caseId) return
   loading.value = true
-  const list = await tauriCall<WhiteboardDto[]>('list_whiteboards', { caseId: props.caseId })
+  const list = await tauriCall('list_whiteboards', { caseId: props.caseId })
   loading.value = false
   whiteboards.value = Array.isArray(list) ? list : []
 }
@@ -50,7 +50,7 @@ async function quickCreate() {
   } catch {
     return
   }
-  const id = await tauriCall<string>('create_whiteboard', { caseId: props.caseId, name })
+  const id = await tauriCall('create_whiteboard', { caseId: props.caseId, name })
   if (!id) return
   ElMessage.success('白板已创建')
   await reload()

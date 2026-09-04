@@ -78,7 +78,7 @@ async function loadAudits() {
   if (!props.rule) return
   loading.value = true
   try {
-    const data = await tauriCall<DeadlineRuleAuditDto[]>(
+    const data = await tauriCall(
       'list_deadline_rule_audit',
       { ruleId: props.rule.id },
       { errorMessage: '加载变更留痕失败' },
