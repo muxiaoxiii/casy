@@ -1,5 +1,6 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
+import type { TauriResult } from '../../types'
 
 /** 案卷文件服务：ctx.files */
 export class FilesService extends Service {
@@ -26,9 +27,9 @@ export class FilesService extends Service {
     return tauriCallSafe<void>('delete_case_file', { id })
   }
 
-  /** 打开文件/目录（open_path，供导出 DOCX 后打开文件等场景） */
-  async open(path: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('open_path', { path })
+  /** 打开文件/目录（open_file_with_default，供导出 DOCX 后打开文件等场景） */
+  async open(path: string): Promise<TauriResult<null>> {
+    return tauriCallSafe('open_file_with_default', { path })
   }
 
   // ── 案卷管理（index-v2 精装版 · 本地文件夹同步）──
@@ -64,7 +65,7 @@ export class FilesService extends Service {
   }
 
   /** 系统默认应用打开 */
-  async openDefault(path: string): Promise<{ ok: boolean; error?: string }> {
+  async openDefault(path: string): Promise<TauriResult<null>> {
     return this.open(path)
   }
 

@@ -303,7 +303,6 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         inbox::dismiss_inbox_item,
         inbox::parse_holiday_notice,
         inbox::quick_judge_inbox_item,
-        inbox::copy_file_with_progress,
         inbox::confirm_inbox_action,
         inbox::ai_analyze_inbox_item,
         relations::add_relation,

@@ -90,6 +90,6 @@ export async function tauriCall<T = unknown>(
 /**
  * 打开文件/目录
  */
-export async function openPath(path: string): Promise<TauriResult<void>> {
-  return tauriCallSafe('open_path', { path })
+export async function openPath(path: string): Promise<TauriResult<null>> {
+  return tauriCallSafe('open_file_with_default', { path })
 }

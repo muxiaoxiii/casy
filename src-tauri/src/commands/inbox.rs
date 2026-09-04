@@ -1134,10 +1134,7 @@ async fn download_service_delivery_url(
         return Err("法院送达链接没有返回文件内容".to_string());
     }
 
-    let directory = dirs::document_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("Casy")
-        .join("inbox");
+    let directory = crate::runtime_paths::documents_root().join("inbox");
     std::fs::create_dir_all(&directory).map_err(|e| format!("无法创建收件目录: {e}"))?;
     let path = directory.join(format!("法院送达-{}.{}", inbox_item_id, extension));
     std::fs::write(&path, &bytes).map_err(|e| format!("无法保存送达文件: {e}"))?;
@@ -2093,101 +2090,6 @@ fn category_to_folder(category: &str) -> String {
         "correspondence" => "06_通信".to_string(),
         _ => "07_其他".to_string(),
     }
-}
-
-/// 安全拷贝：按文件大小分流（§3.5）
-#[tauri::command]
-pub async fn copy_file_with_progress(
-    source_path: String,
-    target_case_id: String,
-    target_category: String,
-    _app: tauri::AppHandle,
-) -> Result<String, String> {
-    run_blocking(move || {
-        use sha2::Digest;
-
-        let source = std::path::Path::new(&source_path);
-        let meta = std::fs::metadata(source).map_err(|e| anyhow::anyhow!("无法读取文件: {}", e))?;
-        let file_size = meta.len();
-
-        // 读取案件 folder_name，回退到 case_name
-        let conn = db::open_db()?;
-        let folder_name: String = conn
-            .query_row(
-                "SELECT COALESCE(folder_name, case_name, id) FROM cases WHERE id = ?1",
-                rusqlite::params![target_case_id],
-                |r| r.get(0),
-            )
-            .map_err(|_| {
-                anyhow::anyhow!(crate::error_code::err(
-                    crate::error_code::codes::CASE_NOT_FOUND,
-                    "案件不存在",
-                ))
-            })?;
-
-        let cases_root = dirs::document_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("Casy")
-            .join("cases")
-            .join(&folder_name)
-            .join(&target_category);
-
-        std::fs::create_dir_all(&cases_root)?;
-
-        // 生成目标文件名（处理已存在）
-        let file_stem = source
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("file");
-        let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let mut target_name = if ext.is_empty() {
-            file_stem.to_string()
-        } else {
-            format!("{}.{}", file_stem, ext)
-        };
-        let mut target = cases_root.join(&target_name);
-        let mut counter = 1u32;
-        while target.exists() {
-            target_name = if ext.is_empty() {
-                format!("{}_{}", file_stem, counter)
-            } else {
-                format!("{}_{}.{}", file_stem, counter, ext)
-            };
-            target = cases_root.join(&target_name);
-            counter += 1;
-        }
-
-        // ── 快速路径：< 10MB，直接 OS 拷贝 + 大小校验 ──
-        if file_size < 10 * 1024 * 1024 {
-            std::fs::copy(source, &target)?;
-            let copied_size = std::fs::metadata(&target)?.len();
-            if copied_size != file_size {
-                return Err(anyhow::anyhow!("拷贝后大小不一致"));
-            }
-        } else {
-            // 大文件：分块拷贝
-            use std::io::{Read, Write};
-            let mut src = std::fs::File::open(source)?;
-            let mut dst = std::fs::File::create(&target)?;
-            let mut buf = vec![0u8; 8192];
-            loop {
-                let n = src.read(&mut buf)?;
-                if n == 0 {
-                    break;
-                }
-                dst.write_all(&buf[..n])?;
-            }
-        }
-
-        // 计算 SHA256
-        let mut file = std::fs::File::open(&target)?;
-        let mut hasher = sha2::Sha256::new();
-        std::io::copy(&mut file, &mut hasher)?;
-        let _hash = format!("{:x}", hasher.finalize());
-
-        Ok(target.to_string_lossy().to_string())
-    })
-    .await
 }
 
 /// 拒绝推荐反馈（设计哲学 §10：推荐拒绝 → 学习信号）

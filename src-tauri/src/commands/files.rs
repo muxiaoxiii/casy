@@ -446,25 +446,57 @@ pub async fn register_existing_files(case_id: String, paths: Vec<String>) -> Res
 }
 
 /// Finder/资源管理器中显示文件（定位）
+///
+/// 安全（审查 P0-2）：目标必须是某个已登记案件卷宗内的文件。
+/// 先 canonicalize 消除 `../` 与符号链接穿越，再反查所属案件卷宗根做 starts_with 校验。
+/// 现有 4 处前端调用点均传 `file.filePath`（已登记案件文件），故此校验零误伤。
 #[tauri::command]
 pub async fn reveal_path(path: String) -> Result<(), String> {
+    // 校验与规范化：后续平台分支一律使用校验后的路径，不再信任原始入参
+    let verified = run_blocking(move || {
+        let requested = std::path::Path::new(&path);
+        let target = std::fs::canonicalize(requested)
+            .map_err(|_| anyhow::anyhow!("文件不存在，拒绝定位: {}", requested.display()))?;
+
+        let conn = db::open_db()?;
+        let case_id: String = conn
+            .query_row(
+                "SELECT case_id FROM case_files WHERE file_path = ?1 LIMIT 1",
+                rusqlite::params![path],
+                |r| r.get(0),
+            )
+            .map_err(|_| {
+                anyhow::anyhow!("目标文件不属于任何已登记案件，拒绝定位: {}", requested.display())
+            })?;
+
+        let (root, _case) = case_root(&case_id)?;
+        let root = std::fs::canonicalize(&root).unwrap_or(root);
+        if !target.starts_with(&root) {
+            anyhow::bail!("目标文件不在案件卷宗内，拒绝定位: {}", target.display());
+        }
+        Ok(target)
+    })
+    .await?;
+
+    let verified = verified.to_string_lossy().to_string();
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .args(["-R", &path])
+            .args(["-R", &verified])
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .args(["/select,", &path])
+            .args(["/select,", &verified])
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
-        if let Some(parent) = std::path::Path::new(&path).parent() {
+        if let Some(parent) = std::path::Path::new(&verified).parent() {
             std::process::Command::new("xdg-open")
                 .arg(parent)
                 .spawn()
@@ -474,27 +506,107 @@ pub async fn reveal_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 识别已知可执行 / 脚本扩展名。macOS 的 `open` 会直接执行其中的 `.command`、
+/// `.app` 等；其余 shell/解释脚本在「终端/脚本编辑器打开」的默认处理下同样会执行。
+/// 无论目标位于何处，命中即拒绝打开，阻断「任意文件处置」升级为代码执行。
+fn is_executable_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        // macOS 直接执行
+        "command" | "app" | "workflow" | "osx" | "scpt" | "scptd"
+        // 可执行 / 安装 / 宏 / 脚本
+        | "exe" | "com" | "cmd" | "bat" | "msi" | "scr" | "pif" | "hta" | "cpl"
+        | "gadget" | "jar" | "vbs" | "ps1" | "psm1" | "psd1"
+        // shell / 解释脚本
+        | "sh" | "bash" | "zsh" | "csh" | "ksh" | "fish" | "py" | "rb" | "pl"
+        | "pm" | "php" | "lua" | "ahk"
+    )
+}
+
+/// 应用目录之外允许打开的安全导出类型（与 `resolve_explicit_output_path` 的
+/// 「保存对话框允许导出到任意已存在目录」语义保持一致）。
+fn is_safe_open_extension(extension: &str) -> bool {
+    matches!(extension, "docx" | "md" | "markdown" | "pdf")
+}
+
+/// 打开路径判定（`target` 传入 canonicalize 后的绝对路径；`documents_root` 传逻辑根，内部 canonicalize 配对）。
+///
+/// 安全（审查 P0-3 修订）——把信任边界与普通导出流程对齐，而非一刀切禁止导出目录外的文件：
+///   1. 始终拒绝可执行 / 脚本扩展名——即使位于应用托管目录内也不放行（macOS `open` 会执行 `.command` 等）；
+///   2. 应用托管目录（`documents_root`：卷宗 `cases/`、导出 `exports/`、模板 `templates/`）内允许常规文件；
+///   3. 目录之外仅允许用户经系统保存对话框出口导出的安全类型（docx / md / markdown / pdf）；
+///   4. **不再信任 `data_root`**——数据库与密钥文件禁止被默认应用打开。
+fn check_openable(target: &Path, documents_root: &Path) -> anyhow::Result<()> {
+    let extension = target
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if is_executable_extension(&extension) {
+        anyhow::bail!("拒绝打开可执行文件: {}", target.display());
+    }
+
+    // canonicalize 配对：macOS 上 tempdir/逻辑路径常为 /var，real path 为 /private/var
+    let canon_root =
+        std::fs::canonicalize(documents_root).unwrap_or_else(|_| documents_root.to_path_buf());
+    if target.starts_with(&canon_root) {
+        return Ok(());
+    }
+
+    if is_safe_open_extension(&extension) {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "目标不在应用托管目录内，且不是安全导出类型，拒绝打开: {}",
+        target.display()
+    );
+}
+
+/// 校验待打开路径：canonicalize 消除 `../` 与符号链接后，按 `check_openable` 策略校验。
+fn verify_openable_path(path: &str) -> anyhow::Result<PathBuf> {
+    let requested = Path::new(path);
+    let target = std::fs::canonicalize(requested)
+        .map_err(|_| anyhow::anyhow!("文件不存在，拒绝打开: {}", requested.display()))?;
+
+    check_openable(&target, &crate::runtime_paths::documents_root())?;
+    Ok(target)
+}
+
 /// 用系统默认应用打开文件
+///
+/// 安全（审查 P0-3）：与 `reveal_path` 同源的任意文件处置原语，上一轮只修了 `reveal_path`。
+/// macOS 的 `open` 会直接执行 `.command` 等可执行文件，故未校验的透传等同代码执行原语。
+/// 现有 3 处前端调用点（导出结果打开 ×2、案件卷宗文件打开 ×1）走 `verify_openable_path`：
+/// 始终拒绝可执行/脚本扩展；应用托管目录（卷宗/导出/模板）内允许常规文件；
+/// 目录之外仅放行用户经保存对话框导出的安全类型（docx/md/markdown/pdf），故为零误伤。
 #[tauri::command]
 pub async fn open_file_with_default(path: String) -> Result<(), String> {
+    // 校验与规范化：后续平台分支一律使用校验后的路径，不再信任原始入参
+    let verified = verify_openable_path(&path)
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .to_string();
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&verified)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path])
+            .args(["/C", "start", "", &verified])
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&verified)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -610,7 +722,17 @@ pub async fn apply_case_file_renames(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_case_relative_path;
+    use super::{
+        check_openable, is_executable_extension, is_safe_open_extension, validate_case_relative_path,
+    };
+    use std::path::Path;
+
+    /// 在临时目录内生成一个真实文件并返回其 canonicalize 后的绝对路径。
+    fn make_file(dir: &Path, name: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, b"x").unwrap();
+        std::fs::canonicalize(&path).unwrap()
+    }
 
     #[test]
     fn accepts_nested_case_relative_path() {
@@ -622,5 +744,110 @@ mod tests {
         assert!(validate_case_relative_path("../其他案件").is_err());
         assert!(validate_case_relative_path("03_证据/../../其他案件").is_err());
         assert!(validate_case_relative_path("/tmp/其他案件").is_err());
+    }
+
+    #[test]
+    fn executable_extension_classification() {
+        for ext in [
+            "command", "app", "sh", "bash", "py", "rb", "exe", "bat", "ps1", "jar", "vbs", "com",
+        ] {
+            assert!(is_executable_extension(ext), "应为可执行: {ext}");
+        }
+        // 证明安全导出类型未被误判为可执行
+        for ext in ["docx", "md", "markdown", "pdf", "txt", "png"] {
+            assert!(!is_executable_extension(ext), "不应为可执行: {ext}");
+        }
+    }
+
+    #[test]
+    fn safe_open_extension_classification() {
+        for ext in ["docx", "md", "markdown", "pdf"] {
+            assert!(is_safe_open_extension(ext), "应为安全导出类型: {ext}");
+        }
+        for ext in ["txt", "command", "sh", "png", "db", "key"] {
+            assert!(!is_safe_open_extension(ext), "不应为安全导出类型: {ext}");
+        }
+    }
+
+    #[test]
+    fn manages_regular_file_in_app_dir_allowed() {
+        let doc_root = tempfile::tempdir().unwrap();
+        let target = make_file(doc_root.path(), "判决书.docx");
+        assert!(check_openable(&target, doc_root.path()).is_ok());
+    }
+
+    #[test]
+    fn executable_is_rejected_even_inside_app_dir() {
+        // 审查 P0-3 修订：即便位于 documents_root 内，`.command` 也要拒绝（macOS `open` 会执行）
+        let doc_root = tempfile::tempdir().unwrap();
+        let target = make_file(doc_root.path(), "payload.command");
+        let err = check_openable(&target, doc_root.path()).unwrap_err();
+        assert!(err.to_string().contains("可执行"));
+    }
+
+    #[test]
+    fn safe_export_outside_app_dir_allowed() {
+        let doc_root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        // 用户经保存对话框导出的 docx / md / pdf 落在应用目录之外，应可打开
+        for (name, _ext) in [("报告.docx", "docx"), ("笔记.md", "md"), ("卷宗.pdf", "pdf")] {
+            let target = make_file(outside.path(), name);
+            assert!(
+                check_openable(&target, doc_root.path()).is_ok(),
+                "目录外安全导出应放行: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_safe_type_outside_app_dir_rejected() {
+        let doc_root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        for (name, _) in [("notes.txt", "txt"), ("db.bin", "db"), ("secret.key", "key")] {
+            let target = make_file(outside.path(), name);
+            assert!(
+                check_openable(&target, doc_root.path()).is_err(),
+                "目录外的非安全类型应拒绝: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn executable_outside_app_dir_rejected() {
+        let doc_root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = make_file(outside.path(), "payload.sh");
+        assert!(check_openable(&target, doc_root.path()).is_err());
+    }
+
+    #[test]
+    fn data_root_db_and_key_not_openable() {
+        // 审查 P0-3 修订：data_root 不再进入允许集，数据库/密钥文件（无扩展名或非安全类型）必须拒绝。
+        let doc_root = tempfile::tempdir().unwrap();
+        let data_root = tempfile::tempdir().unwrap();
+        // 模拟 SQLite 库（无扩展名）与密钥文件
+        let db_file = make_file(data_root.path(), "casy.db");
+        let key_file = make_file(data_root.path(), "system.key");
+        assert!(check_openable(&db_file, doc_root.path()).is_err());
+        assert!(check_openable(&key_file, doc_root.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_to_external_executable_rejected_after_canonicalize() {
+        // 审查 P0-3 修订：`verify_openable_path` 先 canonicalize，符号链接被解析到真实目标。
+        // 若托管目录内一个「无关扩展（如 .docx）」的链接指向外部的可执行文件，解析后
+        // 目标扩展名是可执行扩展 → 仍须拒绝，不能借链接绕过扩展名白名单。
+        let doc_root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let evil = std::fs::canonicalize(make_file(outside.path(), "nasty.command")).unwrap();
+        let link = doc_root.path().join("report.docx");
+        std::os::unix::fs::symlink(&evil, &link).unwrap();
+
+        // 模拟 verify_openable_path：先 canonicalize 解析符号链接，再走 check_openable
+        let resolved = std::fs::canonicalize(&link).unwrap();
+        assert_eq!(resolved, evil, "canonicalize 应解析到外部真实文件");
+        let err = check_openable(&resolved, doc_root.path()).unwrap_err();
+        assert!(err.to_string().contains("可执行"), "外部可执行必须被拒绝: {err}");
     }
 }

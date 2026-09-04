@@ -794,6 +794,14 @@ pub async fn update_case_status(
     new_status: String,
     note: Option<String>,
 ) -> Result<db::cases::Case, String> {
+    // 安全（审查 P0-1）：`track` 会作为列名拼接进下方 SELECT/UPDATE，
+    // 必须在此做白名单校验；函数内的 track match 只用于历史记录展示标签，
+    // 且位于 SQL 执行之后，不构成防御。
+    match track.as_str() {
+        "civil_status" | "invalidation_status" | "admin_status" => {}
+        _ => return Err(format!("非法状态轨道: {track}")),
+    }
+
     run_blocking(move || {
         let conn = db::open_db()?;
 
