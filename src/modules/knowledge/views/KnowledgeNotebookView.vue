@@ -347,13 +347,13 @@ async function deleteNote() {
   if (!draft.value.id) return
   try {
     await ElMessageBox.confirm(`删除笔记「${draft.value.title || '无标题笔记'}」？`, '删除确认', { type: 'warning' })
-    const result = await casyContext.knowledge.remove(draft.value.id)
-    if (!result.ok) return ElMessage.error(result.error || '删除失败')
-    selectedId.value = ''
-    draft.value = emptyDraft()
-    await loadAll()
-    ElMessage.success('笔记已删除')
-  } catch {}
+  } catch { /* 用户取消：属预期 */ return }
+  const result = await casyContext.knowledge.remove(draft.value.id)
+  if (!result.ok) return ElMessage.error(result.error || '删除失败')
+  selectedId.value = ''
+  draft.value = emptyDraft()
+  await loadAll()
+  ElMessage.success('笔记已删除')
 }
 
 async function onVersionRestored() {

@@ -230,9 +230,7 @@ async function deleteFile(file) {
       '移除文件',
       { type: 'warning', confirmButtonText: '移除登记', cancelButtonText: '取消' }
     )
-  } catch {
-    return
-  }
+  } catch { /* 用户取消：属预期 */ return }
   const result = await casyContext.files.remove(file.id)
   if (result.ok) {
     selectedFile.value = null

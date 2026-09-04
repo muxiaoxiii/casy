@@ -468,6 +468,12 @@ const dynamicRecommendations = computed(() => {
   return recs.slice(0, 2)
 })
 
+// 审查 P2-1：模板 v-html 里直接调用 sanitizeInlineHtml(rec.text) 会在每次重渲染都重跑 DOMPurify。
+// 这里预计算 safeText，仅在推荐列表变化时消毒一次（与 KnowledgeSidebar 的 safeSnippet 同范式）。
+const safeRecommendations = computed(() =>
+  dynamicRecommendations.value.map(rec => ({ ...rec, safeText: sanitizeInlineHtml(rec.text) }))
+)
+
 // AI 自我进化反馈记录
 async function handleRecAction(rec, decision) {
   if (decision === 'accept') {
@@ -479,12 +485,14 @@ async function handleRecAction(rec, decision) {
       router.push('/knowledge')
     }
   }
-  await casyContext.ai.recordDecision({
+  const decisionRes = await casyContext.ai.recordDecision({
     entityType: 'recommendation',
     entityId: rec.id,
     decisionType: 'recommend_today',
     decision: decision,
   })
+  // 后端记录失败时不再虚假提示已采纳/已忽略
+  if (!decisionRes.ok) return ElMessage.error(decisionRes.error || '记录决策失败')
   ElMessage.success(decision === 'accept' ? '已采纳建议' : '已忽略该建议')
 }
 </script>
@@ -704,13 +712,13 @@ async function handleRecAction(rec, decision) {
 
           <div class="recs-body">
             <div
-              v-for="rec in dynamicRecommendations"
+              v-for="rec in safeRecommendations"
               :key="rec.id"
               class="rec-item"
             >
               <span class="rec-dot"></span>
               <div class="rec-content">
-                <p v-html="sanitizeInlineHtml(rec.text)"></p>
+                <p v-html="rec.safeText"></p>
                 <div class="rec-actions">
                   <button class="btn-rec-action accept" @click="handleRecAction(rec, 'accept')">{{ rec.actionLabel }}</button>
                   <button class="btn-rec-action dismiss" @click="handleRecAction(rec, 'reject')">忽略</button>

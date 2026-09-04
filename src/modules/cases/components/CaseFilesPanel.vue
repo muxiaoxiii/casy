@@ -156,7 +156,7 @@ async function removeFile(f: any) {
       type: 'warning',
       confirmButtonText: '仅移除登记',
     })
-  } catch { return }
+  } catch { /* 用户取消：属预期 */ return }
   const r = await casyContext.files.remove(f.id)
   if (r.ok) await load()
 }

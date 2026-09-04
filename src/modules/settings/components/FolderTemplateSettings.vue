@@ -130,9 +130,7 @@ async function deleteTemplate(tpl) {
       '删除确认',
       { type: 'warning' }
     )
-  } catch {
-    return
-  }
+  } catch { /* 用户取消：属预期 */ return }
   const result = await casyContext.settings.deleteFolderTemplate(tpl.id)
   if (result.ok) {
     ElMessage.success('模板已删除')

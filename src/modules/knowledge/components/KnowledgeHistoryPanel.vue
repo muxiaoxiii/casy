@@ -40,7 +40,7 @@ async function restore() {
   if (!selected.value) return
   try {
     await ElMessageBox.confirm('恢复后，当前正文会先保存为一个快照，可以再次找回。', '恢复历史版本', { type: 'warning', confirmButtonText: '恢复' })
-  } catch { return }
+  } catch { /* 用户取消：属预期 */ return }
   if (props.beforeRestore && !(await props.beforeRestore())) return
   restoring.value = true
   const result = await casyContext.knowledge.restoreVersion(props.note.id, selected.value.id)

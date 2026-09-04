@@ -680,13 +680,15 @@ async function addChild(parentTask) {
   const text = (newChildText.value[parentTask.id] || '').trim()
   if (!text) return
 
-  await casyContext.tasks.create({
+  const result = await casyContext.tasks.create({
     taskName: text,
     parentId: parentTask.id,
     caseId: parentTask.caseId || null,
     completed: 0,
     startBucket: parentTask.startBucket || 'anytime',
   })
+  // 后端失败：报错并退出，不清空输入、不弹成功，避免虚假成功
+  if (!result.ok) return ElMessage.error(result.error || '添加子任务失败')
   newChildText.value[parentTask.id] = ''
   expandedParents.value.add(parentTask.id)
   ElMessage.success('已添加子任务')

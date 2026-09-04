@@ -98,14 +98,12 @@ function editRow(r: Row) {
 async function applyRow(r: Row) {
   const newName = currentName(r)
   if (!newName || newName === r.orig) return
-  try {
-    await casyContext.files.applyRenames(props.caseId, [{ id: r.id, newName }])
-    r.done = true
-    r.edited = null
-    emit('applied')
-  } catch (e) {
-    ElMessage.error(String(e))
-  }
+  // applyRenames 返回 { ok, error }（后端失败不抛异常），必须校验 ok 才标记本地完成
+  const result = await casyContext.files.applyRenames(props.caseId, [{ id: r.id, newName }])
+  if (!result.ok) return ElMessage.error(result.error || '重命名失败')
+  r.done = true
+  r.edited = null
+  emit('applied')
 }
 
 async function applyAll() {

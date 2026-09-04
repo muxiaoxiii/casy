@@ -296,17 +296,31 @@ async function importFile() {
 
   const files = Array.isArray(selected) ? selected : [selected]
   processing.value = true
+  let okCount = 0
+  const errors = []
   for (const file of files) {
-    await casyContext.inbox.add('file', null, file)
+    const res = await casyContext.inbox.add('file', null, file)
+    if (res.ok) okCount++
+    else errors.push(res.error || file)
   }
   processing.value = false
-  ElMessage.success(`已导入 ${files.length} 个文件`)
+  // 汇总真实结果：部分失败时不再虚假报成功
+  if (errors.length && okCount === 0) {
+    return ElMessage.error(`导入失败：${errors.join('；')}`)
+  }
+  if (errors.length) {
+    ElMessage.warning(`成功 ${okCount} 个，失败 ${errors.length} 个：${errors.join('；')}`)
+  } else {
+    ElMessage.success(`已导入 ${files.length} 个文件`)
+  }
   await loadItems()
 }
 
 async function dismissItem(item) {
   if (item.id) {
-    await casyContext.inbox.dismiss(item.id)
+    const res = await casyContext.inbox.dismiss(item.id)
+    // 后端失败：报错并退出，不弹成功
+    if (!res.ok) return ElMessage.error(res.error || '忽略失败')
   }
   ElMessage.success('已忽略此项')
   await loadItems()

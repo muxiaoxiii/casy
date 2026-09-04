@@ -47,9 +47,7 @@ async function restoreBackup(b) {
       '恢复备份',
       { confirmButtonText: '恢复并重启', cancelButtonText: '取消', type: 'warning' },
     )
-  } catch {
-    return
-  }
+  } catch { /* 用户取消：属预期 */ return }
   restoringId.value = b.filename
   const result = await casyContext.backup.restore(b.filename)
   restoringId.value = null

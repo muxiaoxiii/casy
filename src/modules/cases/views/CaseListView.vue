@@ -459,7 +459,9 @@ async function loadCaseEvents() {
 // 快速完成/取消待办
 async function toggleCaseTask(task) {
   const newDone = !task.completed
-  await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  const res = await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
+  // 后端失败：报错并退出，不弹成功、不刷新列表
+  if (!res.ok) return ElMessage.error(res.error || '操作失败')
   ElMessage.success(newDone ? '任务已完成' : '已恢复待办')
   await tasksStore.loadTasks()
 }
@@ -526,11 +528,14 @@ async function submitMemo() {
     time: timeStr,
     tags: [...memoForm.value.tags, `#${selectedCase.value?.caseName?.slice(0, 8) || '案件'}`],
   }
-  caseMemos.value.unshift(newMemo)
-  // 同步入库案件 notes 字段
-  await casyContext.cases.update(selectedCase.value.id, {
-    notes: JSON.stringify(caseMemos.value),
+  // 先持久化（同步入库案件 notes 字段），成功后才更新本地状态：
+  // 后端失败时不写入 caseMemos、不弹成功，直接报错，避免本地污染/虚假成功。
+  const nextMemos = [newMemo, ...caseMemos.value]
+  const res = await casyContext.cases.update(selectedCase.value.id, {
+    notes: JSON.stringify(nextMemos),
   })
+  if (!res.ok) return ElMessage.error(res.error || '备忘保存失败，未写入本地')
+  caseMemos.value = nextMemos
   ElMessage.success('办案备忘已记录并收录进本案时间轴')
   memoForm.value.title = ''
   memoForm.value.content = ''
@@ -657,22 +662,24 @@ function closeContextMenu() {
 }
 async function createSubdir() {
   if (!selectedCase.value) return
+  let dirName = ''
   try {
     const { value } = await ElMessageBox.prompt(
       '请输入新建文件夹名称',
       '新建卷宗子文件夹',
       { inputPlaceholder: '如：06_补充反诉证据', inputValue: '' }
     )
-    if (!value || !value.trim()) return
-    const res = await casyContext.files.createSubdir(selectedCase.value.id, null, value.trim())
-    if (res.ok) {
-      ElMessage.success('子文件夹已创建')
-      await loadCaseFiles()
-      selectedDirRel.value = value.trim()
-    } else {
-      ElMessage.error(res.error || '创建失败')
-    }
-  } catch {}
+    dirName = value?.trim() || ''
+  } catch { /* 用户取消：属预期 */ }
+  if (!dirName) return
+  const res = await casyContext.files.createSubdir(selectedCase.value.id, null, dirName)
+  if (res.ok) {
+    ElMessage.success('子文件夹已创建')
+    await loadCaseFiles()
+    selectedDirRel.value = dirName
+  } else {
+    ElMessage.error(res.error || '创建失败')
+  }
 }
 async function deleteFile(file) {
   let confirmed = false
