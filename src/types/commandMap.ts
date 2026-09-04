@@ -100,6 +100,7 @@ import type {
 import type { InboxStatus } from './index'
 import type { Case as BusinessCase, CaseListResponse, Task } from './index'
 import type { AiProposal } from '../core/ai/proposals'
+import type { RichTextDocument } from '../core/services/docs'
 
 export interface Cmd<P, R> {
   readonly params: P
@@ -346,7 +347,7 @@ export type CommandMap = {
   render_docsy_template: Cmd<{ templateId: string; caseId: string }, RenderResponse>
   export_docx: Cmd<{ templateId: string; caseId: string; outputPath?: string | null }, ExportResponse>
   export_edited_docx: Cmd<{
-    document: Record<string, unknown>
+    document: RichTextDocument
     title: string
     outputPath?: string | null
   }, ExportResponse>
