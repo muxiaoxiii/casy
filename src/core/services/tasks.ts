@@ -1,7 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { Task } from '../../types'
-import type { TaskDto } from '../../types/bindings'
+import type { AreaDto, AreaStatsDto, CreateAreaOutput, SearchTaskDto, TaskDto } from '../../types/bindings'
 
 /**
  * 撤销删除（restore_task）快照：不能再是 TaskLike 那种 7 字段子集。
@@ -27,9 +27,7 @@ export class TasksService extends Service {
   static inject: string[] = []
 
   async list(filter: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: Task[]; error?: string }> {
-    // TODO(B1 类型对齐)：切 CommandMap 注册表前需统一手写 Task 的字面量联合
-    // （priority/taskType/context/startBucket）与缺失字段 dueTime——涉全消费面，随主线协同
-    return tauriCallSafe<Task[]>('list_tasks', { filter })
+    return tauriCallSafe('list_tasks', { filter })
   }
 
   async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
@@ -69,14 +67,14 @@ export class TasksService extends Service {
   }
 
   /** GTD 领域列表 */
-  async areas(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('list_areas', {})
+  async areas(): Promise<{ ok: boolean; data?: AreaDto[]; error?: string }> {
+    return tauriCallSafe('list_areas', {})
   }
 
   /** 新建领域（A1-2：name 必填，description/icon 可选） */
   async createArea(data: { name: string; description?: string | null; icon?: string | null }):
-    Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('create_area', { data })
+    Promise<{ ok: boolean; data?: CreateAreaOutput; error?: string }> {
+    return tauriCallSafe('create_area', { data })
   }
 
   /**
@@ -85,28 +83,28 @@ export class TasksService extends Service {
    */
   async updateArea(id: string, data: { name?: string; description?: string | null; icon?: string | null }):
     Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('update_area', { id, data })
+    return tauriCallSafe('update_area', { id, data })
   }
 
   /**
    * 删除领域。后端保护：领域下仍有任务时拒绝（错误信息含任务数，UI 直接透出）
    */
   async removeArea(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('delete_area', { id })
+    return tauriCallSafe('delete_area', { id })
   }
 
   /** 领域统计（任务总数/完成数/案件数），供管理界面展示 */
-  async areaStats(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe<unknown>('get_area_stats', { id })
+  async areaStats(id: string): Promise<{ ok: boolean; data?: AreaStatsDto; error?: string }> {
+    return tauriCallSafe('get_area_stats', { id })
   }
 
   /** 稍后提醒（写 snoozed 行为事件，支撑"懂你的节奏"学习） */
   async snooze(id: string, option: string, newDueDate?: string | null): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe<void>('snooze_task', { id, option, newDueDate: newDueDate ?? null })
+    return tauriCallSafe('snooze_task', { id, option, newDueDate: newDueDate ?? null })
   }
 
   /** ⌘K 全局搜索：任务域（LIKE，本地规模足够；FTS 升级待 tasks_fts） */
-  async searchTasks(query: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async searchTasks(query: string): Promise<{ ok: boolean; data?: SearchTaskDto[]; error?: string }> {
     return tauriCallSafe('search_tasks', { query })
   }
 }

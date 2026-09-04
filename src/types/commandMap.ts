@@ -279,7 +279,7 @@ export type CommandMap = {
   list_mcp_pending_writes: Cmd<{}, McpPendingWrite[]>
 
   // ── 任务域 ──
-  list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, TaskDto[]>
+  list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, Task[]>
   search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
   // P1-6：撤销删除专用还原命令（保留原 id / completed；snapshot 为前端 Task 快照）
   restore_task: Cmd<{ snapshot: Task }, TaskDto>
