@@ -88,7 +88,7 @@ pub fn analyze_task_durations(conn: &rusqlite::Connection) -> Result<Vec<TaskDur
     let mut stmt = conn.prepare(
         "SELECT task_name, estimated_minutes, actual_minutes
          FROM tasks
-         WHERE completed = 1 AND estimated_minutes > 0 AND actual_minutes > 0",
+         WHERE completed = 1 AND estimated_minutes > 0 AND actual_minutes > 0 AND deleted_at IS NULL",
     )?;
 
     let mut pattern_map: std::collections::HashMap<String, Vec<(f64, f64)>> =
@@ -176,7 +176,7 @@ pub fn analyze_delay_patterns(conn: &rusqlite::Connection) -> Result<Vec<DelayPa
          FROM task_events te
          JOIN tasks t ON t.id = te.task_id
          JOIN cases c ON c.id = t.case_id
-         WHERE te.event_type = 'completed' AND t.due_date IS NOT NULL
+         WHERE te.event_type = 'completed' AND t.due_date IS NOT NULL AND t.deleted_at IS NULL
          GROUP BY c.track"
     )?;
 
@@ -247,7 +247,7 @@ fn group_duration_avgs(conn: &rusqlite::Connection) -> Result<LearningCalibratio
     let mut stmt = conn.prepare(
         "SELECT task_name, context, estimated_minutes, actual_minutes
          FROM tasks
-         WHERE completed = 1 AND actual_minutes IS NOT NULL AND actual_minutes > 0",
+         WHERE completed = 1 AND actual_minutes IS NOT NULL AND actual_minutes > 0 AND deleted_at IS NULL",
     )?;
 
     let mut groups: std::collections::HashMap<(String, String), Vec<(f64, f64)>> =
@@ -296,7 +296,7 @@ fn plan_calibration(
     let mut stmt = conn.prepare(
         "SELECT id, task_name, context, estimated_minutes
          FROM tasks
-         WHERE completed = 0",
+         WHERE completed = 0 AND deleted_at IS NULL",
     )?;
 
     let rows = stmt.query_map([], |row| {

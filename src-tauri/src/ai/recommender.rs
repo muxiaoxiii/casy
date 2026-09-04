@@ -57,7 +57,7 @@ pub fn generate_today_recommendations(conn: &rusqlite::Connection) -> Result<Rec
                 t.flagged, t.blocked, c.case_name
          FROM tasks t
          LEFT JOIN cases c ON c.id = t.case_id
-         WHERE t.completed = 0
+         WHERE t.completed = 0 AND t.deleted_at IS NULL
          ORDER BY t.priority, t.due_date",
     )?;
 
@@ -225,7 +225,7 @@ fn generate_followup_suggestions(conn: &rusqlite::Connection) -> Result<Vec<Foll
     let mut stmt = conn.prepare(
         "SELECT t.id, t.task_name, t.waiting_for, t.follow_up_date, t.case_id
          FROM tasks t
-         WHERE t.completed = 0 AND t.task_type = 'waiting'",
+         WHERE t.completed = 0 AND t.task_type = 'waiting' AND t.deleted_at IS NULL",
     )?;
 
     let mut suggestions = Vec::new();
