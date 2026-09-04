@@ -246,11 +246,17 @@ export type CommandMap = {
     localTable: string
     mappings: MappingEntry[]
   }, ImportResult>
-  feishu_compare_table: Cmd<{ appToken: string; tableId: string; localTable: unknown }, SchemaDiff>
-  feishu_compare_records: Cmd<{ appToken: string; tableId: string; localTable: unknown; matchField: string }, RecordDiff>
-  feishu_import_incremental: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: any }, any>
-  feishu_sync_pull: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: any }, any>
-  feishu_sync_push: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: any }, any>
+  feishu_compare_table: Cmd<{ appToken: string; tableId: string; localTable: string }, SchemaDiff>
+  feishu_compare_records: Cmd<{ appToken: string; tableId: string; localTable: string; matchField: string }, RecordDiff>
+  feishu_import_incremental: Cmd<{
+    appToken: string
+    tableId: string
+    localTable: string
+    sinceTimestamp: string
+    mappingsJson: MappingEntry[]
+  }, ImportResult>
+  feishu_sync_pull: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: MappingEntry[] }, FeishuSyncReport>
+  feishu_sync_push: Cmd<{ appToken: string; tableId: string; localTable: string; mappingsJson: MappingEntry[] }, FeishuSyncReport>
   sync_export_persons_to_vcard: Cmd<{}, string>
   sync_export_whiteboards_to_blob: Cmd<{}, string>
 
