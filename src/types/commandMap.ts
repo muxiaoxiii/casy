@@ -394,4 +394,25 @@ export type CommandMap = {
 
   // ==========================================W1 AI Proposal 预览（Cursor 式 Diff 确认）
   get_proposal_preview: Cmd<{ proposalId: string }, ProposalPreviewDto>
+
+  // ====================================契约门禁补齐（tests/contract.commands.test.ts 防回退）
+  // 以下命令此前由前端调用但未登记 CommandMap（frontend ⊄ CommandMap）。
+  // 多为复杂/尚未收口的契约：params 按调用现场尽量核定，result 以 any/unknown
+  // 收口避免漏项（仍能为已登记调用提供参数检查），随后续收口逐步收紧。
+  reasoning_search: Cmd<{ query: string; scope: string[] }, unknown>
+  get_document_engine_status: Cmd<Record<string, unknown>, unknown>
+  queue_document_processing: Cmd<{ fileId: string }, unknown>
+  list_document_jobs: Cmd<{ fileId: string }, unknown>
+  retry_document_job: Cmd<{ jobId: string }, unknown>
+  list_case_hearings: Cmd<{ caseId: string }, any>
+  create_case_hearing: Cmd<{ payload: Record<string, unknown> }, any>
+  update_case_hearing: Cmd<{ id: string; payload: Record<string, unknown> }, void>
+  delete_case_hearing: Cmd<{ id: string }, void>
+  excel_get_sheets: Cmd<{ filePath: string }, any>
+  excel_inspect_sheet: Cmd<{ filePath: string; sheetName: string; headerRowOverride?: number | null }, any>
+  feishu_check_config: Cmd<Record<string, unknown>, any>
+  feishu_inspect_bitable: Cmd<{ urlOrToken: string; tableIdOverride?: string | null }, any>
+  get_ai_usage: Cmd<Record<string, unknown>, any>
+  trigger_feishu_push: Cmd<Record<string, unknown>, unknown>
+  start_clipboard_monitor: Cmd<Record<string, unknown>, any>
 }
