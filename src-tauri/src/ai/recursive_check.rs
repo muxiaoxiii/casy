@@ -190,7 +190,7 @@ fn collect_bounded_context(
         "task" => {
             if let Ok((name, cid, deadline, completed)) = conn.query_row(
                 "SELECT task_name, case_id, COALESCE(COALESCE(due_date, deadline), ''), completed
-                 FROM tasks WHERE id = ?1",
+                 FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
                 params![snapshot.entity_id],
                 |r| {
                     Ok((
@@ -375,7 +375,7 @@ fn rule_validate(conn: &Connection, snapshot: &DecisionSnapshot) -> Vec<String> 
     // 引用实体存在性
     let exists_sql = match snapshot.entity_type.as_str() {
         "case" => Some("SELECT COUNT(*) FROM cases WHERE id = ?1"),
-        "task" => Some("SELECT COUNT(*) FROM tasks WHERE id = ?1"),
+        "task" => Some("SELECT COUNT(*) FROM tasks WHERE id = ?1 AND deleted_at IS NULL"),
         "knowledge" => Some("SELECT COUNT(*) FROM knowledge_items WHERE id = ?1"),
         "client" => Some("SELECT COUNT(*) FROM clients WHERE id = ?1"),
         _ => None,

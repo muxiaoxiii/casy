@@ -238,7 +238,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
                 sequential = 1;
                 // 第一个 sequential 任务不阻塞，后续自动阻塞
                 let existing_count: i32 = conn.query_row(
-                    "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND sequential = 1 AND completed = 0",
+                    "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND sequential = 1 AND completed = 0 AND deleted_at IS NULL",
                     rusqlite::params![cid],
                     |row| row.get(0),
                 ).unwrap_or(0);
@@ -330,7 +330,7 @@ pub async fn toggle_task(
         // 获取当前状态（错误码试点：CAS-1001 任务不存在）
         let current: i32 = conn
             .query_row(
-                "SELECT completed FROM tasks WHERE id = ?1",
+                "SELECT completed FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
                 rusqlite::params![id],
                 |row| row.get(0),
             )
@@ -432,13 +432,13 @@ pub async fn toggle_task(
                 // 找到同案件（或无案件）中 sequence_order 更大的下一个 blocked 任务
                 let next_task_id: Option<String> = if let Some(cid) = case_id {
                     conn.query_row(
-                        "SELECT id FROM tasks WHERE case_id = ?1 AND sequential = 1 AND blocked = 1 AND sequence_order > ?2 ORDER BY sequence_order ASC LIMIT 1",
+                        "SELECT id FROM tasks WHERE case_id = ?1 AND sequential = 1 AND blocked = 1 AND sequence_order > ?2 AND deleted_at IS NULL ORDER BY sequence_order ASC LIMIT 1",
                         rusqlite::params![cid, seq_order],
                         |row| row.get(0),
                     ).ok()
                 } else {
                     conn.query_row(
-                        "SELECT id FROM tasks WHERE case_id IS NULL AND sequential = 1 AND blocked = 1 AND sequence_order > ?1 ORDER BY sequence_order ASC LIMIT 1",
+                        "SELECT id FROM tasks WHERE case_id IS NULL AND sequential = 1 AND blocked = 1 AND sequence_order > ?1 AND deleted_at IS NULL ORDER BY sequence_order ASC LIMIT 1",
                         rusqlite::params![seq_order],
                         |row| row.get(0),
                     ).ok()
@@ -754,13 +754,20 @@ pub async fn snooze_task(
             }
         };
 
-        // 更新任务：到期日 = 新日期；今天 → today 桶，其他 → upcoming
+        // 更新任务：到期日 = 新日期；今天 → today 桶，其他 → upcoming。
+        // 软删拒绝：仅对活跃任务生效，0 行命中即任务不存在/已软删。
         let is_today = new_date == today.to_string();
         let bucket = if is_today { "today" } else { "upcoming" };
-        conn.execute(
-            "UPDATE tasks SET due_date = ?1, start_date = ?1, start_bucket = ?2 WHERE id = ?3",
+        let rows = conn.execute(
+            "UPDATE tasks SET due_date = ?1, start_date = ?1, start_bucket = ?2 WHERE id = ?3 AND deleted_at IS NULL",
             rusqlite::params![new_date, bucket, id],
         )?;
+        if rows != 1 {
+            return Err(anyhow::anyhow!(crate::error_code::err(
+                crate::error_code::codes::TASK_NOT_FOUND,
+                format!("任务不存在: {}", id),
+            )));
+        }
 
         // 写 snoozed 行为事件（支撑"懂你的节奏/模式"学习）
         let payload = serde_json::json!({
@@ -797,7 +804,7 @@ pub async fn defer_task(task_id: String, until: String) -> Result<(), String> {
         let now = db::now_local();
 
         let rows = conn.execute(
-            "UPDATE tasks SET defer_until = ?1 WHERE id = ?2",
+            "UPDATE tasks SET defer_until = ?1 WHERE id = ?2 AND deleted_at IS NULL",
             rusqlite::params![until, task_id],
         )?;
         if rows != 1 {
@@ -825,7 +832,7 @@ pub async fn clear_task_defer(task_id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let rows = conn.execute(
-            "UPDATE tasks SET defer_until = NULL WHERE id = ?1",
+            "UPDATE tasks SET defer_until = NULL WHERE id = ?1 AND deleted_at IS NULL",
             rusqlite::params![task_id],
         )?;
         if rows != 1 {
@@ -1067,7 +1074,7 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
         // 1. 校验任务是否存在并获取旧数据
         let old_info: (Option<String>, i32, String) = tx
             .query_row(
-                "SELECT due_date, completed, start_bucket FROM tasks WHERE id = ?1",
+                "SELECT due_date, completed, start_bucket FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
                 rusqlite::params![patch.id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -2052,5 +2059,83 @@ mod tests {
             )
             .unwrap();
         assert_eq!(deleted_events, 1, "重复删除不应重复写 deleted 审计事件");
+    }
+
+    /// 软删任务对**写操作按 id**应被拒绝（存在性检查返回空 → TASK_NOT_FOUND），
+    /// 对**显示/统计**应被过滤（by-id 显示查询返回空、聚合计数为 0）。
+    #[test]
+    fn test_soft_deleted_task_hidden_from_mutations_and_display() {
+        let mut conn = test_conn();
+        let now = "2026-09-01 12:00:00";
+
+        // 先建领域以满足 tasks.area_id 外键约束
+        conn.execute(
+            "INSERT INTO areas (id, name) VALUES ('area1', '领域一')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, task_name, created_date, completed, area_id)
+             VALUES ('t-sd', '软删任务', '2026-09-01', 0, 'area1')",
+            [],
+        )
+        .unwrap();
+        soft_delete(&conn, "t-sd", now);
+
+        // 写操作存在性检查（toggle 语义：SELECT completed ... AND deleted_at IS NULL）→ 空
+        let toggle_ok: bool = conn
+            .query_row(
+                "SELECT completed FROM tasks WHERE id = 't-sd' AND deleted_at IS NULL",
+                [],
+                |_r| Ok(true),
+            )
+            .optional()
+            .unwrap()
+            .is_none();
+        assert!(toggle_ok, "toggle 对软删任务的存在性检查应返回空（→TASK_NOT_FOUND）");
+
+        // 更新存在性检查（update_task old_info 语义）→ 空
+        let update_ok: bool = conn
+            .query_row(
+                "SELECT due_date, completed, start_bucket FROM tasks WHERE id = 't-sd' AND deleted_at IS NULL",
+                [],
+                |_r| Ok(true),
+            )
+            .optional()
+            .unwrap()
+            .is_none();
+        assert!(update_ok, "update_task 对软删任务的存在性检查应返回空");
+
+        // 显示/链接标签查询（linking resolve_title 语义）→ 空
+        let label_ok: bool = conn
+            .query_row(
+                "SELECT task_name FROM tasks WHERE id = 't-sd' AND deleted_at IS NULL",
+                [],
+                |_r| Ok(true),
+            )
+            .optional()
+            .unwrap()
+            .is_none();
+        assert!(label_ok, "软删任务不应返回显示标签");
+
+        // 统计计数（areas delete_area 语义：活跃任务计数）→ 0
+        let active_in_area: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE area_id = 'area1' AND deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_in_area, 0, "软删任务不应计入活跃统计");
+
+        // 实体存在性（recursive_check entity_exists 语义）→ 0
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE id = 't-sd' AND deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0, "软删任务应被视为不存在（entity_exists=false）");
     }
 }

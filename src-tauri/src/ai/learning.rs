@@ -347,7 +347,7 @@ pub fn apply_estimation_calibration(conn: &rusqlite::Connection) -> Result<Calib
 
     for item in &plan {
         conn.execute(
-            "UPDATE tasks SET estimated_minutes = ?1 WHERE id = ?2",
+            "UPDATE tasks SET estimated_minutes = ?1 WHERE id = ?2 AND deleted_at IS NULL",
             rusqlite::params![item.new_estimate, item.task_id],
         )?;
         *updated_per_group.entry(item.group_key.clone()).or_insert(0) += 1;

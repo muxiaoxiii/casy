@@ -186,9 +186,9 @@ pub async fn delete_area(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
 
-        // 检查是否有任务关联到此领域
+        // 检查是否有**活跃**任务关联到此领域（软删任务不阻断删除）。
         let count: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1",
+            "SELECT COUNT(*) FROM tasks WHERE area_id = ?1 AND deleted_at IS NULL",
             rusqlite::params![id],
             |row| row.get(0),
         )?;
@@ -196,6 +196,12 @@ pub async fn delete_area(id: String) -> Result<(), String> {
         if count > 0 {
             return Err(anyhow::anyhow!("该领域下有 {} 个任务，无法删除", count));
         }
+
+        // 软删任务仍引用此领域，删除前先解除关联，避免 FOREIGN KEY 约束阻断。
+        conn.execute(
+            "UPDATE tasks SET area_id = NULL WHERE area_id = ?1 AND deleted_at IS NOT NULL",
+            rusqlite::params![id],
+        )?;
 
         conn.execute("DELETE FROM areas WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
