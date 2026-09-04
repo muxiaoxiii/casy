@@ -156,7 +156,40 @@
 
 **总评**：双评审修复后可合入。残余已知项：toggle_task 因共享连接架构无法事务化（fail-fast 校验保留，写失败时 token 小概率白烧，重发 AI 指令即可恢复）；`casy:evidence-link-activate` CustomEvent 暂无仓库内监听者（保留为公开契约）。
 
-## 六、批次总结
+## 七、追加批次：WYSIWYG 全面化（2026-09-02）
+
+> 计划：`docs/wysiwyg-everything-plan-2026-09-02.md`
+
+### 交付
+- **MD 双向桥** `src/shared/markdown/mdBridge.ts`：`mdToHtml`（marked GFM + 自定义 `[[wiki]]` tokenizer）/ `htmlToMd`（turndown + turndown-plugin-gfm + WikiLink/TaskItem/tbody 表格自定义规则）/ `mdToSafeHtml`（预览用全量 GFM 渲染 + 消毒）
+- **`MarkdownWysiwygEditor.vue`**：tiptap v3 所见即所得；WikiLink 为组件内最小 inline atom 节点（`span[data-wiki-link][data-title]`，与 docs 模块 Mark 版 `a[data-wiki-link]` 是两套独立实现，互不耦合）；v-model 为 Markdown（400ms 防抖回写 + applyingExternal 守卫）；enterMode 可配；compact 模式
+- **知识笔记本四模式**：富文本（默认）/ 源码（CodeMirror 兜底）/ 分栏 / 预览（预览升级为 mdToSafeHtml，支持表格/任务/wiki）；编辑器按 selectedId 重建（撤销历史不跨笔记）；wiki 链接点击按标题跳转笔记
+- **旧知识视图**：添加子块表单 textarea → compact WYSIWYG
+- **文书生成**（Agent D）：DocumentGenView 新增「所见即所得编辑」tab（复用 LegalEditor 全功能：斜杠菜单/AI 润色/证据链接）；脏点标记 + 重渲丢失防护；「保存为草稿」与文书工坊互通；导出双路（编辑后走前端 html-to-docx，未编辑保留后端模板重渲）
+
+### 验证
+- mdBridge 往返测试 **19/19**（wiki/任务列表/表格/代码块/混合文档全覆盖）
+- 全量门禁：vue-tsc 0 错 · vitest 29/29 · cargo test 129/129 · 生产构建 ✓
+- 事故修复记录：npm install 曾清掉 vendored image-size 的嵌套依赖（lockfile 对 file: 包依赖记录为空）→ `queue@6.0.2` 提为根依赖根治
+
+### 已知保真边界（如实记录，均不丢内容）
+- 下划线 `<u>`/高亮 `<mark>` 无 MD 原生语法 → 回写为纯文本
+- 硬换行（行尾两空格）不往返（marked breaks:false 塌陷为空格）
+- 嵌套列表回写为 4 空格缩进（turndown 约定，幂等、语义等价）
+- 无表头表格回写保留原 HTML；wiki 标题含 `|` 时在表格单元格内会破坏表格行
+- 笔记存在与 wiki 标题同名的 reference 定义时 reflink 优先（极端边缘）
+
+### 维护备忘（Agent K 交接，改动 mdBridge/编辑器前必读）
+- **turndown 规则后 add 先匹配**：tiptapTaskItem 必须在 listItem 之后注册；tableCell 覆盖了 gfm cell 规则（tiptap 在 th/td 内包 `<p>` 需 `\n→空格`）；strikethrough 统一 `~~`；listItem 收紧默认 3 空格前缀并归一 checkbox 双空格
+- **预览绝不能直接 v-html `mdToHtml`**（marked 透传原始 HTML），必须走 `mdToSafeHtml`（含消毒）
+- **撤销历史不跨笔记**：tiptap `setContent` 不清 undo 栈，集成处必须给编辑器 `:key="selectedId"`（NotebookView 已做）
+- **回写回环防护**：`applyingExternal` 守卫 + lastEmitted 比对（仅比字符串不够）
+- **WikiLinkSuggestion.onSelect** 需自行删除未闭合的 `[[query`（textBetween 匹配 + insertContentAt 替换），直接 insertContent 会残留 `[[`
+- StarterKit v3 已内置 link/underline/strike；`link: { openOnClick: false }`；turndown-plugin-gfm 无官方 types（本地 d.ts 在 src/shared/markdown/）
+
+---
+
+## 六、批次总结（对标落地批次，2026-09-01）
 
 - **规模**：Schema v19→v20（8 表/列）；后端新命令 **48 个**全部注册并进 CommandMap；bindings 99→115 类型；前端新增 ~20 个组件/视图、2 条路由、2 个设置区块、2 个案件详情 Tab、顶栏通知中心
 - **门禁**：vue-tsc 0 错 · vitest 9/9 · cargo test 119+7+若干套件全绿（唯 excel_import 4 例本机 keychain 环境性失败，与本批无关）· 生产构建 ✓
