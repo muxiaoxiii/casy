@@ -49,8 +49,8 @@ CASY_QA_DIR=/path/to/private-artifacts CASY_PLAYWRIGHT_MODULE=/path/to/playwrigh
 | Markdown 编辑 | 已有编辑器测试与历史修复；继续检查编辑、自动保存、版本恢复、双链、附件引用和大笔记体验。 |
 | MD/PDF/Word RAG | 页级 FTS 已有测试；知识库仍需统一页级命中与语义排序，建立中文真实问题的准确率及延迟基准。 |
 | 大文件 Markdown 备份 | 需核实不同文档格式落盘、来源关联、失败重试、缓存失效及重建行为。 |
-| 纯 Rust、约 1B、本地 OCR、低占用 | tools/casy-doc-engine 已有 oar-ocr/OvisOCR2 模型路径，但当前一次性装载并克隆所有页面 RGB，需改为有界处理并实测模型效果、耗时与峰值内存。 |
-| 不依赖 Tesseract | 尚未满足：src-tauri/src/commands/smart_rules.rs 仍有实际 Tesseract 执行路径，Cargo.toml 仍依赖 rusty-tesseract。必须接入新 OCR 流程并移除旧依赖后再验收。 |
-| 分批本地提交 | 原生 AI 配置提交 dcf419e；界面与测试作为下一批提交。此前案件、GTD、知识库改动仍保留在工作区，继续按业务范围验证并提交。 |
+| 纯 Rust、约 1B、本地 OCR、低占用 | 已接入 PaddleOCR-VL 0.9B 与逐页持久队列，实际中文双页约 19 秒、峰值 footprint 约 3.14 GB。真实附件及原生 UI 已验证，复杂布局和长卷宗仍须继续，见 OCR 验证报告。 |
+| 不依赖 Tesseract | 已移除实际调用与 Cargo 依赖，手动和自动处理统一进入 Rust 文档引擎。 |
+| 分批本地提交 | AI 原生配置 dcf419e、界面 e1c8b74；OCR 引擎 cc21d28、持久队列 bd4e6d4。此前案件、GTD、知识库改动仍保留在工作区，继续按业务范围验证并提交。 |
 
 本轮未更新已安装发行版、未迁移正式案件库、未修改飞书表格。

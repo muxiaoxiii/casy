@@ -472,6 +472,7 @@ export type CommandMap = {
   get_document_engine_status: Cmd<{}, import('./bindings').DocumentEngineStatus>
   queue_document_processing: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto>
   list_document_jobs: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto[]>
+  cancel_document_job: Cmd<{ jobId: string }, void>
   retry_document_job: Cmd<{ jobId: string }, void>
   list_case_hearings: Cmd<{ caseId: string }, import('./bindings').HearingDto[]>
   create_case_hearing: Cmd<{ payload: HearingInput }, import('./bindings').HearingDto>

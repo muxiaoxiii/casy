@@ -22,7 +22,7 @@ Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：
 | 提醒 | 本地弹窗 + macOS 通知 + 飞书消息 + 飞书任务（R1-R4 分级预警） |
 | AI | Ollama (本地) / OpenAI 兼容 API (远程) + 命令路由 + 审计日志 |
 | 邮件 | async-imap + IDLE |
-| OCR | Tesseract (可选) |
+| OCR | Rust 文档引擎、PaddleOCR-VL 0.9B、PP-OCRv5 |
 
 ---
 
@@ -149,7 +149,8 @@ npm run tauri build
 
 | 依赖 | 用途 | 安装 |
 |------|------|------|
-| Tesseract + 中文包 | OCR 文档识别 | `brew install tesseract tesseract-lang` |
+| casy-doc-engine + 模型 | 本地 OCR、可搜索 PDF、Markdown 备份 | [安装与验证](tools/casy-doc-engine/README.md) |
+| Poppler | PDF 页面渲染 | `brew install poppler` |
 | Ollama | 本地 AI 模式 | `brew install ollama` |
 
 ---

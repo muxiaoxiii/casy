@@ -7,7 +7,7 @@ import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Folder, Message, Paperclip, Upload, Download, Document,
-  ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick
+  ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close
 } from '@element-plus/icons-vue'
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
 import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
@@ -22,9 +22,17 @@ const loading = ref(false)
 const activeCategory = ref('all')
 const fileSearch = ref('')
 const selectedFile = ref(null)
+const fileInspector = ref(null)
 const files = ref([])
 const filesLoading = ref(false)
 const uploading = ref(false)
+
+function selectFile(file) {
+  selectedFile.value = file
+  if (window.matchMedia('(max-width: 1120px)').matches) {
+    requestAnimationFrame(() => fileInspector.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+}
 
 const showReasoningPanel = ref(false)
 const allFileIds = computed(() => files.value.map(f => f.id))
@@ -46,7 +54,7 @@ const OCR_BADGES = {
   failed: {
     label: '失败',
     cls: 'failed',
-    tip: 'OCR 失败：请确认已安装 tesseract（扫描件 PDF 另需 poppler），可在详情中点击「立即 OCR」重试',
+    tip: '文档识别失败，可在详情中查看原因并重试',
   },
 }
 
@@ -61,8 +69,8 @@ function ocrBadge(file) {
   const job = documentJobs.value[file.id]
   if (job) {
     if (job.status === 'queued') return { ...OCR_BADGES.pending, label: '已排队', tip: '等待本地文档引擎处理' }
-    if (job.status === 'running') return { ...OCR_BADGES.processing, label: `${Math.round((job.progress || 0) * 100)}%`, tip: '正在生成 Page IR 和可搜索 PDF' }
-    if (job.status === 'completed') return { ...OCR_BADGES.completed, label: '可搜索', tip: '已生成可搜索 PDF 和 PageIndex' }
+    if (job.status === 'running') return { ...OCR_BADGES.processing, label: `${Math.round((job.progress || 0) * 100)}%`, tip: job.totalPages ? `已识别 ${job.currentPage} / ${job.totalPages} 页` : '正在准备文档识别' }
+    if (job.status === 'completed') return { ...OCR_BADGES.completed, label: '可搜索', tip: '已生成可搜索 PDF 和文字备份' }
     if (job.status === 'failed') return { ...OCR_BADGES.failed, tip: job.errorMessage || '文档处理失败' }
     if (job.status === 'cancelled') return { ...OCR_BADGES.pending, label: '已取消', tip: '任务已取消，可重新处理' }
   }
@@ -70,12 +78,8 @@ function ocrBadge(file) {
   return OCR_BADGES[state?.status || 'pending']
 }
 
-function isPdf(file) {
-  return String(file?.fileType || file?.fileName?.split('.').pop() || '').replace('.', '').toLowerCase() === 'pdf'
-}
-
 async function loadDocumentJobs() {
-  const pdfFiles = files.value.filter(isPdf)
+  const pdfFiles = files.value.filter(isOcrCandidateFile)
   const results = await Promise.all(pdfFiles.map(file => tauriCall('list_document_jobs', { fileId: file.id }, { silent: true })))
   const map = {}
   pdfFiles.forEach((file, index) => {
@@ -99,30 +103,15 @@ async function loadOcrStates() {
 
 async function ocrNow(file) {
   ocrBusy.value = { ...ocrBusy.value, [file.id]: true }
-  ocrStates.value = {
-    ...ocrStates.value,
-    [file.id]: { status: 'processing', hasText: !!ocrStates.value[file.id]?.hasText },
-  }
-  if (isPdf(file)) {
-    const job = await tauriCall('queue_document_processing', { fileId: file.id }, { silent: true })
-    ocrBusy.value = { ...ocrBusy.value, [file.id]: false }
-    if (!job) ElMessage.error('无法创建文档处理任务')
-    else ElMessage.success(job.status === 'completed' ? '已存在可复用的可搜索 PDF' : '已加入本地文档处理队列')
+  try {
+    const result = await tauriCallSafe('queue_document_processing', { fileId: file.id })
+    if (!result.ok) ElMessage.error(result.error || '无法创建文档处理任务')
+    else ElMessage.success(result.data.status === 'completed' ? '已复用识别结果' : '已加入本地文档处理队列')
     await loadDocumentJobs()
     await loadOcrStates()
-    return
+  } finally {
+    ocrBusy.value = { ...ocrBusy.value, [file.id]: false }
   }
-  const msg = await tauriCall('ocr_case_file', { fileId: file.id }, { silent: true })
-  ocrBusy.value = { ...ocrBusy.value, [file.id]: false }
-  if (msg === null) {
-    ElMessage.error('OCR 调用失败，请查看日志')
-  } else if (String(msg).startsWith('OCR 完成')) {
-    ElMessage.success(msg)
-  } else {
-    ElMessage.warning(msg)
-  }
-  await loadOcrStates()
-  await loadFiles() // 规则可能已改动分类
 }
 
 async function openSearchablePdf(file) {
@@ -139,6 +128,16 @@ async function retryDocument(file) {
   if (!result.ok) ElMessage.error(result.error || '重试失败')
   else ElMessage.success('已重新加入处理队列')
   await loadDocumentJobs()
+  await loadOcrStates()
+}
+
+async function cancelDocument(file) {
+  const job = documentJobs.value[file.id]
+  if (!job) return
+  const result = await tauriCallSafe('cancel_document_job', { jobId: job.id })
+  if (!result.ok) ElMessage.error(result.error || '取消失败')
+  await loadDocumentJobs()
+  await loadOcrStates()
 }
 
 async function viewOcrText(file) {
@@ -305,7 +304,19 @@ onMounted(() => {
   loadCase()
   loadFiles()
   loadDocumentEngine()
-  documentPollTimer = window.setInterval(loadDocumentJobs, 3000)
+  let polling = false
+  documentPollTimer = window.setInterval(async () => {
+    if (polling) return
+    polling = true
+    try {
+      const before = JSON.stringify(documentJobs.value)
+      await loadDocumentJobs()
+      await loadOcrStates()
+      if (before !== JSON.stringify(documentJobs.value)) await loadFiles()
+    } finally {
+      polling = false
+    }
+  }, 3000)
 })
 onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTimer) })
 </script>
@@ -393,7 +404,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
             :key="file.id"
             type="button"
             :class="['file-row', { selected: selectedFile?.id === file.id }]"
-            @click="selectedFile = file"
+            @click="selectFile(file)"
             @dblclick="openFile(file)"
           >
             <span :class="['file-mark', fileTone(file)]">{{ fileExtension(file).slice(0, 4) }}</span>
@@ -419,7 +430,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
         </div>
       </main>
 
-      <aside class="file-inspector">
+      <aside ref="fileInspector" class="file-inspector">
         <template v-if="selectedFile">
           <div class="inspector-preview">
             <span :class="['preview-mark', fileTone(selectedFile)]">{{ fileExtension(selectedFile).slice(0, 4) }}</span>
@@ -442,7 +453,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
           </div>
 
           <div v-if="isOcrCandidateFile(selectedFile)" class="inspector-section">
-            <span class="panel-kicker">文档智能 · OCR / PageIndex</span>
+            <span class="panel-kicker">文档识别</span>
             <div class="ocr-status-row">
               <span
                 v-if="ocrBadge(selectedFile)"
@@ -451,7 +462,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               >{{ ocrBadge(selectedFile).label }}</span>
               <span v-if="ocrStates[selectedFile.id]?.hasText" class="ocr-has-text">已提取文本</span>
             </div>
-            <p v-if="isPdf(selectedFile) && documentEngine && !documentEngine.available" class="ocr-engine-warning">
+            <p v-if="documentEngine && !documentEngine.available" class="ocr-engine-warning">
               引擎未就绪：{{ documentEngine.missing?.join('、') || documentEngine.error }}
             </p>
             <p v-if="documentJobs[selectedFile.id]?.errorMessage" class="ocr-engine-error">
@@ -469,8 +480,14 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
             <el-button
               v-if="isOcrCandidateFile(selectedFile)"
               :loading="!!ocrBusy[selectedFile.id]"
+              :disabled="['queued', 'running'].includes(documentJobs[selectedFile.id]?.status)"
               @click="ocrNow(selectedFile)"
-            >{{ isPdf(selectedFile) ? '生成可搜索 PDF' : '立即 OCR' }}</el-button>
+            >生成可搜索 PDF</el-button>
+            <el-button
+              v-if="['queued', 'running'].includes(documentJobs[selectedFile.id]?.status)"
+              :icon="Close"
+              @click="cancelDocument(selectedFile)"
+            >取消处理</el-button>
             <el-button
               v-if="documentJobs[selectedFile.id]?.searchablePdfPath"
               type="success"
@@ -478,7 +495,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               @click="openSearchablePdf(selectedFile)"
             >打开可搜索 PDF</el-button>
             <el-button
-              v-if="documentJobs[selectedFile.id]?.status === 'failed'"
+              v-if="['failed', 'cancelled'].includes(documentJobs[selectedFile.id]?.status)"
               type="warning"
               plain
               @click="retryDocument(selectedFile)"
@@ -502,7 +519,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
       </aside>
     </div>
     
-    <el-dialog v-model="ocrTextDialog" :title="`OCR 文本 · ${ocrTextTitle}`" width="640px">
+    <el-dialog v-model="ocrTextDialog" :title="`OCR 文本 · ${ocrTextTitle}`" width="min(640px, calc(100vw - 32px))">
       <pre class="ocr-text-view">{{ ocrTextContent }}</pre>
       <template #footer>
         <el-button @click="ocrTextDialog = false">关闭</el-button>
@@ -637,6 +654,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
   font-size: 10px; line-height: 1.55; overflow-wrap: anywhere;
 }
 .inspector-actions { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 16px; }
+.inspector-actions :deep(.el-button + .el-button) { margin-left: 0; }
 
 /* W5 · OCR 状态徽标与文本查看 */
 .ocr-badge {
@@ -669,18 +687,19 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
 
 @media (max-width: 1120px) {
   .files-workbench { grid-template-columns: 190px minmax(330px, 1fr); }
-  .file-inspector { display: none; }
+  .file-inspector { grid-column: 1 / -1; border-top: 1px solid var(--c-border); scroll-margin-top: 72px; }
+  .inspector-preview { min-height: 110px; padding: 16px; }
 }
 @media (max-width: 760px) {
   .case-files-view { padding: 18px 14px 24px; }
   .workspace-header { align-items: flex-start; flex-direction: column; }
-  .workspace-actions { width: 100%; }
-  .file-search { flex: 1; width: auto; }
+  .workspace-actions { width: 100%; flex-wrap: wrap; }
+  .file-search { flex: 1 1 calc(100% - 48px); width: auto; min-width: 0; }
   .files-workbench { display: block; min-height: auto; }
   .folder-panel { border-right: 0; border-bottom: 1px solid var(--c-border); }
   .folder-list { display: flex; overflow-x: auto; }
   .folder-item { flex: 0 0 auto; width: auto; }
   .folder-note { display: none; }
-  .file-index { min-height: 460px; }
+  .file-index { min-height: 160px; border-right: 0; }
 }
 </style>
