@@ -335,6 +335,9 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         crate::ai::get_ai_usage,
         crate::ai::generate_writing_suggestion,
         crate::ai::ai_chat,
+        crate::ai::profiles::get_ai_profiles,
+        crate::ai::profiles::save_ai_profiles,
+        crate::ai::profiles::test_ai_profile,
         // 设置命令
         settings::get_settings,
         settings::save_settings,

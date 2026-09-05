@@ -12,6 +12,7 @@ pub mod gateway;
 pub mod insights;
 pub mod learning;
 pub mod page_index;
+pub mod profiles;
 pub mod recommender;
 pub mod recursive_check;
 pub mod reports;
@@ -292,6 +293,17 @@ pub fn load_ai_config() -> AiConfig {
         Err(_) => return AiConfig::default(),
     };
 
+    if crate::db::get_setting(&conn, "ai_profiles_v1")
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return profiles::resolve(&conn, None).unwrap_or_else(|e| {
+            log::error!("无法加载 AI 配置: {e}");
+            AiConfig::default()
+        });
+    }
+
     let get = |key: &str| -> Option<String> {
         conn.query_row(
             "SELECT value FROM settings WHERE key = ?1",
@@ -316,45 +328,34 @@ pub fn load_ai_config() -> AiConfig {
 
 /// 保存 AI 配置到 settings 表
 pub fn save_ai_config(config: &AiConfig) -> Result<()> {
-    let conn = crate::db::open_db()?;
-
-    let set = |key: &str, val: &Option<String>| -> Result<()> {
-        if let Some(v) = val {
-            conn.execute(
-                "INSERT INTO settings (key, value) VALUES (?1, ?2)
-                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                rusqlite::params![key, v],
-            )?;
-        } else {
-            conn.execute(
-                "DELETE FROM settings WHERE key = ?1",
-                rusqlite::params![key],
-            )?;
-        }
-        Ok(())
-    };
-
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('ai_mode', ?1)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        rusqlite::params![config.mode],
-    )?;
-    set("ai_api_url", &config.api_url)?;
-    set("ai_api_key", &config.api_key)?;
-    set("ai_model", &config.model)?;
-
-    // 保存每日限额
-    let daily_limit = config.daily_limit.unwrap_or(50).to_string();
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('ai_daily_limit', ?1)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        rusqlite::params![daily_limit],
-    )?;
-
-    // 更新全局 TokenBudget 限额
-    let budget = get_token_budget();
-    budget.set_daily_limit(config.daily_limit.unwrap_or(50) as u64);
-
+    let mut conn = crate::db::open_db()?;
+    let mut collection = profiles::read(&conn)?;
+    collection.daily_limit = config.daily_limit.unwrap_or(50);
+    if matches!(config.mode.as_str(), "none" | "noop") {
+        collection.active_id = None;
+    } else {
+        let id = collection
+            .active_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let previous = collection.profiles.iter().find(|p| p.id == id);
+        let profile = profiles::AiProfile {
+            id: id.clone(),
+            name: previous
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "默认配置".into()),
+            mode: config.mode.clone(),
+            api_url: config.api_url.clone().unwrap_or_default(),
+            model: config.model.clone().unwrap_or_default(),
+            api_key: config.api_key.clone(),
+            has_api_key: false,
+        };
+        collection.profiles.retain(|p| p.id != id);
+        collection.profiles.push(profile);
+        collection.active_id = Some(id);
+    }
+    profiles::save(&mut conn, collection)?;
+    get_token_budget().set_daily_limit(config.daily_limit.unwrap_or(50) as u64);
     Ok(())
 }
 
@@ -562,6 +563,7 @@ impl OllamaBackend {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("创建 HTTP client 失败");
 
@@ -591,12 +593,7 @@ impl OllamaBackend {
         }
 
         let result: serde_json::Value = resp.json().await?;
-        let content = result["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-
-        Ok(content)
+        response_content(&result, "ollama")
     }
 }
 
@@ -692,10 +689,7 @@ impl AiBackend for OllamaBackend {
             anyhow::bail!("Ollama API 错误: {}", resp.status());
         }
         let result: serde_json::Value = resp.json().await?;
-        Ok(result["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string())
+        response_content(&result, "ollama")
     }
 }
 
@@ -715,6 +709,7 @@ impl OpenAiBackend {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("创建 HTTP client 失败");
 
@@ -760,17 +755,14 @@ impl OpenAiBackend {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body_text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OpenAI API 错误 {}: {}", status, body_text);
+            anyhow::bail!(
+                "AI API 请求失败（HTTP {}），请检查接口、密钥、模型和配额",
+                status
+            );
         }
 
         let result: serde_json::Value = resp.json().await?;
-        let content = result["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-
-        Ok(content)
+        response_content(&result, "openai")
     }
 }
 
@@ -872,15 +864,14 @@ impl AiBackend for OpenAiBackend {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body_text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OpenAI API 错误 {}: {}", status, body_text);
+            anyhow::bail!(
+                "AI API 请求失败（HTTP {}），请检查接口、密钥、模型和配额",
+                status
+            );
         }
 
         let result: serde_json::Value = resp.json().await?;
-        Ok(result["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string())
+        response_content(&result, "openai")
     }
 }
 
@@ -890,6 +881,19 @@ impl AiBackend for OpenAiBackend {
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
+}
+
+fn response_content(result: &serde_json::Value, mode: &str) -> Result<String> {
+    let value = if mode == "ollama" {
+        &result["message"]["content"]
+    } else {
+        &result["choices"][0]["message"]["content"]
+    };
+    let content = value
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("API 返回空内容或不兼容的响应，请检查模型与接口协议"))?;
+    Ok(content.to_owned())
 }
 
 // ============================================================
@@ -1052,7 +1056,7 @@ pub async fn generate_writing_with_ai(
     style: &str,
 ) -> Result<String> {
     let config = load_ai_config();
-    let _backend = create_backend(&config);
+    let backend = create_backend(&config);
 
     let style_desc = style_description(style);
 
@@ -1090,85 +1094,7 @@ pub async fn generate_writing_with_ai(
     user_prompt.push_str("## 写作意图\n");
     user_prompt.push_str(intent);
 
-    // 根据 AI 后端模式直接调用 chat 接口生成写作建议
-    let result = match config.mode.as_str() {
-        "ollama" => {
-            let url = config
-                .api_url
-                .as_deref()
-                .unwrap_or("http://localhost:11434");
-            let model = config.model.as_deref().unwrap_or("qwen2.5:7b");
-            let client = reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(30))
-                .timeout(std::time::Duration::from_secs(120))
-                .build()?;
-            let body = serde_json::json!({
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "stream": false
-            });
-            let resp = client
-                .post(format!("{}/api/chat", url.trim_end_matches('/')))
-                .json(&body)
-                .send()
-                .await?;
-            if !resp.status().is_success() {
-                anyhow::bail!("Ollama API 错误: {}", resp.status());
-            }
-            let result: serde_json::Value = resp.json().await?;
-            result["message"]["content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string()
-        }
-        "openai" => {
-            let url = config
-                .api_url
-                .as_deref()
-                .unwrap_or("https://api.openai.com/v1");
-            let key = config.api_key.as_deref().unwrap_or("");
-            let model = config.model.as_deref().unwrap_or("gpt-4o-mini");
-            let client = reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(30))
-                .timeout(std::time::Duration::from_secs(120))
-                .build()?;
-            let body = serde_json::json!({
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 1000
-            });
-            let resp = client
-                .post(format!("{}/chat/completions", url.trim_end_matches('/')))
-                .header("Authorization", format!("Bearer {}", key))
-                .json(&body)
-                .send()
-                .await?;
-            if !resp.status().is_success() {
-                anyhow::bail!("OpenAI API 错误: {}", resp.status());
-            }
-            let result: serde_json::Value = resp.json().await?;
-            result["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string()
-        }
-        _ => {
-            // NoOp: 返回占位提示
-            return Ok(format!(
-                "【AI 写作辅助未配置】\n\n写作意图：{}\n\n请在设置中配置 AI 后端（Ollama 或 OpenAI）以使用此功能。",
-                intent
-            ));
-        }
-    };
-
-    Ok(result)
+    backend.chat_completion(&system_prompt, &user_prompt).await
 }
 
 // ============================================================
@@ -1198,25 +1124,31 @@ pub async fn configure_ai(
 #[tauri::command]
 pub async fn test_ai_connection() -> Result<String, String> {
     let config = load_ai_config();
+    if !matches!(config.mode.as_str(), "openai" | "ollama") {
+        return Err("请先配置 AI 接口和模型".into());
+    }
     let backend = create_backend(&config);
 
     let result = backend
-        .classify_document("测试文档：这是一份测试文件。")
+        .chat_completion("", "Reply with OK.")
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(format!(
-        "AI 连接成功。模式: {}, 测试分类: {} (置信度: {:.0}%)",
-        config.mode,
-        result.category,
-        result.confidence * 100.0
-    ))
+    if result.trim().is_empty() {
+        return Err("API 返回空内容".into());
+    }
+    Ok(format!("AI 连接成功。模式: {}", config.mode))
 }
 
 /// 获取当前 AI 配置
 #[tauri::command]
 pub async fn get_ai_config() -> Result<AiConfig, String> {
-    crate::commands::run_blocking(|| Ok(load_ai_config())).await
+    crate::commands::run_blocking(|| {
+        let mut config = profiles::resolve(&crate::db::open_db()?, None)?;
+        config.api_key = None;
+        Ok(config)
+    })
+    .await
 }
 
 /// 获取 AI 调用使用情况
@@ -1255,9 +1187,22 @@ pub async fn ai_chat(
     api_url: Option<String>,
     model: Option<String>,
     context_refs: Option<Vec<context_refs::ContextRef>>,
+    profile_id: Option<String>,
 ) -> Result<AiChatResult, String> {
     // @ 引用沙箱：先注入受控上下文，使 input_hash 覆盖模型实际可见内容（§11.9）
     let mut messages = messages;
+    let system_prompt = profiles::read(&crate::db::open_db().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?
+        .system_prompt;
+    if !system_prompt.trim().is_empty() {
+        messages.insert(
+            0,
+            ChatMessage {
+                role: "system".into(),
+                content: system_prompt,
+            },
+        );
+    }
     let mut used_refs: Vec<context_refs::UsedRef> = Vec::new();
     if let Some(refs) = context_refs {
         if !refs.is_empty() {
@@ -1290,18 +1235,28 @@ pub async fn ai_chat(
     }
 
     // 覆盖配置（不改写全局设置）
-    let mut config = load_ai_config();
+    let mut config = profiles::resolve(
+        &crate::db::open_db().map_err(|e| e.to_string())?,
+        profile_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     if let Some(m) = mode {
         if m == "noop" || m == "none" {
             return Err(
                 "未配置 AI 后端，请先在设置中配置（Ollama 或 OpenAI 兼容 API）".to_string(),
             );
         }
-        config.mode = m;
+        if config.mode != m {
+            return Err("接口协议与所选配置不一致，请重新选择 AI 配置".into());
+        }
     }
     if let Some(u) = api_url {
         if !u.trim().is_empty() {
-            config.api_url = Some(u);
+            if config.api_url.as_deref().map(|v| v.trim_end_matches('/'))
+                != Some(u.trim_end_matches('/'))
+            {
+                return Err("接口地址与所选配置不一致，请在设置中保存独立配置".into());
+            }
         }
     }
     if let Some(m) = model {

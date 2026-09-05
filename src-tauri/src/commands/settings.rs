@@ -18,6 +18,9 @@ pub async fn get_settings() -> Result<HashMap<String, serde_json::Value>, String
         let mut map = HashMap::new();
         for row in rows {
             let (key, value_str) = row?;
+            if key == "ai_api_key" || key == "ai_profiles_v1" {
+                continue;
+            }
             // 尝试解析为 JSON，失败则存为字符串
             let value: serde_json::Value =
                 serde_json::from_str(&value_str).unwrap_or(serde_json::Value::String(value_str));
@@ -34,6 +37,9 @@ pub async fn save_settings(settings: HashMap<String, serde_json::Value>) -> Resu
     run_blocking(move || {
         let conn = db::open_db()?;
         for (key, value) in &settings {
+            if key.starts_with("ai_") {
+                continue;
+            }
             let value_str = match value {
                 serde_json::Value::String(s) => s.clone(),
                 _ => serde_json::to_string(value).unwrap_or_default(),
