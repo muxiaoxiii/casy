@@ -5,7 +5,7 @@
 //!   - set_category: action_payload 写入 case_files.category（须为合法枚举）
 //!   - mark_urgent:  给案件写一条 urgent 通知（通知中心）
 //!   - add_keyword:  追加到 case_files.knowledge_keywords
-//! OCR 执行：系统存在 tesseract 时调用（诚实降级：不存在则标记 failed 并给出原因）。
+//! OCR 执行：提交持久文档队列，由本地 Rust 文档引擎处理。
 use rusqlite::params;
 use serde::Serialize;
 
@@ -288,135 +288,7 @@ pub async fn list_pending_ocr_files() -> Result<Vec<(String, String, String)>, S
     .await
 }
 
-// ============================================================
-// OCR 执行器（W5 · DEVONthink 式本地静默 OCR · 诚实降级）
-//
-// 外部依赖（全部本机探测，缺失时显式失败，绝不假成功）：
-//   - tesseract        : OCR 引擎本体（brew install tesseract）
-//                        中文识别另需 chi_sim 语言包（brew install tesseract-lang）
-//   - pdftoppm(poppler): 仅扫描件 PDF 需要，先转图片再识别（brew install poppler）
-// 图片文件（png/jpg/jpeg/tif/tiff/bmp/webp/gif）直接喂给 tesseract，无需 poppler。
-// ============================================================
-
-/// 探测外部命令是否可用（执行 --version / -v，退出码为 0 视为可用）
-fn tool_available(tool: &str, version_arg: &str) -> bool {
-    std::process::Command::new(tool)
-        .arg(version_arg)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// 读取 tesseract 已安装语言包列表
-fn tesseract_langs() -> Vec<String> {
-    let Ok(out) = std::process::Command::new("tesseract")
-        .arg("--list-langs")
-        .output()
-    else {
-        return Vec::new();
-    };
-    // 语言列表在 stdout，部分版本打到 stderr，两处都解析
-    let text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    text.lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && !l.starts_with("List of available languages"))
-        .collect()
-}
-
-/// 选择识别语言：优先 chi_sim+eng，缺中文包则诚实回退 eng（返回值附带是否含中文）
-fn pick_tess_lang() -> Option<(String, bool)> {
-    let langs = tesseract_langs();
-    if langs.is_empty() {
-        return None;
-    }
-    let has_chi = langs.iter().any(|l| l == "chi_sim");
-    let has_eng = langs.iter().any(|l| l == "eng");
-    let lang = match (has_chi, has_eng) {
-        (true, true) => "chi_sim+eng".to_string(),
-        (true, false) => "chi_sim".to_string(),
-        (false, true) => "eng".to_string(),
-        (false, false) => langs[0].clone(),
-    };
-    Some((lang, has_chi))
-}
-
-/// 带超时的子进程执行（防卡死：轮询 try_wait + 超时 kill；
-/// stdout/stderr 重定向到临时文件，避免管道缓冲写满导致的双向死锁）
-fn run_with_timeout(
-    cmd: &mut std::process::Command,
-    timeout_secs: u64,
-    tag: &str,
-) -> Result<(std::process::ExitStatus, String, String), String> {
-    let tmp = std::env::temp_dir();
-    let uniq = format!("casy_cmd_{}_{}", tag, db::new_id());
-    let out_path = tmp.join(format!("{uniq}.out"));
-    let err_path = tmp.join(format!("{uniq}.err"));
-    let out_file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
-    let err_file = std::fs::File::create(&err_path).map_err(|e| e.to_string())?;
-    let mut child = cmd
-        .stdout(std::process::Stdio::from(out_file))
-        .stderr(std::process::Stdio::from(err_file))
-        .spawn()
-        .map_err(|e| format!("子进程启动失败: {e}"))?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = std::fs::remove_file(&out_path);
-                    let _ = std::fs::remove_file(&err_path);
-                    return Err(format!("执行超过 {timeout_secs}s 超时，已终止"));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            Err(e) => {
-                let _ = std::fs::remove_file(&out_path);
-                let _ = std::fs::remove_file(&err_path);
-                return Err(format!("子进程等待失败: {e}"));
-            }
-        }
-    };
-    let stdout = std::fs::read_to_string(&out_path).unwrap_or_default();
-    let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&out_path);
-    let _ = std::fs::remove_file(&err_path);
-    Ok((status, stdout, stderr))
-}
-
-/// 对单张图片执行 tesseract，成功返回识别文本（120s 超时保护）
-fn run_tesseract(image: &std::path::Path, lang: &str) -> Result<String, String> {
-    let (status, stdout, stderr) = run_with_timeout(
-        std::process::Command::new("tesseract")
-            .arg(image.as_os_str())
-            .arg("stdout")
-            .arg("-l")
-            .arg(lang),
-        120,
-        "tess",
-    )?;
-    if !status.success() {
-        return Err(format!("tesseract 识别失败: {}", stderr.trim()));
-    }
-    Ok(stdout)
-}
-
-fn set_ocr_status(file_id: &str, status: &str) -> anyhow::Result<()> {
-    let conn = db::open_db()?;
-    conn.execute(
-        "UPDATE case_files SET ocr_status = ?2, updated_at = datetime('now','localtime') WHERE id = ?1",
-        params![file_id, status],
-    )?;
-    Ok(())
-}
+// OCR entry points share the durable, single-worker document queue.
 
 /// 是否 OCR 候选文件（pdf / 常见图片）
 fn is_ocr_candidate(file_name: &str, file_type: Option<&str>) -> bool {
@@ -446,186 +318,61 @@ pub fn auto_rules_on_register(file_id: &str, file_name: &str, file_type: Option<
     }
 }
 
-/// 单文件 OCR 主流程（run_blocking 内执行；返回中文状态说明，失败路径同步落库 failed）
-fn ocr_case_file_inner(file_id: &str) -> anyhow::Result<String> {
-    let (file_name, file_path, file_type): (String, String, Option<String>) = {
-        let conn = db::open_db()?;
-        conn.query_row(
-            "SELECT file_name, file_path, file_type FROM case_files WHERE id = ?1",
-            params![file_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .map_err(|_| anyhow::anyhow!("文件不存在: {file_id}"))?
-    };
-
-    if !is_ocr_candidate(&file_name, file_type.as_deref()) {
-        set_ocr_status(file_id, "failed")?;
-        return Ok(format!(
-            "「{file_name}」类型不支持 OCR（仅支持 PDF 与常见图片）"
-        ));
-    }
-
-    // 诚实降级第一关：tesseract 本体
-    if !tool_available("tesseract", "--version") {
-        set_ocr_status(file_id, "failed")?;
-        return Ok("未检测到 tesseract，可通过 brew install tesseract 安装".to_string());
-    }
-
-    set_ocr_status(file_id, "processing")?;
-
-    let path = std::path::PathBuf::from(&file_path);
-    if !path.is_file() {
-        set_ocr_status(file_id, "failed")?;
-        return Ok(format!(
-            "源文件不存在或不可读: {file_name}（请检查卷宗目录）"
-        ));
-    }
-
-    let (lang, has_chi) =
-        pick_tess_lang().ok_or_else(|| anyhow::anyhow!("tesseract 无可用语言包"))?;
-    let lang_note = if has_chi {
-        String::new()
-    } else {
-        "（未安装 chi_sim 中文语言包，已回退英文识别；可 brew install tesseract-lang 补齐）"
-            .to_string()
-    };
-
-    let is_pdf = file_type
-        .as_deref()
-        .map(|t| t.eq_ignore_ascii_case("pdf"))
-        .unwrap_or(false)
-        || path
-            .extension()
-            .map(|e| e.to_string_lossy().eq_ignore_ascii_case("pdf"))
-            .unwrap_or(false);
-
-    let text_result: Result<String, String> = if is_pdf {
-        // 诚实降级第二关：pdftoppm（poppler）
-        if !tool_available("pdftoppm", "-v") {
-            Err("未检测到 pdftoppm（poppler），可通过 brew install poppler 安装".to_string())
-        } else {
-            let tmp_dir = std::env::temp_dir().join(format!("casy_ocr_{file_id}"));
-            let r = (|| -> Result<String, String> {
-                std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("临时目录创建失败: {e}"))?;
-                let prefix = tmp_dir.join("page");
-                let (conv_status, _conv_out, conv_err) = run_with_timeout(
-                    std::process::Command::new("pdftoppm")
-                        .arg("-png")
-                        .arg("-r")
-                        .arg("200")
-                        .arg(path.as_os_str())
-                        .arg(prefix.as_os_str()),
-                    180,
-                    "pdftoppm",
-                )?;
-                if !conv_status.success() {
-                    return Err(format!("PDF 转图片失败: {}", conv_err.trim()));
-                }
-                let mut pages: Vec<std::path::PathBuf> = std::fs::read_dir(&tmp_dir)
-                    .map_err(|e| e.to_string())?
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| {
-                        p.extension().map(|x| x == "png").unwrap_or(false)
-                            && p.file_name()
-                                .map(|n| n.to_string_lossy().starts_with("page"))
-                                .unwrap_or(false)
-                    })
-                    .collect();
-                pages.sort();
-                if pages.is_empty() {
-                    return Err("PDF 转图片未产生任何页面".to_string());
-                }
-                let mut buf = String::new();
-                for page in &pages {
-                    match run_tesseract(page, &lang) {
-                        Ok(t) => {
-                            buf.push_str(&t);
-                            buf.push('\n');
-                        }
-                        Err(e) => return Err(format!("第 {:?} 页识别失败: {e}", page.file_name())),
-                    }
-                }
-                Ok(buf)
-            })();
-            let _ = std::fs::remove_dir_all(&tmp_dir); // 清理临时图片
-            r
-        }
-    } else {
-        run_tesseract(&path, &lang)
-    };
-
-    match text_result {
-        Ok(text) => {
-            let trimmed = text.trim().to_string();
-            let conn = db::open_db()?;
-            conn.execute(
-                "UPDATE case_files SET ocr_text = ?2, ocr_status = 'completed',
-                 updated_at = datetime('now','localtime') WHERE id = ?1",
-                params![file_id, trimmed],
-            )?;
-            drop(conn);
-            // OCR 完成后让 ocr_text 类规则生效
-            let rule_note = match apply_rules_inner(file_id) {
-                Ok(res) if !res.matched_rules.is_empty() => {
-                    format!("，命中 {} 条规则并已执行", res.matched_rules.len())
-                }
-                Ok(_) => String::new(),
-                Err(e) => {
-                    log::warn!("apply rules after ocr failed for {file_id}: {e}");
-                    "（规则执行失败，详见日志）".to_string()
-                }
-            };
-            if trimmed.is_empty() {
-                Ok(format!(
-                    "OCR 完成，但未识别出文字（可能为空白或低清扫描件）{lang_note}{rule_note}"
-                ))
-            } else {
-                Ok(format!(
-                    "OCR 完成，识别 {} 个字符{lang_note}{rule_note}",
-                    trimmed.chars().count()
-                ))
-            }
-        }
-        Err(msg) => {
-            set_ocr_status(file_id, "failed")?;
-            Ok(msg)
-        }
-    }
-}
-
-/// 对单个文件执行本地 OCR（PDF 走 pdftoppm 转图，图片直接识别）
 #[tauri::command]
 pub async fn ocr_case_file(file_id: String) -> Result<String, String> {
-    run_blocking(move || ocr_case_file_inner(&file_id)).await
+    let job = super::document_intelligence::queue_document_processing(file_id).await?;
+    Ok(if job.status == "completed" {
+        "OCR 完成，已复用本地识别结果".into()
+    } else {
+        "已加入本地文档处理队列".into()
+    })
 }
 
-/// 批量 OCR 全部待识别文件（单文件失败不影响其他；返回实际处理数）
+/// Return newly queued files; failed and cancelled jobs require an explicit retry.
 #[tauri::command]
 pub async fn ocr_all_pending() -> Result<i64, String> {
     run_blocking(|| {
-        let ids: Vec<String> = {
-            let conn = db::open_db()?;
+        let conn = db::open_db()?;
+        let candidates = {
             let mut stmt = conn.prepare(
-                "SELECT id FROM case_files
-                 WHERE ocr_status = 'pending' AND (file_type LIKE '%pdf%' OR file_name LIKE '%.pdf'
-                       OR file_name LIKE '%.png' OR file_name LIKE '%.jpg' OR file_name LIKE '%.jpeg')
-                 ORDER BY created_at ASC",
+                "SELECT id,file_name,file_type FROM case_files f
+                 WHERE ocr_status='pending' AND NOT EXISTS
+                 (SELECT 1 FROM document_processing_jobs j WHERE j.file_id=f.id)
+                 AND (lower(file_path) LIKE '%.pdf' OR lower(file_path) LIKE '%.png'
+                   OR lower(file_path) LIKE '%.jpg' OR lower(file_path) LIKE '%.jpeg'
+                   OR lower(file_path) LIKE '%.tif' OR lower(file_path) LIKE '%.tiff'
+                   OR lower(file_path) LIKE '%.bmp' OR lower(file_path) LIKE '%.webp'
+                   OR lower(file_path) LIKE '%.gif')
+                 ORDER BY created_at LIMIT 32",
             )?;
-            let rows = stmt.query_map([], |r| r.get(0))?;
-            rows.filter_map(|r| r.ok()).collect()
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
         };
-        let mut processed = 0i64;
-        for id in ids {
-            match ocr_case_file_inner(&id) {
-                Ok(_) => processed += 1,
-                Err(e) => {
-                    log::warn!("ocr_all_pending: {id} failed: {e}");
-                    let _ = set_ocr_status(&id, "failed");
+        let mut queued = 0;
+        for (id, name, kind) in candidates {
+            if !is_ocr_candidate(&name, kind.as_deref()) {
+                continue;
+            }
+            match super::document_intelligence::queue_file(&mut db::open_db()?, &id) {
+                Ok(_) => queued += 1,
+                Err(error) => {
+                    conn.execute(
+                        "UPDATE case_files SET ocr_status='failed',ocr_error=?2 WHERE id=?1",
+                        params![id, error.to_string()],
+                    )?;
+                    log::warn!("auto OCR queue failed for {id}: {error}");
                 }
             }
         }
-        Ok(processed)
+        Ok(queued)
     })
     .await
 }

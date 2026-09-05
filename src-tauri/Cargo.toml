@@ -60,7 +60,6 @@ async-trait = "0.1"
 # pdfium-render = "0.8" # PDF 转图片 (Phase 3)
 
 # OCR（可选）
-rusty-tesseract = "1.1"
 
 # 系统回收站
 trash = "5"

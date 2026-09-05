@@ -107,7 +107,7 @@ fn build_nodes(pages: &[PageRecord]) -> Vec<IndexNode> {
 pub async fn build_page_index_tree(file_id: &str, _file_path: &str) -> Result<(), String> {
     let mut conn = crate::db::open_db().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let latest_job:String=tx.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY completed_at DESC LIMIT 1",[file_id],|row|row.get(0)).map_err(|_|"文档尚未完成 OCR/Page IR 处理".to_string())?;
+    let latest_job:String=tx.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY rowid DESC LIMIT 1",[file_id],|row|row.get(0)).map_err(|_|"文档尚未完成 OCR/Page IR 处理".to_string())?;
     let pages = {
         let mut stmt=tx.prepare("SELECT page_number,plain_text,markdown FROM document_pages WHERE job_id=?1 ORDER BY page_number").map_err(|e|e.to_string())?;
         let records = stmt
@@ -163,7 +163,7 @@ fn read_node_pages(
     if requested_end - requested_start + 1 > 20 {
         return Err("单次最多读取 20 页".into());
     }
-    let latest_job:String=conn.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY completed_at DESC LIMIT 1",[&file_id],|row|row.get(0)).map_err(|_|"找不到已完成的 Page IR".to_string())?;
+    let latest_job:String=conn.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY rowid DESC LIMIT 1",[&file_id],|row|row.get(0)).map_err(|_|"找不到已完成的 Page IR".to_string())?;
     let mut stmt=conn.prepare("SELECT page_number,plain_text,markdown FROM document_pages WHERE job_id=?1 AND page_number BETWEEN ?2 AND ?3 ORDER BY page_number").map_err(|e|e.to_string())?;
     let rows = stmt
         .query_map(
