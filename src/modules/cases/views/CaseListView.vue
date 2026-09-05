@@ -55,6 +55,7 @@ import {
 } from '@element-plus/icons-vue'
 import CaseFilterBar from '../components/CaseFilterBar.vue'
 import CaseWizard from '../components/CaseWizard.vue'
+import CaseAttributes from '../components/CaseAttributes.vue'
 import CaseImportDialog from '../components/CaseImportDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
 import {
@@ -123,31 +124,6 @@ const contextMenu = ref({
 })
 const fileCategories = FILE_CATEGORIES
 // 案件要素编辑表单
-const editingCaseFacts = ref({
-  caseName: '',
-  caseNo: '',
-  causeAction: '',
-  track: '',
-  caseLevel: '',
-  procedureType: '',
-  clientName: '',
-  ourRole: '',
-  opponentName: '',
-  opponentRole: '',
-  opponentFirm: '',
-  opponentAgent: '',
-  court: '',
-  judgePanel: '',
-  clerk: '',
-  patentName: '',
-  patentAppNo: '',
-  filingDate: '',
-  complaintReceivedDate: '',
-  trialDate: '',
-  verdictDate: '',
-  reliefDeadline: '',
-  caseResult: '',
-})
 const trackOptions = [
   { value: 'patent_invalidation', label: '专利无效宣告程序' },
   { value: 'civil_tort', label: '民事诉讼程序 (侵权/合同)' },
@@ -189,11 +165,22 @@ const selectedCase = computed(() => {
     || casesStore.cases[0]
     || null
 })
+const selectedThirdParties = computed(() => {
+  try { return JSON.parse(selectedCase.value?.thirdParties || '[]') } catch { return [] }
+})
 // 当前案件关联的任务列表 (活跃 + 已完成)
 const caseAllTasks = computed(() => {
-  if (!selectedCase.value) return []
-  return tasksStore.tasks.filter((t) => t.caseId === selectedCase.value.id)
+  return selectedTasks.value
 })
+const selectedTasks = ref([])
+let selectedTaskVersion = 0
+watch([() => selectedCase.value?.id, () => tasksStore.tasks], async ([caseId]) => {
+  const version = ++selectedTaskVersion
+  selectedTasks.value = []
+  if (!caseId) return
+  const result = await casyContext.tasks.list({caseId})
+  if (version === selectedTaskVersion && result.ok) selectedTasks.value = result.data || []
+}, {immediate:true,deep:true})
 // 当前案件的最近待办列表 (最近 4 项)
 const caseUpcomingTasks = computed(() => {
   return caseAllTasks.value.filter((t) => !t.completed).slice(0, 4)
@@ -211,12 +198,12 @@ const proceedingsList = computed(() => {
         id: 'proc-main',
         name: trackLabel(track),
         isStandard: true,
-        progress: 60,
-        statusLabel: item.caseStatus || '审理与举证阶段',
+        progress: null,
+        statusLabel: item.caseStatus || '未填写',
         colorVar: 'var(--c-primary)',
-        nodes: nodes.map((node, idx) => ({
+        nodes: nodes.map((node) => ({
           ...node,
-          state: idx < 2 ? 'completed' : idx === 2 ? 'current' : 'upcoming',
+          state: 'upcoming',
         })),
       },
     ]
@@ -227,17 +214,17 @@ const proceedingsList = computed(() => {
       id: 'proc-general',
       name: '业务推进计划 (通用流程)',
       isStandard: false,
-      progress: 45,
-      statusLabel: item.caseStatus || '推进中',
+      progress: null,
+      statusLabel: item.caseStatus || '未填写',
       colorVar: 'var(--c-primary)',
       nodes: [],
     },
   ]
 })
 const overallProgress = computed(() => {
-  const list = proceedingsList.value
-  if (!list.length) return 50
-  return Math.round(list.reduce((acc, p) => acc + p.progress, 0) / list.length)
+  const list = caseAllTasks.value
+  if (!list.length) return 0
+  return Math.round(list.filter(task => task.completed).length / list.length * 100)
 })
 /**
  * 聚合全景时间轴流 (本案全部事件、任务、发文、绝限、收文、备忘笔记)
@@ -252,8 +239,8 @@ const fullTimelineItems = computed(() => {
       id: `memo-${m.id}`,
       type: 'memo',
       title: m.title || '办案纪要与策略备忘',
-      date: m.date || m.createdAt || '2026-08-28',
-      time: m.time || '10:30',
+      date: m.date || m.createdAt || '',
+      time: m.time || '',
       content: m.content,
       tags: m.tags || ['办案笔记'],
       raw: m,
@@ -268,7 +255,7 @@ const fullTimelineItems = computed(() => {
       date: t.dueDate || t.deadline || '待排期',
       completed: Boolean(t.completed),
       priority: t.priority || 'medium',
-      content: t.description || `预计工时: ${t.estimatedMinutes || 30}分钟`,
+      content: t.description || (t.estimatedMinutes ? `预计工时: ${t.estimatedMinutes}分钟` : '未填写预估时长'),
       raw: t,
     })
   })
@@ -291,7 +278,7 @@ const fullTimelineItems = computed(() => {
       type: 'event',
       title: '案件正式受理立案',
       date: c.filingDate,
-      content: `案号: ${c.caseNo || '已登记'} · 受诉机构: ${c.court || '国家知识产权局'}`,
+      content: `案号: ${c.caseNo || '未填写'} · 受诉机构: ${c.court || '未填写'}`,
     })
   }
   if (c.reliefDeadline) {
@@ -309,7 +296,7 @@ const fullTimelineItems = computed(() => {
       type: 'event',
       title: '法庭开庭 / 口头审理',
       date: c.trialDate,
-      content: `合议组: ${c.judgePanel || '审判庭'} · 书记员: ${c.clerk || '陈助理'}`,
+      content: `合议组: ${c.judgePanel || '未填写'} · 书记员: ${c.clerk || '未填写'}`,
     })
   }
   // 5. 卷宗收发文
@@ -320,7 +307,7 @@ const fullTimelineItems = computed(() => {
       id: `file-${f.id}`,
       type: 'doc',
       title: isSummons ? `【收文】${f.fileName}` : isSubmitted ? `【发文】${f.fileName}` : `【存卷】${f.fileName}`,
-      date: f.createdAt ? f.createdAt.slice(0, 10) : '2026-08-28',
+      date: f.createdAt ? f.createdAt.slice(0, 10) : '',
       content: `大小: ${formatFileSize(f.fileSize)} · 分类: ${f.category || '卷宗材料'}`,
       raw: f,
     })
@@ -645,47 +632,14 @@ function openSelectedFiles() {
   router.push({ name: 'files', params: { caseId: selectedCase.value.id } })
 }
 function openEditOverviewModal() {
-  const c = selectedCase.value
-  if (!c) return
-  editingCaseFacts.value = {
-    caseName: c.caseName || '',
-    caseNo: c.caseNo || '',
-    causeAction: c.causeAction || '',
-    track: c.track || 'patent_invalidation',
-    caseLevel: c.caseLevel || '一审',
-    procedureType: c.procedureType || '普通',
-    clientName: c.clientName || '',
-    ourRole: c.ourRole || '原告/请求人',
-    opponentName: c.opponentName || '',
-    opponentRole: c.opponentRole || '被告/被请求人',
-    opponentFirm: c.opponentFirm || '',
-    opponentAgent: c.opponentAgent || '',
-    court: c.court || '',
-    judgePanel: c.judgePanel || '',
-    clerk: c.clerk || '',
-    patentName: c.patentName || '',
-    patentAppNo: c.patentAppNo || '',
-    filingDate: c.filingDate || '',
-    complaintReceivedDate: c.complaintReceivedDate || '',
-    trialDate: c.trialDate || '',
-    verdictDate: c.verdictDate || '',
-    reliefDeadline: c.reliefDeadline || '',
-    caseResult: c.caseResult || '',
-  }
-  showEditOverviewDialog.value = true
-}
-async function saveCaseFacts() {
-  if (!selectedCase.value) return
-  const result = await casyContext.cases.update(selectedCase.value.id, editingCaseFacts.value)
-  if (result.ok) {
-    ElMessage.success('案件要素与基本事实已更新')
-    showEditOverviewDialog.value = false
-    await casesStore.loadCases()
-  } else {
-    ElMessage.error(result.error || '保存失败')
-  }
+  if (selectedCase.value) showEditOverviewDialog.value = true
 }
 onMounted(async () => {
+  if (trackOptions.some(option => option.value === route.query.track)) {
+    casesStore.filter.track = route.query.track
+    casesStore.page = 1
+    showCaseFilters.value = true
+  }
   await Promise.all([
     casesStore.loadCases(),
     tasksStore.loadTasks(),
@@ -728,31 +682,15 @@ async function onPageChange(page) {
 }
 // 处理向导提交
 async function handleCreateCase(formData) {
-  const result = await casesStore.createCase({
-    caseName: formData.caseName,
-    clientName: formData.clientName,
-    opponentName: formData.opponentName,
-    track: formData.track,
-    caseLevel: formData.caseLevel,
-    causeAction: formData.causeAction,
-    court: formData.court,
-    caseNo: formData.caseNo,
-    amount: formData.caseAmount,
-    tags: '[]'
-  })
+  const result = await casesStore.createCase(formData)
   if (result.ok) {
-    ElMessage.success('案件已创建，正在初始化卷宗目录...')
-    
-    const dirs = ['01_起诉立案与材料', '02_证据材料与原件', '03_法庭庭审笔录', '04_裁判文书与决定', '05_客户往来与函件']
-    for (const d of dirs) {
-      await casyContext.files.createSubdir(result.data.id, null, d)
-    }
-    await casesStore.loadCases()
+    ElMessage.success('案件已创建')
     selectedCaseId.value = result.data.id
     loadCaseFiles()
   } else {
     ElMessage.error(result.error || '创建失败')
   }
+  return result
 }
 </script>
 <template>
@@ -771,8 +709,7 @@ async function handleCreateCase(formData) {
           </div>
         </template>
         <template v-else>
-          <span class="eyebrow-kicker">Matter Workspace</span>
-          <h1 class="page-main-title">Cases &amp; Matters</h1>
+          <h1 class="page-main-title">案件</h1>
         </template>
       </div>
       <div class="topbar-actions">
@@ -783,7 +720,7 @@ async function handleCreateCase(formData) {
             @click="showCaseFilters = !showCaseFilters"
           >
             <el-icon :size="16"><Filter /></el-icon>
-            <span>{{ showCaseFilters ? '收起筛选' : 'Filter' }}</span>
+            <span>{{ showCaseFilters ? '收起筛选' : '筛选' }}</span>
           </button>
           <button class="btn-action-import" @click="showExcelImportDialog = true" title="从 Excel / 飞书多维表格批量导入案件">
             <el-icon :size="15"><Upload /></el-icon>
@@ -791,7 +728,7 @@ async function handleCreateCase(formData) {
           </button>
           <button class="btn-action-primary" @click="showCaseWizard = true">
             <el-icon :size="16"><Plus /></el-icon>
-            <span>New Matter</span>
+            <span>新建案件</span>
           </button>
         </template>
         <template v-else>
@@ -825,7 +762,8 @@ async function handleCreateCase(formData) {
           <input
             :value="casesStore.filter.search"
             class="input-clean"
-            placeholder="Search active cases..."
+            placeholder="搜索案件"
+            aria-label="搜索案件"
             @input="(e) => { casesStore.filter.search = e.target.value; onSearch() }"
           />
         </div>
@@ -851,7 +789,7 @@ async function handleCreateCase(formData) {
               <div class="card-meta-line">
                 <span v-if="item.internalNo || item.caseNo" class="mono-case-code">{{ item.internalNo || item.caseNo }}</span>
                 <span :class="['case-status-badge', statusBadgeClass(item.caseStatus)]">
-                  {{ item.caseStatus || 'In Progress' }}
+                  {{ item.caseStatus || '未填写' }}
                 </span>
               </div>
               <strong class="case-card-title">{{ item.caseName }}</strong>
@@ -889,8 +827,8 @@ async function handleCreateCase(formData) {
                 />
               </svg>
               <div class="ring-center-content">
-                <span class="ring-stage-num">{{ overallProgress }}%</span>
-                <span class="ring-stage-label">Progress</span>
+                <span class="ring-stage-num">{{ caseAllTasks.length ? `${overallProgress}%` : '-' }}</span>
+                <span class="ring-stage-label">任务完成</span>
               </div>
             </div>
             <!-- 案件名称与标识 -->
@@ -901,14 +839,14 @@ async function handleCreateCase(formData) {
               </div>
               <h2 class="matter-main-name">{{ selectedCase.caseName }}</h2>
               <p class="matter-meta-lead">
-                <span v-if="selectedCase.clientName">Client: {{ selectedCase.clientName }} • </span>Type: {{ trackLabel(selectedCase.track) }}
+                <span v-if="selectedCase.clientName">客户：{{ selectedCase.clientName }} · </span>{{ trackLabel(selectedCase.track) }}
               </p>
             </div>
           </div>
           <!-- 右侧 Next Actions 待办列表卡片 -->
           <div class="summary-next-actions-card">
             <div class="action-card-top">
-              <span class="label-next-act">Next Actions · 近期待办</span>
+              <span class="label-next-act">近期待办</span>
               <span class="mono-due-act">{{ caseUpcomingTasks.length }} 项待处理</span>
             </div>
             <div class="upcoming-tasks-stream">
@@ -1018,7 +956,7 @@ async function handleCreateCase(formData) {
               <div class="facts-grid-three">
                 <div class="fact-item-card">
                   <span class="fact-lbl">案由 (Cause of Action)</span>
-                  <strong class="fact-val">{{ selectedCase.causeAction || '专利权无效宣告纠纷' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.causeAction || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">程序分类 (Category)</span>
@@ -1026,11 +964,11 @@ async function handleCreateCase(formData) {
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">审级 / 阶段 (Level)</span>
-                  <strong class="fact-val">{{ selectedCase.caseLevel || '一审 / 行政裁决阶段' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.caseLevel || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">适用程序 (Procedure)</span>
-                  <strong class="fact-val">{{ selectedCase.procedureType || '普通程序 / 专案合议' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.procedureType || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">案号 / 官方公文字号</span>
@@ -1038,7 +976,7 @@ async function handleCreateCase(formData) {
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">我方代理律师 (Attorneys)</span>
-                  <strong class="fact-val">{{ Array.isArray(selectedCase.attorneys) && selectedCase.attorneys.length ? selectedCase.attorneys.join('、') : '王律师 (主办代理)' }}</strong>
+                  <strong class="fact-val">{{ Array.isArray(selectedCase.attorneys) && selectedCase.attorneys.length ? selectedCase.attorneys.join('、') : '未填写' }}</strong>
                 </div>
               </div>
             </div>
@@ -1051,16 +989,21 @@ async function handleCreateCase(formData) {
               <div class="facts-grid-two">
                 <div class="fact-item-card highlight-client">
                   <span class="fact-lbl">我方客户 (委托人)</span>
-                  <strong class="fact-val text-primary">{{ selectedCase.clientName || '委托客户' }}</strong>
-                  <small class="fact-sub-txt">诉讼地位: {{ selectedCase.ourRole || '原告 / 无效宣告请求人' }}</small>
+                  <strong class="fact-val text-primary">{{ selectedCase.clientName || '未填写' }}</strong>
+                  <small class="fact-sub-txt">诉讼地位: {{ selectedCase.ourRole || '未填写' }}</small>
                 </div>
                 <div class="fact-item-card highlight-opponent">
                   <span class="fact-lbl">对方当事人 (相对人)</span>
                   <strong class="fact-val">{{ selectedCase.opponentName || '未登记对方当事人' }}</strong>
                   <small class="fact-sub-txt">
-                    地位: {{ selectedCase.opponentRole || '被告 / 专利权人' }}
+                    地位: {{ selectedCase.opponentRole || '未填写' }}
                     <span v-if="selectedCase.opponentFirm"> · 代理律所: {{ selectedCase.opponentFirm }}</span>
                   </small>
+                </div>
+                <div v-for="(party,index) in selectedThirdParties" :key="index" class="fact-item-card">
+                  <span class="fact-lbl">第三人 {{ index + 1 }}</span>
+                  <strong class="fact-val">{{ party.name }}</strong>
+                  <small class="fact-sub-txt">{{ [party.role,party.agent,party.firm,party.contact].filter(Boolean).join(' · ') }}</small>
                 </div>
               </div>
             </div>
@@ -1073,15 +1016,15 @@ async function handleCreateCase(formData) {
               <div class="facts-grid-three">
                 <div class="fact-item-card">
                   <span class="fact-lbl">受理机构 / 法院</span>
-                  <strong class="fact-val">{{ selectedCase.court || '国家知识产权局复审和无效审理部' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.court || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">合议组 / 审判长</span>
-                  <strong class="fact-val">{{ selectedCase.judgePanel || '合议组审理 (主审审查员已指定)' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.judgePanel || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">法官助理 / 书记员联系</span>
-                  <strong class="fact-val">{{ selectedCase.clerk || '陈助理 (庭室电话在卷)' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.clerk || '未填写' }}</strong>
                 </div>
               </div>
             </div>
@@ -1094,11 +1037,11 @@ async function handleCreateCase(formData) {
               <div class="facts-grid-two">
                 <div class="fact-item-card">
                   <span class="fact-lbl">涉案标的 / 专利名称</span>
-                  <strong class="fact-val">{{ selectedCase.patentName || '一种高吞吐量分布式数据同步装置及方法' }}</strong>
+                  <strong class="fact-val">{{ selectedCase.patentName || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">专利号 / 申请号</span>
-                  <strong class="fact-val mono">{{ selectedCase.patentAppNo || 'ZL202110889234.X' }}</strong>
+                  <strong class="fact-val mono">{{ selectedCase.patentAppNo || '未填写' }}</strong>
                 </div>
               </div>
             </div>
@@ -1111,19 +1054,19 @@ async function handleCreateCase(formData) {
               <div class="facts-grid-four">
                 <div class="fact-item-card">
                   <span class="fact-lbl">立案 / 受理日期</span>
-                  <strong class="fact-val mono">{{ selectedCase.filingDate || '2024-03-12' }}</strong>
+                  <strong class="fact-val mono">{{ selectedCase.filingDate || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">举证 / 答辩期限</span>
-                  <strong class="fact-val mono text-risk">{{ selectedCase.reliefDeadline || '2026-09-15' }}</strong>
+                  <strong class="fact-val mono" :class="{ 'text-risk': selectedCase.reliefDeadline }">{{ selectedCase.reliefDeadline || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">开庭 / 口审日期</span>
-                  <strong class="fact-val mono">{{ selectedCase.trialDate || '2026-09-28' }}</strong>
+                  <strong class="fact-val mono">{{ selectedCase.trialDate || '未填写' }}</strong>
                 </div>
                 <div class="fact-item-card">
                   <span class="fact-lbl">裁判作出 / 结案日</span>
-                  <strong class="fact-val mono">{{ selectedCase.verdictDate || '审理中' }}</strong>
+                  <strong class="fact-val mono">{{ selectedCase.verdictDate || '未填写' }}</strong>
                 </div>
               </div>
             </div>
@@ -1347,10 +1290,7 @@ async function handleCreateCase(formData) {
                   <strong class="proc-title">{{ proc.name }}</strong>
                   <span class="proc-status-tag">{{ proc.statusLabel }}</span>
                 </div>
-                <span class="proc-pct-num">{{ proc.progress }}% 完成</span>
-              </div>
-              <div class="proc-bar-bg">
-                <div class="proc-bar-fill" :style="{ width: `${proc.progress}%`, backgroundColor: proc.colorVar }" />
+                <span class="proc-pct-num">节点尚未确认</span>
               </div>
               <div v-if="proc.isStandard && proc.nodes.length" class="standard-nodes-flow">
                 <div
@@ -1582,88 +1522,11 @@ async function handleCreateCase(formData) {
       </div>
     </transition>
     <!-- ═══ 编辑案件要素弹窗 ═══ -->
-    <el-dialog v-model="showEditOverviewDialog" title="编辑案件要素与全量事实" width="640px">
-      <div class="edit-facts-dialog-body">
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>案件名称</label>
-            <input v-model="editingCaseFacts.caseName" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>案号 / 字号</label>
-            <input v-model="editingCaseFacts.caseNo" class="dialog-native-input" />
-          </div>
-        </div>
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>案由</label>
-            <input v-model="editingCaseFacts.causeAction" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>审级阶段</label>
-            <input v-model="editingCaseFacts.caseLevel" class="dialog-native-input" placeholder="如 一审 / 二审 / 再审" />
-          </div>
-        </div>
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>我方客户</label>
-            <input v-model="editingCaseFacts.clientName" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>我方诉讼地位</label>
-            <input v-model="editingCaseFacts.ourRole" class="dialog-native-input" placeholder="如 原告 / 请求人" />
-          </div>
-        </div>
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>对方当事人</label>
-            <input v-model="editingCaseFacts.opponentName" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>对方代理机构 / 律师</label>
-            <input v-model="editingCaseFacts.opponentFirm" class="dialog-native-input" />
-          </div>
-        </div>
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>受理机构 / 法院</label>
-            <input v-model="editingCaseFacts.court" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>合议组 / 主审审查员</label>
-            <input v-model="editingCaseFacts.judgePanel" class="dialog-native-input" />
-          </div>
-        </div>
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>涉案专利 / 标的名称</label>
-            <input v-model="editingCaseFacts.patentName" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>专利号 / 标的代码</label>
-            <input v-model="editingCaseFacts.patentAppNo" class="dialog-native-input" />
-          </div>
-        </div>
-        <div class="form-row-two">
-          <div class="form-field-item">
-            <label>立案日期</label>
-            <input v-model="editingCaseFacts.filingDate" type="date" class="dialog-native-input" />
-          </div>
-          <div class="form-field-item">
-            <label>举证 / 答辩截止期</label>
-            <input v-model="editingCaseFacts.reliefDeadline" type="date" class="dialog-native-input" />
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <div class="modal-footer-actions">
-          <button class="btn-cancel" @click="showEditOverviewDialog = false">取消</button>
-          <button class="btn-submit-primary" @click="saveCaseFacts">保存修改</button>
-        </div>
-      </template>
+    <el-dialog v-model="showEditOverviewDialog" title="编辑案件要素" width="min(820px, calc(100vw - 24px))" destroy-on-close :close-on-click-modal="false">
+      <CaseAttributes v-if="selectedCase" :case-data="selectedCase" initially-editing @saved="showEditOverviewDialog = false; casesStore.loadCases()" />
     </el-dialog>
     <!-- ═══ 新建案件向导 (Sprint 2) ═══ -->
-    <CaseWizard v-model="showCaseWizard" @create="handleCreateCase" />
+    <CaseWizard v-model="showCaseWizard" :submit="handleCreateCase" />
     <!-- ═══ Excel 案件批量导入向导 ═══ -->
     <CaseImportDialog v-model="showExcelImportDialog" @imported="casesStore.loadCases" />
   </div>

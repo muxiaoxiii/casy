@@ -189,7 +189,7 @@ export const useCasesStore = defineStore('cases', {
     async loadStats(): Promise<void> {
       const result = await casyContext.cases.stats()
       if (result.ok && result.data) {
-        this.stats = result.data as CaseStats
+        this.stats = result.data
       }
     },
 

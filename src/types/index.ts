@@ -49,8 +49,10 @@ export type CaseRoute =
   | '专利无效'
   | '行政诉讼'
   | '民事诉讼+专利无效'
+  | '民事诉讼+行政诉讼'
   | '专利无效+行政诉讼'
   | '三轨并行'
+  | '其他'
 
 /** 聚合状态（向后兼容） */
 export type CaseStatus = '已完结' | '进行中' | '未知'
@@ -81,6 +83,15 @@ export type StatusChangeSource = 'manual' | 'auto' | 'ai'
 
 /** 案件主实体 */
 export interface Case {
+  thirdParties?: string
+  caseAmount?: string
+  legalFees?: string
+  feePayment?: string
+  claims?: string
+  jurisdictionObjection?: string
+  externalCaseNo?: string
+  defenseDeadline?: string
+  estimatedTrialEnd?: string
   // 基本信息
   id: string
   caseName: string
@@ -106,6 +117,7 @@ export interface Case {
   caseStatus: CaseStatus     // 聚合状态（向后兼容）
   caseProgress: string
   caseResult: string
+  caseGoal?: string | null
 
   // 双轨状态机（新增）
   caseRoute: CaseRoute
@@ -171,16 +183,7 @@ export interface Case {
 }
 
 /** 创建案件的输入（必填字段） */
-export interface CreateCaseInput {
-  caseName: string
-  clientName: string
-  opponentName?: string
-  track?: TrackType
-  causeAction?: string
-  court?: string
-  caseNo?: string
-  caseRoute?: CaseRoute
-}
+export type CreateCaseInput = import('./ipc').CreateCasePayload
 
 /** 更新案件的输入（所有字段可选） */
 export type UpdateCaseInput = Partial<Omit<Case, 'id' | 'createdAt' | 'updatedAt'>>
@@ -495,6 +498,8 @@ export const CASE_ROUTE_LABELS: Record<CaseRoute, string> = {
   '专利无效': '专利无效',
   '行政诉讼': '行政诉讼',
   '民事诉讼+专利无效': '诉讼+无效',
+  '民事诉讼+行政诉讼': '诉讼+行政诉讼',
   '专利无效+行政诉讼': '无效+行政诉讼',
   '三轨并行': '三轨并行',
+  '其他': '仲裁 / 非诉 / 其他',
 }

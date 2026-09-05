@@ -1,11 +1,37 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import { normalizeCase, normalizeCaseList, normalizeCaseInput } from '../caseNormalize'
-import type { Case, CaseListResponse } from '../../types'
+import type { Case, CaseListResponse, CaseStats as BusinessCaseStats } from '../../types'
+import type { CasePatchInput, CreateCasePayload } from '../../types/ipc'
 // list_cases 后端返回 { items,total,page,perPage }，业务类型已补 page/perPage（见 src/types/index.ts
 // CaseListResponse）。filter 沿用 bindings.CaseFilter（含 page/perPage，供前端分页透传）。
 import type { CaseFilter as BindingsCaseFilter } from '../../types/bindings'
+import type { CommandMap } from '../../types/commandMap'
 import type { AiAuthCtx } from './tasks'
+
+type WireCaseStats = CommandMap['case_stats']['result']
+type TodayStats = CommandMap['get_today_stats']['result']
+type CaseTypeMetrics = CommandMap['get_case_type_metrics']['result']
+type TimelineEvent = CommandMap['get_case_timeline']['result'][number]
+type RelatedCase = CommandMap['get_relations']['result'][number]
+type CaseRelation = CommandMap['add_relation']['result']
+type SheetInfo = CommandMap['excel_get_sheets']['result'][number]
+type ExcelInspectResult = CommandMap['excel_inspect_sheet']['result']
+type FeishuConfigStatus = CommandMap['feishu_check_config']['result']
+type FeishuInspectResult = CommandMap['feishu_inspect_bitable']['result']
+type CaseImportReport = CommandMap['excel_import_cases']['result']
+type SubtableImportReport = CommandMap['excel_import_subtable']['result']
+type Hearing = CommandMap['list_case_hearings']['result'][number]
+
+function normalizeCaseStats(stats: WireCaseStats): BusinessCaseStats {
+  return {
+    total: stats.total,
+    active: stats.active,
+    closed: stats.closed,
+    byTrack: stats.byTrack.map(([track, count]) => ({ track, count })),
+    byClient: stats.byClient.map(([client, count]) => ({ client, count })),
+  }
+}
 
 /** 案件服务：ctx.cases（数据通路：视图 → 服务 → tauriBridge → Rust 命令） */
 export class CasesService extends Service {
@@ -28,7 +54,7 @@ export class CasesService extends Service {
     return result
   }
 
-  async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: Case; error?: string }> {
+  async create(data: CreateCasePayload): Promise<{ ok: boolean; data?: Case; error?: string }> {
     const result = await tauriCallSafe('create_case', { data: normalizeCaseInput(data) })
     // K-3①：领域事件由 service 层统一发出——人与 AI 触发同一事件流
     if (result.ok) {
@@ -39,7 +65,7 @@ export class CasesService extends Service {
     return result
   }
 
-  async update(id: string, data: Record<string, unknown>, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; data?: Case; error?: string }> {
+  async update(id: string, data: CasePatchInput, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; data?: Case; error?: string }> {
     // AI 网关授权信息随 data 透传（后端 update_case 从 data 内读取 origin/proposalToken）
     const payload = aiAuth ? { ...data, ...aiAuth } : data
     const result = await tauriCallSafe('update_case', { id, data: normalizeCaseInput(payload) })
@@ -67,27 +93,31 @@ export class CasesService extends Service {
     return result
   }
   
-  async stats(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe('case_stats', {})
+  async stats(): Promise<{ ok: boolean; data?: BusinessCaseStats; error?: string }> {
+    const result = await tauriCallSafe('case_stats', {})
+    if (result.ok && result.data) {
+      return { ...result, data: normalizeCaseStats(result.data) }
+    }
+    return { ok: false, error: result.error }
   }
 
   /** 导出案件（CSV，保存到下载目录，返回文件路径） */
-  async exportCases(format: string, filter: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: string; error?: string }> {
+  async exportCases(format: string, filter: Partial<BindingsCaseFilter> = {}): Promise<{ ok: boolean; data?: string; error?: string }> {
     return tauriCallSafe('export_cases', { format, filter })
   }
 
   /** 今日面板统计（硬性日程/今日到期/等待超时/需回顾） */
-  async todayStats(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async todayStats(): Promise<{ ok: boolean; data?: TodayStats; error?: string }> {
     return tauriCallSafe('get_today_stats', {})
   }
 
   /** 案件类型差异化评估指标（get_case_type_metrics） */
-  async caseTypeMetrics(caseId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async caseTypeMetrics(caseId: string): Promise<{ ok: boolean; data?: CaseTypeMetrics; error?: string }> {
     return tauriCallSafe('get_case_type_metrics', { caseId })
   }
 
   /** 案件时间线（日志/庭审/任务聚合） */
-  async timeline(caseId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async timeline(caseId: string): Promise<{ ok: boolean; data?: TimelineEvent[]; error?: string }> {
     return tauriCallSafe('get_case_timeline', { caseId })
   }
 
@@ -103,7 +133,7 @@ export class CasesService extends Service {
   }
 
   /** 案件关联关系（双向） */
-  async relations(caseId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async relations(caseId: string): Promise<{ ok: boolean; data?: RelatedCase[]; error?: string }> {
     return tauriCallSafe('get_relations', { caseId })
   }
 
@@ -114,7 +144,7 @@ export class CasesService extends Service {
     relationType: string,
     label?: string,
     mergeData?: boolean
-  ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  ): Promise<{ ok: boolean; data?: CaseRelation; error?: string }> {
     return tauriCallSafe('add_relation', {
       caseId,
       relatedId,
@@ -127,7 +157,7 @@ export class CasesService extends Service {
   /** 获取 Excel 工作簿的 Sheet 列表 */
   async getExcelSheets(filePath: string): Promise<{
     ok: boolean
-    data?: Array<{ name: string; rowCount: number; columnCount: number }>
+    data?: SheetInfo[]
     error?: string
   }> {
     return tauriCallSafe('excel_get_sheets', { filePath })
@@ -140,19 +170,7 @@ export class CasesService extends Service {
     headerRowOverride?: number,
   ): Promise<{
     ok: boolean
-    data?: {
-      sheetName: string
-      totalRows: number
-      detectedHeaderRow: number
-      columns: Array<{
-        columnIndex: number
-        excelHeader: string
-        sampleValues: string[]
-        suggestedField?: string | null
-        confidence: number
-      }>
-      previewRows: Array<Record<string, string>>
-    }
+    data?: ExcelInspectResult
     error?: string
   }> {
     return tauriCallSafe('excel_inspect_sheet', {
@@ -175,15 +193,7 @@ export class CasesService extends Service {
     },
   ): Promise<{
     ok: boolean
-    data?: {
-      totalRowsProcessed: number
-      createdCount: number
-      updatedCount: number
-      skippedCount: number
-      failedCount: number
-      errors: string[]
-      importedCaseIds: string[]
-    }
+    data?: CaseImportReport
     error?: string
   }> {
     const result = await tauriCallSafe('excel_import_cases', { filePath, sheetName, config })
@@ -196,7 +206,7 @@ export class CasesService extends Service {
   /** 检查飞书自建应用配置状态 */
   async checkFeishuConfig(): Promise<{
     ok: boolean
-    data?: { configured: boolean; appId?: string }
+    data?: FeishuConfigStatus
     error?: string
   }> {
     return tauriCallSafe('feishu_check_config')
@@ -208,21 +218,7 @@ export class CasesService extends Service {
     tableIdOverride?: string,
   ): Promise<{
     ok: boolean
-    data?: {
-      appToken: string
-      tableId: string
-      tableName: string
-      tables: Array<{ tableId: string; name: string; revision: number | null }>
-      totalRecords: number
-      columns: Array<{
-        columnIndex: number
-        excelHeader: string
-        sampleValues: string[]
-        suggestedField?: string | null
-        confidence: number
-      }>
-      previewRows: Array<Record<string, string>>
-    }
+    data?: FeishuInspectResult
     error?: string
   }> {
     return tauriCallSafe('feishu_inspect_bitable', {
@@ -244,15 +240,7 @@ export class CasesService extends Service {
     },
   ): Promise<{
     ok: boolean
-    data?: {
-      totalRowsProcessed: number
-      createdCount: number
-      updatedCount: number
-      skippedCount: number
-      failedCount: number
-      errors: string[]
-      importedCaseIds: string[]
-    }
+    data?: CaseImportReport
     error?: string
   }> {
     const result = await tauriCallSafe('feishu_import_bitable_cases', {
@@ -278,15 +266,7 @@ export class CasesService extends Service {
     },
   ): Promise<{
     ok: boolean
-    data?: {
-      targetEntity: string
-      totalRowsProcessed: number
-      createdCount: number
-      linkedCasesCount: number
-      unlinkedCount: number
-      failedCount: number
-      errors: string[]
-    }
+    data?: SubtableImportReport
     error?: string
   }> {
     const result = await tauriCallSafe('excel_import_subtable', { filePath, sheetName, config })
@@ -308,15 +288,7 @@ export class CasesService extends Service {
     },
   ): Promise<{
     ok: boolean
-    data?: {
-      targetEntity: string
-      totalRowsProcessed: number
-      createdCount: number
-      linkedCasesCount: number
-      unlinkedCount: number
-      failedCount: number
-      errors: string[]
-    }
+    data?: SubtableImportReport
     error?: string
   }> {
     const result = await tauriCallSafe('feishu_import_bitable_subtable', {
@@ -333,21 +305,7 @@ export class CasesService extends Service {
   /** 获取案件所有庭审记录 */
   async listHearings(caseId: string): Promise<{
     ok: boolean
-    data?: Array<{
-      id: string
-      caseId: string
-      hearingRecord: string
-      hearingName?: string | null
-      hearingDate: string
-      venue?: string | null
-      attendees?: string | null
-      judges?: string | null
-      court?: string | null
-      caseLevel?: string | null
-      contactInfo?: string | null
-      actualStatus?: string | null
-      createdAt?: string | null
-    }>
+    data?: Hearing[]
     error?: string
   }> {
     return tauriCallSafe('list_case_hearings', { caseId })
@@ -364,7 +322,7 @@ export class CasesService extends Service {
     caseLevel?: string
     contactInfo?: string
     actualStatus?: string
-  }): Promise<{ ok: boolean; data?: any; error?: string }> {
+  }): Promise<{ ok: boolean; data?: Hearing; error?: string }> {
     return tauriCallSafe('create_case_hearing', { payload })
   }
 

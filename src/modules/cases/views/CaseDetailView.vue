@@ -20,6 +20,9 @@ import {
 import { joinAttorneys } from '../../../core/caseNormalize'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import AddRelationDialog from '../components/AddRelationDialog.vue'
+import CaseWizard from '../components/CaseWizard.vue'
+import CaseAttributes from '../components/CaseAttributes.vue'
+import CaseSourceRecords from '../components/CaseSourceRecords.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -52,15 +55,30 @@ const hearingForm = ref({
   judges: '',
   caseLevel: '',
   contactInfo: '',
-  actualStatus: '待开庭',
+  actualStatus: '未开',
 })
-
-// 全量字段就地编辑
-const editingFields = ref(false)
-const fieldsForm = ref({})
 
 // 关联案件弹窗
 const showAddRelationDialog = ref(false)
+const showRelatedWizard = ref(false)
+const relatedInitial = computed(() => {
+  const c = caseData.value || {}
+  return {
+    clientName:c.clientName || '', opponentName:c.opponentName || '', ourRole:c.ourRole || '', opponentRole:c.opponentRole || '',
+    patentName:c.patentName || '', patentAppNo:c.patentAppNo || '', attorneys:c.attorneys || [],
+    track:c.track || 'civil_tort', caseRoute:c.caseRoute || '民事诉讼',
+    relatedCases:[{caseId:String(caseId.value),relationType:'cross_reference',label:c.caseName || ''}],
+  }
+})
+async function createRelated(data) {
+  const result = await casyContext.cases.create(data)
+  if (result.ok) {
+    ElMessage.success('关联案件已创建')
+    await loadRelations()
+    router.push({name:'case-detail',params:{id:result.data.id}})
+  }
+  return result
+}
 
 // ============================================================
 // 计算属性
@@ -320,7 +338,7 @@ function openAddHearing() {
     judges: caseData.value?.judgePanel || '',
     caseLevel: caseData.value?.caseLevel || '',
     contactInfo: caseData.value?.clerk || '',
-    actualStatus: '待开庭',
+    actualStatus: '未开',
   }
   showHearingDialog.value = true
 }
@@ -335,7 +353,7 @@ function openEditHearing(h) {
     judges: h.judges || '',
     caseLevel: h.caseLevel || '',
     contactInfo: h.contactInfo || '',
-    actualStatus: h.actualStatus || '待开庭',
+    actualStatus: h.actualStatus || '未开',
   }
   showHearingDialog.value = true
 }
@@ -398,7 +416,7 @@ async function deleteHearing(h) {
 }
 
 async function toggleHearingStatus(h) {
-  const nextStatus = h.actualStatus === '已开庭' ? '待开庭' : '已开庭'
+  const nextStatus = h.actualStatus === '已开' ? '未开' : '已开'
   const res = await casyContext.cases.updateHearing(h.id, { actualStatus: nextStatus })
   if (res.ok) {
     h.actualStatus = nextStatus
@@ -406,29 +424,6 @@ async function toggleHearingStatus(h) {
   }
 }
 
-// 全量字段就地编辑
-function startEditFields() {
-  if (!caseData.value) return
-  const form = { ...caseData.value }
-  // 编辑表单兼容：业务 Case 的 attorneys 是 string[]，而 el-input 需要 string。
-  // 进入编辑态时归一为可编辑的分隔字符串，避免数组塞入 el-input 导致展示/编辑错乱。
-  if (Array.isArray(form.attorneys)) {
-    form.attorneys = form.attorneys.join('、')
-  }
-  fieldsForm.value = form
-  editingFields.value = true
-}
-
-async function saveFields() {
-  const res = await casyContext.cases.update(caseId.value, fieldsForm.value)
-  if (res.ok) {
-    ElMessage.success('案件属性字段已保存')
-    editingFields.value = false
-    await loadCase()
-  } else {
-    ElMessage.error(res.error || '保存失败')
-  }
-}
 
 async function toggleTaskComplete(task) {
   const result = await casyContext.tasks.toggle(task.id)
@@ -780,6 +775,7 @@ onUnmounted(() => {
           <div class="card" v-if="relatedCases.length > 0 || true">
             <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
               <span class="t">关联案件 ({{ relatedCases.length }})</span>
+              <el-button link type="primary" size="small" :icon="Plus" @click="showRelatedWizard = true">新建关联案</el-button>
               <el-button link type="primary" size="small" @click="showAddRelationDialog = true">
                 <el-icon><Plus /></el-icon> 添加关联
               </el-button>
@@ -790,7 +786,7 @@ onUnmounted(() => {
                 v-for="rc in relatedCases" 
                 :key="rc.relationId"
                 class="related-case-item"
-                @click="router.push({ name: 'caseDetail', params: { id: rc.caseId } })"
+                @click="router.push({name:'case-detail',params:{id:rc.caseId}})"
                 style="cursor: pointer; padding: 12px; margin-bottom: 8px; background: var(--bg-hover); border-radius: 6px; display: flex; flex-direction: column; gap: 4px;"
               >
                 <span style="font-size: 13px; font-weight: 500; color: var(--text-1);">{{ rc.caseName }}</span>
@@ -921,7 +917,7 @@ onUnmounted(() => {
                 <td>{{ h.venue || '—' }}</td>
                 <td>
                   <el-tag
-                    :type="h.actualStatus === '已开庭' ? 'success' : 'warning'"
+                    :type="h.actualStatus === '已开' ? 'success' : 'warning'"
                     size="small"
                     style="cursor: pointer"
                     @click="toggleHearingStatus(h)"
@@ -1035,161 +1031,9 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- ═══ Tab: 全量属性与字段 ═══ -->
     <div v-if="activeTab === 'fields'" class="tab-pane">
-      <div class="card">
-        <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <span class="t">全量案件字段与多维属性</span>
-            <span class="s">支持查看与就地编辑本案全部基础及扩展字段属性</span>
-          </div>
-          <div>
-            <button v-if="!editingFields" class="btn-sm primary" @click="startEditFields">
-              <el-icon><Edit /></el-icon>
-              <span>编辑所有属性</span>
-            </button>
-            <div v-else class="goal-ops">
-              <button class="btn-sm" @click="editingFields = false">取消</button>
-              <button class="btn-sm primary" @click="saveFields">保存全部修改</button>
-            </div>
-          </div>
-        </div>
-        <div class="sep"></div>
-
-        <div v-if="caseData" class="fields-grid-layout">
-          <!-- 核心标识与案由 -->
-          <div class="field-item">
-            <label class="field-label">案件名称 (caseName):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.caseName" size="small" />
-            <div v-else class="field-val font-semibold">{{ caseData.caseName || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">法院案号 (caseNo):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.caseNo" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.caseNo || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">内部编号/流水号 (internalNo):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.internalNo" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.internalNo || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">案由/纠纷类型 (causeAction):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.causeAction" size="small" />
-            <div v-else class="field-val">{{ caseData.causeAction || '—' }}</div>
-          </div>
-
-          <!-- 当事人与代理人 -->
-          <div class="field-item">
-            <label class="field-label">委托方/客户 (clientName):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.clientName" size="small" />
-            <div v-else class="field-val">{{ caseData.clientName || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">相对方/对方当事人 (opponentName):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.opponentName" size="small" />
-            <div v-else class="field-val">{{ caseData.opponentName || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">我方诉讼地位 (ourRole):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.ourRole" size="small" />
-            <div v-else class="field-val">{{ caseData.ourRole || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">对方诉讼地位 (opponentRole):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.opponentRole" size="small" />
-            <div v-else class="field-val">{{ caseData.opponentRole || '—' }}</div>
-          </div>
-
-          <!-- 机构与人员 -->
-          <div class="field-item">
-            <label class="field-label">审理法院/机构 (court):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.court" size="small" />
-            <div v-else class="field-val">{{ caseData.court || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">承办法官/合议庭 (judgePanel):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.judgePanel" size="small" />
-            <div v-else class="field-val">{{ caseData.judgePanel || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">书记员/联系方式 (clerk):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.clerk" size="small" />
-            <div v-else class="field-val">{{ caseData.clerk || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">负责律师/团队 (attorneys):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.attorneys" size="small" />
-            <div v-else class="field-val">{{ joinAttorneys(caseData.attorneys) || '—' }}</div>
-          </div>
-
-          <!-- 关键节点时间 -->
-          <div class="field-item">
-            <label class="field-label">接案/立案日期 (filingDate):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.filingDate" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.filingDate || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">首期开庭时间 (trialDate):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.trialDate" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.trialDate || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">判决/裁判时间 (verdictDate):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.verdictDate" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.verdictDate || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">保全期限/开始时间 (stayDate):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.stayDate" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.stayDate || '—' }}</div>
-          </div>
-
-          <!-- 知识产权专属 -->
-          <div class="field-item">
-            <label class="field-label">涉案专利名称 (patentName):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.patentName" size="small" />
-            <div v-else class="field-val">{{ caseData.patentName || '—' }}</div>
-          </div>
-
-          <div class="field-item">
-            <label class="field-label">专利号/申请号 (patentNo / patentAppNo):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.patentNo" size="small" />
-            <div v-else class="field-val font-mono">{{ caseData.patentNo || '—' }}</div>
-          </div>
-
-          <!-- 备注与进展 -->
-          <div class="field-item full-width">
-            <label class="field-label">当前进展情况 (caseProgress):</label>
-            <el-input v-if="editingFields" v-model="fieldsForm.caseProgress" size="small" />
-            <div v-else class="field-val">{{ caseData.caseProgress || '—' }}</div>
-          </div>
-
-          <div class="field-item full-width">
-            <label class="field-label">办案附注与日志汇总 (notes):</label>
-            <el-input
-              v-if="editingFields"
-              v-model="fieldsForm.notes"
-              type="textarea"
-              :rows="3"
-              size="small"
-            />
-            <div v-else class="field-val" style="white-space: pre-wrap;">{{ caseData.notes || '—' }}</div>
-          </div>
-        </div>
-      </div>
+      <CaseAttributes v-if="caseData" :case-data="caseData" @saved="loadCase" />
+      <CaseSourceRecords :case-id="String(caseId)" />
     </div>
 
     <!-- 庭审排期新增/编辑弹窗 -->
@@ -1206,9 +1050,9 @@ onUnmounted(() => {
         <el-form-item label="开庭/口审时间" required>
           <el-date-picker
             v-model="hearingForm.hearingDate"
-            type="date"
+            type="datetime"
             placeholder="选择日期"
-            value-format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD HH:mm:ss"
             style="width: 100%"
           />
         </el-form-item>
@@ -1229,9 +1073,8 @@ onUnmounted(() => {
         </el-form-item>
         <el-form-item label="出庭状态">
           <el-radio-group v-model="hearingForm.actualStatus">
-            <el-radio value="待开庭">待开庭</el-radio>
-            <el-radio value="已开庭">已开庭</el-radio>
-            <el-radio value="已取消/改期">已取消/改期</el-radio>
+            <el-radio value="未开">未开庭</el-radio>
+            <el-radio value="已开">已开庭</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -1245,6 +1088,7 @@ onUnmounted(() => {
       :currentCaseId="caseId"
       @relation-added="handleRelationAdded"
     />
+    <CaseWizard v-model="showRelatedWizard" :initial-case="relatedInitial" :submit="createRelated" />
   </div>
 </template>
 

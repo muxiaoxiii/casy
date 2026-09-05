@@ -134,6 +134,15 @@ export function normalizeCase(wire: unknown): BusinessCase {
     opponentRole: str(c.opponentRole),
     opponentFirm: str(c.opponentFirm),
     opponentAgent: str(c.opponentAgent),
+    thirdParties: str(c.thirdParties),
+    caseAmount: str(c.caseAmount),
+    legalFees: str(c.legalFees),
+    feePayment: str(c.feePayment),
+    claims: str(c.claims),
+    jurisdictionObjection: str(c.jurisdictionObjection),
+    externalCaseNo: str(c.externalCaseNo),
+    defenseDeadline: str(c.defenseDeadline),
+    estimatedTrialEnd: str(c.estimatedTrialEnd),
 
     // 审理
     court: str(c.court),
@@ -144,6 +153,7 @@ export function normalizeCase(wire: unknown): BusinessCase {
     caseStatus: enumVal<CaseStatus>(c.caseStatus, '未知'),
     caseProgress: str(c.caseProgress),
     caseResult: str(c.caseResult),
+    caseGoal: maybeString(c.caseGoal),
 
     // 双轨状态机
     caseRoute: enumVal<CaseRoute>(c.caseRoute, '民事诉讼'),
@@ -224,9 +234,8 @@ export function normalizeCaseList(items: unknown[]): BusinessCase[] {
  * update_case 虽可容忍数组（内部 to_string），但为统一存储格式，这里一律
  * 把数组序列化为 JSON 字符串。其余字段原样透传（缺键跳过/null 清空语义保持在后端）。
  */
-export function normalizeCaseInput(data: Record<string, unknown>): Record<string, unknown> {
-  if (!data || typeof data !== 'object') return data
-  const out: Record<string, unknown> = { ...data }
+export function normalizeCaseInput<T extends object>(data: T): T {
+  const out = { ...data } as T & { attorneys?: unknown }
   if ('attorneys' in out) {
     const attorneys = normalizeCaseAttorneys(out.attorneys)
     out.attorneys = attorneys.length > 0 ? JSON.stringify(attorneys) : null

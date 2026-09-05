@@ -15,7 +15,7 @@ export interface ToolResult {
   error?: string
 }
 
-export function defineTool<P extends Record<string, unknown>>(
+export function defineTool<P extends object>(
   def: {
     name: string
     description: string

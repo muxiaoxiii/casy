@@ -1,327 +1,157 @@
 <script setup>
-import { ref, reactive } from 'vue'
-import {
-  Document,
-  User,
-  Location,
-  Money,
-} from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, computed, watch } from 'vue'
+import { Close, Check, Back, Right, Plus, Delete, MagicStick } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { casyContext } from '../../../core/plugin/context'
+import { intakeSections, routeOptions, statusGroups, newIntake, setIntakeRoute, intakePayload, parseIntakeText } from './caseIntake'
+import ThirdPartiesEditor from './ThirdPartiesEditor.vue'
+import IntakeNodesEditor from './IntakeNodesEditor.vue'
 
-const props = defineProps({
-  modelValue: Boolean
-})
-
-const emit = defineEmits(['update:modelValue', 'create'])
-
+const props = defineProps({ modelValue: Boolean, submit: { type: Function, required: true }, initialCase: Object })
+const emit = defineEmits(['update:modelValue'])
+const formData = reactive(newIntake())
 const saving = ref(false)
+const error = ref('')
 const activeStep = ref('basic')
+const sourceText = ref('')
+const baseline = ref('')
+const suggestions = ref([])
+const relatedOptions = ref([])
+const searching = ref(false)
+const relatedId = ref('')
+const relationType = ref('cross_reference')
+const sections = [...intakeSections, { key:'nodes', label:'办案节点' }, { key:'relations', label:'关联案件' }]
+const currentIndex = computed(() => sections.findIndex(s => s.key === activeStep.value))
+const section = computed(() => sections[currentIndex.value])
+const relationTypes = [['cross_reference','关联案件'],['same_patent','同一专利'],['same_party','共同当事人'],['appeal_of','本案为关联案的二审 / 再审']]
 
-const formData = reactive({
-  caseName: '',
-  caseNo: '',
-  track: 'patent_invalidation',
-  caseLevel: '',
-  clientName: '',
-  ourRole: '原告',
-  opponentName: '',
-  opponentRole: '被告',
-  court: '',
-  judgePanel: '',
-  filingDate: '',
-  caseAmount: ''
-})
-
-const trackOptions = [
-  { value: 'patent_invalidation', label: '专利无效宣告程序' },
-  { value: 'civil_tort', label: '民事诉讼程序 (侵权/合同)' },
-  { value: 'admin_litigation', label: '行政诉讼程序' },
-  { value: 'arbitration', label: '商事仲裁程序' },
-  { value: 'other', label: '非诉业务 / 常年顾问 / 其他' },
-]
-
-function handleClose() {
-  emit('update:modelValue', false)
-}
-
-async function handleSave() {
-  if (!formData.caseName) {
-    ElMessage.warning('请输入案件名称')
-    return
-  }
-  saving.value = true
-  
-  // 模拟保存延迟
-  await new Promise(resolve => setTimeout(resolve, 300))
-  
-  emit('create', { ...formData })
-  saving.value = false
-  handleClose()
-  
-  // 清空表单
-  Object.keys(formData).forEach(key => {
-    formData[key] = key === 'track' ? 'patent_invalidation' : ''
-  })
+watch(() => props.modelValue, async visible => {
+  if (!visible) return
+  Object.assign(formData, newIntake(), JSON.parse(JSON.stringify(props.initialCase || {})))
+  baseline.value = JSON.stringify(formData)
   activeStep.value = 'basic'
+  sourceText.value = ''
+  error.value = ''
+  relatedId.value = ''
+  relatedOptions.value = []
+  relationType.value = 'cross_reference'
+  searchVersion += 1
+  searching.value = false
+  const result = await casyContext.cases.list({ perPage: 200 })
+  if (result.ok) suggestions.value = result.data.items
+})
+function suggest(key, query, callback) {
+  const values = [...new Set(suggestions.value.map(c => c[key]).filter(v => typeof v === 'string' && v))]
+  callback(values.filter(v => v.toLowerCase().includes(query.toLowerCase())).slice(0,15).map(value => ({value})))
+}
+let searchVersion = 0
+async function searchRelated(query) {
+  const version = ++searchVersion
+  searching.value = true
+  try {
+    const result = query.trim() ? await casyContext.cases.search(query.trim()) : await casyContext.cases.list({perPage:50})
+    if (version === searchVersion) relatedOptions.value = result.ok ? (Array.isArray(result.data) ? result.data : result.data.items) : []
+  } finally { if (version === searchVersion) searching.value = false }
+}
+function addRelated() {
+  const selected = relatedOptions.value.find(c => c.id === relatedId.value)
+  if (!selected) return
+  if (formData.relatedCases.some(r => r.caseId === selected.id && r.relationType === relationType.value)) return
+  formData.relatedCases.push({ caseId:selected.id, relationType:relationType.value, label:selected.caseName })
+  relatedId.value = ''
+}
+async function close(done) {
+  if (saving.value) return
+  if (JSON.stringify(formData) !== baseline.value) {
+    try { await ElMessageBox.confirm('关闭后，本次尚未保存的案件信息将被丢弃。','放弃录入？',{confirmButtonText:'放弃',cancelButtonText:'继续录入',type:'warning'}) } catch { return }
+  }
+  emit('update:modelValue',false)
+  if (typeof done === 'function') done()
+}
+function fillFromText() {
+  const parsed = parseIntakeText(sourceText.value)
+  for (const [key,value] of Object.entries(parsed.fields)) {
+    if (!formData[key] || formData[key] === newIntake()[key] || (Array.isArray(formData[key]) && !formData[key].length)) formData[key] = key === 'attorneys' && typeof value === 'string' ? value.split(/[、,，;；]/).map(v=>v.trim()).filter(Boolean) : value
+  }
+  if (parsed.unmatched.length) formData.notes = [formData.notes,parsed.unmatched.join('\n')].filter(Boolean).join('\n')
+  ElMessage.success(`已识别 ${Object.keys(parsed.fields).length} 项`)
+}
+async function save() {
+  if (saving.value) return
+  error.value = ''
+  let payload
+  try { payload = intakePayload(formData) } catch (e) { error.value = e.message; return }
+  saving.value = true
+  try {
+    const result = await props.submit(payload)
+    if (!result?.ok) { error.value = result?.error || '保存失败，请重试'; return }
+    baseline.value = JSON.stringify(formData)
+    emit('update:modelValue',false)
+  } catch (e) { error.value = e.message || String(e) }
+  finally { saving.value = false }
 }
 </script>
-
 <template>
-  <el-drawer
-    :model-value="modelValue"
-    @update:model-value="$emit('update:modelValue', $event)"
-    size="680px"
-    class="case-wizard-drawer"
-    :with-header="false"
-    destroy-on-close
-  >
-    <div class="wizard-container">
-      <div class="wizard-header">
-        <h2>创建新案件</h2>
-        <p class="subtitle">录入案件核心结构信息，后续可通过 AI 自动解析并补全细节</p>
-        <button class="close-btn" @click="handleClose">×</button>
+  <el-drawer :model-value="modelValue" :before-close="close" :close-on-press-escape="!saving" :close-on-click-modal="false" size="min(860px, 100vw)" class="case-wizard-drawer" :with-header="false" destroy-on-close>
+    <div class="intake">
+      <header><div><h2>{{ initialCase ? '新建关联案件' : '新建案件' }}</h2><span class="case-name">{{ formData.caseName || '未命名案件' }}</span></div><el-button :icon="Close" :disabled="saving" aria-label="关闭" title="关闭" @click="close" /></header>
+      <nav aria-label="案件录入步骤"><button v-for="item in sections" :key="item.key" type="button" :aria-current="activeStep === item.key ? 'step' : undefined" :class="{active:activeStep === item.key}" @click="activeStep = item.key">{{ item.label }}</button></nav>
+      <div class="intake-body">
+        <el-form label-position="top" :disabled="saving" @submit.prevent="save">
+          <template v-if="activeStep === 'basic'">
+            <el-collapse><el-collapse-item title="从案件资料提取" name="paste"><el-input v-model="sourceText" type="textarea" :rows="4" placeholder="案件名称：&#10;案号：&#10;客户名称：&#10;第三人：" /><el-button :icon="MagicStick" :disabled="!sourceText.trim()" class="extract" @click="fillFromText">提取信息</el-button></el-collapse-item></el-collapse>
+            <el-form-item label="案件程序" class="route-field"><el-select :model-value="formData.caseRoute" @update:model-value="setIntakeRoute(formData, $event)"><el-option v-for="[value,label] in routeOptions" :key="value" :label="label" :value="value" /></el-select></el-form-item>
+            <div class="fields"><el-form-item v-for="group in statusGroups.filter(g => formData.caseRoute === '三轨并行' || formData.caseRoute?.includes(g.route))" :key="group.key" :label="group.label"><el-select v-model="formData[group.key]"><el-option v-for="[value,label] in group.options" :key="value" :value="value" :label="label" /></el-select></el-form-item></div>
+          </template>
+          <div v-if="section.fields" class="fields">
+            <el-form-item v-for="field in section.fields" :key="field.key" :label="field.label" :required="field.key === 'caseName'" :class="{wide:field.type === 'textarea' || field.key === 'caseName'}">
+              <el-date-picker v-if="['date','datetime'].includes(field.type)" v-model="formData[field.key]" :type="field.type" :value-format="field.type === 'datetime' ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD'" clearable />
+              <el-select v-else-if="['select','enum','tags'].includes(field.type)" v-model="formData[field.key]" filterable :allow-create="field.type !== 'enum'" :multiple="field.type === 'tags'" default-first-option clearable><el-option v-for="option in field.options" :key="option" :value="option" /></el-select>
+              <el-autocomplete v-else-if="field.type === 'suggest'" v-model="formData[field.key]" :fetch-suggestions="(q, cb) => suggest(field.key,q,cb)" clearable />
+              <el-input v-else v-model="formData[field.key]" :type="field.type === 'textarea' ? 'textarea' : 'text'" :inputmode="field.type === 'amount' ? 'decimal' : 'text'" :rows="3" />
+            </el-form-item>
+          </div>
+          <ThirdPartiesEditor v-if="activeStep === 'parties'" v-model="formData.thirdParties" />
+          <IntakeNodesEditor v-if="activeStep === 'nodes'" :form="formData" />
+          <template v-if="activeStep === 'relations'">
+            <el-form-item label="关联案件"><el-select v-model="relatedId" filterable remote :remote-method="searchRelated" :loading="searching" @visible-change="$event && searchRelated('')" placeholder="案件名称或案号"><el-option v-for="item in relatedOptions" :key="item.id" :value="item.id" :label="[item.caseName,item.caseNo].filter(Boolean).join(' · ')" /></el-select></el-form-item>
+            <el-form-item label="关联类型"><el-select v-model="relationType"><el-option v-for="[value,label] in relationTypes" :key="value" :value="value" :label="label" /></el-select></el-form-item>
+            <el-button :icon="Plus" :disabled="!relatedId" @click="addRelated">添加关联</el-button>
+            <div v-for="(relation,index) in formData.relatedCases" :key="index" class="relation-row"><div><strong>{{ relation.label }}</strong><p>{{ relationTypes.find(r => r[0] === relation.relationType)?.[1] }}</p></div><el-button :icon="Delete" aria-label="移除关联" title="移除关联" @click="formData.relatedCases.splice(index,1)" /></div>
+          </template>
+        </el-form>
       </div>
-
-      <div class="wizard-layout">
-        <!-- 左侧导航 -->
-        <div class="wizard-nav">
-          <div class="nav-item" :class="{ active: activeStep === 'basic' }" @click="activeStep = 'basic'">
-            <el-icon><Document /></el-icon> 基础信息
-          </div>
-          <div class="nav-item" :class="{ active: activeStep === 'parties' }" @click="activeStep = 'parties'">
-            <el-icon><User /></el-icon> 当事各方
-          </div>
-          <div class="nav-item" :class="{ active: activeStep === 'court' }" @click="activeStep = 'court'">
-            <el-icon><Location /></el-icon> 管辖机构
-          </div>
-          <div class="nav-item" :class="{ active: activeStep === 'finance' }" @click="activeStep = 'finance'">
-            <el-icon><Money /></el-icon> 费用与排期
-          </div>
-        </div>
-
-        <!-- 右侧表单区 -->
-        <div class="wizard-content">
-          <el-form label-position="top" size="large">
-            
-            <transition name="el-fade-in-linear" mode="out-in">
-              <div v-if="activeStep === 'basic'" key="basic">
-                <div class="section-title">基础信息</div>
-                <el-form-item label="案件名称 (必填)">
-                  <el-input v-model="formData.caseName" placeholder="例如：腾讯诉老干妈合同纠纷案" />
-                </el-form-item>
-                <el-form-item label="案号">
-                  <el-input v-model="formData.caseNo" placeholder="例如：(2023) 粤03民初 1234 号" />
-                </el-form-item>
-                <el-form-item label="程序类型">
-                  <el-select v-model="formData.track" style="width: 100%">
-                    <el-option
-                      v-for="item in trackOptions"
-                      :key="item.value"
-                      :label="item.label"
-                      :value="item.value"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="审理级别">
-                  <el-input v-model="formData.caseLevel" placeholder="例如：一审 / 二审 / 仲裁 / 执行" />
-                </el-form-item>
-              </div>
-
-              <div v-else-if="activeStep === 'parties'" key="parties">
-                <div class="section-title">我方当事人</div>
-                <el-row :gutter="12">
-                  <el-col :span="14">
-                    <el-form-item label="名称">
-                      <el-input v-model="formData.clientName" placeholder="客户姓名或公司名" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="10">
-                    <el-form-item label="诉讼地位">
-                      <el-input v-model="formData.ourRole" placeholder="如：原告/上诉人" />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                
-                <el-divider border-style="dashed" />
-                
-                <div class="section-title">对方当事人</div>
-                <el-row :gutter="12">
-                  <el-col :span="14">
-                    <el-form-item label="名称">
-                      <el-input v-model="formData.opponentName" placeholder="对方姓名或公司名" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="10">
-                    <el-form-item label="诉讼地位">
-                      <el-input v-model="formData.opponentRole" placeholder="如：被告/被上诉人" />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-              </div>
-
-              <div v-else-if="activeStep === 'court'" key="court">
-                <div class="section-title">管辖机构</div>
-                <el-form-item label="受理法院/仲裁委">
-                  <el-input v-model="formData.court" placeholder="例如：深圳市南山区人民法院" />
-                </el-form-item>
-                <el-form-item label="审判长/合议庭">
-                  <el-input v-model="formData.judgePanel" placeholder="法官姓名或团队" />
-                </el-form-item>
-              </div>
-
-              <div v-else-if="activeStep === 'finance'" key="finance">
-                <div class="section-title">费用与排期</div>
-                <el-form-item label="标的额 (元)">
-                  <el-input v-model="formData.caseAmount" placeholder="请输入数字" type="number" />
-                </el-form-item>
-                <el-form-item label="立案日期">
-                  <el-date-picker v-model="formData.filingDate" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DD" />
-                </el-form-item>
-                <el-alert title="其余节点排期将在案件详情页时间线中管理" type="info" show-icon :closable="false" />
-              </div>
-            </transition>
-
-          </el-form>
-        </div>
-      </div>
-
-      <div class="wizard-footer">
-        <el-button @click="handleClose">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">创建案件</el-button>
-      </div>
+      <footer>
+        <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+        <div class="footer-actions"><el-button :disabled="saving" @click="close">取消</el-button><span class="spacer" /><el-button v-if="currentIndex > 0" :icon="Back" :disabled="saving" @click="activeStep = sections[currentIndex - 1].key">上一项</el-button><el-button v-if="currentIndex < sections.length - 1" :icon="Right" :disabled="saving" @click="activeStep = sections[currentIndex + 1].key">下一项</el-button><el-button type="primary" :icon="Check" :loading="saving" @click="save">创建案件</el-button></div>
+      </footer>
     </div>
   </el-drawer>
 </template>
-
 <style scoped>
-.wizard-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--c-bg);
-}
-
-.wizard-header {
-  position: relative;
-  padding: 24px 32px 20px;
-  background: var(--c-bg-soft);
-  border-bottom: 1px solid var(--c-border);
-}
-.wizard-header h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-.wizard-header .subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--c-text-secondary);
-}
-.close-btn {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: none;
-  background: var(--c-bg-mute);
-  color: var(--c-text-secondary);
-  font-size: 20px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-.close-btn:hover {
-  background: var(--c-bg-hover);
-  color: var(--c-text);
-}
-
-.wizard-layout {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-.wizard-nav {
-  width: 180px;
-  background: var(--c-bg-mute);
-  padding: 24px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-right: 1px solid var(--c-border);
-}
-.nav-item {
-  padding: 12px 14px;
-  border-radius: 8px;
-  font-size: 14.5px;
-  color: var(--c-text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  transition: all 0.2s;
-}
-.nav-item:hover {
-  background: var(--c-bg-hover);
-  color: var(--c-text);
-}
-.nav-item.active {
-  background: var(--c-primary-light);
-  color: var(--c-primary);
-  font-weight: 500;
-}
-
-.wizard-content {
-  flex: 1;
-  padding: 32px 40px;
-  overflow-y: auto;
-}
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-text);
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-title::before {
-  content: '';
-  width: 4px;
-  height: 14px;
-  background: var(--c-primary);
-  border-radius: 2px;
-}
-
-.wizard-footer {
-  padding: 16px 32px;
-  background: var(--c-bg-soft);
-  border-top: 1px solid var(--c-border);
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-:deep(.el-drawer__body) {
-  padding: 0 !important;
-}
-
-:deep(.el-form-item__label) {
-  font-weight: 500;
-  color: var(--c-text);
-  margin-bottom: 6px !important;
-}
-:deep(.el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--c-border) inset;
-  background: var(--c-bg);
-  border-radius: 8px;
-}
-:deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px var(--c-primary) inset;
-}
+.intake { height: 100%; display: flex; flex-direction: column; color: var(--c-text); background: var(--c-bg); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; border-bottom: 1px solid var(--c-border); }
+header > div { min-width: 0; }
+h2 { margin: 0 0 6px; font-size: 20px; }
+.case-name { display: block; color: var(--c-text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--c-border); }
+nav button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 8px; color: var(--c-text-secondary); cursor: pointer; font: inherit; font-size: 13px; }
+nav button.active { color: var(--el-color-primary); border-bottom-color: var(--el-color-primary); font-weight: 600; }
+.intake-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; }
+.fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 20px; }
+.wide { grid-column: 1 / -1; }
+:deep(.el-date-editor), :deep(.el-autocomplete), :deep(.el-select) { width: 100%; min-width: 0; }
+.route-field { margin-top: 20px; }
+.extract { margin-top: 12px; }
+footer { border-top: 1px solid var(--c-border); padding: 14px 24px; background: var(--c-bg-soft); }
+.footer-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.footer-actions .el-button + .el-button { margin-left: 0; }
+footer .el-alert { margin-bottom: 12px; }
+.spacer { flex: 1; }
+.relation-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; border-top: 1px solid var(--c-border); margin-top: 16px; padding-top: 16px; overflow-wrap: anywhere; }
+.relation-row p { color: var(--c-text-secondary); margin: 6px 0 0; font-size: 12px; }
+@media(max-width: 520px) { .fields { grid-template-columns: minmax(0,1fr); } header,.intake-body,footer { padding-left: 16px; padding-right: 16px; } nav { padding: 8px; } .spacer { display: none; } .footer-actions { justify-content: flex-end; } }
+</style>
+<style>
+.case-wizard-drawer > .el-drawer__body { padding: 0; overflow: hidden; }
 </style>

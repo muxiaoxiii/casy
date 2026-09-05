@@ -6,6 +6,10 @@
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
 import { defineTool } from '../plugin/defineTool'
+import type { CasePatchInput, CreateCasePayload } from '../../types/ipc'
+import type { CommandMap } from '../../types/commandMap'
+
+type ListCasesToolParams = CommandMap['list_cases']['params']
 
 export class CasesPlugin implements CasyPlugin {
   name = 'cases'
@@ -35,7 +39,7 @@ export class CasesPlugin implements CasyPlugin {
   // ============================================================
   
   private createListCasesTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ filter?: Record<string, unknown> }>({
+    return defineTool<ListCasesToolParams>({
       name: 'list_cases',
       description: '获取案件列表，支持按轨道、状态、客户筛选',
       category: 'cases',
@@ -86,7 +90,7 @@ export class CasesPlugin implements CasyPlugin {
   }
   
   private createCreateCaseTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<CreateCasePayload>({
       name: 'create_case',
       description: '创建新案件',
       category: 'cases',
@@ -114,7 +118,7 @@ export class CasesPlugin implements CasyPlugin {
   }
   
   private createUpdateCaseTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ id: string; data: Record<string, unknown> }>({
+    return defineTool<{ id: string; data: CasePatchInput; origin?: string; proposalToken?: string }>({
       name: 'update_case',
       description: '更新案件信息',
       category: 'cases',
@@ -134,14 +138,13 @@ export class CasesPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         // P0-2：透传提案批准后的 origin/proposalToken（随 data 进入服务端网关校验）
-        const p = params as { id: string; data: Record<string, unknown>; origin?: string; proposalToken?: string }
-        return ctx.cases.update(p.id, p.data, { origin: p.origin, proposalToken: p.proposalToken })
+        return ctx.cases.update(params.id, params.data, { origin: params.origin, proposalToken: params.proposalToken })
       },
     })
   }
   
   private createDeleteCaseTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ id: string }>({
+    return defineTool<{ id: string; origin?: string; proposalToken?: string }>({
       name: 'delete_case',
       description: '删除案件',
       category: 'cases',
@@ -159,8 +162,7 @@ export class CasesPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const p = params as { id: string; origin?: string; proposalToken?: string }
-        return ctx.cases.remove(p.id, { origin: p.origin, proposalToken: p.proposalToken })
+        return ctx.cases.remove(params.id, { origin: params.origin, proposalToken: params.proposalToken })
       },
     })
   }

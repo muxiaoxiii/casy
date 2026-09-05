@@ -22,7 +22,7 @@ export class AiService extends Service {
   // ── 今日推荐（§11.6 推荐引擎） ──
 
   /** 获取今日推荐（recommendations + followupSuggestions + source） */
-  async todayRecommendations(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  async todayRecommendations(): Promise<{ ok: boolean; data?: import('../../types/ipc').TodayRecommendations; error?: string }> {
     return tauriCallSafe('get_today_recommendations', {})
   }
 

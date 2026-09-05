@@ -22,6 +22,10 @@ import {
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
 import { isTauriRuntime } from '../../../core/mockData'
+import FeishuSnapshotImport from './FeishuSnapshotImport.vue'
+
+const wholeBase = ref(true)
+const snapshotBusy = ref(false)
 
 const props = defineProps<{
   modelValue: boolean
@@ -106,6 +110,10 @@ const CASE_SYSTEM_FIELDS = [
   { value: 'caseNo', label: '法院案号 (caseNo) *' },
   { value: 'caseName', label: '案件名称/信息 (caseName) *' },
   { value: 'track', label: '案件类型/阶段 (track) [新! 支持独立类型]' },
+  { value: 'caseRoute', label: '案件路由/并行程序 (caseRoute)' },
+  { value: 'civilStatus', label: '民事诉讼状态 (civilStatus)' },
+  { value: 'invalidationStatus', label: '无效程序状态 (invalidationStatus)' },
+  { value: 'adminStatus', label: '行政诉讼状态 (adminStatus)' },
   { value: 'clientName', label: '委托方/客户 (clientName)' },
   { value: 'opponentName', label: '相对方/对方当事人 (opponentName)' },
   { value: 'ourRole', label: '我方诉讼地位 (ourRole)' },
@@ -120,6 +128,11 @@ const CASE_SYSTEM_FIELDS = [
   { value: 'trial2Date', label: '二次开庭/口审时间 (trial2Date)' },
   { value: 'trial3Date', label: '三次开庭/口审时间 (trial3Date)' },
   { value: 'verdictDate', label: '裁判/判决时间 (verdictDate)' },
+  { value: 'invalidationDecisionDate', label: '无效决定日期 (invalidationDecisionDate)' },
+  { value: 'invalidationDecisionType', label: '无效决定类型 (invalidationDecisionType)' },
+  { value: 'adminFilingDate', label: '行政立案日期 (adminFilingDate)' },
+  { value: 'adminVerdictDate', label: '行政判决/裁决日期 (adminVerdictDate)' },
+  { value: 'adminTrial2Date', label: '行政二审日期 (adminTrial2Date)' },
   { value: 'completedText', label: '已完成事项/节点 (completedText)' },
   { value: 'caseLevel', label: '案件阶段/审级 (caseLevel)' },
   { value: 'caseProgress', label: '当前进展/办理情况 (caseProgress)' },
@@ -621,7 +634,15 @@ onUnmounted(() => {
     destroy-on-close
     class="case-import-dialog"
     :close-on-click-modal="false"
+    :close-on-press-escape="!snapshotBusy"
+    :show-close="!snapshotBusy"
   >
+    <el-radio-group v-model="wholeBase" :disabled="snapshotBusy" style="margin-bottom: 16px">
+      <el-radio-button :value="true">整库 / 关联导入</el-radio-button>
+      <el-radio-button :value="false">Excel / 单表映射</el-radio-button>
+    </el-radio-group>
+    <FeishuSnapshotImport v-if="wholeBase" @imported="emit('imported')" @busy="snapshotBusy = $event" />
+    <template v-else>
     <!-- 步骤导航条 -->
     <div class="wizard-steps-bar">
       <div class="step-item" :class="{ active: currentStep === 1, done: currentStep > 1 }">
@@ -1115,7 +1136,8 @@ onUnmounted(() => {
     </div>
 
     <!-- 底部操作按钮 -->
-    <template #footer>
+    </template>
+    <template v-if="!wholeBase" #footer>
       <div class="dialog-footer">
         <div class="footer-left">
           <el-button v-if="currentStep > 1 && currentStep < 4" @click="currentStep--">
