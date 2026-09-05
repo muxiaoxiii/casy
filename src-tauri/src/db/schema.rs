@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 30;
+pub const CURRENT_SCHEMA_VERSION: i64 = 31;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -703,7 +703,17 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("28", MIGRATION_V28_SQL),
     ("29", MIGRATION_V29_SQL),
     ("30", MIGRATION_V30_SQL),
+    ("31", MIGRATION_V31_SQL),
 ];
+
+const MIGRATION_V31_SQL: &str = r#"
+CREATE TABLE inbox_action_results (
+    inbox_item_id TEXT PRIMARY KEY REFERENCES inbox_items(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"#;
 
 pub const MIGRATION_V30_SQL: &str = r#"
 CREATE TEMP TABLE task_events_v30 AS SELECT id,task_id,event_type,occurred_at,payload,actor FROM task_events;

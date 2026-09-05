@@ -212,6 +212,14 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         let mut raw_conn = db::open_db()?;
         // 事务化：token 消费与写入同生共死（写失败则回滚，token 不被白烧）
         let conn = raw_conn.transaction()?;
+        let result = create_task_in_transaction(&conn, data)?;
+        conn.commit()?;
+        Ok(result)
+    })
+    .await
+}
+
+pub(super) fn create_task_in_transaction(conn: &rusqlite::Connection, data: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
         crate::ai::gateway::verify_ai_mutation_authorized(
             &conn,
@@ -312,6 +320,9 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         )?;
 
         super::task_lifecycle::refresh_sequence(&conn, &id)?;
+        if let Some(source) = data["inboxSourceId"].as_str() {
+            conn.execute("UPDATE tasks SET inbox_source_id=?2 WHERE id=?1", rusqlite::params![id, source])?;
+        }
         // 记录 task_event（AI 创建归因 actor='ai'）
         let actor = if data["origin"].as_str() == Some("ai") { "ai" } else { "user" };
         conn.execute(
@@ -331,10 +342,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
             );
         }
 
-        conn.commit()?;
         Ok(serde_json::json!({ "id": id }))
-    })
-    .await
 }
 
 #[tauri::command]

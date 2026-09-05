@@ -634,6 +634,11 @@ function openSelectedFiles() {
 function openEditOverviewModal() {
   if (selectedCase.value) showEditOverviewDialog.value = true
 }
+onUnmounted(casyContext.on('inbox:confirmed', () => {
+  casesStore.loadCases()
+  tasksStore.loadTasks()
+  if (selectedCaseId.value) { loadCaseFiles(); loadCaseEvents() }
+}))
 onMounted(async () => {
   if (trackOptions.some(option => option.value === route.query.track)) {
     casesStore.filter.track = route.query.track

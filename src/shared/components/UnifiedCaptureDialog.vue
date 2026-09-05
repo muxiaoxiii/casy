@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Briefcase,
   Calendar,
@@ -11,9 +11,24 @@ import {
   MagicStick,
   Paperclip,
   UploadFilled,
+  Close,
+  Check,
 } from '@element-plus/icons-vue'
 import { casyContext } from '../../core/plugin/context'
 import { parseWhen } from '../nlp/parseWhen'
+import type { IpcJsonObject } from '../../types/ipc'
+import { isTauriRuntime } from '../../core/mockData'
+import CaseWizard from '../../modules/cases/components/CaseWizard.vue'
+import { newIntake, parseIntakeText } from '../../modules/cases/components/caseIntake'
+import { useRouter } from 'vue-router'
+const router = useRouter()
+const nativeFiles = isTauriRuntime()
+const caseLoading = ref(false)
+const reviewTitle = ref('')
+const reviewDate = ref('')
+const reviewTime = ref('')
+const caseWizardOpen = ref(false)
+const caseInitial = ref<Record<string, unknown>>({})
 
 type CaptureAction = 'auto' | 'create_task' | 'create_event' | 'create_case' | 'create_project' | 'save_knowledge' | 'update_holidays' | 'service_delivery'
 
@@ -23,7 +38,7 @@ interface Recommendation {
   targetCaseId?: string | null
   targetCaseName?: string | null
   targetFolder?: string | null
-  intent?: Record<string, unknown> | null
+  intent?: IpcJsonObject | null
 }
 
 const props = withDefaults(defineProps<{
@@ -44,16 +59,22 @@ const filePaths = ref<string[]>([])
 const dragging = ref(false)
 const saving = ref(false)
 const stage = ref<'compose' | 'review' | 'done'>('compose')
+const confirmed = ref(false)
 const capturedIds = ref<string[]>([])
+const savedInputs = new Map<string, string>()
+const actionResult = ref<IpcJsonObject | null>(null)
 const recommendations = ref<Recommendation[]>([])
 const selectedRecommendation = ref<Recommendation | null>(null)
+const selectedRecommendationIndex = computed({
+  get: () => selectedRecommendation.value ? recommendations.value.indexOf(selectedRecommendation.value) : -1,
+  set: (index: number) => { selectedRecommendation.value = recommendations.value[index] || null },
+})
 
 const actionOptions = [
   { value: 'auto', label: '自动判断', icon: MagicStick },
   { value: 'create_task', label: '任务', icon: Finished },
   { value: 'create_event', label: '日程', icon: Calendar },
   { value: 'create_case', label: '案件', icon: Briefcase },
-  { value: 'create_project', label: '项目', icon: Folder },
   { value: 'save_knowledge', label: '知识', icon: Collection },
   { value: 'update_holidays', label: '节假日', icon: Calendar },
   { value: 'service_delivery', label: '法院送达', icon: DocumentAdd },
@@ -62,13 +83,18 @@ const actionOptions = [
 const canSubmit = computed(() => Boolean(text.value.trim() || filePaths.value.length))
 
 function reset() {
+  targetCaseId.value = ''
   text.value = ''
   action.value = props.initialAction
   filePaths.value = []
   dragging.value = false
   saving.value = false
   stage.value = 'compose'
+  confirmed.value = false
   capturedIds.value = []
+  savedInputs.clear()
+  actionResult.value = null
+  caseWizardOpen.value = false
   recommendations.value = []
   selectedRecommendation.value = null
 }
@@ -82,15 +108,20 @@ interface CaseItem {
 
 const caseList = ref<CaseItem[]>([])
 const targetCaseId = ref<string>('')
+let caseRequestId = 0
 
-async function loadCases() {
-  const result = await casyContext.cases.list({ page: 1, perPage: 300 })
-  if (result.ok && Array.isArray(result.data)) {
-    caseList.value = result.data.map((c: any) => ({
+async function loadCases(query = '') {
+  const requestId = ++caseRequestId
+  caseLoading.value = true
+  const result = await casyContext.cases.list({ page: 1, perPage: 100, search: query || null })
+  if (requestId !== caseRequestId) return
+  caseLoading.value = false
+  if (result.ok && result.data) {
+    caseList.value = result.data.items.map(c => ({
       id: c.id,
-      caseName: c.displayName || c.caseName || c.name || '未命名案件',
-      caseNo: c.caseNo || c.case_no || '',
-      clientName: c.clientName || c.client_name || '',
+      caseName: c.caseName,
+      caseNo: c.caseNo || '',
+      clientName: c.clientName || '',
     }))
   }
 }
@@ -117,16 +148,25 @@ watch(() => props.initialAction, (value) => {
   if (props.modelValue) action.value = value
 })
 
-function close() {
+async function close() {
+  if (saving.value) return
+  if (stage.value === 'compose' && canSubmit.value) {
+    try {
+      await ElMessageBox.confirm('尚未完成捕获，关闭后未保存的输入将被丢弃。', '关闭捕获', { confirmButtonText: '丢弃并关闭', cancelButtonText: '继续编辑', type: 'warning' })
+    } catch { return }
+  }
   emit('update:modelValue', false)
 }
 
 async function chooseFiles() {
+  if (!nativeFiles) return
+  try {
   const { open } = await import('@tauri-apps/plugin-dialog')
   const selected = await open({ multiple: true, directory: false })
   if (!selected) return
   const paths = Array.isArray(selected) ? selected : [selected]
   filePaths.value = [...new Set([...filePaths.value, ...paths])]
+  } catch (error) { ElMessage.error(error instanceof Error ? error.message : '无法选择文件') }
 }
 
 function removeFile(path: string) {
@@ -136,9 +176,45 @@ function removeFile(path: string) {
 function onDrop(event: DragEvent) {
   event.preventDefault()
   dragging.value = false
+  if (saving.value) return
   const files = Array.from(event.dataTransfer?.files || [])
-  const paths = files.map((file) => (file as File & { path?: string }).path || file.name).filter(Boolean)
+  const paths = files.map((file) => (file as File & { path?: string }).path).filter((path): path is string => Boolean(path?.startsWith('/')))
+  if (files.length && !paths.length && !nativeFiles) ElMessage.warning('请在桌面应用中添加文件')
   filePaths.value = [...new Set([...filePaths.value, ...paths])]
+}
+
+function onNativeDrop(event: Event) {
+  if (!props.modelValue || stage.value !== 'compose' || saving.value) return
+  const paths = (event as CustomEvent<{ paths?: string[] }>).detail?.paths || []
+  filePaths.value = [...new Set([...filePaths.value, ...paths])]
+}
+onMounted(() => window.addEventListener('casy:file-drop', onNativeDrop))
+onUnmounted(() => window.removeEventListener('casy:file-drop', onNativeDrop))
+watch(selectedRecommendation, async recommendation => {
+  const intent = recommendation?.intent
+  reviewTitle.value = String((recommendation?.action === 'create_case' ? intent?.caseName : recommendation?.action === 'create_task' ? intent?.taskName : intent?.title) || intent?.name || text.value)
+  reviewDate.value = String(intent?.dueDate || intent?.eventDate || '')
+  reviewTime.value = String(intent?.dueTime || intent?.startTime || '')
+  if (!recommendation) return
+  targetCaseId.value = recommendation.targetCaseId || ''
+  const id = targetCaseId.value
+  if (id && !caseList.value.some(item => item.id === id)) {
+    const result = await casyContext.cases.get(id)
+    if (result.ok && result.data && selectedRecommendation.value === recommendation && !caseList.value.some(item => item.id === id)) {
+      caseList.value.push(result.data)
+    }
+  }
+})
+async function openInbox() { await close(); router.push('/inbox') }
+
+function openCreated() {
+  const result = actionResult.value
+  const caseId = (result?.case as IpcJsonObject | undefined)?.id
+  const knowledgeId = result?.knowledgeId
+  close()
+  if (typeof caseId === 'string') router.push({ name: 'case-detail', params: { id: caseId } })
+  else if (typeof knowledgeId === 'string') router.push({ path: '/knowledge', query: { select: knowledgeId } })
+  else router.push(selectedRecommendation.value?.action === 'create_event' ? '/calendar' : '/tasks')
 }
 
 function explicitRecommendation(value: Exclude<CaptureAction, 'auto'>): Recommendation {
@@ -146,7 +222,7 @@ function explicitRecommendation(value: Exclude<CaptureAction, 'auto'>): Recommen
   const parsed = parseWhen(content)
   const base = {
     name: content,
-    title: content,
+    title: value === 'create_event' ? parsed.taskName || content : content,
     content,
     taskName: parsed.taskName || content,
     dueDate: parsed.date,
@@ -163,7 +239,8 @@ function explicitRecommendation(value: Exclude<CaptureAction, 'auto'>): Recommen
     update_holidays: '解析法定节假日与调休安排，确认后更新日历',
     service_delivery: '按你的选择处理法院送达',
   }
-  return { action: value, reason: labels[value], intent: base, targetCaseId: targetCaseId.value || null }
+  const intent = value === 'create_case' ? { ...base, ...parseIntakeText(content).fields } : base
+  return { action: value, reason: labels[value], intent: intent as IpcJsonObject, targetCaseId: targetCaseId.value || null }
 }
 
 async function capture() {
@@ -173,18 +250,27 @@ async function capture() {
 
   try {
     if (text.value.trim()) {
-      const result = await casyContext.inbox.add('note', text.value.trim())
-      if (!result.ok || !result.data) throw new Error(result.error || '文字捕获失败')
-      ids.push(result.data)
+      const key = `note:${text.value.trim()}`
+      if (!savedInputs.has(key)) {
+        const result = await casyContext.inbox.add('note', text.value.trim())
+        if (!result.ok || !result.data) throw new Error(result.error || '文字捕获失败')
+        savedInputs.set(key, result.data)
+      }
+      ids.push(savedInputs.get(key)!)
     }
 
     for (const path of filePaths.value) {
-      const result = await casyContext.inbox.add('file', undefined, path)
-      if (!result.ok || !result.data) throw new Error(result.error || `文件捕获失败：${path}`)
-      ids.push(result.data)
+      const key = `file:${path}`
+      if (!savedInputs.has(key)) {
+        const result = await casyContext.inbox.add('file', undefined, path)
+        if (!result.ok || !result.data) throw new Error(result.error || `文件捕获失败：${path}`)
+        savedInputs.set(key, result.data)
+      }
+      ids.push(savedInputs.get(key)!)
     }
 
     capturedIds.value = ids
+    window.dispatchEvent(new Event('casy:inbox-changed'))
     emit('captured', { ids, action: action.value })
 
     if (!text.value.trim()) {
@@ -194,8 +280,9 @@ async function capture() {
 
     if (action.value === 'auto') {
       const judged = await casyContext.inbox.quickJudge(ids[0])
+      if (!judged.ok) throw new Error(judged.error || '原文已保存，暂时无法生成处理建议，请重试')
       const data = judged.ok ? judged.data as { recommendations?: Recommendation[] } : null
-      recommendations.value = data?.recommendations || []
+      recommendations.value = (data?.recommendations || []).filter(item => item.action !== 'create_project')
     } else if (action.value === 'update_holidays' || action.value === 'service_delivery') {
       const judged = await casyContext.inbox.quickJudge(ids[0])
       const data = judged.ok ? judged.data as { recommendations?: Recommendation[] } : null
@@ -206,9 +293,13 @@ async function capture() {
     }
 
     selectedRecommendation.value = recommendations.value[0] || null
-    targetCaseId.value = selectedRecommendation.value?.targetCaseId || ''
+    targetCaseId.value = selectedRecommendation.value?.targetCaseId || targetCaseId.value
     stage.value = recommendations.value.length ? 'review' : 'done'
   } catch (error) {
+    if (ids.length) {
+      capturedIds.value = ids
+      window.dispatchEvent(new Event('casy:inbox-changed'))
+    }
     ElMessage.error(error instanceof Error ? error.message : String(error))
   } finally {
     saving.value = false
@@ -219,21 +310,78 @@ async function confirmRecommendation() {
   const recommendation = selectedRecommendation.value
   const inboxItemId = capturedIds.value[0]
   if (!recommendation || !inboxItemId || saving.value) return
+  if (recommendation.action === 'create_case') {
+    const initial = { ...newIntake(), ...recommendation.intent, ...parseIntakeText(text.value).fields }
+    initial.caseName = reviewTitle.value.trim()
+    initial.notes ||= text.value
+    if (typeof initial.thirdParties === 'string') {
+      try { initial.thirdParties = JSON.parse(initial.thirdParties) } catch { initial.thirdParties = [] }
+    }
+    if (typeof initial.attorneys === 'string') initial.attorneys = initial.attorneys.split(/[、,，;；]/).filter(Boolean)
+    caseInitial.value = initial
+    caseWizardOpen.value = true
+    return
+  }
+  if (['create_task', 'create_event', 'create_case', 'save_knowledge'].includes(recommendation.action) && !reviewTitle.value.trim()) {
+    ElMessage.warning('请填写标题')
+    return
+  }
+  if (recommendation.action === 'create_event' && !reviewDate.value) {
+    ElMessage.warning('请选择日程日期')
+    return
+  }
   saving.value = true
+  try {
+  const intent: IpcJsonObject = { ...recommendation.intent, caseId: targetCaseId.value || null }
+  if (['create_task', 'create_event', 'create_case', 'save_knowledge'].includes(recommendation.action)) {
+    Object.assign(intent, { taskName: reviewTitle.value.trim(), title: reviewTitle.value.trim(), name: reviewTitle.value.trim() })
+  }
+  if (recommendation.action === 'create_case') intent.caseName = reviewTitle.value.trim()
+  if (recommendation.action === 'create_task') Object.assign(intent, { dueDate: reviewDate.value || null, dueTime: reviewTime.value || null })
+  if (recommendation.action === 'create_event') Object.assign(intent, { eventDate: reviewDate.value || null, startTime: reviewTime.value || null })
   const result = await casyContext.inbox.confirmAction({
     inboxItemId,
     action: recommendation.action,
-    targetCaseId: targetCaseId.value || recommendation.targetCaseId || null,
+    targetCaseId: targetCaseId.value || null,
     targetCategory: recommendation.targetFolder,
-    intent: recommendation.intent,
+    intent,
   })
-  saving.value = false
   if (!result.ok) {
     ElMessage.error(result.error || '执行失败，内容仍保留在收件箱')
     return
   }
+  await fileCapturedAttachments(result.data as IpcJsonObject, targetCaseId.value)
+  confirmed.value = true
+  actionResult.value = result.data as IpcJsonObject
   stage.value = 'done'
-  ElMessage.success('已完成处理并归入业务链条')
+  window.dispatchEvent(new Event('casy:inbox-changed'))
+  ElMessage.success('已完成处理')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '执行失败，内容仍保留在收件箱')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function submitCapturedCase(payload: IpcJsonObject) {
+  const result = await casyContext.inbox.confirmAction({ inboxItemId: capturedIds.value[0], action: 'create_case', intent: payload })
+  if (result.ok) {
+    await fileCapturedAttachments(result.data as IpcJsonObject)
+    confirmed.value = true
+    actionResult.value = result.data as IpcJsonObject
+    stage.value = 'done'
+    window.dispatchEvent(new Event('casy:inbox-changed'))
+  }
+  return result
+}
+
+async function fileCapturedAttachments(result: IpcJsonObject, selectedCase = '') {
+  const caseId = (result?.case as IpcJsonObject | undefined)?.id || selectedCase
+  if (typeof caseId !== 'string' || !caseId) return
+  for (const id of capturedIds.value.slice(1)) {
+    const filed = await casyContext.inbox.confirmAction({ inboxItemId: id, action: 'file_to_case', targetCaseId: caseId, targetCategory: 'other' })
+    if (!filed.ok) throw new Error(filed.error || '附件归档失败，已保存的内容保留，请重试')
+  }
 }
 
 function fileName(path: string) {
@@ -246,541 +394,104 @@ function actionLabel(value: string) {
 </script>
 
 <template>
-  <el-dialog
-    :model-value="modelValue"
-    width="min(680px, calc(100vw - 32px))"
-    append-to-body
-    class="unified-capture-dialog custom-glass-dialog"
-    :show-close="false"
-    @close="close"
-  >
+  <el-dialog :model-value="modelValue && !caseWizardOpen" width="min(600px, calc(100vw - 24px))" append-to-body class="unified-capture-dialog"
+    :show-close="false" :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="close">
     <template #header>
       <div class="capture-heading">
-        <div>
-          <h2>统一捕获</h2>
-          <p>先进入收件箱，由本地规则判断；需要时再调用 AI 增强。</p>
-        </div>
-        <kbd>⌘I</kbd>
+        <h2>{{ stage === 'compose' ? '快速捕获' : stage === 'review' ? '确认处理' : '已保存' }}</h2>
+        <el-button :icon="Close" text circle aria-label="关闭捕获" title="关闭" :disabled="saving" @click="close" />
       </div>
     </template>
-
     <div v-if="stage === 'compose'" class="capture-composer">
-      <div
-        class="capture-surface"
-        :class="{ dragging }"
-        @dragenter.prevent="dragging = true"
-        @dragover.prevent
-        @dragleave.prevent="dragging = false"
-        @drop="onDrop"
-      >
-        <textarea
-          v-model="text"
-          rows="6"
-          placeholder="输入想法、任务、日程、案件信息或法院短信，也可以拖入文件……"
-          @keydown.meta.enter.prevent="capture"
-          @keydown.ctrl.enter.prevent="capture"
-        />
+      <div class="capture-surface" :class="{ dragging }" @dragenter.prevent="dragging = true" @dragover.prevent @dragleave.prevent="dragging = false" @drop="onDrop">
+        <textarea v-model="text" aria-label="捕获内容" rows="5" :disabled="saving" placeholder="记录待办、想法或待整理的材料…" @keydown.meta.enter.prevent="capture" @keydown.ctrl.enter.prevent="capture" />
         <div v-if="filePaths.length" class="file-list">
-          <button v-for="path in filePaths" :key="path" class="file-chip" type="button" @click="removeFile(path)">
-            <el-icon><Paperclip /></el-icon>
-            <span>{{ fileName(path) }}</span>
-            <span class="remove-mark">移除</span>
-          </button>
-        </div>
-        <button class="drop-action" type="button" @click="chooseFiles">
-          <el-icon><UploadFilled /></el-icon>
-          选择文件或拖到此处
-        </button>
-      </div>
-
-      <div class="intent-row" aria-label="处理方式">
-        <button
-          v-for="option in actionOptions"
-          :key="option.value"
-          type="button"
-          :class="['intent-option', { active: action === option.value }]"
-          @click="action = option.value"
-        >
-          <el-icon><component :is="option.icon" /></el-icon>
-          {{ option.label }}
-        </button>
-      </div>
-
-      <div class="capture-note">
-        “自动判断”只给出建议，不会静默创建或移动资料。
-      </div>
-    </div>
-
-    <div v-else-if="stage === 'review'" class="review-stage">
-      <div class="stage-kicker">捕获分析完成</div>
-      <h3>确认这次捕获的落地方向与归属</h3>
-
-      <!-- 1. 意图落地动作选择 -->
-      <div class="review-section-title">1. 选择落地方向</div>
-      <div class="recommendations-list">
-        <button
-          v-for="recommendation in recommendations"
-          :key="recommendation.action + recommendation.reason"
-          type="button"
-          :class="['recommendation-row', { active: selectedRecommendation === recommendation }]"
-          @click="selectedRecommendation = recommendation"
-        >
-          <span class="recommendation-title">{{ actionLabel(recommendation.action) }}</span>
-          <span class="recommendation-reason">
-            {{ recommendation.reason || '根据输入内容推荐' }}
-            <small v-if="recommendation.action === 'update_holidays' && recommendation.intent">
-              {{ recommendation.intent.year }} 年 · 放假 {{ (recommendation.intent.holidays as unknown[] || []).length }} 天 · 调休上班 {{ (recommendation.intent.workdays as unknown[] || []).length }} 天
-            </small>
-          </span>
-        </button>
-      </div>
-
-      <!-- 2. 核心案件/项目链条归属确认 (防止产生孤立散落节点) -->
-      <div v-if="selectedRecommendation?.action !== 'update_holidays'" class="case-binding-block">
-        <div class="case-binding-header">
-          <div class="cb-title">
-            <el-icon><Briefcase /></el-icon>
-            <span>2. 归属案件 / 项目（核心链条锚点）</span>
+          <div v-for="path in filePaths" :key="path" class="file-chip">
+            <el-icon><Paperclip /></el-icon><span :title="fileName(path)">{{ fileName(path) }}</span>
+            <el-button :icon="Close" text circle :aria-label="'移除 ' + fileName(path)" :disabled="saving" @click="removeFile(path)" />
           </div>
-          <span v-if="targetCaseId" class="cb-badge matched">
-            已锚定案件
-          </span>
-          <span v-else class="cb-badge unlinked">
-            全局独立项
-          </span>
         </div>
-
-        <el-select
-          v-model="targetCaseId"
-          filterable
-          clearable
-          placeholder="搜索并选择关联案件 / 项目（输入案号、当事人或案名）"
-          class="case-select-input"
-          @change="onCaseChange"
-        >
-          <el-option
-            v-for="c in caseList"
-            :key="c.id"
-            :label="c.caseNo ? `[${c.caseNo}] ${c.caseName}` : c.caseName"
-            :value="c.id"
-          >
-            <div class="case-option-item">
-              <span class="co-name">{{ c.caseName }}</span>
-              <span v-if="c.clientName" class="co-client">{{ c.clientName }}</span>
-              <span v-if="c.caseNo" class="co-no">{{ c.caseNo }}</span>
-            </div>
-          </el-option>
-        </el-select>
-
-        <div v-if="targetCaseId" class="case-binding-tip matched-tip">
-          ✨ 确认后将自动挂载至该案的脉络链条（任务、文书与动态点阵图）。
-        </div>
-        <div v-else class="case-binding-tip orphan-tip">
-          💡 提示：若未选择案件，此项将作为全局独立项保存。建议选择关联案件以形成完整业务脉络链条，避免产生孤立节点。
+        <div class="attachment-toolbar">
+          <el-button :icon="Paperclip" text :disabled="!nativeFiles || saving" :title="nativeFiles ? '添加附件' : '请在桌面应用中添加文件'" @click="chooseFiles">添加附件</el-button>
+          <span v-if="filePaths.length">{{ filePaths.length }} 个附件</span>
         </div>
       </div>
-
-      <p class="review-safety">不确认也没关系，原始内容已经安全保存在收件箱。</p>
+      <div class="capture-fields">
+        <label><span>处理方式</span><el-select v-model="action" aria-label="处理方式" :disabled="saving">
+          <el-option v-for="option in actionOptions" :key="option.value" :value="option.value" :label="option.label"><el-icon><component :is="option.icon" /></el-icon> {{ option.label }}</el-option>
+        </el-select></label>
+        <label v-if="['create_task', 'create_event', 'save_knowledge'].includes(action)"><span>关联案件</span>
+          <el-select v-model="targetCaseId" aria-label="关联案件" filterable remote :remote-method="loadCases" :loading="caseLoading" clearable placeholder="未关联" :disabled="saving">
+            <el-option v-for="c in caseList" :key="c.id" :value="c.id" :label="c.caseName" />
+          </el-select>
+        </label>
+      </div>
     </div>
-
+    <div v-else-if="stage === 'review'" class="review-stage">
+      <div class="saved-status"><el-icon><Check /></el-icon>原始内容已存入收件箱</div>
+      <el-radio-group v-model="selectedRecommendationIndex" class="recommendations-list" aria-label="处理建议">
+        <el-radio v-for="(recommendation, index) in recommendations" :key="index" :value="index" :disabled="saving">{{ actionLabel(recommendation.action) }}</el-radio>
+      </el-radio-group>
+      <p v-if="selectedRecommendation?.reason" class="recommendation-reason">{{ selectedRecommendation.reason }}</p>
+      <el-form label-position="top" class="review-form">
+        <el-form-item v-if="['create_task', 'create_event', 'create_case', 'save_knowledge'].includes(selectedRecommendation?.action || '')" label="标题">
+          <el-input v-model="reviewTitle" aria-label="标题" :disabled="saving" />
+        </el-form-item>
+        <div v-if="['create_task', 'create_event'].includes(selectedRecommendation?.action || '')" class="review-time">
+          <el-form-item :label="selectedRecommendation?.action === 'create_event' ? '日程日期' : '截止日期'"><el-date-picker v-model="reviewDate" aria-label="日期" type="date" value-format="YYYY-MM-DD" placeholder="未设置" :disabled="saving" /></el-form-item>
+          <el-form-item label="时间"><el-time-picker v-model="reviewTime" aria-label="时间" format="HH:mm" value-format="HH:mm" clearable placeholder="未设置" :disabled="saving" /></el-form-item>
+        </div>
+        <el-form-item v-if="!['update_holidays', 'create_case'].includes(selectedRecommendation?.action || '')" label="关联案件">
+          <el-select v-model="targetCaseId" filterable remote :remote-method="loadCases" :loading="caseLoading" clearable placeholder="未关联案件" :disabled="saving" @change="onCaseChange">
+            <el-option v-for="c in caseList" :key="c.id" :value="c.id" :label="c.caseNo ? c.caseName + ' · ' + c.caseNo : c.caseName" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </div>
     <div v-else class="done-stage">
-      <el-icon :size="30"><Finished /></el-icon>
-      <h3>已保存</h3>
-      <p>内容已进入可追溯流程，可以在收件箱继续查看和调整。</p>
+      <el-icon :size="32"><Check /></el-icon><h3>{{ confirmed ? '处理完成' : '已存入收件箱' }}</h3>
+      <p v-if="confirmed && capturedIds.length > 1 && !targetCaseId && !actionResult?.case">{{ capturedIds.length - 1 }} 个附件待整理</p>
+      <el-button v-if="confirmed && ['create_task','create_event','create_case','save_knowledge'].includes(selectedRecommendation?.action || '')" type="primary" @click="openCreated">查看{{ actionLabel(selectedRecommendation?.action || '') }}</el-button>
+      <el-button text @click="openInbox">查看收件箱</el-button>
     </div>
-
     <template #footer>
       <div class="capture-footer">
-        <button class="button-secondary" type="button" @click="close">
-          {{ stage === 'compose' ? '取消' : '关闭' }}
-        </button>
-        <button
-          v-if="stage === 'compose'"
-          class="button-primary"
-          type="button"
-          :disabled="!canSubmit || saving"
-          @click="capture"
-        >
-          {{ saving ? '正在保存…' : '捕获并判断' }}
-        </button>
-        <button
-          v-else-if="stage === 'review'"
-          class="button-primary"
-          type="button"
-          :disabled="!selectedRecommendation || saving"
-          @click="confirmRecommendation"
-        >
-          {{ saving ? '正在执行…' : '确认执行' }}
-        </button>
+        <el-button :disabled="saving" @click="close">{{ stage === 'compose' ? '取消' : stage === 'review' ? '稍后处理' : '关闭' }}</el-button>
+        <el-button v-if="stage === 'compose'" type="primary" :disabled="!canSubmit" :loading="saving" @click="capture">{{ action === 'auto' ? '存入收件箱' : '继续' }}</el-button>
+        <el-button v-else-if="stage === 'review'" type="primary" :disabled="!selectedRecommendation" :loading="saving" @click="confirmRecommendation">{{ selectedRecommendation?.action === 'create_case' ? '完善案件信息' : '确认处理' }}</el-button>
       </div>
     </template>
   </el-dialog>
+  <CaseWizard v-if="caseWizardOpen" v-model="caseWizardOpen" title="新建案件" :initial-case="caseInitial" :submit="submitCapturedCase" />
 </template>
 
 <style scoped>
-.capture-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.capture-heading h2 {
-  margin: 0;
-  color: var(--c-text);
-  font-size: 18px;
-  line-height: 1.3;
-}
-
-.capture-heading p {
-  margin: 5px 0 0;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.capture-heading kbd {
-  border: 1px solid var(--c-border);
-  border-radius: 5px;
-  background: var(--c-bg-subtle);
-  color: var(--c-text-secondary);
-  padding: 3px 7px;
-  font-size: 11px;
-}
-
-.capture-surface {
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: var(--c-bg-card);
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
-  transition: all var(--motion-fast);
-}
-
-.capture-surface:focus-within,
-.capture-surface.dragging {
-  border-color: var(--c-primary);
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(62, 92, 154, 0.15), inset 0 2px 4px rgba(0,0,0,0.02);
-}
-
-.capture-surface textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 120px;
-  resize: vertical;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--c-text);
-  padding: 16px;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.capture-surface textarea::placeholder {
-  color: #858c99;
-}
-
-.drop-action {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  border: 0;
-  border-top: 1px solid var(--c-border-light);
-  background: transparent;
-  color: var(--c-text-secondary);
-  padding: 10px 14px;
-  cursor: pointer;
-  font: 12.5px inherit;
-}
-
-.drop-action:hover {
-  color: var(--c-primary);
-  background: var(--c-bg-subtle);
-}
-
-.file-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 12px 10px;
-}
-
-.file-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  border: 1px solid var(--c-border);
-  border-radius: 6px;
-  background: var(--c-bg-subtle);
-  color: var(--c-text-regular);
-  padding: 5px 8px;
-  cursor: pointer;
-}
-
-.file-chip span:first-of-type {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remove-mark {
-  color: var(--c-text-secondary);
-  font-size: 11px;
-}
-
-.intent-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.intent-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  border: 1px solid var(--c-border);
-  border-radius: 20px;
-  background: var(--c-bg-subtle);
-  color: var(--c-text-secondary);
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all var(--motion-fast);
-}
-
-.intent-option:hover {
-  background: var(--c-bg-hover);
-  color: var(--c-text);
-}
-
-.intent-option.active {
-  border-color: var(--c-primary);
-  background: var(--c-primary-light);
-  color: var(--c-primary);
-  font-weight: 600;
-}
-
-.capture-note,
-.review-safety {
-  margin: 10px 0 0;
-  color: var(--c-text-secondary);
-  font-size: 12px;
-}
-
-.stage-kicker {
-  color: var(--c-primary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.review-stage h3,
-.done-stage h3 {
-  margin: 5px 0 14px;
-  color: var(--c-text);
-  font-size: 17px;
-}
-
-.review-section-title {
-  margin: 12px 0 6px;
-  color: var(--c-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.recommendations-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.case-binding-block {
-  margin-top: 18px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: var(--c-bg-subtle, #f8fafc);
-  border: 1px solid var(--c-border, #e2e8f0);
-}
-
-.case-binding-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.cb-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--c-text);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.cb-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-weight: 500;
-}
-
-.cb-badge.matched {
-  background: #ecfdf5;
-  color: #059669;
-  border: 1px solid #a7f3d0;
-}
-
-.cb-badge.unlinked {
-  background: #fffbeb;
-  color: #d97706;
-  border: 1px solid #fde68a;
-}
-
-.case-select-input {
-  width: 100%;
-}
-
-.case-option-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-}
-
-.co-name {
-  font-weight: 500;
-  color: var(--c-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.co-client {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-.co-no {
-  font-size: 11px;
-  font-family: var(--font-mono, monospace);
-  color: var(--c-primary, #3e5c9a);
-  background: rgba(62, 92, 154, 0.08);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-.case-binding-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.matched-tip {
-  color: #059669;
-}
-
-.orphan-tip {
-  color: #b45309;
-}
-
-.recommendation-row {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 12px;
-  width: 100%;
-  margin-top: 7px;
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  background: #fff;
-  padding: 11px 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.recommendation-row:hover,
-.recommendation-row.active {
-  border-color: var(--c-primary);
-  background: #f6f8fc;
-}
-
-.recommendation-title {
-  color: var(--c-text);
-  font-weight: 600;
-}
-
-.recommendation-reason {
-  color: var(--c-text-secondary);
-}
-
-.recommendation-reason small {
-  display: block;
-  margin-top: 4px;
-  color: var(--c-text);
-  font-size: 12px;
-}
-
-.done-stage {
-  padding: 26px 12px;
-  text-align: center;
-  color: var(--c-primary);
-}
-
-.done-stage p {
-  margin: 0;
-  color: var(--c-text-secondary);
-}
-
-.capture-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.button-primary,
-.button-secondary {
-  min-height: 34px;
-  border-radius: 7px;
-  padding: 7px 15px;
-  cursor: pointer;
-  font: 13px inherit;
-  white-space: nowrap;
-}
-
-.button-primary {
-  border: 1px solid var(--c-primary);
-  background: var(--c-primary);
-  color: #fff;
-}
-
-.button-primary:disabled {
-  border-color: #aab4c7;
-  background: #aab4c7;
-  cursor: not-allowed;
-}
-
-.button-secondary {
-  border: 1px solid var(--c-border);
-  background: #fff;
-  color: var(--c-text-regular);
-}
-
-@media (max-width: 680px) {
-  .intent-row {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .recommendation-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-}
+.capture-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.capture-heading h2 { font-size: 18px; line-height: 1.4; color: var(--c-text-heading); margin: 0; }
+.capture-surface { border: 1px solid var(--c-border-strong); border-radius: 8px; background: var(--c-bg-card); transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
+.capture-surface:focus-within, .capture-surface.dragging { border-color: var(--c-primary); box-shadow: 0 0 0 2px var(--c-primary-light); }
+.capture-surface textarea { display: block; width: 100%; min-height: 160px; max-height: 320px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--c-text); padding: 16px; font: inherit; font-size: 14px; line-height: 1.7; }
+.capture-surface textarea::placeholder { color: var(--c-text-secondary); }
+.attachment-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 8px; border-top: 1px solid var(--c-border-light); }
+.attachment-toolbar > span { font-size: 12px; color: var(--c-text-secondary); }
+.file-list { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 4px; }
+.file-chip { display: flex; align-items: center; gap: 8px; padding: 2px 8px; border-radius: 4px; background: var(--c-bg-subtle); color: var(--c-text-regular); font-size: 12px; }
+.file-chip > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capture-fields, .review-time { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.capture-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.capture-fields label > span { font-size: 12px; color: var(--c-text-secondary); }
+.saved-status { display: flex; align-items: center; gap: 8px; color: var(--c-success); font-size: 13px; padding: 0 0 16px; border-bottom: 1px solid var(--c-border); }
+.recommendations-list { margin-top: 12px; }
+.recommendation-reason { color: var(--c-text-secondary); font-size: 12px; line-height: 1.6; margin: 0 0 16px; }
+.review-time { margin: 0; }
+.review-form :deep(.el-date-editor), .review-form :deep(.el-select) { width: 100%; }
+.done-stage { padding: 24px 0; text-align: center; color: var(--c-success); }
+.done-stage h3 { font-size: 16px; color: var(--c-text); margin: 12px 0; }
+.capture-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--c-border); }
+@media (max-width: 480px) { .capture-fields, .review-time { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+</style>
+<style>
+.unified-capture-dialog { max-height: calc(100dvh - min(15vh, 48px) - 16px); margin-top: min(15vh, 48px); display: flex; flex-direction: column; }
+.unified-capture-dialog > .el-dialog__body { min-height: 0; overflow-y: auto; }
+.unified-capture-dialog > .el-dialog__header, .unified-capture-dialog > .el-dialog__footer { flex-shrink: 0; }
 </style>

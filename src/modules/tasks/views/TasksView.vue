@@ -226,6 +226,7 @@ async function loadData() {
   ])
   loading.value = false
 }
+onUnmounted(casyContext.on('inbox:confirmed', () => { loadTasks(); loadCases() }))
 
 async function loadTasks() {
   // 加载包含已完成在内的全量任务以支持已完成归档透视

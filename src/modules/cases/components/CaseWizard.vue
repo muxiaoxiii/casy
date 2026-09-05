@@ -7,7 +7,7 @@ import { intakeSections, routeOptions, statusGroups, newIntake, setIntakeRoute, 
 import ThirdPartiesEditor from './ThirdPartiesEditor.vue'
 import IntakeNodesEditor from './IntakeNodesEditor.vue'
 
-const props = defineProps({ modelValue: Boolean, submit: { type: Function, required: true }, initialCase: Object })
+const props = defineProps({ modelValue: Boolean, submit: { type: Function, required: true }, initialCase: Object, title: String })
 const emit = defineEmits(['update:modelValue'])
 const formData = reactive(newIntake())
 const saving = ref(false)
@@ -24,6 +24,7 @@ const sections = [...intakeSections, { key:'nodes', label:'办案节点' }, { ke
 const currentIndex = computed(() => sections.findIndex(s => s.key === activeStep.value))
 const section = computed(() => sections[currentIndex.value])
 const relationTypes = [['cross_reference','关联案件'],['same_patent','同一专利'],['same_party','共同当事人'],['appeal_of','本案为关联案的二审 / 再审']]
+let searchVersion = 0
 
 watch(() => props.modelValue, async visible => {
   if (!visible) return
@@ -39,12 +40,11 @@ watch(() => props.modelValue, async visible => {
   searching.value = false
   const result = await casyContext.cases.list({ perPage: 200 })
   if (result.ok) suggestions.value = result.data.items
-})
+}, { immediate: true })
 function suggest(key, query, callback) {
   const values = [...new Set(suggestions.value.map(c => c[key]).filter(v => typeof v === 'string' && v))]
   callback(values.filter(v => v.toLowerCase().includes(query.toLowerCase())).slice(0,15).map(value => ({value})))
 }
-let searchVersion = 0
 async function searchRelated(query) {
   const version = ++searchVersion
   searching.value = true
@@ -94,7 +94,7 @@ async function save() {
 <template>
   <el-drawer :model-value="modelValue" :before-close="close" :close-on-press-escape="!saving" :close-on-click-modal="false" size="min(860px, 100vw)" class="case-wizard-drawer" :with-header="false" destroy-on-close>
     <div class="intake">
-      <header><div><h2>{{ initialCase ? '新建关联案件' : '新建案件' }}</h2><span class="case-name">{{ formData.caseName || '未命名案件' }}</span></div><el-button :icon="Close" :disabled="saving" aria-label="关闭" title="关闭" @click="close" /></header>
+      <header><div><h2>{{ title || (initialCase ? '新建关联案件' : '新建案件') }}</h2><span class="case-name">{{ formData.caseName || '未命名案件' }}</span></div><el-button :icon="Close" :disabled="saving" aria-label="关闭" title="关闭" @click="close" /></header>
       <nav aria-label="案件录入步骤"><button v-for="item in sections" :key="item.key" type="button" :aria-current="activeStep === item.key ? 'step' : undefined" :class="{active:activeStep === item.key}" @click="activeStep = item.key">{{ item.label }}</button></nav>
       <div class="intake-body">
         <el-form label-position="top" :disabled="saving" @submit.prevent="save">
@@ -137,7 +137,8 @@ h2 { margin: 0 0 6px; font-size: 20px; }
 nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--c-border); }
 nav button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 8px; color: var(--c-text-secondary); cursor: pointer; font: inherit; font-size: 13px; }
 nav button.active { color: var(--el-color-primary); border-bottom-color: var(--el-color-primary); font-weight: 600; }
-.intake-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; }
+.intake-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; scroll-padding-block: 24px; }
+.intake-body :deep(input), .intake-body :deep(textarea) { scroll-margin-block: 24px; }
 .fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 20px; }
 .wide { grid-column: 1 / -1; }
 :deep(.el-date-editor), :deep(.el-autocomplete), :deep(.el-select) { width: 100%; min-width: 0; }

@@ -42,6 +42,28 @@ fn row_to_event(r: &rusqlite::Row) -> rusqlite::Result<CalendarEventRow> {
 const EVENT_COLS: &str =
     "id, title, event_date, start_time, end_time, all_day, color, location, notes, case_id, task_id";
 
+fn event_all_day(data: &serde_json::Value) -> i64 {
+    data["allDay"].as_bool().map(i64::from).or_else(|| data["allDay"].as_i64())
+        .unwrap_or(if data["startTime"].is_null() { 1 } else { 0 })
+}
+
+fn validate_event(data: &serde_json::Value) -> anyhow::Result<()> {
+    anyhow::ensure!(data["title"].as_str().is_some_and(|value| !value.trim().is_empty()), "请输入日程标题");
+    let date = data["eventDate"].as_str().unwrap_or("");
+    anyhow::ensure!(date.len() == 10 && chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok(), "日程日期无效");
+    for key in ["startTime", "endTime"] {
+        if !data[key].is_null() {
+            let time = data[key].as_str().unwrap_or("");
+            anyhow::ensure!(time.len() == 5 && chrono::NaiveTime::parse_from_str(time, "%H:%M").is_ok(), "日程时间无效");
+        }
+    }
+    if let (Some(start), Some(end)) = (data["startTime"].as_str(), data["endTime"].as_str()) {
+        anyhow::ensure!(end > start, "结束时间必须晚于开始时间");
+    }
+    anyhow::ensure!(matches!(event_all_day(data), 0 | 1), "全天日程设置无效");
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn list_calendar_events(
     start_date: String,
@@ -66,6 +88,13 @@ pub async fn list_calendar_events(
 pub async fn create_calendar_event(data: serde_json::Value) -> Result<CalendarEventRow, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
+        create_event_in_transaction(&conn, data)
+    })
+    .await
+}
+
+pub(super) fn create_event_in_transaction(conn: &rusqlite::Connection, data: serde_json::Value) -> anyhow::Result<CalendarEventRow> {
+        validate_event(&data)?;
         let id = db::new_id();
         let now = db::now_local();
         let title = data["title"]
@@ -85,7 +114,7 @@ pub async fn create_calendar_event(data: serde_json::Value) -> Result<CalendarEv
                 event_date,
                 data["startTime"].as_str(),
                 data["endTime"].as_str(),
-                data["allDay"].as_i64().unwrap_or(if data["startTime"].is_null() { 1 } else { 0 }),
+                event_all_day(&data),
                 data["color"].as_str(),
                 data["location"].as_str(),
                 data["notes"].as_str(),
@@ -101,8 +130,6 @@ pub async fn create_calendar_event(data: serde_json::Value) -> Result<CalendarEv
             row_to_event,
         )?;
         Ok(ev)
-    })
-    .await
 }
 
 /// 更新日程。语义：整组提交——前端编辑表单持有完整字段；
@@ -110,6 +137,7 @@ pub async fn create_calendar_event(data: serde_json::Value) -> Result<CalendarEv
 #[tauri::command]
 pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Result<(), String> {
     run_blocking(move || {
+        validate_event(&data)?;
         let conn = db::open_db()?;
         let now = db::now_local();
 
@@ -133,9 +161,7 @@ pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Resul
                 event_date,
                 data["startTime"].as_str(),
                 data["endTime"].as_str(),
-                data["allDay"]
-                    .as_i64()
-                    .unwrap_or(if data["startTime"].is_null() { 1 } else { 0 }),
+                event_all_day(&data),
                 data["color"].as_str(),
                 data["location"].as_str(),
                 data["notes"].as_str(),

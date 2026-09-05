@@ -66,7 +66,12 @@ pub async fn list_projects(query: Option<String>) -> Result<Vec<ProjectRow>, Str
 #[tauri::command]
 pub async fn create_personal_project(data: serde_json::Value) -> Result<ProjectRow, String> {
     run_blocking(move || {
-        db::with_conn(|conn| {
+        db::with_conn(|conn| create_project_in_transaction(conn, data))
+    })
+    .await
+}
+
+pub(super) fn create_project_in_transaction(conn: &rusqlite::Connection, data: serde_json::Value) -> anyhow::Result<ProjectRow> {
             let name = data["name"]
                 .as_str()
                 .map(str::trim)
@@ -111,9 +116,6 @@ pub async fn create_personal_project(data: serde_json::Value) -> Result<ProjectR
                 },
             )?;
             Ok(p)
-        })
-    })
-    .await
 }
 
 /// 更新个人项目的通用字段。legal 行拒绝在此修改（名称/状态归案件管理管）

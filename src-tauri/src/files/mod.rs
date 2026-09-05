@@ -447,10 +447,21 @@ pub fn file_to_case(source_path: &Path, case: &db::cases::Case, category: &str) 
 
     // 重命名：日期_类型_案号_hash.ext
     let new_name = smart_rename(file_name, case, category, None);
-    let target_path = target_dir.join(&new_name);
-
-    // 复制文件（保留原文件在收件箱供复查）
-    std::fs::copy(source_path, &target_path)?;
-
-    Ok(target_path)
+    anyhow::ensure!(source_path.is_file(), "源路径不是普通文件");
+    let mut temp = tempfile::Builder::new().prefix(".casy-inbox-").tempfile_in(&target_dir)?;
+    std::io::copy(&mut std::fs::File::open(source_path)?, temp.as_file_mut())?;
+    temp.as_file().sync_all()?;
+    anyhow::ensure!(crate::document_pipeline::sha256_file(source_path)? == crate::document_pipeline::sha256_file(temp.path())?, "复制期间原文件变化，请重试");
+    let name = Path::new(&new_name);
+    let stem = name.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
+    let extension = name.extension().and_then(|s| s.to_str()).map(|s|format!(".{s}")).unwrap_or_default();
+    for index in 0..1000 {
+        let target = target_dir.join(if index == 0 { new_name.clone() } else { format!("{stem}_{index}{extension}") });
+        match temp.persist_noclobber(&target) {
+            Ok(_) => return Ok(target),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => temp = error.file,
+            Err(error) => return Err(error.error.into()),
+        }
+    }
+    anyhow::bail!("同名卷宗文件过多，请调整文件名")
 }

@@ -10,6 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () =>
 vi.mock('element-plus', () => ({ ElMessage: { error: mocks.error, success: vi.fn() }, ElMessageBox: { confirm: vi.fn() } }))
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ onCloseRequested: mocks.register, close: mocks.close }) }))
 vi.mock('../../src/core/plugin/context', () => ({ casyContext: {
+  on: () => vi.fn(),
   knowledge: { list: mocks.list, getWithBlocks: mocks.get, update: mocks.update },
   cases: { list: async () => ({ ok: true, data: [] }) },
 } }))

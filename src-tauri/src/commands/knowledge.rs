@@ -1097,7 +1097,16 @@ pub struct KnowledgeGraphDto {
 #[tauri::command]
 pub async fn create_knowledge(data: CreateKnowledgeInput) -> Result<String, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw = db::open_db()?;
+        let conn = raw.transaction()?;
+        let id = create_knowledge_in_transaction(&conn, data)?;
+        conn.commit()?;
+        Ok(id)
+    })
+    .await
+}
+
+pub(super) fn create_knowledge_in_transaction(conn: &rusqlite::Connection, data: CreateKnowledgeInput) -> anyhow::Result<String> {
         let id = db::new_id();
         let now = db::now_local();
 
@@ -1132,9 +1141,8 @@ pub async fn create_knowledge(data: CreateKnowledgeInput) -> Result<String, Stri
             ],
         )?;
 
+        sync_wiki_links(conn, &id, &data.content)?;
         Ok(id)
-    })
-    .await
 }
 
 /// 从选中文本创建知识条目

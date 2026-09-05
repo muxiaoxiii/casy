@@ -26,11 +26,20 @@ pub async fn get_case(id: String) -> Result<db::cases::Case, String> {
 }
 
 #[tauri::command]
-pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case, String> {
+pub async fn create_case(data: serde_json::Value) -> Result<db::cases::Case, String> {
     run_blocking(move || {
         let mut raw_conn = db::open_db()?;
         // 事务化：token 消费与写入同生共死
         let conn = raw_conn.transaction()?;
+        let case = create_case_in_transaction(&conn, data)?;
+        conn.commit()?;
+        crate::sync::feishu::get_auto_push_manager().notify_change();
+        Ok(case)
+    })
+    .await
+}
+
+pub(super) fn create_case_in_transaction(conn: &rusqlite::Connection, mut data: serde_json::Value) -> anyhow::Result<db::cases::Case> {
 
         // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
         crate::ai::gateway::verify_ai_mutation_authorized(
@@ -62,6 +71,16 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
         }
 
         db::intake::validate_case(&data)?;
+        if data["thirdParties"].is_array() {
+            data["thirdParties"] = serde_json::json!(data["thirdParties"].to_string());
+        }
+        if let Some(attorneys) = data["attorneys"].as_array() {
+            anyhow::ensure!(attorneys.iter().all(|value| value.is_string()), "办案人必须是姓名列表");
+            data["attorneys"] = serde_json::json!(attorneys.to_vec().iter().map(|value|value.as_str().unwrap().trim()).collect::<Vec<_>>().join(","));
+        }
+        for key in ["caseAmount", "legalFees"] {
+            if data[key].is_number() { data[key] = serde_json::json!(data[key].to_string()); }
+        }
         let mut case: db::cases::Case = serde_json::from_value(data.clone())
             .map_err(|e| anyhow::anyhow!("Failed to parse Case: {}", e))?;
         case.id = db::new_id();
@@ -93,11 +112,7 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
             Err(e) => log::warn!("创建案件文件夹失败: {}", e),
         }
 
-        conn.commit()?;
-        crate::sync::feishu::get_auto_push_manager().notify_change();
-        db::cases::get_case(&raw_conn, &case.id)
-    })
-    .await
+        db::cases::get_case(conn, &case.id)
 }
 
 #[tauri::command]

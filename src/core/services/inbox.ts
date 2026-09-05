@@ -1,6 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { InboxItem } from '../../types'
+import type { IpcJsonObject } from '../../types/ipc'
 
 /** 收件箱服务：ctx.inbox */
 export class InboxService extends Service {
@@ -54,15 +55,17 @@ export class InboxService extends Service {
     targetCaseId?: string | null
     targetCategory?: string | null
     action?: string
-    intent?: Record<string, unknown> | null
-  }): Promise<{ ok: boolean; data?: string; error?: string }> {
-    return tauriCallSafe('confirm_inbox_action', {
+    intent?: IpcJsonObject | null
+  }): Promise<{ ok: boolean; data?: IpcJsonObject; error?: string }> {
+    const result = await tauriCallSafe('confirm_inbox_action', {
       inboxItemId: opts.inboxItemId,
       targetCaseId: opts.targetCaseId ?? null,
       targetCategory: opts.targetCategory ?? null,
-      action: opts.action ?? null,
+      action: opts.action ?? 'file_to_case',
       intent: opts.intent ?? null,
     })
+    if (result.ok) this.ctx.emit('inbox:confirmed', { action: opts.action ?? 'file_to_case', result: result.data })
+    return result
   }
 
   /** 语音转写（需 OpenAI 兼容 STT） */

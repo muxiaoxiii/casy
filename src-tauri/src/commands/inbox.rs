@@ -38,6 +38,69 @@ pub struct InboxProgress {
     pub pending: i64,
 }
 
+fn normalize_case_file_category(category: &str) -> &'static str {
+    match category.trim() {
+        "summons" | "传票" | "01_传票" => "summons",
+        "evidence" | "证据" | "02_证据" => "evidence",
+        "submitted" | "complaint" | "defence" | "交文" | "03_交文" | "提交材料" => {
+            "submitted"
+        }
+        "received" | "judgment" | "official_notice" | "hearing_notice" | "收文" | "04_收文" => {
+            "received"
+        }
+        "internal" | "内部" | "05_内部" => "internal",
+        "correspondence" | "函件" | "通信" | "06_通信" => "correspondence",
+        _ => "other",
+    }
+}
+
+fn ignored_status_for_schema(conn: &rusqlite::Connection) -> Result<&'static str, rusqlite::Error> {
+    let table_sql: String = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='inbox_items'",
+        [],
+        |row| row.get(0),
+    )?;
+    if table_sql.contains("'ignored'") {
+        Ok("ignored")
+    } else {
+        Ok("dismissed")
+    }
+}
+
+fn register_inbox_case_file(
+    tx: &rusqlite::Transaction<'_>,
+    case_id: &str,
+    path: &std::path::Path,
+    category: &str,
+) -> anyhow::Result<String> {
+    let id = db::new_id();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("document.pdf")
+        .to_string();
+    let file_size = std::fs::metadata(path)?.len() as i64;
+    let file_type = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_string);
+    let db_category = normalize_case_file_category(category);
+    tx.execute(
+        "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'inbox')",
+        rusqlite::params![
+            id,
+            case_id,
+            file_name,
+            path.to_string_lossy().to_string(),
+            file_size,
+            file_type,
+            db_category,
+        ],
+    )?;
+    Ok(id)
+}
+
 /// AI 处理结果（分类 + 置信度 + 抽取 + 自动路由动作）
 #[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +120,20 @@ pub struct HolidayNotice {
     pub year: i32,
     pub holidays: Vec<String>,
     pub workdays: Vec<String>,
+}
+
+fn inbox_title(title: Option<&str>, text: &str, source_path: Option<&str>) -> String {
+    title
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| text.lines().map(str::trim).find(|line| !line.is_empty()))
+        .or_else(|| {
+            source_path.and_then(|path| path.rsplit(['/', '\\']).find(|part| !part.is_empty()))
+        })
+        .unwrap_or("未命名收件项")
+        .chars()
+        .take(120)
+        .collect()
 }
 
 #[tauri::command]
@@ -81,35 +158,22 @@ pub async fn add_inbox_item(
             _ => "note",
         };
 
-        // 尝试 AI 分类（使用 prompt 增强）
-        let ai_config = crate::ai::load_ai_config();
-        let (category, confidence, ai_extracted, suggested_case_id) = if ai_config.mode != "noop" {
-            match tauri::async_runtime::block_on(crate::ai::process_inbox_with_ai(&text)) {
-                Ok((result, routing)) => {
-                    let suggested_id = match &routing {
-                        crate::ai::RoutingDecision::AutoLinked { case_id, .. } => {
-                            Some(case_id.clone())
-                        }
-                        _ => None,
-                    };
-                    let extracted = result
-                        .extracted_info
-                        .as_ref()
-                        .map(|v| serde_json::to_string(v).unwrap_or_default());
-                    (result.category, result.confidence, extracted, suggested_id)
-                }
-                Err(e) => {
-                    log::warn!("AI 分类失败，回退到规则匹配: {}", e);
-                    let parsed = parse::classify_document(&text);
-                    let extracted = serde_json::to_string(&parsed).ok();
-                    (parsed.doc_type, parsed.confidence, extracted, None)
-                }
-            }
-        } else {
-            let parsed = parse::classify_document(&text);
-            let extracted = serde_json::to_string(&parsed).ok();
-            (parsed.doc_type, parsed.confidence, extracted, None)
-        };
+        // Capture persists immediately; explicit inbox analysis can use the configured AI later.
+        let parsed = parse::classify_document(&text);
+        let ai_extracted = serde_json::to_string(&parsed).ok();
+        let captured_file = if norm_source_type == "file" {
+            let source = std::path::Path::new(source_path.as_deref().unwrap_or(""));
+            anyhow::ensure!(source.is_file(), "请选择存在的普通文件");
+            let directory = crate::runtime_paths::documents_root().join("inbox");
+            std::fs::create_dir_all(&directory)?;
+            let owned = tempfile::Builder::new().prefix("capture-").tempdir_in(directory)?;
+            let destination = owned.path().join(source.file_name().ok_or_else(|| anyhow::anyhow!("文件名无效"))?);
+            std::fs::copy(source, &destination)?;
+            std::fs::File::open(&destination)?.sync_all()?;
+            anyhow::ensure!(crate::document_pipeline::sha256_file(source)? == crate::document_pipeline::sha256_file(&destination)?, "复制期间原文件变化，请重试");
+            Some((owned, destination))
+        } else { None };
+        let stored_path = captured_file.as_ref().map(|(_, path)|path.to_string_lossy().to_string()).or_else(|| source_path.clone());
 
         conn.execute(
             "INSERT INTO inbox_items (id, source_type, title, content_text, source_path,
@@ -118,17 +182,18 @@ pub async fn add_inbox_item(
             rusqlite::params![
                 id,
                 norm_source_type,
-                title.unwrap_or_else(|| category.clone()),
+                inbox_title(title.as_deref(), &text, source_path.as_deref()),
                 text,
-                source_path,
-                category,
-                confidence,
+                stored_path,
+                parsed.doc_type,
+                parsed.confidence,
                 ai_extracted,
-                suggested_case_id,
+                Option::<String>::None,
                 db::now_local(),
             ],
         )?;
 
+        if let Some((owned, _)) = captured_file { let _ = owned.keep(); }
         Ok(id)
     })
     .await
@@ -151,9 +216,14 @@ pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(s) = &status {
-            if !s.is_empty() {
-                sql.push_str(" AND status = ?1");
-                params.push(Box::new(s.clone()));
+            let s = s.trim();
+            if !s.is_empty() && s != "all" {
+                if matches!(s, "dismissed" | "ignored") {
+                    sql.push_str(" AND status IN ('dismissed','ignored')");
+                } else {
+                    sql.push_str(" AND status = ?1");
+                    params.push(Box::new(s.to_string()));
+                }
             }
         }
         sql.push_str(" ORDER BY created_at DESC LIMIT 100");
@@ -606,7 +676,7 @@ fn auto_import_legal_provisions(
 }
 
 /// 解析节假日日期（B1 类型化）
-fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String> {
+pub(super) fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String> {
     use chrono::{Duration, NaiveDate};
     use std::collections::BTreeSet;
 
@@ -920,10 +990,20 @@ pub async fn file_inbox_item(
     category: String,
 ) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut conn = db::open_db()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let category = normalize_case_file_category(&category);
+        let (status, previous_case, previous_category): (String, Option<String>, Option<String>) = tx.query_row(
+            "SELECT status,linked_case_id,filed_as FROM inbox_items WHERE id=?1", [&item_id],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        if status == "filed" {
+            anyhow::ensure!(previous_case.as_deref() == Some(&case_id) && previous_category.as_deref().map(normalize_case_file_category) == Some(category), "此收件项已经处理");
+            return Ok(());
+        }
+        anyhow::ensure!(!matches!(status.as_str(), "ignored" | "dismissed"), "此收件项已忽略，请先恢复后再归档");
 
         // 获取收件项信息
-        let (title, source_path): (String, Option<String>) = conn
+        let (title, source_path): (String, Option<String>) = tx
             .query_row(
                 "SELECT COALESCE(title, ''), source_path FROM inbox_items WHERE id = ?1",
                 rusqlite::params![item_id],
@@ -937,7 +1017,7 @@ pub async fn file_inbox_item(
             })?;
 
         // 获取案件信息
-        let case = db::cases::get_case(&conn, &case_id).map_err(|e| {
+        let case = db::cases::get_case(&tx, &case_id).map_err(|e| {
             anyhow::anyhow!(crate::error_code::err(
                 crate::error_code::codes::CASE_NOT_FOUND,
                 format!("案件不存在: {case_id} ({e})"),
@@ -946,41 +1026,65 @@ pub async fn file_inbox_item(
 
         // 如果有源文件，归档到案件目录
         let filed_path = if let Some(ref path_str) = source_path {
-            let source = std::path::Path::new(path_str);
-            if source.exists() {
-                match crate::files::file_to_case(source, &case, &category) {
-                    Ok(target) => Some(target.to_string_lossy().to_string()),
-                    Err(e) => {
-                        log::warn!("文件归档失败（不影响状态更新）: {}", e);
-                        None
-                    }
-                }
-            } else {
+            if path_str.trim().is_empty() {
                 None
+            } else {
+                let source = std::path::Path::new(path_str);
+                if !source.exists() {
+                    return Err(anyhow::anyhow!(
+                        "源文件不存在，收件项未标记完成: {path_str}"
+                    ));
+                }
+
+                let target = crate::files::file_to_case(source, &case, &category)
+                    .map_err(|e| anyhow::anyhow!("文件归档失败，收件项未标记完成: {e}"))?;
+                let source_len = std::fs::metadata(source).ok().map(|m| m.len()).unwrap_or(0);
+                let target_len = std::fs::metadata(&target)
+                    .ok()
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                if source_len != target_len {
+                    let _ = std::fs::remove_file(&target);
+                    return Err(anyhow::anyhow!(
+                        "文件归档不完整，收件项未标记完成: {}/{} 字节",
+                        target_len,
+                        source_len
+                    ));
+                }
+
+                Some(target)
             }
         } else {
             None
         };
 
-        // 更新收件项状态
-        conn.execute(
+        let write_result = (|| -> anyhow::Result<()> {
+        if let Some(path) = &filed_path {
+            register_inbox_case_file(&tx, &case_id, path, category)?;
+        }
+
+        tx.execute(
             "UPDATE inbox_items SET status = 'filed', linked_case_id = ?1,
              filed_as = ?2, processed_at = ?3 WHERE id = ?4",
             rusqlite::params![case_id, category, db::now_local(), item_id],
         )?;
 
-        // 记录办案日志
         let log_detail = match &filed_path {
-            Some(path) => format!("归档收件: {} → {}", title, path),
+            Some(path) => format!("归档收件: {} → {}", title, path.to_string_lossy()),
             None => format!("归档收件: {}", title),
         };
-        let _ = conn.execute(
+        tx.execute(
             "INSERT INTO case_logs (id, case_id, event_summary, event_type, event_date, created_at)
              VALUES (?1, ?2, ?3, 'record', ?4, ?4)",
             rusqlite::params![db::new_id(), case_id, log_detail, db::today()],
-        );
-
+        )?;
+        tx.commit()?;
         Ok(())
+        })();
+        if write_result.is_err() {
+            if let Some(path) = &filed_path { let _ = std::fs::remove_file(path); }
+        }
+        write_result
     })
     .await
 }
@@ -989,9 +1093,10 @@ pub async fn file_inbox_item(
 pub async fn dismiss_inbox_item(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
+        let status = ignored_status_for_schema(&conn)?;
         let affected = conn.execute(
-            "UPDATE inbox_items SET status = 'dismissed', processed_at = ?1 WHERE id = ?2",
-            rusqlite::params![db::now_local(), id],
+            "UPDATE inbox_items SET status = ?1, processed_at = ?2 WHERE id = ?3",
+            rusqlite::params![status, db::now_local(), id],
         )?;
         if affected == 0 {
             return Err(anyhow::anyhow!(crate::error_code::err(
@@ -1175,7 +1280,7 @@ pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, Stri
             })?;
 
         // 有源文件 → 文件归档意图；纯文本 → 文本意图判断（设计哲学 §10）
-        let result = if source_path.is_some() {
+        let mut result = if source_path.is_some() {
             let file_name = title.as_deref().unwrap_or("");
             let file_size: u64 = source_path
                 .as_ref()
@@ -1188,6 +1293,7 @@ pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, Stri
             quick_judge_text(&conn, text)?
         };
 
+        result.ai_available = crate::ai::load_ai_config().mode != "noop";
         // 缓存快速判断结果到 inbox_items
         conn.execute(
             "UPDATE inbox_items SET quick_category = ?1, quick_confidence = ?2 WHERE id = ?3",
@@ -2136,187 +2242,31 @@ pub async fn confirm_inbox_action(
     target_category: Option<String>,
     intent: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    let lookup_id = inbox_item_id.clone();
-    let content_text = run_blocking(move || {
-        let conn = db::open_db()?;
-        conn.query_row(
-            "SELECT COALESCE(content_text, title, '') FROM inbox_items WHERE id = ?1",
-            rusqlite::params![lookup_id],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(|_| anyhow::anyhow!("收件箱项不存在"))
-    })
-    .await?;
-
-    let field = |name: &str| {
-        intent
-            .as_ref()
-            .and_then(|value| value.get(name))
-            .and_then(|value| value.as_str())
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string)
-    };
-
-    let result = match action.as_str() {
+    if super::inbox_actions::supports(&action) {
+        return run_blocking(move || {
+            let mut conn = db::open_db()?;
+            super::inbox_actions::confirm(&mut conn, &inbox_item_id, &action, target_case_id.as_deref(), intent.as_ref())
+        }).await;
+    }
+    match action.as_str() {
         "file_to_case" => {
-            let case_id = target_case_id
-                .clone()
-                .ok_or_else(|| "请选择目标案件".to_string())?;
-            let category = target_category
-                .clone()
-                .unwrap_or_else(|| "07_其他".to_string());
-            file_inbox_item(inbox_item_id.clone(), case_id.clone(), category.clone()).await?;
-            serde_json::json!({"success": true, "action": "filed", "caseId": case_id, "category": category})
-        }
-        "create_task" | "create_deadline" | "set_reminder" => {
-            let task_name = field("taskName")
-                .or_else(|| field("name"))
-                .unwrap_or_else(|| content_text.clone());
-            let due_date = field("dueDate").or_else(|| field("remindAt"));
-            let data = serde_json::json!({
-                "taskName": task_name,
-                "caseId": target_case_id,
-                "taskType": if action == "create_deadline" { "deadline" } else { "action" },
-                "startBucket": if due_date.is_some() { "upcoming" } else { "inbox" },
-                "startDate": due_date,
-                "dueDate": due_date,
-                "dueTime": field("dueTime"),
-                "inboxSourceId": inbox_item_id,
-            });
-            let created = super::tasks::create_task(data).await?;
-            serde_json::json!({"success": true, "action": "task_created", "task": created})
-        }
-        "update_holidays" => {
-            let notice = parse_holiday_dates(&content_text)?;
-            let notice_year = notice.year;
-            let holidays_count = notice.holidays.len();
-            let workdays_count = notice.workdays.len();
-            run_blocking(move || {
-                let conn = db::open_db()?;
-                let mut calendar = db::get_setting(&conn, "holidays_json")
-                    .ok()
-                    .flatten()
-                    .and_then(|value| {
-                        crate::deadline::holidays::HolidayCalendar::from_json_str(&value).ok()
-                    })
-                    .unwrap_or_else(crate::deadline::holidays::HolidayCalendar::builtin);
-                calendar
-                    .merge_dates(&notice.holidays, &notice.workdays)
-                    .map_err(anyhow::Error::msg)?;
-                conn.execute(
-                    "INSERT INTO settings (key, value) VALUES ('holidays_json', ?1)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    rusqlite::params![calendar.to_json()],
-                )?;
-                Ok(())
-            })
-            .await?;
-            serde_json::json!({
-                "success": true,
-                "action": "holidays_updated",
-                "year": notice_year,
-                "holidaysCount": holidays_count,
-                "workdaysCount": workdays_count,
-            })
-        }
-        "create_event" => {
-            let title = field("title")
-                .or_else(|| field("name"))
-                .unwrap_or_else(|| content_text.clone());
-            let event_date = field("eventDate")
-                .or_else(|| field("dueDate"))
-                .unwrap_or_else(db::today);
-            let created = super::calendar_events::create_calendar_event(serde_json::json!({
-                "title": title,
-                "eventDate": event_date,
-                "startTime": field("startTime"),
-                "endTime": field("endTime"),
-                "allDay": field("startTime").is_none(),
-                "caseId": target_case_id,
-                "notes": content_text,
-            }))
-            .await?;
-            serde_json::json!({"success": true, "action": "event_created", "event": created})
-        }
-        "save_knowledge" => {
-            let title = field("title").unwrap_or_else(|| truncate_text(&content_text, 60));
-            let input = super::knowledge::CreateKnowledgeInput {
-                title,
-                content: field("content").unwrap_or_else(|| content_text.clone()),
-                category: "other".to_string(),
-                source_type: Some("inbox".to_string()),
-                source_id: Some(inbox_item_id.clone()),
-                linked_case_id: target_case_id.clone(),
-                ..Default::default()
-            };
-            let id = super::knowledge::create_knowledge(input).await?;
-            serde_json::json!({"success": true, "action": "knowledge_saved", "knowledgeId": id})
-        }
-        "create_case" => {
-            let case_name = field("caseName")
-                .or_else(|| field("name"))
-                .unwrap_or_else(|| content_text.clone());
-            let created = super::cases::create_case(serde_json::json!({
-                "track": field("track").unwrap_or_else(|| "patent_invalidation".to_string()),
-                "caseName": case_name,
-                "clientName": field("clientName").unwrap_or_default(),
-                "opponentName": field("opponentName").unwrap_or_default(),
-                "caseNo": field("caseNo"),
-                "court": field("court"),
-                "causeAction": field("causeAction"),
-            }))
-            .await?;
-            serde_json::json!({"success": true, "action": "case_created", "case": created})
-        }
-        "create_project" => {
-            let name = field("name")
-                .or_else(|| field("title"))
-                .unwrap_or_else(|| content_text.clone());
-            let created = super::projects::create_personal_project(serde_json::json!({
-                "name": name,
-                "description": field("description").unwrap_or_else(|| content_text.clone()),
-            }))
-            .await?;
-            serde_json::json!({"success": true, "action": "project_created", "project": created})
+            let case_id = target_case_id.ok_or_else(|| "请选择目标案件".to_string())?;
+            let category = normalize_case_file_category(target_category.as_deref().unwrap_or("other"));
+            file_inbox_item(inbox_item_id, case_id.clone(), category.into()).await?;
+            Ok(serde_json::json!({"success":true,"action":"filed","caseId":case_id,"category":category}))
         }
         "service_delivery" => {
-            let service_url =
-                field("serviceUrl").ok_or_else(|| "法院送达短信中缺少有效链接".to_string())?;
-            let path = download_service_delivery_url(&inbox_item_id, &service_url).await?;
-            serde_json::json!({"success": true, "action": "service_downloaded", "path": path})
+            let service_url = intent.as_ref().and_then(|value|value["serviceUrl"].as_str())
+                .ok_or_else(|| "法院送达短信中缺少有效链接".to_string())?;
+            let path = download_service_delivery_url(&inbox_item_id, service_url).await?;
+            Ok(serde_json::json!({"success":true,"action":"service_downloaded","path":path}))
         }
         "ignore" | "dismiss" => {
-            dismiss_inbox_item(inbox_item_id.clone()).await?;
-            serde_json::json!({"success": true, "action": "dismissed"})
+            dismiss_inbox_item(inbox_item_id).await?;
+            Ok(serde_json::json!({"success":true,"action":"dismissed"}))
         }
-        _ => return Err(format!("未知收件箱动作: {action}")),
-    };
-
-    if !matches!(
-        action.as_str(),
-        "file_to_case" | "service_delivery" | "ignore" | "dismiss"
-    ) {
-        let finalize_id = inbox_item_id.clone();
-        let feedback_action = action.clone();
-        let feedback_intent = intent.clone();
-        run_blocking(move || {
-            let conn = db::open_db()?;
-            let now = db::now_local();
-            conn.execute(
-                "UPDATE inbox_items SET status = 'filed', processed_at = ?1 WHERE id = ?2",
-                rusqlite::params![&now, &finalize_id],
-            )?;
-            let feedback_id = db::new_id();
-            conn.execute(
-                "INSERT INTO inbox_feedback (id, inbox_item_id, action, intent_json, accepted, rejected_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
-                rusqlite::params![feedback_id, finalize_id, feedback_action, feedback_intent.map(|v| v.to_string()), now],
-            )?;
-            Ok(())
-        })
-        .await?;
+        _ => Err(format!("未知收件箱动作: {action}")),
     }
-
-    Ok(result)
 }
 
 /// 深度分析收件箱项。复用统一处理链：AI 可用时调用 AI，失败或关闭时回退本地规则。
@@ -2436,8 +2386,29 @@ pub async fn retry_inbox_case(_case_id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn capture_title_uses_content_or_filename() {
+        assert_eq!(super::inbox_title(Some(" 自定义 "), "正文", None), "自定义");
+        assert_eq!(
+            super::inbox_title(Some(" "), "\n 核对材料\n备注", None),
+            "核对材料"
+        );
+        assert_eq!(
+            super::inbox_title(None, "", Some("/tmp/证据.pdf")),
+            "证据.pdf"
+        );
+        assert_eq!(super::inbox_title(None, "", None), "未命名收件项");
+        assert_eq!(
+            super::inbox_title(None, &"中".repeat(121), None)
+                .chars()
+                .count(),
+            120
+        );
+    }
     use super::{
-        detect_service_delivery, extract_date_hint, parse_holiday_dates, quick_judge_text,
+        detect_service_delivery, extract_date_hint, ignored_status_for_schema,
+        normalize_case_file_category, parse_holiday_dates, quick_judge_text,
+        register_inbox_case_file,
     };
 
     #[test]
@@ -2490,6 +2461,76 @@ mod tests {
             notice.workdays,
             vec!["2027-01-04", "2027-02-04", "2027-02-20"]
         );
+    }
+
+    #[test]
+    fn normalizes_ui_folder_labels_to_case_file_categories() {
+        assert_eq!(normalize_case_file_category("01_传票"), "summons");
+        assert_eq!(normalize_case_file_category("02_证据"), "evidence");
+        assert_eq!(normalize_case_file_category("06_通信"), "correspondence");
+        assert_eq!(normalize_case_file_category("07_其他"), "other");
+    }
+
+    #[test]
+    fn registers_inbox_file_with_schema_safe_category() {
+        let temp = tempfile::tempdir().expect("临时目录应可用");
+        let file_path = temp.path().join("授权委托书.pdf");
+        std::fs::write(&file_path, b"pdf").expect("测试文件应可写");
+
+        let mut conn = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        conn.execute_batch(
+            "CREATE TABLE case_files (
+               id TEXT PRIMARY KEY,
+               case_id TEXT NOT NULL,
+               file_name TEXT NOT NULL,
+               file_path TEXT NOT NULL,
+               file_size INTEGER,
+               file_type TEXT,
+               category TEXT NOT NULL CHECK(category IN ('summons','evidence','submitted','received','internal','correspondence','other')),
+               source_type TEXT CHECK(source_type IN ('inbox','manual','generated','imported',NULL))
+             );",
+        )
+        .expect("初始化 case_files 表应成功");
+
+        let tx = conn.transaction().expect("事务应可创建");
+        let file_id = register_inbox_case_file(&tx, "case-1", &file_path, "01_传票")
+            .expect("中文 UI 目录标签应能登记为合法卷宗分类");
+        tx.commit().expect("事务应可提交");
+
+        let (category, source_type): (String, String) = conn
+            .query_row(
+                "SELECT category, source_type FROM case_files WHERE id = ?1",
+                [file_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("登记记录应存在");
+        assert_eq!(category, "summons");
+        assert_eq!(source_type, "inbox");
+    }
+
+    #[test]
+    fn chooses_ignore_status_supported_by_current_schema() {
+        let migrated = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        migrated
+            .execute_batch(
+                "CREATE TABLE inbox_items (
+                   id TEXT PRIMARY KEY,
+                   status TEXT CHECK(status IN ('pending','filed','ignored'))
+                 );",
+            )
+            .expect("初始化迁移库 schema 应成功");
+        assert_eq!(ignored_status_for_schema(&migrated).unwrap(), "ignored");
+
+        let legacy = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        legacy
+            .execute_batch(
+                "CREATE TABLE inbox_items (
+                   id TEXT PRIMARY KEY,
+                   status TEXT CHECK(status IN ('pending','filed','dismissed'))
+                 );",
+            )
+            .expect("初始化旧 schema 应成功");
+        assert_eq!(ignored_status_for_schema(&legacy).unwrap(), "dismissed");
     }
 
     #[test]

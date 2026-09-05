@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -760,6 +760,7 @@ const tankTasks = computed(() => {
 onMounted(async () => {
   await loadData()
 })
+onUnmounted(casyContext.on('inbox:confirmed', () => loadData()))
 
 async function loadData() {
   loading.value = true

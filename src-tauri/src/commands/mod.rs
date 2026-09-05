@@ -18,6 +18,7 @@ pub mod filters;
 pub mod import_excel;
 pub mod import_feishu;
 pub mod inbox;
+mod inbox_actions;
 pub mod knowledge;
 pub mod linking;
 pub mod notifications;

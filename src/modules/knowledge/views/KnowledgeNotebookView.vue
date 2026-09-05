@@ -428,6 +428,7 @@ onBeforeUnmount(() => {
 async function openSearch() {
   if (await flushSave()) searchOpen.value = true
 }
+onBeforeUnmount(casyContext.on('inbox:confirmed', () => loadAll()))
 
 async function openSearchHit(id) {
   await selectNote({ id })
