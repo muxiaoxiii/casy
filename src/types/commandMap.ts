@@ -281,6 +281,9 @@ export type CommandMap = {
   sync_reminders_to_calendar: Cmd<{}, CalendarSyncReport>
 
   // ── AI 域 ──
+  get_ai_profiles: Cmd<{}, import('./aiProfiles').AiProfiles>
+  save_ai_profiles: Cmd<{ config: import('./aiProfiles').AiProfiles }, import('./aiProfiles').AiProfiles>
+  test_ai_profile: Cmd<{ profile: import('./aiProfiles').AiProfile }, string>
   ai_chat: Cmd<{
     messages: Array<Pick<ChatMessage, 'role' | 'content'>>
     mode?: string
@@ -288,6 +291,7 @@ export type CommandMap = {
     model?: string
     purpose?: string
     contextRefs?: ContextRef[] | null
+    profileId?: string
   }, AiChatResult>
   get_ai_config: Cmd<{}, AiConfig>
   get_command_route_info: Cmd<{}, CommandRoute>

@@ -214,6 +214,7 @@ export interface CasyContext {
 
   // ── AI 提供商 ──
   registerProvider(provider: CasyProvider): void
+  replaceProviders(providers: CasyProvider[]): void
   getProviders(): CasyProvider[]
   getModels(): CasyModel[]
 

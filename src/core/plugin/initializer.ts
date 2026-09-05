@@ -23,66 +23,21 @@ import {
   SettingsPlugin,
 } from '../plugins'
 import { tauriCallSafe } from '../tauriBridge'
-import type { CasyProvider } from './types'
 
 // ============================================================
 // AI 提供商默认模型清单（Ollama 不提供 /api/tags 跨域列表，
 // 以"已配置模型 + 常用默认"为准；模型名可在设置页手动填写）
 // ============================================================
 
-const DEFAULT_MODELS: Record<string, { id: string; name: string }[]> = {
-  ollama: [
-    { id: 'qwen2.5:14b', name: 'Qwen2.5 14B' },
-    { id: 'qwen2.5:7b', name: 'Qwen2.5 7B' },
-    { id: 'deepseek-r1:14b', name: 'DeepSeek-R1 14B' },
-    { id: 'llama3.1:8b', name: 'Llama 3.1 8B' },
-  ],
-  openai: [
-    { id: 'gpt-4o-mini', name: 'GPT-4o mini' },
-    { id: 'gpt-4o', name: 'GPT-4o' },
-  ],
-  deepseek: [
-    { id: 'deepseek-chat', name: 'DeepSeek Chat' },
-    { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
-  ],
-}
-
-/** 提供商定义（apiUrl 会被后端配置覆盖） */
-const PROVIDER_DEFS: Array<Pick<CasyProvider, 'id' | 'name' | 'mode' | 'apiUrl'>> = [
-  { id: 'ollama', name: 'Ollama 本地模型', mode: 'ollama', apiUrl: 'http://localhost:11434' },
-  { id: 'openai', name: 'OpenAI', mode: 'openai', apiUrl: 'https://api.openai.com/v1' },
-  { id: 'deepseek', name: 'DeepSeek', mode: 'openai', apiUrl: 'https://api.deepseek.com/v1' },
-]
-
-/**
- * 注册 AI 提供商：后端已配置的模式/模型并入对应提供商，未配置则用默认
- */
+/** Register only saved profiles; the Rust backend owns credentials. */
 async function registerProviders(): Promise<void> {
-  const cfg = await tauriCallSafe('get_ai_config', {})
-
-  const configured = cfg.ok && cfg.data ? cfg.data : null
-
-  const providers: CasyProvider[] = PROVIDER_DEFS.map((def) => {
-    const models = [...(DEFAULT_MODELS[def.id] ?? [])]
-    // 后端已配置模型并入对应提供商
-    if (configured?.model && def.id === configured.mode) {
-      if (!models.some((m) => m.id === configured.model)) {
-        models.unshift({ id: configured.model!, name: configured.model! })
-      }
-    }
-    // 后端 apiUrl 覆盖默认
-    const apiUrl =
-      configured?.apiUrl && configured.mode === def.id ? configured.apiUrl : def.apiUrl
-    const apiKey = configured?.apiKey && configured.mode === def.id ? configured.apiKey : undefined
-    return {
-      ...def,
-      apiUrl,
-      apiKey,
-      models,
-    }
-  })
-
-  providers.forEach((p) => casyContext.registerProvider(p))
+  const cfg = await tauriCallSafe('get_ai_profiles', {})
+  if (!cfg.ok || !cfg.data) throw new Error(cfg.error || '读取 AI 配置失败')
+  const activeId = cfg.data.activeId
+  casyContext.replaceProviders([...cfg.data.profiles].sort((a, b) => Number(b.id === activeId) - Number(a.id === activeId)).map(p => ({
+    id: p.id, name: p.name, mode: p.mode, apiUrl: p.apiUrl,
+    models: [{ id: p.model, name: p.model }],
+  })))
 }
 
 /**

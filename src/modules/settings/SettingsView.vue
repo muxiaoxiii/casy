@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useSettingsStore } from '../../stores/settings'
 import FeishuSettings from './components/FeishuSettings.vue'
 import WebDAVSettings from './components/WebDAVSettings.vue'
@@ -24,6 +25,15 @@ import {
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('profile')
+const route = useRoute()
+watch(() => route.query.tab, tab => { if (tab === 'ai') activeTab.value = 'ai' }, { immediate: true })
+const mobileTabs = [
+  ['profile', '律师画像'], ['general', '常规设置'], ['ai', 'AI 引擎配置'],
+  ['briefing-styles', '早报/周报样式'], ['folder-template', '文件夹模板'],
+  ['reminder', '智能提醒'], ['deadline-rules', '期限规则'], ['smart-rules', '智能规则'],
+  ['webdav', 'WebDAV 同步'], ['feishu', '飞书集成'], ['imap', '邮箱监听'],
+  ['smtp-mcp', 'SMTP / MCP'], ['backup', '数据备份'], ['about', '关于 Casy'],
+]
 
 const seeding = ref(false)
 const seedDisabled = ref(false)
@@ -71,6 +81,7 @@ onMounted(async () => {
 
 <template>
   <div class="settings-page">
+    <el-select class="settings-mobile-nav" v-model="activeTab" aria-label="设置分类"><el-option v-for="[value,label] in mobileTabs" :key="value" :value="value" :label="label" /></el-select>
     <div class="settings-sidebar">
       <div class="sidebar-header">
         <h2 class="page-title">{{ $t('nav.settings') }}</h2>
@@ -211,7 +222,7 @@ onMounted(async () => {
   font-size: 18px;
   font-weight: 700;
   color: var(--c-text-heading);
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
 }
 
 .page-subtitle {
@@ -267,6 +278,7 @@ onMounted(async () => {
 
 .settings-content {
   flex: 1;
+  min-width: 0;
   padding: 28px 36px;
   overflow-y: auto;
   background: var(--c-bg-page);
@@ -295,5 +307,13 @@ onMounted(async () => {
 .demo-seed .ds-text b {
   color: var(--c-text-heading);
   font-size: 13px;
+}
+
+.settings-mobile-nav { display: none; }
+@media (max-width: 760px) {
+  .settings-page { flex-direction: column; min-width: 0; }
+  .settings-sidebar { display: none; }
+  .settings-mobile-nav { display: block; width: auto; flex-shrink: 0; margin: 12px 16px 0; }
+  .settings-content { padding: 20px 16px; min-height: 0; }
 }
 </style>

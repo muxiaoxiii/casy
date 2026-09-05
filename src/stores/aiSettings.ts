@@ -1,51 +1,35 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+import { tauriCallSafe } from '../core/tauriBridge'
+import { casyContext } from '../core/plugin/context'
+import type { AiProfiles } from '../types/aiProfiles'
 
 export const useAiSettingsStore = defineStore('aiSettings', () => {
-  const provider = ref('deepseek') // 'deepseek' | 'openai' | 'local'
-  const apiKey = ref('')
-  const baseUrl = ref('https://api.deepseek.com/v1')
-  const model = ref('deepseek-chat')
-  const systemPrompt = ref('你是一个专业的法律AI助手 (Casy Copilot)。')
-
-  function load() {
-    try {
-      const saved = localStorage.getItem('casy_ai_settings')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        provider.value = parsed.provider || 'deepseek'
-        apiKey.value = parsed.apiKey || ''
-        baseUrl.value = parsed.baseUrl || 'https://api.deepseek.com/v1'
-        model.value = parsed.model || 'deepseek-chat'
-        systemPrompt.value = parsed.systemPrompt || '你是一个专业的法律AI助手 (Casy Copilot)。'
-      }
-    } catch (e) {
-      console.error('Failed to load AI settings', e)
-    }
+  const config = ref<AiProfiles>({ profiles: [], activeId: null, dailyLimit: 50, systemPrompt: '' })
+  const loading = ref(false)
+  const error = ref('')
+  async function load() {
+    loading.value = true
+    const result = await tauriCallSafe('get_ai_profiles', {})
+    loading.value = false
+    if (!result.ok || !result.data) { error.value = result.error || '读取 AI 配置失败'; return false }
+    config.value = result.data
+    error.value = ''
+    return true
   }
-
-  function save() {
-    localStorage.setItem('casy_ai_settings', JSON.stringify({
-      provider: provider.value,
-      apiKey: apiKey.value,
-      baseUrl: baseUrl.value,
-      model: model.value,
-      systemPrompt: systemPrompt.value
-    }))
+  async function save() {
+    loading.value = true
+    const result = await tauriCallSafe('save_ai_profiles', { config: config.value })
+    loading.value = false
+    if (!result.ok || !result.data) { error.value = result.error || '保存失败'; return false }
+    config.value = result.data
+    error.value = ''
+    casyContext.replaceProviders(result.data.profiles.map(p => ({
+      id: p.id, name: p.name, mode: p.mode, apiUrl: p.apiUrl,
+      models: [{ id: p.model, name: p.model }],
+    })))
+    casyContext.emit('ai:configured', { activeId: result.data.activeId })
+    return true
   }
-
-  // Watch for changes and save automatically
-  watch([provider, apiKey, baseUrl, model, systemPrompt], () => {
-    save()
-  }, { deep: true })
-
-  return {
-    provider,
-    apiKey,
-    baseUrl,
-    model,
-    systemPrompt,
-    load,
-    save
-  }
+  return { config, loading, error, load, save }
 })

@@ -15,6 +15,7 @@ import UnifiedCaptureDialog from './shared/components/UnifiedCaptureDialog.vue'
 import { registerShortcut } from './shared/keyboard'
 import { useProfileStore } from './stores/profile'
 import { useSettingsStore } from './stores/settings'
+import { useAiSettingsStore } from './stores/aiSettings'
 import { applyThemePreference, disposeThemeListener } from './shared/theme'
 import { isTauriRuntime } from './core/mockData'
 import {
@@ -42,6 +43,7 @@ import { useI18n } from 'vue-i18n'
 const router = useRouter()
 const route = useRoute()
 const settingsStore = useSettingsStore()
+const aiSettings = useAiSettingsStore()
 const { locale } = useI18n()
 const isBrowserPreview = computed(() => !isTauriRuntime())
 
@@ -87,9 +89,8 @@ function toggleSidebar() {
 const showGlobalSearch = ref(false)
 
 const aiStatusText = computed(() => {
-  if (settingsStore.ai_backend === 'openai') return `OpenAI (${settingsStore.ai_model})`
-  if (settingsStore.ai_backend === 'ollama') return `Local (${settingsStore.ai_model})`
-  return 'AI Offline'
+  const profile = aiSettings.config.profiles.find(p => p.id === aiSettings.config.activeId)
+  return profile ? `${profile.name} (${profile.model})` : 'AI 未配置'
 })
 
 // ============================================================
@@ -191,6 +192,7 @@ function handleOpenCapture(event) {
 let unregisterShortcuts = []
 
 onMounted(async () => {
+  void aiSettings.load()
   await settingsStore.load()
   applyTheme(settingsStore.theme)
   checkOnboarding()
@@ -277,8 +279,7 @@ function onMenuSelect(name) {
       <!-- 侧栏底部：AI 状态 + 用户名片 + 设置 -->
       <div class="sidebar-footer">
         <!-- AI 模型状态药丸 -->
-        <div v-show="!sidebarCollapsed" class="ai-status-pill" :class="{ disabled: settingsStore.ai_backend === 'none' }">
-          <span class="ai-dot-pulse" v-if="settingsStore.ai_backend !== 'none'" />
+        <div v-show="!sidebarCollapsed" class="ai-status-pill" :class="{ disabled: !aiSettings.config.activeId }">
           <span class="ai-status-text">{{ aiStatusText }}</span>
         </div>
 

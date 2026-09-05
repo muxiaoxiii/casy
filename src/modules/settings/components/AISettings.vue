@@ -1,66 +1,111 @@
-<script setup>
-import { onMounted } from 'vue'
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { Plus, Delete, Connection, Check, RefreshLeft } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAiSettingsStore } from '../../../stores/aiSettings'
 import { AI_PROMPTS } from '../../../core/prompts'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 
-const aiStore = useAiSettingsStore()
-
-onMounted(() => {
-  aiStore.load()
+const store = useAiSettingsStore()
+const selectedId = ref('')
+const selected = computed(() => store.config.profiles.find(p => p.id === selectedId.value))
+const testing = ref(false)
+const testResult = ref('')
+const testFailed = ref(false)
+watch(() => JSON.stringify(selected.value), () => { testResult.value = '' })
+const legacyAvailable = ref(!!localStorage.getItem('casy_ai_settings'))
+onMounted(async () => {
+  if (await store.load()) selectedId.value = store.config.activeId || store.config.profiles[0]?.id || ''
 })
+function add() {
+  const id = crypto.randomUUID()
+  store.config.profiles.push({ id, name: '新配置', mode: 'openai', apiUrl: '', model: '', hasApiKey: false })
+  selectedId.value = id
+  if (store.config.profiles.length === 1) store.config.activeId = id
+  testResult.value = ''
+}
+async function remove() {
+  if (!selected.value) return
+  try { await ElMessageBox.confirm(`删除配置“${selected.value.name}”？`, '删除 AI 配置', { type: 'warning' }) } catch { return }
+  store.config.profiles = store.config.profiles.filter(p => p.id !== selectedId.value)
+  if (store.config.activeId === selectedId.value) store.config.activeId = null
+  selectedId.value = store.config.profiles[0]?.id || ''
+}
+async function save() {
+  if (await store.save()) ElMessage.success('AI 配置已保存')
+}
+async function test() {
+  if (!selected.value) return
+  testing.value = true
+  testResult.value = ''
+  const result = await tauriCallSafe('test_ai_profile', { profile: { ...selected.value } })
+  testing.value = false
+  testFailed.value = !result.ok
+  testResult.value = result.ok ? result.data || 'API 未返回结果' : result.error || '连接失败'
+}
+async function migrateLegacy() {
+  try {
+    const old = JSON.parse(localStorage.getItem('casy_ai_settings') || '{}')
+    const id = crypto.randomUUID()
+    store.config.profiles.push({ id, name: '旧版浏览器配置', mode: old.provider === 'local' ? 'ollama' : 'openai',
+      apiUrl: old.provider === 'local' ? (old.baseUrl || 'http://localhost:11434').replace(/\/v1\/?$/, '') : old.baseUrl || '',
+      model: old.model || '', apiKey: old.apiKey || '', hasApiKey: false })
+    store.config.activeId = id
+    store.config.systemPrompt = old.systemPrompt || AI_PROMPTS.SYSTEM_DEFAULT
+    selectedId.value = id
+    if (await store.save()) {
+      localStorage.removeItem('casy_ai_settings')
+      legacyAvailable.value = false
+      ElMessage.success('旧配置已迁移')
+    }
+  } catch { ElMessage.error('旧配置格式无效') }
+}
 </script>
 
 <template>
-  <div class="ai-settings">
-    <h4>AI 大模型配置 (Copilot & 推荐系统)</h4>
-    <p style="font-size: 12px; color: #666; margin-bottom: 16px;">
-      设置您的大模型服务商。推荐使用 DeepSeek 或 OpenAI。系统会自动利用该配置来驱动收件箱的意图识别、早报总结以及文书的 AI 辅助撰写。
-    </p>
-    
-    <el-form label-position="top" size="default">
-      <el-form-item label="服务商 (Provider)">
-        <el-select v-model="aiStore.provider" style="width: 100%">
-          <el-option label="DeepSeek" value="deepseek" />
-          <el-option label="OpenAI" value="openai" />
-          <el-option label="Local (Ollama)" value="local" />
+  <section class="ai-settings" v-loading="store.loading">
+    <header><h3>AI 接口与模型</h3><el-button :icon="Plus" @click="add">添加配置</el-button></header>
+    <el-alert v-if="store.error" :title="store.error" type="error" :closable="false" />
+    <el-button v-if="legacyAvailable" :icon="RefreshLeft" @click="migrateLegacy">迁移旧版配置</el-button>
+    <el-form label-position="top" :disabled="store.loading || testing" @submit.prevent="save">
+      <el-form-item label="默认 AI 配置">
+        <el-select v-model="store.config.activeId" clearable @clear="store.config.activeId = null" placeholder="未启用">
+          <el-option v-for="p in store.config.profiles" :key="p.id" :value="p.id" :label="p.name" />
         </el-select>
       </el-form-item>
-
-      <el-form-item label="API Base URL">
-        <el-input v-model="aiStore.baseUrl" placeholder="https://api.deepseek.com/v1" />
-      </el-form-item>
-
-      <el-form-item label="API Key" v-if="aiStore.provider !== 'local'">
-        <el-input v-model="aiStore.apiKey" type="password" show-password placeholder="sk-..." />
-      </el-form-item>
-
-      <el-form-item label="Model">
-        <el-input v-model="aiStore.model" placeholder="deepseek-chat" />
-      </el-form-item>
-
-      <el-form-item label="System Prompt (系统人设设定)">
-        <el-input 
-          v-model="aiStore.systemPrompt" 
-          type="textarea" 
-          :rows="5"
-        />
-        <div style="margin-top: 8px; font-size: 12px; color: #999;">
-          若需重置系统人设，可点击 <a href="javascript:void(0)" @click="aiStore.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认</a>。
+      <div v-if="store.config.profiles.length" class="profile-tabs" role="tablist">
+        <button v-for="p in store.config.profiles" :key="p.id" type="button" role="tab" :aria-selected="selectedId === p.id" @click="selectedId = p.id; testResult = ''">{{ p.name }}</button>
+      </div>
+      <template v-if="selected">
+        <div class="fields">
+          <el-form-item label="配置名称"><el-input v-model="selected.name" /></el-form-item>
+          <el-form-item label="接口协议"><el-select v-model="selected.mode"><el-option label="OpenAI 兼容" value="openai" /><el-option label="Ollama" value="ollama" /></el-select></el-form-item>
+          <el-form-item class="wide" label="API 基础地址"><el-input v-model="selected.apiUrl" :placeholder="selected.mode === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" /></el-form-item>
+          <el-form-item label="API Key"><el-input :model-value="selected.apiKey" @update:model-value="selected.apiKey = $event || undefined" type="password" show-password autocomplete="new-password" :placeholder="selected.hasApiKey ? '已保存；留空保留' : '未设置'" /><el-button v-if="selected.hasApiKey" link type="danger" @click="selected.apiKey = ''; selected.hasApiKey = false">清除密钥</el-button></el-form-item>
+          <el-form-item label="模型 ID"><el-input v-model="selected.model" /></el-form-item>
         </div>
-      </el-form-item>
+        <div class="profile-actions"><el-button :icon="Connection" :loading="testing" @click="test">测试连接</el-button><el-button :icon="Delete" title="删除配置" aria-label="删除配置" @click="remove" /></div>
+        <el-alert v-if="testResult" :title="testResult" :type="testFailed ? 'error' : 'success'" :closable="false" />
+      </template>
+      <el-form-item label="每日调用上限"><el-input-number v-model="store.config.dailyLimit" :min="0" :max="100000" :precision="0" /></el-form-item>
+      <el-form-item label="系统提示词"><el-input v-model="store.config.systemPrompt" type="textarea" :rows="5" /></el-form-item>
+      <el-button :icon="RefreshLeft" @click="store.config.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认提示词</el-button>
+      <el-button type="primary" :icon="Check" :loading="store.loading" @click="save">保存配置</el-button>
     </el-form>
-  </div>
+  </section>
 </template>
 
 <style scoped>
-.ai-settings {
-  padding: 8px 0;
-  max-width: 600px;
-}
-h4 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-text-heading);
-}
+.ai-settings { max-width: 780px; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+h3 { font-size: 18px; margin: 0; }
+.el-select { width: 100%; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.wide { grid-column: 1 / -1; }
+.profile-tabs { display: flex; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--c-border); margin-bottom: 20px; }
+.profile-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--c-text); padding: 10px 0; font: inherit; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
+.profile-tabs button[aria-selected="true"] { border-bottom-color: var(--el-color-primary); color: var(--el-color-primary); }
+.profile-actions { display: flex; gap: 8px; margin-bottom: 20px; }
+.el-alert { margin-bottom: 16px; }
+@media (max-width: 640px) { .fields { grid-template-columns: minmax(0, 1fr); } }
 </style>

@@ -35,6 +35,9 @@ export async function tauriCallSafe(
 ): Promise<TauriResult<unknown>> {
   // 浏览器模式：尝试 mock
   if (!isTauriRuntime()) {
+    if (['ai_chat', 'test_ai_profile', 'save_ai_profiles', 'test_ai_connection'].includes(command)) {
+      return { ok: false, error: '请在 Casy 桌面应用中配置并调用 AI；浏览器预览不执行模型请求。' }
+    }
     const mock = tryMockCommand(command, args)
     if (mock !== undefined) {
       return { ok: true, data: mock }
@@ -76,6 +79,7 @@ export async function tauriCall<T = unknown>(
   const { silent = false, errorMessage } = options
   // 浏览器模式：尝试 mock
   if (!isTauriRuntime()) {
+    if (['ai_chat', 'test_ai_profile', 'save_ai_profiles', 'test_ai_connection'].includes(command)) return null
     const mock = tryMockCommand(command, args)
     if (mock !== undefined) {
       return mock as T

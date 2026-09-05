@@ -376,6 +376,11 @@ class CasyContextImpl implements CasyContext {
     this.providers.set(provider.id, provider)
   }
 
+  replaceProviders(providers: CasyProvider[]): void {
+    this.providers.clear()
+    providers.forEach(provider => this.registerProvider(provider))
+  }
+
   getProviders(): CasyProvider[] {
     return [...this.providers.values()]
   }

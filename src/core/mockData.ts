@@ -282,6 +282,8 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
         ],
         generatedAt: new Date().toISOString(),
       }
+    case 'get_ai_profiles':
+      return { profiles: [], activeId: null, dailyLimit: 50, systemPrompt: '' }
     case 'get_ai_config':
       return { mode: 'ollama', apiUrl: 'http://localhost:11434', model: 'qwen2.5:14b', dailyLimit: 50 }
     case 'get_ai_usage':

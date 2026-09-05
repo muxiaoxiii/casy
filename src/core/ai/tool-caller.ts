@@ -148,8 +148,8 @@ function formatToolResult(name: string, result: { ok: boolean; data?: unknown; e
 }
 
 class AiToolCaller {
-  private providerId = 'ollama'
-  private modelId = 'qwen2.5:14b'
+  private providerId = ''
+  private modelId = ''
   /** 待审批提案登记表：proposalId → 原始工具调用（批准后在同进程内重放执行） */
   private pendingProposals = new Map<string, PendingProposal>()
 
@@ -377,8 +377,7 @@ class AiToolCaller {
   ): Promise<{ content: string; runId: string | null; usedRefs: UsedRef[] }> {
     const result = await tauriCallSafe('ai_chat', {
       messages: history,
-      mode: provider?.mode,
-      apiUrl: provider?.apiUrl,
+      profileId: provider?.id,
       model: this.modelId,
       purpose: 'ai_chat_panel',
       contextRefs: contextRefs && contextRefs.length > 0 ? contextRefs : null,

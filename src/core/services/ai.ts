@@ -1,6 +1,5 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
-import { useAiSettingsStore } from '../../stores/aiSettings'
 
 /**
  * AI 服务：ctx.ai —— AI 模块数据通路
@@ -12,49 +11,12 @@ import { useAiSettingsStore } from '../../stores/aiSettings'
 export class AiService extends Service {
   static inject: string[] = []
 
-  // ── 通用外部 AI 调用 (OpenAI / DeepSeek 协议) ──
-  async askAi(prompt: string, contextData: any = null): Promise<{ ok: boolean; text?: string; error?: string }> {
-    const store = useAiSettingsStore()
-    store.load()
-
-    if (!store.apiKey) {
-      return { ok: false, error: 'AI Provider 未配置 API Key，请前往设置中心配置。' }
-    }
-
-    try {
-      const messages = [
-        { role: 'system', content: store.systemPrompt },
-      ]
-      
-      if (contextData) {
-        messages.push({ role: 'system', content: `[附带上下文数据]: ${JSON.stringify(contextData)}` })
-      }
-      
-      messages.push({ role: 'user', content: prompt })
-
-      const response = await fetch(`${store.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${store.apiKey}`
-        },
-        body: JSON.stringify({
-          model: store.model,
-          messages,
-          temperature: 0.7
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-      return { ok: true, text: data.choices[0].message.content }
-    } catch (err: any) {
-      console.error('AI API Error:', err)
-      return { ok: false, error: err.message || 'AI 请求失败' }
-    }
+  async askAi(prompt: string, contextData: unknown = null): Promise<{ ok: boolean; text?: string; error?: string }> {
+    const messages = []
+    if (contextData != null) messages.push({ role: 'system', content: `[附带上下文数据]: ${JSON.stringify(contextData)}` })
+    messages.push({ role: 'user', content: prompt })
+    const result = await tauriCallSafe('ai_chat', { messages, purpose: 'copilot' })
+    return result.ok && result.data ? { ok: true, text: result.data.content } : { ok: false, error: result.error }
   }
 
   // ── 今日推荐（§11.6 推荐引擎） ──

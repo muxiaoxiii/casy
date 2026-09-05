@@ -1,24 +1,21 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useSettingsStore } from '../../stores/settings'
+import { useAiSettingsStore } from '../../stores/aiSettings'
 import { Cpu, ArrowRight } from '@element-plus/icons-vue'
 import { tauriCallSafe } from '../../core/tauriBridge'
 
 const router = useRouter()
-const settingsStore = useSettingsStore()
+const settingsStore = useAiSettingsStore()
 
 // AI 状态：available / disabled / degraded
 const aiStatus = computed(() => {
-  const mode = settingsStore.ai_mode
-  if (mode === 'none') return 'disabled'
-  if (mode === 'local' || mode === 'remote') return 'available'
-  return 'disabled'
+  return settingsStore.config.activeId ? 'available' : 'disabled'
 })
 
 const statusLabel = computed(() => {
   switch (aiStatus.value) {
-    case 'available': return 'AI 可用'
+    case 'available': return 'AI 已配置'
     case 'disabled': return 'AI 已关闭'
     case 'degraded': return 'AI 降级'
     default: return 'AI 未知'
@@ -36,7 +33,7 @@ const dotClass = computed(() => {
 
 // 今日调用次数/配额
 const todayUsed = ref(0)
-const dailyLimit = computed(() => settingsStore.ai_daily_limit || 50)
+const dailyLimit = computed(() => settingsStore.config.dailyLimit)
 const remaining = computed(() => Math.max(0, dailyLimit.value - todayUsed.value))
 
 // Popover 可见性
@@ -51,7 +48,7 @@ function handleClick() {
   popoverVisible.value = !popoverVisible.value
 }
 
-onMounted(async () => {
+async function loadUsage() {
   // 获取今日 AI 调用次数（如果后端支持）
   try {
     const result = await tauriCallSafe('get_ai_usage', {})
@@ -61,7 +58,9 @@ onMounted(async () => {
   } catch {
     // 后端未实现时静默失败
   }
-})
+}
+onMounted(loadUsage)
+watch(popoverVisible, visible => { if (visible) void loadUsage() })
 </script>
 
 <template>
@@ -101,10 +100,10 @@ onMounted(async () => {
         </div>
         <div class="quota-row">
           <span class="quota-label">剩余配额</span>
-          <span class="quota-value" :class="{ 'quota-low': remaining <= 5 }">{{ remaining }}</span>
+          <span class="quota-value" :class="{ 'quota-low': dailyLimit > 0 && remaining <= 5 }">{{ dailyLimit === 0 ? '不限' : remaining }}</span>
         </div>
         <el-progress
-          :percentage="Math.min(100, (todayUsed / dailyLimit) * 100)"
+          :percentage="dailyLimit === 0 ? 0 : Math.min(100, (todayUsed / dailyLimit) * 100)"
           :stroke-width="4"
           :show-text="false"
           :color="remaining <= 5 ? '#F59E0B' : '#2563EB'"

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { aiToolCaller } from '../../../core/ai/tool-caller'
 import { tauriCallSafe } from '../../../core/tauriBridge'
@@ -30,8 +30,14 @@ const showToolCalls = ref(false)
 // 可用提供商与模型（来自插件系统，初始化完成后自动刷新）
 const providers = ref([])
 const availableModels = ref([])
-const selectedProvider = ref('ollama')
-const selectedModel = ref('qwen2.5:14b')
+const selectedProvider = ref('')
+const selectedModel = ref('')
+let offAiConfigured = null
+watch(selectedProvider, () => {
+  const provider = casyContext.getProviders().find(p => p.id === selectedProvider.value)
+  availableModels.value = (provider?.models || []).map(m => ({ model: m.id, label: m.name }))
+  selectedModel.value = provider?.models[0]?.id || ''
+})
 
 // ── @ 引用沙箱（W1）────────────────────────────────────────
 const inputRef = ref(null)
@@ -74,6 +80,10 @@ const lastProposalIndex = computed(() => {
 // ============================================================
 onMounted(() => {
   loadModels()
+  offAiConfigured = casyContext.on('ai:configured', ({ activeId }) => {
+    selectedProvider.value = activeId || ''
+    loadModels()
+  })
   addSystemMessage()
   // 插件系统异步初始化：就绪后刷新提供商/模型 + 重建欢迎语（避免时序竞态）
   const off = casyContext.on('plugins:ready', () => {
@@ -90,6 +100,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  offAiConfigured?.()
   if (mentionTimer) clearTimeout(mentionTimer)
 })
 
@@ -99,17 +110,10 @@ onBeforeUnmount(() => {
 function loadModels() {
   const list = casyContext.getProviders()
   providers.value = list.map(p => ({ id: p.id, name: p.name, mode: p.mode }))
-  availableModels.value = list.flatMap(p =>
-    p.models.map(m => ({
-      provider: p.name,
-      model: m.id,
-      label: p.name + '/' + m.name,
-    }))
-  )
-  // 保证选中的模型存在于当前列表
-  if (availableModels.value.length > 0 && !availableModels.value.some(m => m.model === selectedModel.value)) {
-    selectedModel.value = availableModels.value[0].model
-  }
+  if (!list.some(p => p.id === selectedProvider.value)) selectedProvider.value = list[0]?.id || ''
+  const provider = list.find(p => p.id === selectedProvider.value)
+  availableModels.value = (provider?.models || []).map(m => ({ model: m.id, label: m.name }))
+  if (!availableModels.value.some(m => m.model === selectedModel.value)) selectedModel.value = availableModels.value[0]?.model || ''
 }
 
 function buildIntro() {
