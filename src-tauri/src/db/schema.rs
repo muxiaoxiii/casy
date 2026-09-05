@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 24;
+pub const CURRENT_SCHEMA_VERSION: i64 = 27;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS inbox_items (
   ai_confidence   REAL,
   ai_extracted    TEXT,
   ai_suggested_case_id TEXT,
-  status          TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','filed','dismissed')),
+  status          TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','filed','dismissed','ignored')),
   user_category   TEXT,
   linked_case_id  TEXT REFERENCES cases(id) ON DELETE SET NULL,
   filed_to        TEXT,
@@ -697,7 +697,52 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("22", MIGRATION_V22_SQL),
     ("23", MIGRATION_V23_SQL),
     ("24", MIGRATION_V24_SQL),
+    ("25", MIGRATION_V25_SQL),
+    ("26", MIGRATION_V26_SQL),
+    ("27", MIGRATION_V27_SQL),
 ];
+
+pub const MIGRATION_V27_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS case_task_links (
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  PRIMARY KEY(case_id,task_id)
+);
+CREATE TABLE IF NOT EXISTS case_hearing_links (
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  hearing_id TEXT NOT NULL REFERENCES hearings(id) ON DELETE CASCADE,
+  PRIMARY KEY(case_id,hearing_id)
+);
+CREATE TABLE IF NOT EXISTS case_log_links (
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  log_id TEXT NOT NULL REFERENCES case_logs(id) ON DELETE CASCADE,
+  PRIMARY KEY(case_id,log_id)
+);
+CREATE TABLE IF NOT EXISTS imported_assets (
+  source TEXT NOT NULL, file_token TEXT NOT NULL, name TEXT NOT NULL,
+  mime_type TEXT NOT NULL, content BLOB NOT NULL,
+  PRIMARY KEY(source,file_token)
+);
+CREATE TABLE IF NOT EXISTS imported_tables (
+  source TEXT NOT NULL, table_id TEXT NOT NULL, name TEXT NOT NULL,
+  fields_json TEXT NOT NULL, PRIMARY KEY(source, table_id)
+);
+CREATE TABLE IF NOT EXISTS imported_records (
+  source TEXT NOT NULL, table_id TEXT NOT NULL, record_id TEXT NOT NULL,
+  fields_json TEXT NOT NULL, display_json TEXT NOT NULL,
+  PRIMARY KEY(source, table_id, record_id)
+);
+CREATE TABLE IF NOT EXISTS imported_links (
+  source TEXT NOT NULL, table_id TEXT NOT NULL, record_id TEXT NOT NULL,
+  field_name TEXT NOT NULL, target_table_id TEXT NOT NULL, target_record_id TEXT NOT NULL,
+  PRIMARY KEY(source, table_id, record_id, field_name, target_table_id, target_record_id)
+);
+CREATE TABLE IF NOT EXISTS imported_case_records (
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  source TEXT NOT NULL, table_id TEXT NOT NULL, record_id TEXT NOT NULL,
+  PRIMARY KEY(case_id, source, table_id, record_id)
+);
+"#;
 
 /// 版本 23：knowledge_items.category 去除 CHECK 枚举。
 /// 真正的表重建在 run_migrations 末尾的条件重建段幂等执行（检测旧 CHECK 存在才动手），
@@ -711,6 +756,19 @@ SELECT 1;
 /// （PRAGMA 探测后按需变更），这里只推进 user_version 作为版本留痕，避免重复迁移时
 /// duplicate column / duplicate event_type。
 pub const MIGRATION_V24_SQL: &str = r#"
+SELECT 1;
+"#;
+
+/// 版本 25：案件路由补齐“民事诉讼+行政诉讼”。
+/// SQLite 不能原地修改 CHECK 约束，实际重建在 run_migrations 条件段中完成；
+/// 这里仅推进 user_version，保证已到 v24 的真实库会进入本次修复。
+pub const MIGRATION_V25_SQL: &str = r#"
+SELECT 1;
+"#;
+
+/// 版本 26：PDF/OCR 页文本正式进入 FTS5 trigram 索引。
+/// 真实建表、触发器和旧数据 rebuild 在条件执行段中幂等完成。
+pub const MIGRATION_V26_SQL: &str = r#"
 SELECT 1;
 "#;
 
@@ -928,6 +986,29 @@ CREATE TABLE IF NOT EXISTS document_pages (
   PRIMARY KEY(job_id, page_number)
 );
 CREATE INDEX IF NOT EXISTS idx_document_pages_file_page ON document_pages(file_id, page_number);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS document_pages_fts USING fts5(
+  plain_text,
+  markdown,
+  content=document_pages,
+  content_rowid=rowid,
+  tokenize='trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_document_pages_ai AFTER INSERT ON document_pages BEGIN
+  INSERT INTO document_pages_fts(rowid, plain_text, markdown)
+  VALUES (new.rowid, new.plain_text, new.markdown);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_document_pages_ad AFTER DELETE ON document_pages BEGIN
+  INSERT INTO document_pages_fts(document_pages_fts, rowid, plain_text, markdown)
+  VALUES ('delete', old.rowid, old.plain_text, old.markdown);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_document_pages_au AFTER UPDATE ON document_pages BEGIN
+  INSERT INTO document_pages_fts(document_pages_fts, rowid, plain_text, markdown)
+  VALUES ('delete', old.rowid, old.plain_text, old.markdown);
+  INSERT INTO document_pages_fts(rowid, plain_text, markdown)
+  VALUES (new.rowid, new.plain_text, new.markdown);
+END;
 "#;
 
 /// 版本 20: 全球对标灵感落地（2026-09-01）
@@ -1083,7 +1164,7 @@ CREATE TABLE IF NOT EXISTS inbox_items_new (
   ai_extracted    TEXT,
   ai_suggested_case_id TEXT,
   status          TEXT NOT NULL DEFAULT 'pending'
-                  CHECK(status IN ('pending','processed','filed','archived','ignored')),
+                  CHECK(status IN ('pending','processed','filed','archived','ignored','dismissed')),
   user_category   TEXT,
   linked_case_id  TEXT REFERENCES cases(id) ON DELETE SET NULL,
   filed_to        TEXT,
@@ -1572,7 +1653,7 @@ pub const MIGRATION_V8_SQL: &str = r#"
 -- cases 表：双轨状态机字段
 -- ============================================================
 ALTER TABLE cases ADD COLUMN case_route TEXT NOT NULL DEFAULT '民事诉讼'
-  CHECK(case_route IN ('民事诉讼','专利无效','行政诉讼','民事诉讼+专利无效','专利无效+行政诉讼','三轨并行'));
+  CHECK(case_route IN ('民事诉讼','专利无效','行政诉讼','民事诉讼+专利无效','民事诉讼+行政诉讼','专利无效+行政诉讼','三轨并行','其他'));
 
 ALTER TABLE cases ADD COLUMN civil_status TEXT DEFAULT 'intake'
   CHECK(civil_status IN ('intake','filed','pre_hearing','in_trial','settled','awaiting_verdict','verdict_issued','appeal_period','second_instance','second_verdict','retrial','enforcement','suspended','closed'));
@@ -1637,7 +1718,7 @@ CREATE TABLE IF NOT EXISTS inbox_items_v8 (
   ai_extracted    TEXT,
   ai_suggested_case_id TEXT,
   status          TEXT NOT NULL DEFAULT 'pending'
-                  CHECK(status IN ('pending','processing','processed','filed','archived','ignored','failed')),
+                  CHECK(status IN ('pending','processing','processed','filed','archived','ignored','dismissed','failed')),
   user_category   TEXT,
   linked_case_id  TEXT REFERENCES cases(id) ON DELETE SET NULL,
   filed_to        TEXT,
@@ -2722,6 +2803,469 @@ fn apply_migration_tx(conn: &Connection, sql: &str, new_version: i64) -> Result<
     Ok(())
 }
 
+fn table_columns(
+    tx: &rusqlite::Transaction<'_>,
+    table: &str,
+) -> Result<Vec<String>, anyhow::Error> {
+    let mut stmt = tx.prepare(&format!("PRAGMA table_info({table})"))?;
+    let cols = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(cols)
+}
+
+fn has_table_sql_containing(
+    tx: &rusqlite::Transaction<'_>,
+    table: &str,
+    needle: &str,
+) -> Result<bool, anyhow::Error> {
+    let sql: Option<String> = tx
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
+            [table],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(sql.as_deref().is_some_and(|value| value.contains(needle)))
+}
+
+fn rebuild_cases_for_route_v25(tx: &rusqlite::Transaction<'_>) -> Result<(), anyhow::Error> {
+    if has_table_sql_containing(tx, "cases", "'民事诉讼+行政诉讼'")?
+        && has_table_sql_containing(tx, "cases", "'其他'")?
+    {
+        return Ok(());
+    }
+
+    let old_columns: std::collections::HashSet<String> =
+        table_columns(tx, "cases")?.into_iter().collect();
+    let new_columns = [
+        "id",
+        "track",
+        "raw_track",
+        "case_name",
+        "case_no",
+        "internal_no",
+        "cause_action",
+        "client_name",
+        "our_role",
+        "opponent_name",
+        "opponent_role",
+        "opponent_firm",
+        "opponent_agent",
+        "court",
+        "judge_panel",
+        "clerk",
+        "attorneys",
+        "case_level",
+        "case_status",
+        "case_progress",
+        "case_result",
+        "case_goal",
+        "patent_name",
+        "patent_app_no",
+        "procedure_type",
+        "filing_date",
+        "complaint_received_date",
+        "trial_date",
+        "trial2_date",
+        "trial3_date",
+        "verdict_type",
+        "verdict_date",
+        "stay_date",
+        "relief_deadline",
+        "petitioner_first_invalid",
+        "petitioner_supp_deadline",
+        "petitioner_submit_date",
+        "petitioner_received_date",
+        "petitioner_reply_deadline",
+        "patentee_received_date",
+        "patentee_statement_deadline",
+        "patentee_received_supp_date",
+        "patentee_supp_deadline",
+        "patentee_submit_supp_date",
+        "folder_name",
+        "display_name",
+        "folder_path",
+        "folder_template_id",
+        "last_doc_path",
+        "last_doc_at",
+        "completed_text",
+        "notes",
+        "formula_case_status",
+        "formula_defense_deadline",
+        "formula_estimated_trial_limit",
+        "formula_petitioner_first",
+        "formula_petitioner_supp",
+        "formula_petitioner_reply",
+        "formula_patentee_statement",
+        "formula_patentee_supp",
+        "related_case_ids",
+        "case_route",
+        "civil_status",
+        "invalidation_status",
+        "admin_status",
+        "invalidation_decision_date",
+        "invalidation_decision_type",
+        "admin_filing_date",
+        "admin_verdict_date",
+        "admin_trial2_date",
+        "sequential",
+        "next_action_id",
+        "overdue_task_count",
+        "remaining_task_count",
+        "next_review_date",
+        "client_id",
+        "area_id",
+        "case_type",
+        "due_date",
+        "created_at",
+        "updated_at",
+    ];
+    let copy_columns: Vec<&str> = new_columns
+        .iter()
+        .copied()
+        .filter(|column| old_columns.contains(*column))
+        .collect();
+    if !copy_columns.contains(&"id") || !copy_columns.contains(&"case_name") {
+        anyhow::bail!("cases 表结构异常，无法重建 case_route 约束");
+    }
+    let columns_sql = copy_columns.join(", ");
+
+    tx.execute_batch(
+        r#"
+DROP TRIGGER IF EXISTS trg_cases_status_insert;
+DROP TRIGGER IF EXISTS trg_cases_status_update;
+DROP TRIGGER IF EXISTS trg_cases_updated;
+DROP TRIGGER IF EXISTS trg_cases_ai;
+DROP TRIGGER IF EXISTS trg_cases_ad;
+DROP TRIGGER IF EXISTS trg_cases_au;
+DROP TRIGGER IF EXISTS trg_cases_to_proj_ins;
+DROP TRIGGER IF EXISTS trg_cases_to_proj_upd;
+DROP TRIGGER IF EXISTS trg_cases_to_proj_del;
+DROP VIEW IF EXISTS v_case_unified;
+DROP TABLE IF EXISTS cases_fts;
+DROP TABLE IF EXISTS cases_v25;
+
+CREATE TABLE cases_v25 (
+  id              TEXT PRIMARY KEY,
+  track           TEXT NOT NULL DEFAULT 'patent_invalidation'
+                  CHECK(track IN ('patent_invalidation','admin_litigation','civil_tort','other')),
+  raw_track       TEXT,
+  case_name       TEXT NOT NULL,
+  case_no         TEXT,
+  internal_no     TEXT,
+  cause_action    TEXT,
+  client_name     TEXT NOT NULL DEFAULT '',
+  our_role        TEXT,
+  opponent_name   TEXT NOT NULL DEFAULT '',
+  opponent_role   TEXT,
+  opponent_firm   TEXT,
+  opponent_agent  TEXT,
+  court           TEXT,
+  judge_panel     TEXT,
+  clerk           TEXT,
+  attorneys       TEXT,
+  case_level      TEXT CHECK(case_level IN ('一审','二审','再审','结案',NULL)),
+  case_status     TEXT,
+  case_progress   TEXT,
+  case_result     TEXT,
+  case_goal       TEXT,
+  patent_name     TEXT,
+  patent_app_no   TEXT,
+  procedure_type  TEXT CHECK(procedure_type IN ('普通','简易',NULL)),
+  filing_date     TEXT,
+  complaint_received_date TEXT,
+  trial_date      TEXT,
+  trial2_date     TEXT,
+  trial3_date     TEXT,
+  verdict_type    TEXT,
+  verdict_date    TEXT,
+  stay_date       TEXT,
+  relief_deadline TEXT,
+  petitioner_first_invalid TEXT,
+  petitioner_supp_deadline TEXT,
+  petitioner_submit_date   TEXT,
+  petitioner_received_date TEXT,
+  petitioner_reply_deadline TEXT,
+  patentee_received_date   TEXT,
+  patentee_statement_deadline TEXT,
+  patentee_received_supp_date TEXT,
+  patentee_supp_deadline TEXT,
+  patentee_submit_supp_date TEXT,
+  folder_name     TEXT,
+  display_name    TEXT,
+  folder_path     TEXT,
+  folder_template_id TEXT,
+  last_doc_path   TEXT,
+  last_doc_at     TEXT,
+  completed_text  TEXT,
+  notes           TEXT,
+  formula_case_status TEXT,
+  formula_defense_deadline TEXT,
+  formula_estimated_trial_limit TEXT,
+  formula_petitioner_first TEXT,
+  formula_petitioner_supp TEXT,
+  formula_petitioner_reply TEXT,
+  formula_patentee_statement TEXT,
+  formula_patentee_supp TEXT,
+  related_case_ids TEXT,
+  case_route TEXT NOT NULL DEFAULT '民事诉讼'
+    CHECK(case_route IN ('民事诉讼','专利无效','行政诉讼','民事诉讼+专利无效','民事诉讼+行政诉讼','专利无效+行政诉讼','三轨并行','其他')),
+  civil_status TEXT DEFAULT 'intake'
+    CHECK(civil_status IN ('intake','filed','pre_hearing','in_trial','settled','awaiting_verdict','verdict_issued','appeal_period','second_instance','second_verdict','retrial','enforcement','suspended','closed')),
+  invalidation_status TEXT
+    CHECK(invalidation_status IN ('preparing','filed','pre_oral','oral_done','awaiting_decision','decision_issued')),
+  admin_status TEXT
+    CHECK(admin_status IN ('filed','pre_hearing','in_trial','awaiting_verdict','verdict_issued','second_instance','closed')),
+  invalidation_decision_date TEXT,
+  invalidation_decision_type TEXT,
+  admin_filing_date TEXT,
+  admin_verdict_date TEXT,
+  admin_trial2_date TEXT,
+  sequential INTEGER DEFAULT 1 CHECK(sequential IN (0,1)),
+  next_action_id TEXT REFERENCES tasks(id),
+  overdue_task_count INTEGER DEFAULT 0,
+  remaining_task_count INTEGER DEFAULT 0,
+  next_review_date TEXT,
+  client_id TEXT REFERENCES clients(id),
+  area_id TEXT REFERENCES areas(id),
+  case_type TEXT DEFAULT 'exploratory' CHECK(case_type IN ('computational','exploratory','growth')),
+  due_date TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
+"#,
+    )?;
+    tx.execute_batch(&format!(
+        "INSERT INTO cases_v25 ({columns_sql}) SELECT {columns_sql} FROM cases;"
+    ))?;
+    tx.execute_batch(
+        r#"
+DROP TABLE cases;
+ALTER TABLE cases_v25 RENAME TO cases;
+
+CREATE INDEX IF NOT EXISTS idx_cases_track ON cases(track);
+CREATE INDEX IF NOT EXISTS idx_cases_client ON cases(client_name);
+CREATE INDEX IF NOT EXISTS idx_cases_court ON cases(court);
+CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(case_status);
+CREATE INDEX IF NOT EXISTS idx_cases_filing ON cases(filing_date);
+CREATE INDEX IF NOT EXISTS idx_cases_progress ON cases(case_progress);
+CREATE INDEX IF NOT EXISTS idx_cases_route ON cases(case_route);
+CREATE INDEX IF NOT EXISTS idx_cases_civil_status ON cases(civil_status);
+CREATE INDEX IF NOT EXISTS idx_cases_invalidation_status ON cases(invalidation_status);
+CREATE INDEX IF NOT EXISTS idx_cases_admin_status ON cases(admin_status);
+CREATE INDEX IF NOT EXISTS idx_cases_sequential ON cases(sequential);
+CREATE INDEX IF NOT EXISTS idx_cases_next_action ON cases(next_action_id);
+CREATE INDEX IF NOT EXISTS idx_cases_review_date ON cases(next_review_date);
+CREATE INDEX IF NOT EXISTS idx_cases_client_id ON cases(client_id);
+CREATE INDEX IF NOT EXISTS idx_cases_area_id ON cases(area_id);
+CREATE INDEX IF NOT EXISTS idx_cases_case_type ON cases(case_type);
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_status_insert
+AFTER INSERT ON cases FOR EACH ROW WHEN NEW.case_status IS NULL
+BEGIN
+  UPDATE cases SET case_status = CASE
+    WHEN NEW.case_result IN ('结案','胜诉','败诉','对方撤案','撤诉','解除委托') THEN '已完结'
+    WHEN NEW.case_result IS NOT NULL AND NEW.case_result != '' THEN '进行中'
+    ELSE '未知'
+  END WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_status_update
+AFTER UPDATE OF case_result ON cases FOR EACH ROW
+BEGIN
+  UPDATE cases SET case_status = CASE
+    WHEN NEW.case_result IN ('结案','胜诉','败诉','对方撤案','撤诉','解除委托') THEN '已完结'
+    WHEN NEW.case_result IS NOT NULL AND NEW.case_result != '' THEN '进行中'
+    ELSE '未知'
+  END WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_updated
+AFTER UPDATE ON cases FOR EACH ROW
+BEGIN
+  UPDATE cases SET updated_at = datetime('now','localtime') WHERE id = NEW.id;
+END;
+
+CREATE VIRTUAL TABLE cases_fts USING fts5(
+  case_name, case_no, client_name, opponent_name,
+  patent_name, notes, content=cases, content_rowid=rowid
+);
+INSERT INTO cases_fts(cases_fts) VALUES('rebuild');
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_ai AFTER INSERT ON cases BEGIN
+  INSERT INTO cases_fts(rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
+  VALUES (new.rowid, new.case_name, new.case_no, new.client_name, new.opponent_name, new.patent_name, new.notes);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_cases_ad AFTER DELETE ON cases BEGIN
+  INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
+  VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_cases_au AFTER UPDATE ON cases BEGIN
+  INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
+  VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
+  INSERT INTO cases_fts(rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
+  VALUES (new.rowid, new.case_name, new.case_no, new.client_name, new.opponent_name, new.patent_name, new.notes);
+END;
+
+CREATE VIEW IF NOT EXISTS v_case_unified AS
+SELECT
+    c.id, c.case_name, c.case_no, c.client_name, c.cause_action, c.track,
+    c.case_status AS status, c.court, c.case_level, c.attorneys AS operator,
+    c.trial_date, c.filing_date,
+    COALESCE(
+        CASE WHEN c.cause_action LIKE '%无效%' THEN c.formula_petitioner_supp END,
+        CASE WHEN c.cause_action LIKE '%侵权%' OR c.cause_action LIKE '%侵害%' THEN c.formula_defense_deadline END,
+        CASE WHEN c.cause_action LIKE '%行政%' THEN c.relief_deadline END,
+        c.formula_estimated_trial_limit
+    ) AS next_deadline,
+    c.trial_date AS next_hearing,
+    c.updated_at
+FROM cases c;
+"#,
+    )?;
+    tx.execute_batch(
+        r#"
+CREATE TRIGGER IF NOT EXISTS trg_cases_to_proj_ins
+AFTER INSERT ON cases FOR EACH ROW
+BEGIN
+  INSERT INTO projects (id,name,kind,status,area_id,created_at,updated_at)
+  VALUES (NEW.id, NEW.case_name,'legal', COALESCE(NULLIF(NEW.case_status,''),'active'), NEW.area_id, NEW.created_at, NEW.updated_at)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name, status=excluded.status, area_id=excluded.area_id, updated_at=excluded.updated_at;
+  INSERT INTO case_legal_details (project_id,track,case_no,internal_no,cause_action,
+    client_name,our_role,opponent_name,opponent_role,opponent_firm,opponent_agent,
+    court,judge_panel,clerk,attorneys,case_level,case_progress,case_result,
+    patent_name,patent_app_no,procedure_type,filing_date,complaint_received_date,
+    trial_date,trial2_date,trial3_date,verdict_type,verdict_date,stay_date,relief_deadline,
+    petitioner_first_invalid,petitioner_supp_deadline,petitioner_submit_date,
+    petitioner_received_date,petitioner_reply_deadline,
+    patentee_received_date,patentee_statement_deadline,patentee_received_supp_date,
+    patentee_supp_deadline,patentee_submit_supp_date,
+    folder_path,last_doc_path,last_doc_at,completed_text,notes)
+  VALUES (NEW.id,COALESCE(NEW.raw_track, NEW.track),NEW.case_no,NEW.internal_no,NEW.cause_action,
+    NEW.client_name,NEW.our_role,NEW.opponent_name,NEW.opponent_role,NEW.opponent_firm,NEW.opponent_agent,
+    NEW.court,NEW.judge_panel,NEW.clerk,NEW.attorneys,NEW.case_level,NEW.case_progress,NEW.case_result,
+    NEW.patent_name,NEW.patent_app_no,NEW.procedure_type,NEW.filing_date,NEW.complaint_received_date,
+    NEW.trial_date,NEW.trial2_date,NEW.trial3_date,NEW.verdict_type,NEW.verdict_date,NEW.stay_date,NEW.relief_deadline,
+    NEW.petitioner_first_invalid,NEW.petitioner_supp_deadline,NEW.petitioner_submit_date,
+    NEW.petitioner_received_date,NEW.petitioner_reply_deadline,
+    NEW.patentee_received_date,NEW.patentee_statement_deadline,NEW.patentee_received_supp_date,
+    NEW.patentee_supp_deadline,NEW.patentee_submit_supp_date,
+    NEW.folder_path,NEW.last_doc_path,NEW.last_doc_at,NEW.completed_text,NEW.notes)
+  ON CONFLICT(project_id) DO UPDATE SET
+    track=excluded.track, case_no=excluded.case_no, internal_no=excluded.internal_no,
+    cause_action=excluded.cause_action, client_name=excluded.client_name, our_role=excluded.our_role,
+    opponent_name=excluded.opponent_name, opponent_role=excluded.opponent_role,
+    opponent_firm=excluded.opponent_firm, opponent_agent=excluded.opponent_agent,
+    court=excluded.court, judge_panel=excluded.judge_panel, clerk=excluded.clerk,
+    attorneys=excluded.attorneys, case_level=excluded.case_level,
+    case_progress=excluded.case_progress, case_result=excluded.case_result,
+    patent_name=excluded.patent_name, patent_app_no=excluded.patent_app_no,
+    procedure_type=excluded.procedure_type, filing_date=excluded.filing_date,
+    complaint_received_date=excluded.complaint_received_date,
+    trial_date=excluded.trial_date, trial2_date=excluded.trial2_date, trial3_date=excluded.trial3_date,
+    verdict_type=excluded.verdict_type, verdict_date=excluded.verdict_date,
+    stay_date=excluded.stay_date, relief_deadline=excluded.relief_deadline,
+    petitioner_first_invalid=excluded.petitioner_first_invalid,
+    petitioner_supp_deadline=excluded.petitioner_supp_deadline,
+    petitioner_submit_date=excluded.petitioner_submit_date,
+    petitioner_received_date=excluded.petitioner_received_date,
+    petitioner_reply_deadline=excluded.petitioner_reply_deadline,
+    patentee_received_date=excluded.patentee_received_date,
+    patentee_statement_deadline=excluded.patentee_statement_deadline,
+    patentee_received_supp_date=excluded.patentee_received_supp_date,
+    patentee_supp_deadline=excluded.patentee_supp_deadline,
+    patentee_submit_supp_date=excluded.patentee_submit_supp_date,
+    folder_path=excluded.folder_path, last_doc_path=excluded.last_doc_path,
+    last_doc_at=excluded.last_doc_at, completed_text=excluded.completed_text, notes=excluded.notes;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_to_proj_upd
+AFTER UPDATE ON cases FOR EACH ROW
+BEGIN
+  UPDATE projects SET name=NEW.case_name,
+    status=COALESCE(NULLIF(NEW.case_status,''),'active'),
+    area_id=NEW.area_id, updated_at=NEW.updated_at
+  WHERE id=NEW.id;
+  UPDATE case_legal_details SET
+    track=COALESCE(NEW.raw_track, NEW.track), case_no=NEW.case_no, internal_no=NEW.internal_no,
+    cause_action=NEW.cause_action, client_name=NEW.client_name, our_role=NEW.our_role,
+    opponent_name=NEW.opponent_name, opponent_role=NEW.opponent_role,
+    opponent_firm=NEW.opponent_firm, opponent_agent=NEW.opponent_agent,
+    court=NEW.court, judge_panel=NEW.judge_panel, clerk=NEW.clerk,
+    attorneys=NEW.attorneys, case_level=NEW.case_level,
+    case_progress=NEW.case_progress, case_result=NEW.case_result,
+    patent_name=NEW.patent_name, patent_app_no=NEW.patent_app_no,
+    procedure_type=NEW.procedure_type, filing_date=NEW.filing_date,
+    complaint_received_date=NEW.complaint_received_date,
+    trial_date=NEW.trial_date, trial2_date=NEW.trial2_date, trial3_date=NEW.trial3_date,
+    verdict_type=NEW.verdict_type, verdict_date=NEW.verdict_date,
+    stay_date=NEW.stay_date, relief_deadline=NEW.relief_deadline,
+    petitioner_first_invalid=NEW.petitioner_first_invalid,
+    petitioner_supp_deadline=NEW.petitioner_supp_deadline,
+    petitioner_submit_date=NEW.petitioner_submit_date,
+    petitioner_received_date=NEW.petitioner_received_date,
+    petitioner_reply_deadline=NEW.petitioner_reply_deadline,
+    patentee_received_date=NEW.patentee_received_date,
+    patentee_statement_deadline=NEW.patentee_statement_deadline,
+    patentee_received_supp_date=NEW.patentee_received_supp_date,
+    patentee_supp_deadline=NEW.patentee_supp_deadline,
+    patentee_submit_supp_date=NEW.patentee_submit_supp_date,
+    folder_path=NEW.folder_path, last_doc_path=NEW.last_doc_path,
+    last_doc_at=NEW.last_doc_at, completed_text=NEW.completed_text, notes=NEW.notes
+  WHERE project_id=NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cases_to_proj_del
+AFTER DELETE ON cases FOR EACH ROW
+BEGIN
+  DELETE FROM case_legal_details WHERE project_id = OLD.id;
+  DELETE FROM projects WHERE id = OLD.id;
+END;
+"#,
+    )?;
+
+    Ok(())
+}
+
+fn ensure_document_pages_fts_v26(tx: &rusqlite::Transaction<'_>) -> Result<(), anyhow::Error> {
+    let existing: i64 = tx.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE (type='table' AND name='document_pages_fts') OR (type='trigger' AND name IN ('trg_document_pages_ai','trg_document_pages_ad','trg_document_pages_au'))",
+        [], |row| row.get(0),
+    )?;
+    tx.execute_batch(
+        r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS document_pages_fts USING fts5(
+  plain_text,
+  markdown,
+  content=document_pages,
+  content_rowid=rowid,
+  tokenize='trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_document_pages_ai AFTER INSERT ON document_pages BEGIN
+  INSERT INTO document_pages_fts(rowid, plain_text, markdown)
+  VALUES (new.rowid, new.plain_text, new.markdown);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_document_pages_ad AFTER DELETE ON document_pages BEGIN
+  INSERT INTO document_pages_fts(document_pages_fts, rowid, plain_text, markdown)
+  VALUES ('delete', old.rowid, old.plain_text, old.markdown);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_document_pages_au AFTER UPDATE ON document_pages BEGIN
+  INSERT INTO document_pages_fts(document_pages_fts, rowid, plain_text, markdown)
+  VALUES ('delete', old.rowid, old.plain_text, old.markdown);
+  INSERT INTO document_pages_fts(rowid, plain_text, markdown)
+  VALUES (new.rowid, new.plain_text, new.markdown);
+END;
+"#,
+    )?;
+    if existing != 4 {
+        tx.execute_batch("INSERT INTO document_pages_fts(document_pages_fts) VALUES('rebuild');")?;
+    }
+    Ok(())
+}
+
 /// 条件执行段（幂等：PRAGMA 探测后按需 ALTER/重建），在单个事务内整体执行。
 /// 任一步骤失败则整体回滚（`?` 提前返回会 Drop `tx` 触发回滚），重跑幂等自愈。
 fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
@@ -2748,14 +3292,10 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
         tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN law_name TEXT;")?;
         tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN article_no TEXT;")?;
         tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN effective_date TEXT;")?;
-        tx.execute_batch(
-            "ALTER TABLE knowledge_items ADD COLUMN status TEXT DEFAULT 'current';",
-        )?;
+        tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN status TEXT DEFAULT 'current';")?;
         log::info!("Added law_name/article_no/effective_date/status columns to knowledge_items");
     }
-    tx.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);",
-    )?;
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);")?;
 
     // 条件补列：reminder_log.level（R1-R4 分级，旧 DB 可能缺少该列）
     let has_reminder_level: bool = tx
@@ -2786,9 +3326,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
         log::info!("Added parent_id column to knowledge_items (block hierarchy)");
     }
     if !ki_cols.iter().any(|c| c == "block_type") {
-        tx.execute_batch(
-            "ALTER TABLE knowledge_items ADD COLUMN block_type TEXT DEFAULT 'page';",
-        )?;
+        tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN block_type TEXT DEFAULT 'page';")?;
         log::info!("Added block_type column to knowledge_items (page/block/reference)");
     }
     tx.execute_batch(
@@ -2823,9 +3361,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     // v15：tasks.time_block（时间块排程，设计哲学 §7.2）
     if !task_cols.iter().any(|c| c == "time_block") {
         tx.execute_batch("ALTER TABLE tasks ADD COLUMN time_block TEXT CHECK(time_block IN ('morning','afternoon','evening','night','flex',NULL));")?;
-        tx.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_time_block ON tasks(time_block);",
-        )?;
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_time_block ON tasks(time_block);")?;
         log::info!("Added time_block column to tasks (v15 time block scheduling)");
     }
 
@@ -2993,6 +3529,40 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
         if !sql.contains("'deleted'") {
             tx.execute_batch(TASK_EVENTS_REBUILD_V24_SQL)?;
             log::info!("Rebuilt task_events with deleted/restored event types (v24)");
+        }
+    }
+
+    rebuild_cases_for_route_v25(&tx)?;
+    ensure_document_pages_fts_v26(&tx)?;
+    tx.execute_batch(r#"
+CREATE TRIGGER IF NOT EXISTS trg_cases_preserve_shared_nodes
+BEFORE DELETE ON cases BEGIN
+  UPDATE tasks SET case_id=(SELECT min(case_id) FROM case_task_links WHERE task_id=tasks.id AND case_id!=OLD.id)
+    WHERE case_id=OLD.id AND EXISTS(SELECT 1 FROM case_task_links WHERE task_id=tasks.id AND case_id!=OLD.id);
+  UPDATE hearings SET case_id=(SELECT min(case_id) FROM case_hearing_links WHERE hearing_id=hearings.id AND case_id!=OLD.id)
+    WHERE case_id=OLD.id AND EXISTS(SELECT 1 FROM case_hearing_links WHERE hearing_id=hearings.id AND case_id!=OLD.id);
+  UPDATE case_logs SET case_id=(SELECT min(case_id) FROM case_log_links WHERE log_id=case_logs.id AND case_id!=OLD.id)
+    WHERE case_id=OLD.id AND EXISTS(SELECT 1 FROM case_log_links WHERE log_id=case_logs.id AND case_id!=OLD.id);
+END;
+"#)?;
+
+    let intake_columns: Vec<String> = tx
+        .prepare("PRAGMA table_info(cases)")?
+        .query_map([], |row| row.get(1))?
+        .collect::<rusqlite::Result<_>>()?;
+    for column in [
+        "third_parties",
+        "case_amount",
+        "legal_fees",
+        "fee_payment",
+        "claims",
+        "jurisdiction_objection",
+        "external_case_no",
+        "defense_deadline",
+        "estimated_trial_end",
+    ] {
+        if !intake_columns.iter().any(|name| name == column) {
+            tx.execute_batch(&format!("ALTER TABLE cases ADD COLUMN {column} TEXT;"))?;
         }
     }
 
@@ -3288,7 +3858,9 @@ mod tests {
         // v2 提交、v3 失败。
         let res = apply_versions(&conn, migrations, 1);
         assert!(res.is_err(), "v3 应失败");
-        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let ver: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(ver, 2, "user_version 应停在已提交的 v2");
         assert!(table_exists(&conn, "t2"), "v2 应已提交");
         assert!(!table_exists(&conn, "t3"), "v3 应整体回滚");
@@ -3296,7 +3868,9 @@ mod tests {
         // 重跑：仍在 v2，v3 再次失败；v2 不重复执行，v3 不留下半迁移。
         let res2 = apply_versions(&conn, migrations, 1);
         assert!(res2.is_err());
-        let ver2: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let ver2: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(ver2, 2);
         assert!(table_exists(&conn, "t2"));
         assert!(!table_exists(&conn, "t3"));
@@ -3604,5 +4178,123 @@ mod tests {
         )
         .unwrap();
     }
-}
 
+    #[test]
+    fn document_fts_backfills_and_skips_repeated_rebuilds() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE document_pages(plain_text TEXT, markdown TEXT);
+            INSERT INTO document_pages VALUES('升级前行政裁决','原始正文');",
+        )
+        .unwrap();
+        for pass in 0..3 {
+            if pass == 2 {
+                conn.execute_batch(
+                    "DROP TRIGGER trg_document_pages_au;
+                    UPDATE document_pages SET plain_text='更新后民事侵权';",
+                )
+                .unwrap();
+            }
+            let before = conn.total_changes();
+            let tx = conn.transaction().unwrap();
+            ensure_document_pages_fts_v26(&tx).unwrap();
+            tx.commit().unwrap();
+            if pass == 1 {
+                assert_eq!(
+                    conn.total_changes(),
+                    before,
+                    "healthy indexes must not be rewritten"
+                );
+            }
+            let term = if pass == 2 {
+                "民事侵权"
+            } else {
+                "行政裁决"
+            };
+            let hits: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM document_pages_fts WHERE document_pages_fts MATCH ?1",
+                    [term],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(hits, 1);
+            conn.execute_batch("INSERT INTO document_pages_fts(document_pages_fts,rank) VALUES('integrity-check',1);").unwrap();
+        }
+    }
+
+    /// v25：旧 case_route CHECK 不含“民事诉讼+行政诉讼”时，迁移重建 cases 并保留搜索能力。
+    #[test]
+    fn test_v25_case_route_accepts_civil_admin_parallel() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        // Build an actual pre-v25 constraint instead of only changing user_version.
+        for (version, sql) in MIGRATIONS
+            .iter()
+            .filter(|(version, _)| version.parse::<i64>().unwrap() <= 24)
+        {
+            let old_sql = if *version == "8" {
+                sql.replace("'民事诉讼+行政诉讼',", "")
+                    .replace("'三轨并行','其他'", "'三轨并行'")
+            } else {
+                sql.to_string()
+            };
+            apply_migration_tx(&conn, &old_sql, version.parse().unwrap()).unwrap();
+        }
+        conn.execute_batch("ALTER TABLE cases ADD COLUMN raw_track TEXT;")
+            .unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_name, client_name, opponent_name, case_route, notes)
+             VALUES ('c-old', '旧并行案件', '委托人', '相对方', '民事诉讼', '旧检索词')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO tasks(id,task_name,case_id,created_date) VALUES('old-task','升级前任务','c-old','2026-09-06')", []).unwrap();
+        assert!(conn
+            .execute(
+                "UPDATE cases SET case_route='民事诉讼+行政诉讼' WHERE id='c-old'",
+                []
+            )
+            .is_err());
+        conn.execute_batch("PRAGMA foreign_keys=ON").unwrap();
+
+        run_migrations(&conn, 24).unwrap();
+        run_migrations(&conn, 25).unwrap();
+
+        conn.execute(
+            "INSERT INTO cases (id, case_name, client_name, opponent_name, case_route)
+             VALUES ('c-new', '民事行政并行案件', '委托人', '行政机关', '民事诉讼+行政诉讼')",
+            [],
+        )
+        .unwrap();
+        let old_route: String = conn
+            .query_row("SELECT case_route FROM cases WHERE id='c-old'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(old_route, "民事诉讼");
+        let fts_hit: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM cases_fts WHERE cases_fts MATCH '旧检索词'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(fts_hit, 1, "重建后 cases_fts 应继续可检索旧案件");
+        let task_case: String = conn
+            .query_row("SELECT case_id FROM tasks WHERE id='old-task'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(task_case, "c-old");
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+        assert!(fk_enabled(&conn).unwrap());
+    }
+}
