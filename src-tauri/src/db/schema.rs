@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 29;
+pub const CURRENT_SCHEMA_VERSION: i64 = 30;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -702,7 +702,31 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("27", MIGRATION_V27_SQL),
     ("28", MIGRATION_V28_SQL),
     ("29", MIGRATION_V29_SQL),
+    ("30", MIGRATION_V30_SQL),
 ];
+
+pub const MIGRATION_V30_SQL: &str = r#"
+CREATE TEMP TABLE task_events_v30 AS SELECT id,task_id,event_type,occurred_at,payload,actor FROM task_events;
+DROP TABLE task_events;
+CREATE TABLE task_events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL CHECK(event_type IN ('created','completed','deferred','snoozed','reminded','overdue','escalated','cancelled','moved','recursion_gap','deleted','restored','edited')),
+  occurred_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  payload TEXT,
+  actor TEXT DEFAULT 'user' CHECK(actor IN ('user','ai','system'))
+);
+INSERT INTO task_events SELECT id,task_id,event_type,occurred_at,payload,actor FROM task_events_v30;
+DROP TABLE task_events_v30;
+CREATE INDEX idx_task_events_task ON task_events(task_id);
+CREATE INDEX idx_task_events_type ON task_events(event_type);
+CREATE INDEX idx_task_events_time ON task_events(occurred_at);
+CREATE TABLE IF NOT EXISTS task_recurrence_instances (
+  source_task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  successor_task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+  generated_hash TEXT NOT NULL
+);
+"#;
 
 pub const MIGRATION_V29_SQL: &str = r#"
 ALTER TABLE case_files ADD COLUMN deleted_at TEXT;

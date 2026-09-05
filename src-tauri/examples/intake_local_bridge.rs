@@ -97,6 +97,11 @@ async fn main() -> Result<()> {
         "list_tasks" => tasks::list_tasks(serde_json::from_value(p["filter"].clone()).ok())
             .await
             .map(|v| json!(v)),
+        "create_task" => tasks::create_task(p["data"].clone()).await.map(|v|json!(v)),
+        "update_task" => tasks::update_task(p["data"].clone()).await.map(|v|json!(v)),
+        "snooze_task" => tasks::snooze_task(p["id"].as_str().unwrap_or("").into(),p["option"].as_str().map(str::to_owned),p["newDueDate"].as_str().map(str::to_owned)).await.map(|v|json!(v)),
+        "delete_task" => tasks::delete_task(p["id"].as_str().unwrap_or("").into(),None,None).await.map(|v|json!(v)),
+        "restore_task" => tasks::restore_task(p["snapshot"].clone()).await.map(|v|json!(v)),
         "toggle_task" => {
             tasks::toggle_task(p["id"].as_str().unwrap_or("").into(), None, None, None)
                 .await

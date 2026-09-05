@@ -30,6 +30,7 @@ pub mod settings;
 pub mod smart_rules;
 pub mod sync;
 pub mod tasks;
+mod task_lifecycle;
 pub mod timeline;
 pub mod whiteboard;
 

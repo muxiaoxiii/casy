@@ -29,6 +29,8 @@ pub struct TaskDto {
     pub task_type: String,
     pub start_date: Option<String>,
     pub due_date: Option<String>,
+    pub due_time: Option<String>,
+    pub time_block: Option<String>,
     pub waiting_for: Option<String>,
     pub follow_up_date: Option<String>,
     pub context: Option<String>,
@@ -82,6 +84,8 @@ fn row_to_task_dto(row: &rusqlite::Row) -> rusqlite::Result<TaskDto> {
             .unwrap_or_else(|| "action".to_string()),
         start_date: row.get::<_, Option<String>>("start_date")?,
         due_date: row.get::<_, Option<String>>("due_date")?,
+        due_time: row.get::<_, Option<String>>("due_time")?,
+        time_block: row.get::<_, Option<String>>("time_block")?,
         waiting_for: row.get::<_, Option<String>>("waiting_for")?,
         follow_up_date: row.get::<_, Option<String>>("follow_up_date")?,
         context: row.get::<_, Option<String>>("context")?,
@@ -166,12 +170,10 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
                         }
                         // W2 今日语义：未到期推迟任务隐藏（defer_until > 今天才藏，到期当天回归）
                         "today" => {
-                            sql.push_str(&format!(
-                                " AND start_bucket = ?{} \
-                                 AND (defer_until IS NULL OR defer_until <= date('now','localtime'))",
-                                idx
-                            ));
-                            params.push(Box::new(start_bucket.clone()));
+                            sql.push_str(" AND completed=0 AND (
+                                COALESCE(NULLIF(due_date,''),NULLIF(deadline,''))<=date('now','localtime')
+                                OR ((defer_until IS NULL OR defer_until<=date('now','localtime')) AND start_bucket!='someday'
+                                  AND (start_bucket='today' OR NULLIF(start_date,'')<=date('now','localtime'))))");
                         }
                         _ => {
                             sql.push_str(&format!(" AND start_bucket = ?{}", idx));
@@ -196,6 +198,14 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
     .await
 }
 
+fn normalize_optional_task_fields(data: &mut serde_json::Value) {
+    for key in ["caseId","areaId","knowledgeId","parentId","parentTaskId","deadline","dueDate","dueTime","startDate","deferUntil","followUpDate","nextReviewDate","lastReviewDate","recurrenceRule","context","timeBlock"] {
+        if data[key].as_str().is_some_and(|value|value.trim().is_empty()) {
+            data[key] = serde_json::Value::Null;
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, String> {
     run_blocking(move || {
@@ -215,6 +225,14 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         )?;
         let id = db::new_id();
         let now = db::now_local();
+        let mut data = data;
+        if data["taskName"].as_str().is_none_or(|name|name.trim().is_empty()) {
+            anyhow::bail!("请输入任务名称");
+        }
+        normalize_optional_task_fields(&mut data);
+        let mut validation = data.clone();
+        validation["id"] = serde_json::json!(id);
+        serde_json::from_value::<UpdateTaskPatch>(validation)?.validate()?;
 
         // A1-7 修复：next_review_date 仅在用户显式设置时写入。
         // 原实现默认填下周日，导致 Review 透视被无回顾意图的任务淹没（噪音缺陷）。
@@ -222,6 +240,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
         // ── 案件级顺序项目自动继承（设计哲学 §3.3）─────────────────────
         // 如果关联案件设置了 sequential=1，新任务自动继承 sequential
         let case_id = data["caseId"].as_str();
+        let parent_id = data["parentId"].as_str().or(data["parentTaskId"].as_str());
         let (mut sequential, mut blocked, mut sequence_order) = (
             data["sequential"].as_i64().unwrap_or(0),
             data["blocked"].as_i64().unwrap_or(0),
@@ -237,23 +256,23 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
             if case_seq == Some(1) && sequential == 0 {
                 sequential = 1;
                 // 第一个 sequential 任务不阻塞，后续自动阻塞
-                let existing_count: i32 = conn.query_row(
-                    "SELECT COUNT(*) FROM tasks WHERE case_id = ?1 AND sequential = 1 AND completed = 0 AND deleted_at IS NULL",
-                    rusqlite::params![cid],
-                    |row| row.get(0),
-                ).unwrap_or(0);
+                let (existing_count, next_order): (i32, i64) = conn.query_row(
+                    "SELECT COUNT(*),COALESCE(MAX(sequence_order)+1,0) FROM tasks WHERE case_id = ?1 AND parent_task_id IS ?2 AND sequential = 1 AND completed = 0 AND deleted_at IS NULL",
+                    rusqlite::params![cid,parent_id],
+                    |row| Ok((row.get(0)?,row.get(1)?)),
+                )?;
                 if existing_count > 0 {
                     blocked = 1;
                 }
-                sequence_order = existing_count as i64;
+                sequence_order = next_order;
             }
         }
 
         conn.execute(
             "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
              task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
-             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at, parent_task_id, recurrence_rule, is_focus)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)",
+             start_bucket, today_index, estimated_minutes, area_id, next_review_date, created_at, parent_task_id, recurrence_rule, is_focus,defer_until,time_block,knowledge_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29,?30,?31,?32)",
             rusqlite::params![
                 id,
                 case_id,
@@ -283,12 +302,16 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
                 data["nextReviewDate"].as_str(), // A1-7：仅显式设置才写入
                 now,
                 // A1-4/A1-5
-                data["parentId"].as_str(),
+                parent_id,
                 data["recurrenceRule"].as_str(),
                 data["isFocus"].as_i64().unwrap_or(0),
+                data["deferUntil"].as_str(),
+                data["timeBlock"].as_str(),
+                data["knowledgeId"].as_str(),
             ],
         )?;
 
+        super::task_lifecycle::refresh_sequence(&conn, &id)?;
         // 记录 task_event（AI 创建归因 actor='ai'）
         let actor = if data["origin"].as_str() == Some("ai") { "ai" } else { "user" };
         conn.execute(
@@ -321,165 +344,46 @@ pub async fn toggle_task(
     origin: Option<String>,
     proposal_token: Option<String>,
 ) -> Result<(), String> {
-    let task_id = id.clone();
-    let unlock_result = run_blocking(move || {
-        let mut raw_conn = db::open_db()?;
-        let conn = raw_conn.transaction()?;
-        let now = db::now_local();
-
-        // 获取当前状态（错误码试点：CAS-1001 任务不存在）
-        let current: i32 = conn
-            .query_row(
-                "SELECT completed FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
-                rusqlite::params![id],
-                |row| row.get(0),
-            )
-            .map_err(|e| {
-                anyhow::anyhow!(crate::error_code::err(
-                    crate::error_code::codes::TASK_NOT_FOUND,
-                    format!("任务不存在: {id} ({e})"),
-                ))
-            })?;
-
-        // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
-        crate::ai::gateway::verify_ai_mutation_authorized(
-            &conn,
-            origin.as_deref(),
-            proposal_token.as_deref(),
-            "toggle_task",
-            "task",
-            Some(&id),
-            Some(&crate::ai::gateway::compute_current_entity_hash(&conn, "task", &id)?),
-            &serde_json::json!({ "id": id }),
-        )?;
-        let actor = if origin.as_deref() == Some("ai") { "ai" } else { "user" };
-
-        let new_status = if current == 0 { 1 } else { 0 };
-
-        conn.execute(
-            "UPDATE tasks SET completed = ?1 WHERE id = ?2",
-            rusqlite::params![new_status, id],
-        )?;
-
-        // 完成任务时可同时记录实际耗时（行为学习数据源）
-        if new_status == 1 {
-            if let Some(mins) = actual_minutes {
-                conn.execute(
-                    "UPDATE tasks SET actual_minutes = ?1 WHERE id = ?2",
-                    rusqlite::params![mins, id],
-                )?;
-            }
-        }
-
-        // 记录 task_event（完成事件 payload 带实际耗时；AI 操作归因 actor='ai'）
-        let event_type = if new_status == 1 { "completed" } else { "created" };
-        let payload = actual_minutes
-            .map(|m| serde_json::json!({ "actualMinutes": m }).to_string());
-        conn.execute(
-            "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![db::new_id(), id, event_type, now, payload, actor],
-        )?;
-
-        // ── A1-5 重复任务：完成后生成下一实例（确定性执行在 Rust · 双路径铁律）──
-        if new_status == 1 {
-            let rec: Option<(String, Option<String>, Option<String>)> = conn.query_row(
-                "SELECT recurrence_rule,
-                        COALESCE(due_date, deadline, start_date),
-                        COALESCE(start_date, due_date, deadline)
-                 FROM tasks WHERE id = ?1 AND completed = 1",
-                rusqlite::params![id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            ).ok();
-
-            if let Some((rule, Some(anchor_due), anchor_start)) = rec {
-                if let Some(next) = next_occurrence(&rule, &anchor_due) {
-                    let parse = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok();
-                    let shift = next.parse::<chrono::NaiveDate>().ok()
-                        .zip(parse(&anchor_due))
-                        .map(|(n, a)| (n - a).num_days())
-                        .unwrap_or(0);
-                    let next_start = anchor_start.as_deref().and_then(parse)
-                        .map(|d| (d + chrono::Duration::days(shift)).format("%Y-%m-%d").to_string());
-
-                    // 生成失败静默：完成动作不受影响
-                    let _ = conn.execute(
-                        "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline,
-                            priority, assignee, task_type, start_date, due_date, due_time, waiting_for,
-                            follow_up_date, context, flagged, sequential, blocked, sequence_order,
-                            start_bucket, estimated_minutes, area_id, parent_task_id, recurrence_rule, created_at)
-                         SELECT ?1, case_id, task_name, description, ?2, ?3, priority, assignee, task_type,
-                                ?4, ?3, due_time, waiting_for, follow_up_date,
-                                context, flagged, sequential, blocked, sequence_order, start_bucket,
-                                estimated_minutes, area_id, NULL, recurrence_rule, ?2
-                         FROM tasks WHERE id = ?5",
-                        rusqlite::params![db::new_id(), now, next, next_start, id],
-                    );
-                }
-            }
-        }
-
-        // ── 顺序项目自动解锁（设计哲学 §3.3 / §5.4）─────────────────────
-        // 如果完成的是一个 sequential 任务，在同一事务内解锁下一个
-        let mut unlocked_task_id: Option<String> = None;
-        if new_status == 1 {
-            let task_info: Option<(String, i32, Option<String>)> = conn.query_row(
-                "SELECT id, sequence_order, case_id FROM tasks WHERE id = ?1 AND sequential = 1",
-                rusqlite::params![id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?, row.get::<_, Option<String>>(2)?)),
-            ).ok();
-
-            if let Some((_, seq_order, case_id)) = task_info {
-                // 找到同案件（或无案件）中 sequence_order 更大的下一个 blocked 任务
-                let next_task_id: Option<String> = if let Some(cid) = case_id {
-                    conn.query_row(
-                        "SELECT id FROM tasks WHERE case_id = ?1 AND sequential = 1 AND blocked = 1 AND sequence_order > ?2 AND deleted_at IS NULL ORDER BY sequence_order ASC LIMIT 1",
-                        rusqlite::params![cid, seq_order],
-                        |row| row.get(0),
-                    ).ok()
-                } else {
-                    conn.query_row(
-                        "SELECT id FROM tasks WHERE case_id IS NULL AND sequential = 1 AND blocked = 1 AND sequence_order > ?1 AND deleted_at IS NULL ORDER BY sequence_order ASC LIMIT 1",
-                        rusqlite::params![seq_order],
-                        |row| row.get(0),
-                    ).ok()
-                };
-
-                if let Some(next_id) = next_task_id {
-                    conn.execute(
-                        "UPDATE tasks SET blocked = 0 WHERE id = ?1",
-                        rusqlite::params![&next_id],
-                    )?;
-                    // 记录解锁事件
-                    conn.execute(
-                        "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'moved', ?3, ?4, 'system')",
-                        rusqlite::params![db::new_id(), &next_id, &now, serde_json::json!({"fromBlocked":1,"toBlocked":0,"reason":"sequential_unlock"}).to_string()],
-                    )?;
-                    unlocked_task_id = Some(next_id);
-                }
-            }
-        }
-
-        conn.commit()?;
-        Ok((new_status == 1, unlocked_task_id))
-    })
-    .await?;
-
-    let completed_now = unlock_result.0;
-    let unlocked_id = unlock_result.1;
-
-    // 任务完成后撤销其提醒作业（含已同步到日历的事件，避免误提醒）
-    if completed_now {
-        if let Err(e) = super::caldav::cancel_jobs_for_entity("task", &task_id).await {
-            log::warn!("任务完成后撤销提醒作业失败 (task {}): {}", task_id, e);
-        }
-        if let Some(ref uid) = unlocked_id {
-            log::info!("顺序项目已自动解锁: {}", uid);
-        }
+    if actual_minutes.is_some_and(|value|value < 0 || value > i32::MAX as i64) {
+        return Err("实际耗时超出有效范围".into());
     }
-
+    let cancelled = run_blocking(move || {
+        let mut connection = db::open_db()?;
+        let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: i32 = conn.query_row(
+            "SELECT completed FROM tasks WHERE id=?1 AND deleted_at IS NULL",
+            [&id], |r|r.get(0))?;
+        crate::ai::gateway::verify_ai_mutation_authorized(
+            &conn, origin.as_deref(), proposal_token.as_deref(), "toggle_task", "task", Some(&id),
+            Some(&crate::ai::gateway::compute_current_entity_hash(&conn,"task",&id)?),
+            &serde_json::json!({"id":id}),
+        )?;
+        let completed = if current == 0 {1} else {0};
+        conn.execute("UPDATE tasks SET completed=?2 WHERE id=?1",rusqlite::params![id,completed])?;
+        if completed==1 {
+            if let Some(minutes) = actual_minutes {
+                conn.execute("UPDATE tasks SET actual_minutes=?2 WHERE id=?1",rusqlite::params![id,minutes])?;
+            }
+        }
+        let actor = if origin.as_deref()==Some("ai") {"ai"} else {"user"};
+        conn.execute("INSERT INTO task_events(id,task_id,event_type,occurred_at,payload,actor) VALUES(?1,?2,?3,?4,?5,?6)",
+            rusqlite::params![db::new_id(),id,if completed==1 {"completed"} else {"restored"},db::now_local(),
+                serde_json::json!({"actualMinutes":actual_minutes}).to_string(),actor])?;
+        let cancelled = super::task_lifecycle::completion_effects(&conn,&id,completed)?;
+        conn.commit()?;
+        Ok(cancelled)
+    }).await?;
+    cancel_task_reminders(cancelled).await;
     Ok(())
 }
 
+async fn cancel_task_reminders(ids: Vec<String>) {
+    for id in ids {
+        if let Err(error) = super::caldav::cancel_jobs_for_entity("task",&id).await {
+            log::warn!("取消任务提醒失败 ({id}): {error}");
+        }
+    }
+}
 #[tauri::command]
 pub async fn delete_task(
     id: String,
@@ -535,6 +439,7 @@ pub async fn delete_task(
             "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deleted', ?3, ?4, ?5)",
             rusqlite::params![db::new_id(), id, now, payload, actor],
         )?;
+        super::task_lifecycle::refresh_sequence(&conn, &id)?;
         conn.commit()?;
         Ok(())
     })
@@ -607,7 +512,7 @@ fn restore_task_inner(
              is_overdue = ?26, due_soon = ?27, last_review_date = ?28, next_review_date = ?29,
              area_id = ?30, knowledge_id = ?31, parent_task_id = ?32, recurrence_rule = ?33,
              is_focus = ?34, defer_until = ?35,
-             deleted_at = NULL, updated_at = ?36
+             deleted_at = NULL, updated_at = ?36, time_block = ?37
              WHERE id = ?1",
             rusqlite::params![
                 id,
@@ -646,6 +551,7 @@ fn restore_task_inner(
                 snapshot["isFocus"].as_i64().unwrap_or(0),
                 snapshot["deferUntil"].as_str(),
                 now,
+                snapshot["timeBlock"].as_str(),
             ],
         )?;
         // 审计：写 restored 事件（task_events.event_type 已随 v24 条件重建扩展 'restored'）
@@ -662,8 +568,8 @@ fn restore_task_inner(
             "INSERT INTO tasks (id, case_id, task_name, description, created_date, deadline, priority, completed, assignee, finish_note,
              task_type, start_date, due_date, due_time, waiting_for, follow_up_date, context, flagged, sequential, blocked, sequence_order,
              start_bucket, today_index, estimated_minutes, actual_minutes, is_overdue, due_soon, last_review_date, next_review_date,
-             area_id, knowledge_id, created_at, parent_task_id, recurrence_rule, is_focus, defer_until)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36)",
+             area_id, knowledge_id, created_at, parent_task_id, recurrence_rule, is_focus, defer_until,time_block)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37)",
             rusqlite::params![
                 id,
                 snapshot["caseId"].as_str(),
@@ -701,6 +607,7 @@ fn restore_task_inner(
                 snapshot["recurrenceRule"].as_str(),
                 snapshot["isFocus"].as_i64().unwrap_or(0),
                 snapshot["deferUntil"].as_str(),
+                snapshot["timeBlock"].as_str(),
             ],
         )?;
         // 审计：硬删除快照还原 → 行被重建，写 'created' 事件（保持既有语义）
@@ -710,6 +617,7 @@ fn restore_task_inner(
         )?;
     }
 
+    super::task_lifecycle::refresh_sequence(&tx, &id)?;
     // 在 commit 前读取还原后的 DTO（事务内自读自己的写入），再做原子提交
     let dto = load_task_row(&tx, &id)?;
     tx.commit()?;
@@ -734,7 +642,8 @@ pub async fn snooze_task(
     new_due_date: Option<String>,
 ) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut connection = db::open_db()?;
+        let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let now = db::now_local();
         use chrono::{Datelike, Duration, Local};
         let today = Local::now().date_naive();
@@ -744,23 +653,25 @@ pub async fn snooze_task(
             Some("tonight") => (today.to_string(), "今晚".to_string()),
             Some("tomorrow") => ((today + Duration::days(1)).to_string(), "明天".to_string()),
             Some("weekend") => {
-                let days_to_sat = (6 - today.weekday().num_days_from_monday() + 7) % 7;
+                let days_to_sat = (5 + 7 - today.weekday().num_days_from_monday()) % 7;
                 ((today + Duration::days(days_to_sat as i64)).to_string(), "周末".to_string())
             }
             Some("next_week") => ((today + Duration::days(7)).to_string(), "下周".to_string()),
-            _ => {
-                let d = new_due_date.unwrap_or_else(|| today.to_string());
+            None | Some("custom") => {
+                let d = new_due_date.ok_or_else(||anyhow::anyhow!("请选择计划日期"))?;
                 (d, "自定义".to_string())
             }
+            _ => anyhow::bail!("无效计划选项"),
         };
+        chrono::NaiveDate::parse_from_str(&new_date,"%Y-%m-%d")?;
 
-        // 更新任务：到期日 = 新日期；今天 → today 桶，其他 → upcoming。
+        // Snooze changes the plan, never a legal deadline.
         // 软删拒绝：仅对活跃任务生效，0 行命中即任务不存在/已软删。
         let is_today = new_date == today.to_string();
-        let bucket = if is_today { "today" } else { "upcoming" };
+        let bucket = if is_today { "today" } else { "anytime" };
         let rows = conn.execute(
-            "UPDATE tasks SET due_date = ?1, start_date = ?1, start_bucket = ?2 WHERE id = ?3 AND deleted_at IS NULL",
-            rusqlite::params![new_date, bucket, id],
+            "UPDATE tasks SET start_date=?1,start_bucket=?2,time_block=CASE WHEN ?4 THEN 'evening' ELSE time_block END WHERE id=?3 AND deleted_at IS NULL AND completed=0",
+            rusqlite::params![new_date, bucket, id,option.as_deref()==Some("tonight")],
         )?;
         if rows != 1 {
             return Err(anyhow::anyhow!(crate::error_code::err(
@@ -772,14 +683,14 @@ pub async fn snooze_task(
         // 写 snoozed 行为事件（支撑"懂你的节奏/模式"学习）
         let payload = serde_json::json!({
             "option": option.unwrap_or_else(|| "custom".to_string()),
-            "newDueDate": new_date,
+            "newStartDate": new_date,
             "label": label,
         });
         conn.execute(
             "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'snoozed', ?3, ?4, 'user')",
             rusqlite::params![db::new_id(), id, now, serde_json::to_string(&payload).unwrap_or_default()],
         )?;
-
+        conn.commit()?;
         Ok(())
     })
     .await
@@ -879,7 +790,7 @@ where
         Some(Value::Null) => Ok(PatchField::Null),
         Some(Value::Number(n)) => {
             if let Some(i) = n.as_i64() {
-                Ok(PatchField::Value(i as i32))
+                i32::try_from(i).map(PatchField::Value).map_err(|_|serde::de::Error::custom("integer out of range"))
             } else {
                 Err(serde::de::Error::custom("invalid integer number"))
             }
@@ -957,7 +868,7 @@ pub struct UpdateTaskPatch {
     pub case_id: PatchField<String>,
     #[serde(default, deserialize_with = "deserialize_patch_string")]
     pub time_block: PatchField<String>,
-    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    #[serde(default, alias = "parentId", deserialize_with = "deserialize_patch_string")]
     pub parent_task_id: PatchField<String>,
     #[serde(default, deserialize_with = "deserialize_patch_string")]
     pub recurrence_rule: PatchField<String>,
@@ -965,12 +876,25 @@ pub struct UpdateTaskPatch {
     pub is_focus: PatchField<i32>,
     #[serde(default, deserialize_with = "deserialize_patch_string")]
     pub defer_until: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub next_review_date: PatchField<String>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    pub last_review_date: PatchField<String>,
 }
 
 impl UpdateTaskPatch {
     pub fn validate(&self) -> Result<(), anyhow::Error> {
         if self.id.trim().is_empty() {
             return Err(anyhow::anyhow!("Task ID cannot be empty"));
+        }
+        if let PatchField::Value(value) = self.completed {
+            if ![0,1].contains(&value) { anyhow::bail!("completed 必须为 0 或 1"); }
+        }
+        if let PatchField::Value(rule) = &self.recurrence_rule {
+            super::task_lifecycle::validate_recurrence(rule)?;
+        }
+        if let PatchField::Value(time) = &self.due_time {
+            if !time.is_empty() { chrono::NaiveTime::parse_from_str(time,"%H:%M").or_else(|_|chrono::NaiveTime::parse_from_str(time,"%H:%M:%S"))?; }
         }
 
         if let PatchField::Value(name) = &self.task_name {
@@ -1043,6 +967,8 @@ impl UpdateTaskPatch {
         if let PatchField::Value(d) = &self.defer_until {
             validate_date("deferUntil", d)?;
         }
+        if let PatchField::Value(d) = &self.next_review_date { validate_date("nextReviewDate",d)?; }
+        if let PatchField::Value(d) = &self.last_review_date { validate_date("lastReviewDate",d)?; }
 
         if let PatchField::Value(m) = &self.estimated_minutes {
             if *m < 0 {
@@ -1061,14 +987,16 @@ impl UpdateTaskPatch {
 
 #[tauri::command]
 pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
-    run_blocking(move || {
-        let patch: UpdateTaskPatch = serde_json::from_value(data.clone())
+    let cancelled = run_blocking(move || {
+        let mut normalized = data.clone();
+        normalize_optional_task_fields(&mut normalized);
+        let patch: UpdateTaskPatch = serde_json::from_value(normalized)
             .map_err(|e| anyhow::anyhow!("Failed to parse UpdateTaskPatch: {}", e))?;
 
         patch.validate()?;
 
         let mut conn = db::open_db()?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let now = db::now_local();
 
         // 1. 校验任务是否存在并获取旧数据
@@ -1163,6 +1091,8 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
         apply_patch_text!(patch.recurrence_rule, "recurrence_rule");
         apply_patch_i32!(patch.is_focus, "is_focus");
         apply_patch_text!(patch.defer_until, "defer_until");
+        apply_patch_text!(patch.next_review_date, "next_review_date");
+        apply_patch_text!(patch.last_review_date, "last_review_date");
 
         sets.push("updated_at = ?".to_string());
         params.push(Box::new(now.clone()));
@@ -1214,18 +1144,20 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
             }
         }
 
-        // 完成状态检测
+        let mut cancelled = Vec::new();
+        // Completion side effects are shared with toggle_task.
         if let PatchField::Value(new_done) = &patch.completed {
             if *new_done != old_completed {
                 let event_type = if *new_done == 1 {
                     "completed"
                 } else {
-                    "created"
+                    "restored"
                 };
                 tx.execute(
                     "INSERT INTO task_events (id, task_id, event_type, occurred_at, actor) VALUES (?1, ?2, ?3, ?4, 'user')",
                     rusqlite::params![db::new_id(), patch.id, event_type, now],
                 )?;
+                cancelled = super::task_lifecycle::completion_effects(&tx,&patch.id,*new_done)?;
             }
         }
 
@@ -1246,23 +1178,25 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
         tx.commit()?;
 
         // 5. 日历同步联动
-        if let PatchField::Value(due) = &patch.due_date {
-            let due_time_val = patch.due_time.value().map(|s| s.as_str());
-            let task_name_val = patch.task_name.value().map(|s| s.as_str()).unwrap_or("");
-            let case_id_val = patch.case_id.value().map(|s| s.as_str());
-            let _ = crate::commands::reminder::sync_task_reminder_calendar(
-                &conn,
-                &patch.id,
-                due,
-                due_time_val,
-                task_name_val,
-                case_id_val,
-            );
+        if !matches!(patch.due_date, PatchField::Unset) || !matches!(patch.due_time, PatchField::Unset)
+            || !matches!(patch.task_name, PatchField::Unset) || !matches!(patch.case_id, PatchField::Unset) {
+            let task = load_task_row(&conn, &patch.id)?;
+            if task.completed == 0 {
+                if let Some(due) = task.due_date.as_deref().or(task.deadline.as_deref()) {
+                    let _ = crate::commands::reminder::sync_task_reminder_calendar(
+                        &conn, &patch.id, due, task.due_time.as_deref(), &task.task_name, task.case_id.as_deref(),
+                    );
+                } else {
+                    cancelled.push(patch.id.clone());
+                }
+            }
         }
 
-        Ok(())
+        Ok(cancelled)
     })
-    .await
+    .await?;
+    cancel_task_reminders(cancelled).await;
+    Ok(())
 }
 
 /// 庭审准备任务模板
@@ -1556,51 +1490,8 @@ pub async fn search_tasks(query: String) -> Result<Vec<SearchTaskDto>, String> {
 
 /// A1-5：RRULE 极简子集的下一到期日
 /// 'daily' | 'weekdays' | 'weekly:<1-7>'(周一=1) | 'monthly:<DD>'
-fn next_occurrence(rule: &str, from: &str) -> Option<String> {
-    use chrono::{Datelike, Duration, NaiveDate};
-    let d = NaiveDate::parse_from_str(from, "%Y-%m-%d").ok()?;
-    let next = match rule.trim() {
-        "daily" => d + Duration::days(1),
-        "weekdays" => {
-            let mut n = d + Duration::days(1);
-            while n.weekday().num_days_from_monday() >= 5 {
-                n += Duration::days(1);
-            }
-            n
-        }
-        r if r.starts_with("weekly:") => {
-            let target: u32 = r.split(':').nth(1)?.trim().parse().ok()?;
-            if !(1..=7).contains(&target) {
-                return None;
-            }
-            let cur = d.weekday().num_days_from_monday() + 1;
-            let delta = (target + 7 - cur) % 7;
-            d + Duration::days(if delta == 0 { 7 } else { delta } as i64)
-        }
-        r if r.starts_with("monthly:") => {
-            let day: u32 = r.split(':').nth(1)?.trim().parse().ok()?;
-            if !(1..=31).contains(&day) {
-                return None;
-            }
-            let (mut y, mut m) = (d.year(), d.month());
-            loop {
-                m += 1;
-                if m > 12 {
-                    m = 1;
-                    y += 1;
-                }
-                let dim = NaiveDate::from_ymd_opt(y, m + if m == 12 { 0 } else { 1 }, 1)
-                    .map(|first| (first - Duration::days(1)).day())
-                    .unwrap_or(28);
-                if let Some(nd) = NaiveDate::from_ymd_opt(y, m, day.min(dim)) {
-                    break nd;
-                }
-            }
-        }
-        _ => return None,
-    };
-    Some(next.format("%Y-%m-%d").to_string())
-}
+#[cfg(test)]
+use super::task_lifecycle::next_occurrence;
 
 #[cfg(test)]
 mod tests {
@@ -1953,23 +1844,32 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(ev_count, 2, "软删不应级联删除 task_events（created + deleted）");
+        assert_eq!(
+            ev_count, 2,
+            "软删不应级联删除 task_events（created + deleted）"
+        );
         let rj_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM reminder_jobs WHERE entity_id = 't-del'", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(rj_count, 1, "软删不应删除提醒作业行");
-        let child_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM tasks WHERE id = 't-child'",
+                "SELECT COUNT(*) FROM reminder_jobs WHERE entity_id = 't-del'",
                 [],
                 |r| r.get(0),
             )
+            .unwrap();
+        assert_eq!(rj_count, 1, "软删不应删除提醒作业行");
+        let child_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks WHERE id = 't-child'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(child_count, 1, "软删不应删除子任务行");
 
         // 默认任务查询（list_tasks 语义：deleted_at IS NULL）应过滤掉软删任务
         let visible: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(visible, 1, "软删任务应被默认查询过滤（只剩子任务可见）");
     }
@@ -2010,7 +1910,11 @@ mod tests {
         let restored = restore_task_inner(&mut conn, &snapshot).unwrap();
         assert_eq!(restored.id, "t-u");
         assert_eq!(restored.completed, 1);
-        assert_eq!(restored.priority.as_deref(), Some("urgent_important"), "还原应按快照恢复字段");
+        assert_eq!(
+            restored.priority.as_deref(),
+            Some("urgent_important"),
+            "还原应按快照恢复字段"
+        );
         assert_eq!(restored.flagged, 1);
 
         let (deleted_at_after, deleted_event): (Option<String>, i64) = conn
@@ -2022,13 +1926,23 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert!(deleted_at_after.is_none(), "undelete 后 deleted_at 应为 NULL");
+        assert!(
+            deleted_at_after.is_none(),
+            "undelete 后 deleted_at 应为 NULL"
+        );
         assert_eq!(deleted_event, 1, "还原应写 restored 审计事件");
         // 关联事件未丢
         let ev_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM task_events WHERE task_id='t-u'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM task_events WHERE task_id='t-u'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert_eq!(ev_count, 3, "关联事件应保留（created + deleted + restored）");
+        assert_eq!(
+            ev_count, 3,
+            "关联事件应保留（created + deleted + restored）"
+        );
     }
 
     /// v24：重复删除已软删任务 → 幂等成功（不重复写审计）；行不被二次变更。
@@ -2092,7 +2006,10 @@ mod tests {
             .optional()
             .unwrap()
             .is_none();
-        assert!(toggle_ok, "toggle 对软删任务的存在性检查应返回空（→TASK_NOT_FOUND）");
+        assert!(
+            toggle_ok,
+            "toggle 对软删任务的存在性检查应返回空（→TASK_NOT_FOUND）"
+        );
 
         // 更新存在性检查（update_task old_info 语义）→ 空
         let update_ok: bool = conn
