@@ -156,7 +156,6 @@ pub async fn search(query: &str, limit: usize, use_semantic: bool) -> Result<Sea
             Ok(Some((plan, client))) => {
                 if let Some(client) = client {
                     let result = async {
-                        crate::ai::get_token_budget().consume().await?;
                         tokio::time::timeout(
                             std::time::Duration::from_secs(5),
                             client.embed(&[query.to_owned()]),

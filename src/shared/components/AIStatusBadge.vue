@@ -32,8 +32,9 @@ const dotClass = computed(() => {
 })
 
 // 今日调用次数/配额
-const todayUsed = ref(0)
-const dailyLimit = computed(() => settingsStore.config.dailyLimit)
+const todayUsed = ref(null)
+const usageError = ref('')
+const dailyLimit = ref(0)
 const remaining = computed(() => Math.max(0, dailyLimit.value - todayUsed.value))
 
 // Popover 可见性
@@ -44,19 +45,20 @@ function goToAISettings() {
   router.push({ name: 'settings', query: { tab: 'ai' } })
 }
 
-function handleClick() {
-  popoverVisible.value = !popoverVisible.value
-}
-
 async function loadUsage() {
-  // 获取今日 AI 调用次数（如果后端支持）
+  usageError.value = ''
   try {
     const result = await tauriCallSafe('get_ai_usage', {})
     if (result.ok && result.data) {
-      todayUsed.value = result.data.usedToday || 0
+      todayUsed.value = result.data.usedToday
+      dailyLimit.value = result.data.dailyLimit
+    } else {
+      todayUsed.value = null
+      usageError.value = result.error || '调用次数暂不可用'
     }
   } catch {
-    // 后端未实现时静默失败
+    todayUsed.value = null
+    usageError.value = '调用次数暂不可用'
   }
 }
 onMounted(loadUsage)
@@ -71,10 +73,10 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
     trigger="click"
   >
     <template #reference>
-      <div class="ai-badge" :title="statusLabel" @click="handleClick">
+      <button type="button" class="ai-badge" title="AI 调用情况" aria-label="AI 调用情况">
         <span class="badge-dot" :class="dotClass"></span>
-        <span class="badge-label">AI</span>
-      </div>
+        <span class="badge-label">调用情况</span>
+      </button>
     </template>
 
     <div class="ai-popover">
@@ -95,19 +97,21 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
 
       <div v-if="aiStatus === 'available'" class="popover-quota">
         <div class="quota-row">
-          <span class="quota-label">今日已用</span>
-          <span class="quota-value">{{ todayUsed }}</span>
+          <span class="quota-label" title="已发出的请求次数，包含失败请求">今日请求</span>
+          <span class="quota-value">{{ todayUsed ?? '--' }}</span>
         </div>
         <div class="quota-row">
           <span class="quota-label">剩余配额</span>
-          <span class="quota-value" :class="{ 'quota-low': dailyLimit > 0 && remaining <= 5 }">{{ dailyLimit === 0 ? '不限' : remaining }}</span>
+          <span class="quota-value" :class="{ 'quota-low': todayUsed !== null && dailyLimit > 0 && remaining <= 5 }">{{ todayUsed === null ? '--' : dailyLimit === 0 ? '不限' : remaining }}</span>
         </div>
         <el-progress
+          v-if="todayUsed !== null"
           :percentage="dailyLimit === 0 ? 0 : Math.min(100, (todayUsed / dailyLimit) * 100)"
           :stroke-width="4"
           :show-text="false"
           :color="remaining <= 5 ? '#F59E0B' : '#2563EB'"
         />
+        <p v-if="usageError" role="status">{{ usageError }}</p>
       </div>
 
       <div v-if="aiStatus === 'disabled'" class="popover-hint">

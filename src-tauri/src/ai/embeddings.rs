@@ -120,10 +120,7 @@ impl EmbeddingClient {
         if let Some(key) = &self.key {
             request = request.bearer_auth(key);
         }
-        let mut response = request
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("向量接口连接失败或超时"))?;
+        let mut response = super::usage::send(request).await?;
         if !response.status().is_success() {
             bail!("向量接口返回 HTTP {}", response.status().as_u16());
         }

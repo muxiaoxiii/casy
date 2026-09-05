@@ -15,6 +15,7 @@ pub mod page_index;
 pub mod retrieval;
 pub mod embeddings;
 pub mod profiles;
+pub mod usage;
 pub mod recommender;
 pub mod recursive_check;
 pub mod reports;
@@ -22,10 +23,7 @@ pub mod reports;
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 // ============================================================
 // 多轮对话消息（AI 聊天面板 / 工具调用循环）
@@ -189,104 +187,6 @@ impl Default for AiConfig {
     }
 }
 
-// ============================================================
-// TokenBudget — 每日调用限额保护
-// ============================================================
-
-/// 每日 AI 调用限额管理
-pub struct TokenBudget {
-    /// 今日已调用次数
-    used_today: AtomicU64,
-    /// 每日限额（0 表示不限制）
-    daily_limit: AtomicU64,
-    /// 上次重置日期（YYYY-MM-DD）
-    last_reset_date: Mutex<String>,
-}
-
-impl TokenBudget {
-    pub fn new(daily_limit: u64) -> Self {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        Self {
-            used_today: AtomicU64::new(0),
-            daily_limit: AtomicU64::new(daily_limit),
-            last_reset_date: Mutex::new(today),
-        }
-    }
-
-    /// 检查是否还有可用配额
-    pub async fn check_quota(&self) -> Result<bool> {
-        // 检查是否需要重置（新的一天）
-        self.maybe_reset().await;
-
-        let limit = self.daily_limit.load(Ordering::Relaxed);
-        if limit == 0 {
-            // 不限制
-            return Ok(true);
-        }
-
-        let used = self.used_today.load(Ordering::Relaxed);
-        Ok(used < limit)
-    }
-
-    /// 消耗一次配额
-    pub async fn consume(&self) -> Result<()> {
-        // 检查是否需要重置（新的一天）
-        self.maybe_reset().await;
-
-        let limit = self.daily_limit.load(Ordering::Relaxed);
-        if limit == 0 {
-            // 不限制
-            self.used_today.fetch_add(1, Ordering::Relaxed);
-            return Ok(());
-        }
-
-        let used = self.used_today.load(Ordering::Relaxed);
-        if used >= limit {
-            anyhow::bail!("AI 调用已达每日限额 ({}/{})", used, limit);
-        }
-
-        self.used_today.fetch_add(1, Ordering::Relaxed);
-        Ok(())
-    }
-
-    /// 获取今日使用情况
-    pub async fn get_usage(&self) -> (u64, u64) {
-        self.maybe_reset().await;
-        let used = self.used_today.load(Ordering::Relaxed);
-        let limit = self.daily_limit.load(Ordering::Relaxed);
-        (used, limit)
-    }
-
-    /// 更新每日限额
-    pub fn set_daily_limit(&self, limit: u64) {
-        self.daily_limit.store(limit, Ordering::Relaxed);
-    }
-
-    /// 检查是否需要重置（新的一天）
-    async fn maybe_reset(&self) {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let mut last_reset = self.last_reset_date.lock().await;
-
-        if *last_reset != today {
-            // 新的一天，重置计数器
-            self.used_today.store(0, Ordering::Relaxed);
-            *last_reset = today;
-            log::info!("AI 调用计数器已重置（新的一天）");
-        }
-    }
-}
-
-/// 全局 TokenBudget 实例
-static TOKEN_BUDGET: std::sync::OnceLock<Arc<TokenBudget>> = std::sync::OnceLock::new();
-
-/// 获取全局 TokenBudget 实例
-pub fn get_token_budget() -> &'static Arc<TokenBudget> {
-    TOKEN_BUDGET.get_or_init(|| {
-        let config = load_ai_config();
-        let limit = config.daily_limit.unwrap_or(50) as u64;
-        Arc::new(TokenBudget::new(limit))
-    })
-}
 
 /// 从 settings 表加载 AI 配置
 pub fn load_ai_config() -> AiConfig {
@@ -357,7 +257,6 @@ pub fn save_ai_config(config: &AiConfig) -> Result<()> {
         collection.active_id = Some(id);
     }
     profiles::save(&mut conn, collection)?;
-    get_token_budget().set_daily_limit(config.daily_limit.unwrap_or(50) as u64);
     Ok(())
 }
 
@@ -387,6 +286,7 @@ pub async fn call_llm_json(
             let client = reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(30))
                 .timeout(std::time::Duration::from_secs(120))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|e| e.to_string())?;
             let body = serde_json::json!({
@@ -398,10 +298,9 @@ pub async fn call_llm_json(
                 "stream": false,
                 "format": "json" // 很多 Ollama 模型支持 format: json
             });
-            let resp = client
+            let resp = usage::send(client
                 .post(format!("{}/api/chat", url.trim_end_matches('/')))
-                .json(&body)
-                .send()
+                .json(&body))
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -409,9 +308,9 @@ pub async fn call_llm_json(
                 return Err(format!("Ollama API 错误: {}", resp.status()));
             }
             let result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            let content = result["message"]["content"].as_str().unwrap_or("{}");
+            let content = response_content(&result, "ollama").map_err(|e| e.to_string())?;
 
-            serde_json::from_str(content).map_err(|e| format!("无法解析 LLM 的 JSON 响应: {}", e))
+            serde_json::from_str(&content).map_err(|_| "无法解析 LLM 的 JSON 响应".into())
         }
         "openai" => {
             let url = config
@@ -423,6 +322,7 @@ pub async fn call_llm_json(
             let client = reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(30))
                 .timeout(std::time::Duration::from_secs(120))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|e| e.to_string())?;
             let body = serde_json::json!({
@@ -434,11 +334,10 @@ pub async fn call_llm_json(
                 "temperature": 0.1,
                 "response_format": { "type": "json_object" }
             });
-            let resp = client
+            let resp = usage::send(client
                 .post(format!("{}/chat/completions", url.trim_end_matches('/')))
                 .header("Authorization", format!("Bearer {}", key))
-                .json(&body)
-                .send()
+                .json(&body))
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -447,11 +346,9 @@ pub async fn call_llm_json(
             }
 
             let result: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            let content = result["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or("{}");
+            let content = response_content(&result, "openai").map_err(|e| e.to_string())?;
 
-            serde_json::from_str(content).map_err(|e| format!("无法解析 LLM 的 JSON 响应: {}", e))
+            serde_json::from_str(&content).map_err(|_| "无法解析 LLM 的 JSON 响应".into())
         }
         _ => Err(format!("不支持的 AI 模式: {}", config.mode)),
     }
@@ -588,7 +485,7 @@ impl OllamaBackend {
             "stream": false
         });
 
-        let resp = self.client.post(&url).json(&body).send().await?;
+        let resp = usage::send(self.client.post(&url).json(&body)).await?;
 
         if !resp.status().is_success() {
             anyhow::bail!("Ollama API 错误: {}", resp.status());
@@ -686,7 +583,7 @@ impl AiBackend for OllamaBackend {
             "stream": false
         });
 
-        let resp = self.client.post(&url).json(&body).send().await?;
+        let resp = usage::send(self.client.post(&url).json(&body)).await?;
         if !resp.status().is_success() {
             anyhow::bail!("Ollama API 错误: {}", resp.status());
         }
@@ -747,12 +644,11 @@ impl OpenAiBackend {
             "max_tokens": max_tokens
         });
 
-        let resp = self
+        let resp = usage::send(self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
+            .json(&body))
             .await?;
 
         if !resp.status().is_success() {
@@ -856,12 +752,11 @@ impl AiBackend for OpenAiBackend {
             "max_tokens": 2000
         });
 
-        let resp = self
+        let resp = usage::send(self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
+            .json(&body))
             .await?;
 
         if !resp.status().is_success() {
@@ -1156,8 +1051,7 @@ pub async fn get_ai_config() -> Result<AiConfig, String> {
 /// 获取 AI 调用使用情况
 #[tauri::command]
 pub async fn get_ai_usage() -> Result<serde_json::Value, String> {
-    let budget = get_token_budget();
-    let (used, limit) = budget.get_usage().await;
+    let (used, limit) = usage::current().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "usedToday": used,
         "dailyLimit": limit,
@@ -1180,7 +1074,7 @@ pub struct AiChatResult {
 /// - 支持 mode / api_url / model 覆盖（前端面板切换提供商/模型，不改全局配置）
 /// - 支持 context_refs（@ 引用沙箱）：引用实体被解析为「受控上下文」注入首个 system 消息
 /// - 过 ai_runs 审计（input/output SHA256 脱敏，§11.9 模型可见即记录）
-/// - 过每日限额（TokenBudget）
+/// - HTTP 请求发出前原子预扣每日限额
 #[tauri::command]
 pub async fn ai_chat(
     messages: Vec<ChatMessage>,
@@ -1229,11 +1123,6 @@ pub async fn ai_chat(
                 Err(e) => log::warn!("@引用解析跳过（数据库不可用）: {}", e),
             }
         }
-    }
-
-    let budget = get_token_budget();
-    if !budget.check_quota().await.map_err(|e| e.to_string())? {
-        return Err("AI 调用已达每日限额".to_string());
     }
 
     // 覆盖配置（不改写全局设置）
@@ -1313,7 +1202,6 @@ pub async fn ai_chat(
     };
 
     let text = result.map_err(|e| e.to_string())?;
-    let _ = budget.consume().await;
     Ok(AiChatResult {
         content: text,
         run_id,
@@ -1329,12 +1217,6 @@ pub async fn generate_writing_suggestion(
     knowledge: Option<String>,
     style: Option<String>,
 ) -> Result<String, String> {
-    // 检查配额
-    let budget = get_token_budget();
-    if !budget.check_quota().await.map_err(|e| e.to_string())? {
-        return Err("AI 调用已达每日限额".to_string());
-    }
-
     let config = load_ai_config();
     let provider = config.mode.clone();
     let model = config.model.clone().unwrap_or_default();
@@ -1379,9 +1261,6 @@ pub async fn generate_writing_suggestion(
     }
 
     let result = result.map_err(|e| e.to_string())?;
-
-    // 消耗配额
-    let _ = budget.consume().await;
 
     Ok(result)
 }

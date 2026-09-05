@@ -56,6 +56,9 @@ async fn main() -> Result<()> {
         .await
         .map(|v| json!(v)),
         "get_ai_config" => casy_lib::ai::get_ai_config().await.map(|v| json!(v)),
+        "get_ai_usage" => casy_lib::ai::get_ai_usage().await,
+        "call_llm_json" => casy_lib::ai::call_llm_json("Synthetic JSON test", "Return a JSON object").await,
+        "generate_writing_suggestion" => casy_lib::ai::generate_writing_suggestion("Synthetic writing test".into(), None, None, None).await.map(|v| json!(v)),
         "get_settings" => casy_lib::commands::settings::get_settings()
             .await
             .map(|v| json!(v)),

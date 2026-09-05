@@ -26,6 +26,8 @@ function call(command, args = {}) {
 const requests = []
 let credentialAccounts = []
 let failNext = false
+let jsonMode = false
+let emptyNext = false
 const server = http.createServer((req, res) => {
   let body = ''
   req.on('data', chunk => { body += chunk })
@@ -33,6 +35,8 @@ const server = http.createServer((req, res) => {
     requests.push({ url: req.url, authorization: req.headers.authorization, body: JSON.parse(body) })
     res.setHeader('Content-Type', 'application/json')
     if (failNext) { failNext = false; res.writeHead(401); res.end('synthetic-key-echo'); return }
+    if (emptyNext) { emptyNext = false; res.end('{}'); return }
+    if (jsonMode) { res.end(JSON.stringify({choices:[{message:{content:'{"result":"synthetic"}'}}]})); return }
     res.end(JSON.stringify({ choices: [{ message: { content: `Response from ${JSON.parse(body).model}` } }] }))
   })
 })
@@ -41,17 +45,30 @@ const baseUrl = `http://127.0.0.1:${server.address().port}`
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
 const pageErrors = []
+const consoleErrors = []
 page.on('pageerror', error => pageErrors.push(error.message))
+page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()) })
 await call('get_ai_profiles')
 await page.exposeFunction('__casyLocalAi', call)
+async function waitForUsagePopover() {
+  await page.locator('.ai-popover').waitFor({ state: 'visible' })
+  await page.waitForFunction(() => {
+    const popper = document.querySelector('.ai-popover')?.closest('.el-popper')
+    return popper && getComputedStyle(popper).opacity === '1' && !/enter-|leave-/.test(popper.className)
+  })
+}
 try {
   await page.goto(process.env.CASY_QA_URL || 'http://127.0.0.1:1421/')
   await page.getByRole('button', { name: '稍后再填' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
-    const commands = new Set(['get_ai_profiles', 'save_ai_profiles', 'test_ai_profile', 'ai_chat', 'get_ai_config'])
+    const commands = new Set(['get_ai_profiles', 'save_ai_profiles', 'test_ai_profile', 'ai_chat', 'get_ai_config', 'get_ai_usage'])
     window.__TAURI_INTERNALS__ = { invoke: async (cmd, args = {}) => {
       if (commands.has(cmd)) return window.__casyLocalAi(cmd, args)
+      if (['list_folder_templates','list_reminder_rules','get_reminder_log','list_deadline_rules','list_smart_rules','list_imap_accounts','list_mcp_pending_writes','list_backups'].includes(cmd)) return []
+      if (['get_settings','get_folder_naming_settings','get_feishu_sync_info','get_email_monitor_status','get_calendar_sync_status','check_keychain_status'].includes(cmd)) return {}
+      if (cmd === 'get_holidays_summary') return { holidaysCount: 0, workdaysCount: 0, yearRange: null }
+      if (cmd === 'start_reminder_engine') return null
       const mock = tryMockCommand(cmd, args)
       if (mock === undefined) throw new Error('Command not included in isolated AI test')
       return mock
@@ -107,6 +124,47 @@ try {
   await settings.getByRole('button', { name: '测试连接', exact: true }).click()
   await settings.locator('.el-alert--error').filter({ hasText: 'HTTP 401' }).waitFor()
   assert(!(await settings.innerText()).includes('synthetic-key-echo'))
+  assert.equal((await call('get_ai_usage')).usedToday, requests.length)
+  emptyNext = true
+  await assert.rejects(call('call_llm_json'), /空内容/)
+  jsonMode = true
+  assert.deepEqual(await call('call_llm_json'), { result: 'synthetic' })
+  jsonMode = false
+  assert.match(await call('generate_writing_suggestion'), /^Response from /)
+  assert.equal((await call('get_ai_usage')).usedToday, requests.length)
+  saved = await call('get_ai_profiles')
+  saved.dailyLimit = requests.length
+  await call('save_ai_profiles', { config: saved })
+  const capped = requests.length
+  await assert.rejects(call('ai_chat', { messages: [{ role: 'user', content: 'Blocked synthetic request' }] }), /每日限额/)
+  await assert.rejects(call('call_llm_json'), /每日限额/)
+  assert.equal(requests.length, capped)
+  saved.dailyLimit = capped + 3
+  await call('save_ai_profiles', { config: saved })
+  const simultaneous = await Promise.allSettled(Array.from({length:8}, () => call('ai_chat', { messages: [{role:'user',content:'Concurrent synthetic request'}] })))
+  assert.equal(simultaneous.filter(result => result.status === 'fulfilled').length, 3)
+  assert(simultaneous.filter(result => result.status === 'rejected').every(result => /每日限额/.test(result.reason.message)))
+  assert.equal(requests.length, capped + 3)
+  const usage = await call('get_ai_usage')
+  assert.equal(usage.usedToday, requests.length)
+  assert.equal(usage.remaining, 0)
+  await page.evaluate(async () => { const {useAiSettingsStore} = await import('/src/stores/aiSettings.ts'); await useAiSettingsStore().load() })
+  await page.waitForFunction(() => document.querySelectorAll('.el-message').length === 0)
+  await page.locator('.ai-badge').click()
+  await page.waitForFunction(expected => document.querySelector('.ai-popover .quota-value')?.textContent === String(expected), usage.usedToday)
+  await waitForUsagePopover()
+  await page.screenshot({ path: path.join(profile, 'ai-usage-desktop.png'), animations: 'disabled' })
+  await page.locator('.ai-badge').click()
+  await page.locator('.ai-popover').waitFor({ state: 'hidden' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('.ai-badge').click()
+  await waitForUsagePopover()
+  const popoverBounds = await page.locator('.ai-popover').boundingBox()
+  assert(popoverBounds && popoverBounds.x >= 0 && popoverBounds.x + popoverBounds.width <= 390 && popoverBounds.y >= 0 && popoverBounds.y + popoverBounds.height <= 844)
+  await page.screenshot({ path: path.join(profile, 'ai-usage-mobile.png'), animations: 'disabled' })
+  await page.locator('.ai-badge').click()
+  await page.locator('.ai-popover').waitFor({ state: 'hidden' })
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.locator('.el-message').first().waitFor({ state: 'hidden' })
   await page.screenshot({ path: path.join(profile, 'ai-settings-desktop.png') })
   await page.setViewportSize({ width: 390, height: 844 })
@@ -123,7 +181,11 @@ try {
   const bounds = await settings.boundingBox()
   assert(bounds.x >= 0 && bounds.x + bounds.width <= 391)
   assert.deepEqual(pageErrors, [])
-  console.log(JSON.stringify({ profile, requests: requests.length, credentialIsolation: 'passed', nativeRestart: 'passed', pageErrors }, null, 2))
+  assert.equal(consoleErrors.length, 1, JSON.stringify(consoleErrors))
+  assert(consoleErrors[0].includes('HTTP 401'))
+  const report = { profile, requests: requests.length, usage, concurrency: '3 of 8 dispatched', credentialIsolation: 'passed', nativeRestart: 'passed', pageErrors }
+  fs.writeFileSync(path.join(profile, 'verification.json'), JSON.stringify(report, null, 2))
+  console.log(JSON.stringify(report, null, 2))
 } catch (error) {
   await page.screenshot({ path: path.join(profile, 'ai-failure.png') })
   console.error(JSON.stringify({ profile, alerts: await page.locator('.el-alert').allTextContents() }))

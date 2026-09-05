@@ -75,6 +75,11 @@ fn keyless_profiles_roundtrip_and_invalid_save_preserves_state() {
 }
 
 fn server(status: &str, body: &str) -> (String, mpsc::Receiver<String>) {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        casy_lib::db::enable_test_mode();
+        casy_lib::db::init_db(&casy_lib::db::open_db().unwrap()).unwrap();
+    });
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let (tx, rx) = mpsc::channel();

@@ -257,7 +257,6 @@ pub async fn get_ai_profiles() -> Result<AiProfiles, String> {
 pub async fn save_ai_profiles(config: AiProfiles) -> Result<AiProfiles, String> {
     let saved =
         crate::commands::run_blocking(move || save(&mut crate::db::open_db()?, config)).await?;
-    super::get_token_budget().set_daily_limit(saved.daily_limit as u64);
     Ok(saved)
 }
 

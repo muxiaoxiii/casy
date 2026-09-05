@@ -125,6 +125,14 @@ impl Drop for Server {
     }
 }
 
+fn initialize_test_db() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        db::enable_test_mode();
+        db::init_db(&db::open_db().unwrap()).unwrap();
+    });
+}
+
 fn configure(conn: &mut Connection, url: &str, model: &str) -> EmbeddingPlan {
     profiles::save(
         conn,
@@ -163,6 +171,7 @@ fn job_status(conn: &Connection, id: &str) -> String {
 
 #[tokio::test]
 async fn embedding_protocols_preserve_model_credentials_and_input_order() {
+    initialize_test_db();
     let server = Server::start();
     for mode in ["openai", "ollama"] {
         let plan = EmbeddingPlan {
@@ -259,13 +268,11 @@ fn migration_backfills_cjk_search_and_invalidates_only_changed_vectors() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn durable_index_handles_full_text_retry_cancel_edits_and_model_changes() {
-    db::enable_test_mode();
+    initialize_test_db();
     let mut conn = db::open_db().unwrap();
-    db::init_db(&conn).unwrap();
     conn.execute("DELETE FROM knowledge_items", []).unwrap();
     let server = Server::start();
     let first_plan = configure(&mut conn, &server.url, "vector-v1");
-    casy_lib::ai::get_token_budget().set_daily_limit(0);
     let long = "普通材料已整理。".repeat(700) + "第三人的赔偿金额为125000.25元。";
     conn.execute("INSERT INTO knowledge_items(id,title,content,category) VALUES('long','长文测试',?1,'reference')", [&long]).unwrap();
     conn.execute("INSERT INTO knowledge_items(id,title,content,category) VALUES('empty','空白测试','','reference')", []).unwrap();

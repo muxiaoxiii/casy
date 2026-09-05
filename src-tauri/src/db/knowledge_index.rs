@@ -299,7 +299,6 @@ async fn process(job: &ClaimedJob) -> Result<()> {
                 )
             })
             .collect();
-        crate::ai::get_token_budget().consume().await?;
         let vectors = client.embed(&inputs).await?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         guard(&tx, job)?;

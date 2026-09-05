@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAiSettingsStore } from '../../../stores/aiSettings'
 import { AI_PROMPTS } from '../../../core/prompts'
 import { tauriCallSafe } from '../../../core/tauriBridge'
+import AIStatusBadge from '../../../shared/components/AIStatusBadge.vue'
 
 const store = useAiSettingsStore()
 const selectedId = ref('')
@@ -114,7 +115,7 @@ async function migrateLegacy() {
         <el-form-item><el-button :icon="Connection" :loading="embeddingTesting" @click="testEmbedding">保存并测试向量接口</el-button></el-form-item>
       </div>
       <el-alert v-if="embeddingResult" :title="embeddingResult" :type="embeddingFailed ? 'error' : 'success'" :closable="false" />
-      <el-form-item label="每日调用上限"><el-input-number v-model="store.config.dailyLimit" :min="0" :max="100000" :precision="0" /></el-form-item>
+      <el-form-item label="每日调用上限"><el-input-number v-model="store.config.dailyLimit" :min="0" :max="100000" :precision="0" /><AIStatusBadge class="usage-status" /></el-form-item>
       <el-form-item label="系统提示词"><el-input v-model="store.config.systemPrompt" type="textarea" :rows="5" /></el-form-item>
       <el-button :icon="RefreshLeft" @click="store.config.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认提示词</el-button>
       <el-button type="primary" :icon="Check" :loading="store.loading" @click="save">保存配置</el-button>
@@ -124,6 +125,7 @@ async function migrateLegacy() {
 
 <style scoped>
 .ai-settings { max-width: 780px; }
+.usage-status { margin-left: 12px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
 h3 { font-size: 18px; margin: 0; }
 .el-select { width: 100%; }
