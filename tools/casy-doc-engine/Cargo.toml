@@ -14,6 +14,7 @@ cuda = ["models", "oar-ocr-vl/cuda"]
 [dependencies]
 anyhow = "1"
 harumi = { version = "1.19.0", features = ["image"] }
+pdf-extract = "0.12"
 hex = "0.4"
 image = "0.25"
 tiff = "0.11"

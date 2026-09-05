@@ -8,6 +8,7 @@
 - 同一秒内完成多个版本时，搜索和页级读取按任务顺序选取最新完成版本，避免旧结果混入。
 - 文档引擎按页渲染和释放图像。坐标识别最长边 2400px，生成模型最长边 1280px，ONNX 两线程共享线程池并关闭空闲自旋。
 - 可提取的原生文字页支持直接提取。检测到大面积图片时保守使用 OCR；多帧图片明确拒绝，避免静默遗漏后续帧。
+- 写入可搜索层前使用 Rust pdf-extract 读取既有页面文字（包括 Form XObject），跳过已存在的识别文字，避免重复搜索层。
 - 模型输出触及 token 上限即失败；原生进程每秒同步页进度，单页 15 分钟无推进即终止，并限制输出缓冲。
 - 文件详情在窄窗口改为纵向布局，修复原先直接隐藏详情导致的 OCR 操作不可达。全文弹窗宽度适配手机，工具栏不越界。
 
@@ -35,6 +36,7 @@ Apple Silicon / 16 GiB / Metal 测试：
 - Ovis 基线：/Users/only/Documents/Casy-Local-Test/ocr-smoke-20260906/
 - Paddle 扫描件：/Users/only/Documents/Casy-Local-Test/ocr-paddle-20260906/
 - 真实附件测试：/Users/only/Documents/Casy-Local-Test/ocr-benchmark-l4SK5L/
+- 真实附件去重回归：/Users/only/Documents/Casy-Local-Test/ocr-benchmark-hITMI6/；原件哈希保持一致，输出 PDF 的三个关键编号各出现一次。
 - 最终原生 UI 测试：/Users/only/Documents/Casy-Local-Test/document-profile-F5kiW3/
 
 UI 由 Playwright 操作实际页面，经独立 Rust 进程调用真实命令及加密测试数据库。

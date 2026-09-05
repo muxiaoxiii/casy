@@ -475,6 +475,8 @@ fn recognize(
 }
 
 fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Page]) -> Result<()> {
+    // The fallback extractor also reads text inside PDF Form XObjects.
+    let existing_pages = pdf_extract::extract_text_by_pages(source).unwrap_or_default();
     let mut doc = Document::from_file(source)?;
     let font = doc.embed_font(&std::fs::read(font_path)?)?;
     for page in pages {
@@ -486,10 +488,22 @@ fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Pag
         let (pdf_w, pdf_h) = doc.page(page.page_number)?.size()?;
         let sx = pdf_w / image_w;
         let sy = pdf_h / image_h;
+        let existing = existing_pages
+            .get(page.page_number as usize - 1)
+            .map(|text| {
+                text.chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
         let runs: Vec<_> = page
             .regions
             .iter()
             .filter(|r| !r.text.trim().is_empty() && r.confidence.unwrap_or(1.0) >= 0.45)
+            .filter(|r| {
+                let text: String = r.text.chars().filter(|c| !c.is_whitespace()).collect();
+                !existing.contains(&text)
+            })
             .map(|r| TextRun {
                 text: r.text.clone(),
                 font,
@@ -635,13 +649,22 @@ mod tests {
         }
         document.save(&source).unwrap();
         let mut reloaded = Document::from_file(&source).unwrap();
-        let page = native_page(&mut reloaded, 1).unwrap().unwrap();
+        let mut page = native_page(&mut reloaded, 1).unwrap().unwrap();
         assert!(page.native_text);
         let before = reloaded.extract_text(1).unwrap();
         let searchable = temp.path().join("searchable.pdf");
+        add_search_layer(&source, &searchable, font, &[page.clone()]).unwrap();
+        assert_eq!(
+            Document::from_file(&searchable)
+                .unwrap()
+                .extract_text(1)
+                .unwrap(),
+            before
+        );
+        page.native_text = false;
         add_search_layer(&source, &searchable, font, &[page]).unwrap();
         assert_eq!(
-            Document::from_file(searchable)
+            Document::from_file(&searchable)
                 .unwrap()
                 .extract_text(1)
                 .unwrap(),
