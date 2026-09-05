@@ -32,25 +32,13 @@ export interface GtdStats {
   matrix: number
   bycase: number
   completed: number
+  review: number
 }
 
 /** 顶部透视标签徽标计数：未完成/已完成域的各口径数量 */
 export function buildGtdStats(tasks: Task[], todayStr: string): GtdStats {
-  const uncompleted = tasks.filter(t => !t.completed)
-  const completedList = tasks.filter(t => !!t.completed)
-  return {
-    all: uncompleted.length,
-    inbox: uncompleted.filter(t => t.startBucket === 'inbox' || (!t.dueDate && !t.startDate && !t.caseId)).length,
-    today: uncompleted.filter(t => t.startBucket === 'today' || (t.startDate && t.startDate <= todayStr) || (t.dueDate && t.dueDate === todayStr)).length,
-    upcoming: uncompleted.filter(t => t.dueDate || t.startDate || t.deadline).length,
-    multiday: uncompleted.filter(t => t.startDate && t.dueDate && t.startDate !== t.dueDate).length,
-    next: uncompleted.filter(t => t.taskType === 'action' || !t.taskType).length,
-    waiting: uncompleted.filter(t => t.taskType === 'waiting' || !!t.waitingFor).length,
-    deferred: uncompleted.filter(t => t.deferUntil && t.deferUntil > todayStr).length,
-    matrix: uncompleted.length,
-    bycase: uncompleted.filter(t => !!t.caseId).length,
-    completed: completedList.length,
-  }
+  const keys = ['all','inbox','today','upcoming','multiday','next','waiting','deferred','matrix','bycase','completed','review'] as const
+  return Object.fromEntries(keys.map(key => [key,tasksForPerspective(tasks,key,{todayStr}).length])) as unknown as GtdStats
 }
 
 // ============================================================
@@ -78,14 +66,15 @@ export function tasksForPerspective(
       break
 
     case 'inbox':
-      list = tasks.filter(t => !t.completed && (t.startBucket === 'inbox' || (!t.dueDate && !t.startDate && !t.caseId)))
+      list = tasks.filter(t => !t.completed && t.startBucket === 'inbox')
       break
 
     case 'today':
       // W2：今日专注隐藏未到期推迟任务（deferUntil > 今天才藏，到期当天自动回归）
-      list = tasks.filter(t => !t.completed
-        && (!t.deferUntil || t.deferUntil <= today)
-        && (t.startBucket === 'today' || (t.startDate && t.startDate <= today) || (t.dueDate && t.dueDate === today)))
+      list = tasks.filter(t => !t.completed && (
+        ((t.dueDate || t.deadline) && (t.dueDate || t.deadline)! <= today)
+        || ((!t.deferUntil || t.deferUntil <= today) && t.startBucket !== 'someday'
+          && (t.startBucket === 'today' || (t.startDate && t.startDate <= today)))))
       break
 
     case 'deferred':
@@ -104,7 +93,10 @@ export function tasksForPerspective(
       break
 
     case 'next':
-      list = tasks.filter(t => !t.completed && (t.taskType === 'action' || !t.taskType))
+      list = tasks.filter(t => !t.completed && !t.blocked && !t.waitingFor
+        && (t.taskType === 'action' || !t.taskType)
+        && !['inbox','someday'].includes(t.startBucket)
+        && (!t.startDate || t.startDate <= today) && (!t.deferUntil || t.deferUntil <= today))
       break
 
     case 'waiting':
@@ -113,6 +105,10 @@ export function tasksForPerspective(
 
     case 'completed':
       list = tasks.filter(t => !!t.completed)
+      break
+
+    case 'review':
+      list = tasks.filter(t => !t.completed && t.nextReviewDate && t.nextReviewDate <= today)
       break
 
     case 'matrix':
@@ -134,6 +130,8 @@ export function tasksForPerspective(
 // ============================================================
 
 export interface TaskCardFilterOpts {
+  metric?: string
+  todayStr?: string
   searchQuery?: string
   /** 'all' 或具体上下文值 */
   contextFilter?: string
@@ -147,6 +145,11 @@ export interface TaskCardFilterOpts {
 export function applyTaskCardFilters(list: Task[], opts: TaskCardFilterOpts = {}): Task[] {
   const q = (opts.searchQuery ?? '').trim().toLowerCase()
   let result = list
+  if (opts.metric === 'dueToday') {
+    result = result.filter(t => !t.completed && (t.dueDate === opts.todayStr || t.deadline === opts.todayStr))
+  } else if (opts.metric === 'waitingOverdue') {
+    result = result.filter(t => !t.completed && t.taskType === 'waiting' && t.followUpDate && t.followUpDate < (opts.todayStr || ''))
+  }
 
   // 关键字搜索：名称/备注/案件名任一命中
   if (q) {

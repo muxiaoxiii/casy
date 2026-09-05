@@ -84,8 +84,11 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 describe('taskActions · 删除 + Undo（P1-6）', () => {
   beforeEach(async () => {
-    // 排空跨用例残留的 Undo 栈（撤销会触发 restore mock，随后统一清空断言）
-    while (canUndo()) await undoLast()
+    h.restore.mockResolvedValue({ ok: true })
+    for (let remaining = 20; canUndo() && remaining > 0; remaining--) {
+      expect(await undoLast()).toBe(true)
+    }
+    expect(canUndo()).toBe(false)
     vi.clearAllMocks()
   })
 
@@ -143,7 +146,7 @@ describe('taskActions · 删除 + Undo（P1-6）', () => {
     const done = await undoLast()
 
     expect(done).toBe(true)
-    expect(h.restore).toHaveBeenCalledWith(task)
+    expect(h.restore).toHaveBeenCalledWith(expect.objectContaining({ id: 't-1', taskName: '旧任务' }))
     expect(restore).toHaveBeenCalledTimes(1)
     // 快照字段回写本地 Task
     expect(task.id).toBe('t-orig')
@@ -171,6 +174,9 @@ describe('taskActions · 删除 + Undo（P1-6）', () => {
 
     expect(done).toBe(false)
     expect(h.message.error).toHaveBeenCalledWith('撤销失败')
+    expect(canUndo()).toBe(true)
+    h.restore.mockResolvedValue({ ok: true })
+    expect(await undoLast()).toBe(true)
     expect(canUndo()).toBe(false)
   })
 

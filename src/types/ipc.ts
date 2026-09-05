@@ -248,6 +248,7 @@ export interface TaskMutationInput {
   isFocus?: number | boolean | null
   deferUntil?: string | null
   nextReviewDate?: string | null
+  lastReviewDate?: string | null
   inboxSourceId?: string | null
 }
 

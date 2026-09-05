@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 import { casyContext } from '../core/plugin/context'
 import type { Task, TaskPriority, TaskType, Context, StartBucket } from '../types'
+import type { CreateTaskPayload, UpdateTaskPayload } from '../types/ipc'
 import { parseLocalDate, todayLocalISO, addDaysLocalISO, toLocalISODate } from '../shared/utils/date'
+import { tasksForPerspective, buildGtdStats } from '../modules/tasks/utils/taskFilter'
 
 // ============================================================
 // GTD 类型（字段定义见 types/index.ts 的 Task 接口）
@@ -45,6 +47,19 @@ export interface TasksState {
   }
 }
 
+function taskSortValue(task: GTDTask, sortBy: NonNullable<CustomPerspective['sortBy']>): string | number | null {
+  switch (sortBy) {
+    case 'dueDate':
+      return task.dueDate
+    case 'priority':
+      return task.priority
+    case 'createdAt':
+      return task.createdDate
+    case 'todayIndex':
+      return task.todayIndex
+  }
+}
+
 // ============================================================
 // Store 定义
 // ============================================================
@@ -77,29 +92,20 @@ export const useTasksStore = defineStore('tasks', {
      * 下一步行动：blocked=0 的任务（顺序项目中）或无案件的 action 任务
      */
     nextActions: (state): GTDTask[] =>
-      state.tasks.filter(t => 
-        !t.completed && 
-        t.taskType === 'action' && 
-        (t.blocked === 0 || !t.caseId)
-      ),
+      tasksForPerspective(state.tasks, 'next', { todayStr: todayLocalISO() }),
 
     /**
      * 等待：task_type='waiting' 的未完成任务
      */
     waitingTasks: (state): GTDTask[] =>
-      state.tasks.filter(t => !t.completed && t.taskType === 'waiting'),
+      tasksForPerspective(state.tasks, 'waiting', { todayStr: todayLocalISO() }),
 
     /**
      * 今日：startDate <= 今天 或 startBucket='today'
      */
     todayTasks: (state): GTDTask[] => {
       const today = todayLocalISO()
-      return state.tasks
-        .filter(t => 
-          !t.completed && 
-          (t.startBucket === 'today' || 
-           (t.startDate && t.startDate <= today))
-        )
+      return tasksForPerspective(state.tasks, 'today', { todayStr: today })
         .sort((a, b) => (a.todayIndex || 0) - (b.todayIndex || 0))
     },
 
@@ -125,12 +131,9 @@ export const useTasksStore = defineStore('tasks', {
     
     taskStats: (state) => {
       const today = todayLocalISO()
+      const stats = buildGtdStats(state.tasks, today)
       return {
-        inbox: state.tasks.filter(t => t.startBucket === 'inbox' && !t.completed).length,
-        next: state.tasks.filter(t => !t.completed && t.taskType === 'action' && (t.blocked === 0 || !t.caseId)).length,
-        waiting: state.tasks.filter(t => !t.completed && t.taskType === 'waiting').length,
-        today: state.tasks.filter(t => !t.completed && (t.startBucket === 'today' || (t.startDate && t.startDate <= today))).length,
-        review: state.tasks.filter(t => !t.completed && t.nextReviewDate && t.nextReviewDate <= today).length,
+        inbox: stats.inbox, next: stats.next, waiting: stats.waiting, today: stats.today, review: stats.review,
         someday: state.tasks.filter(t => !t.completed && t.startBucket === 'someday').length,
         overdue: state.tasks.filter(t => !t.completed && t.isOverdue === 1).length,
       }
@@ -182,7 +185,7 @@ export const useTasksStore = defineStore('tasks', {
     // CRUD 操作
     // ============================================================
     
-    async createTask(data: Partial<GTDTask>): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
+    async createTask(data: CreateTaskPayload): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
       const result = await casyContext.tasks.create({ ...data })
       if (result.ok) {
         await this.loadTasks()
@@ -190,7 +193,7 @@ export const useTasksStore = defineStore('tasks', {
       return result
     },
 
-    async updateTask(data: Partial<GTDTask> & { id: string }): Promise<{ ok: boolean; error?: string }> {
+    async updateTask(data: UpdateTaskPayload): Promise<{ ok: boolean; error?: string }> {
       const result = await casyContext.tasks.update({ ...data })
       if (result.ok) {
         await this.loadTasks()
@@ -201,8 +204,7 @@ export const useTasksStore = defineStore('tasks', {
     async toggleTask(id: string, actualMinutes?: number | null): Promise<{ ok: boolean; error?: string }> {
       const result = await casyContext.tasks.toggle(id, actualMinutes)
       if (result.ok) {
-        const task = this.tasks.find(t => t.id === id)
-        if (task) task.completed = task.completed ? 0 : 1
+        await this.loadTasks()
       }
       return result
     },
@@ -230,7 +232,7 @@ export const useTasksStore = defineStore('tasks', {
       dueDate?: string
       context?: Context
     }): Promise<{ ok: boolean; error?: string }> {
-      const updateData: any = {
+      const updateData: UpdateTaskPayload = {
         id: taskId,
         taskType: data.taskType,
         caseId: data.caseId || null,
@@ -456,8 +458,8 @@ export const useTasksStore = defineStore('tasks', {
       if (sortBy) {
         const order = perspective.sortOrder === 'desc' ? -1 : 1
         tasks.sort((a, b) => {
-          const aVal = String((a as Record<string, unknown>)[sortBy] || '')
-          const bVal = String((b as Record<string, unknown>)[sortBy] || '')
+          const aVal = String(taskSortValue(a, sortBy) || '')
+          const bVal = String(taskSortValue(b, sortBy) || '')
           return aVal.localeCompare(bVal) * order
         })
       }

@@ -11,6 +11,7 @@
  */
 
 import type { Task } from '../../../types'
+import type { CreateTaskPayload, UpdateTaskPayload } from '../../../types/ipc'
 
 /** 抽屉编辑表单的可编辑字段（均为表单控件可直接绑定的原语） */
 export interface EditForm {
@@ -31,6 +32,8 @@ export interface EditForm {
   estimatedMinutes: number | null
   startBucket: string
   deferUntil: string
+  recurrenceRule: string
+  nextReviewDate: string
 }
 
 /**
@@ -56,6 +59,8 @@ export function emptyEditForm(startBucket: string = 'anytime'): EditForm {
     estimatedMinutes: null,
     startBucket,
     deferUntil: '',
+    recurrenceRule: '',
+    nextReviewDate: '',
   }
 }
 
@@ -79,9 +84,11 @@ export function toEditForm(task: Task): EditForm {
     context: task.context || '',
     flagged: task.flagged === 1,
     areaId: task.areaId || '',
-    estimatedMinutes: task.estimatedMinutes || null,
+    estimatedMinutes: task.estimatedMinutes ?? null,
     startBucket: task.startBucket || 'anytime',
     deferUntil: task.deferUntil || '',
+    recurrenceRule: task.recurrenceRule || '',
+    nextReviewDate: task.nextReviewDate || '',
   }
 }
 
@@ -89,10 +96,21 @@ export function toEditForm(task: Task): EditForm {
  * 表单 → create/update 载荷。id 仅在编辑（editingId 非空）时携带；
  * flagged 归一为 0/1；deferUntil 空串归一为 null（清空推迟日，非空走原值）。
  */
-export function toSavePayload(editingId: string | null | undefined, form: EditForm): Record<string, unknown> {
+export function toSavePayload(editingId: string, form: EditForm): UpdateTaskPayload
+export function toSavePayload(editingId: null | undefined, form: EditForm): CreateTaskPayload
+export function toSavePayload(editingId: string | null | undefined, form: EditForm): CreateTaskPayload | UpdateTaskPayload {
   return {
     ...(editingId ? { id: editingId } : {}),
     ...form,
+    taskName: form.taskName.trim(),
+    deadline: form.dueDate || null,
+    dueDate: form.dueDate || null,
+    dueTime: form.dueTime || null,
+    caseId: form.caseId || null,
+    areaId: form.areaId || null,
+    startDate: form.startDate || null,
+    recurrenceRule: form.recurrenceRule || null,
+    nextReviewDate: form.nextReviewDate || null,
     flagged: form.flagged ? 1 : 0,
     deferUntil: form.deferUntil || null,
   }

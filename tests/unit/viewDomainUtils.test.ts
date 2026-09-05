@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { filterAndSortFiles, formatFileSize, getFileExt } from '../../src/modules/cases/lib/fileUtils'
 import { extractMemoIntent, parseMemosFromNotes } from '../../src/modules/cases/lib/memoUtils'
 import { emptyEditForm, toSavePayload } from '../../src/modules/tasks/utils/taskForm'
-import { buildGtdStats, tasksForPerspective } from '../../src/modules/tasks/utils/taskFilter'
+import { applyTaskCardFilters, buildGtdStats, tasksForPerspective } from '../../src/modules/tasks/utils/taskFilter'
 import { fieldTypeLabel, filterFieldRows, mapToFieldRows } from '../../src/modules/docs/utils/fieldMapping'
 
 const task = (overrides: Record<string, unknown> = {}) => ({
@@ -16,6 +16,21 @@ const task = (overrides: Record<string, unknown> = {}) => ({
 }) as any
 
 describe('view domain extraction helpers', () => {
+  it('matches dashboard due, overdue-waiting and review boundaries', () => {
+    const todayStr = '2026-09-05'
+    const tasks = [
+      task({ id: 'due', deadline: todayStr }),
+      task({ id: 'done', dueDate: todayStr, completed: 1 }),
+      task({ id: 'wait', taskType: 'waiting', followUpDate: '2026-09-04' }),
+      task({ id: 'wait-today', taskType: 'waiting', followUpDate: todayStr }),
+      task({ id: 'review', nextReviewDate: todayStr }),
+      task({ id: 'review-future', nextReviewDate: '2026-09-06' }),
+    ]
+    expect(applyTaskCardFilters(tasks, { metric: 'dueToday', todayStr }).map(t => t.id)).toEqual(['due'])
+    expect(applyTaskCardFilters(tasks, { metric: 'waitingOverdue', todayStr }).map(t => t.id)).toEqual(['wait'])
+    expect(tasksForPerspective(tasks, 'review', { todayStr }).map(t => t.id)).toEqual(['review'])
+    expect(buildGtdStats(tasks, todayStr).review).toBe(1)
+  })
   it('filters and sorts case files without mutating source', () => {
     const source = [
       { fileName: 'B.pdf', category: 'evidence', createdAt: '2026-01-01', filePath: '/evidence/B.pdf' },

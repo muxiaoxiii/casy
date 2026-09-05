@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
-import { deleteTaskOptimistic, undoLast } from '../../../core/taskActions'
+import { deleteTaskOptimistic, completeTaskOptimistic, restoreTaskOptimistic, snoozeTaskWithUndo, canUndo, undoLast } from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
 import {
@@ -10,7 +10,7 @@ import {
   ArrowRight, Delete, Edit, More, RefreshRight,
   Box, List, Timer, Files, Check, Search,
   Menu, Grid, Collection, Select, Close, Location,
-  Opportunity, Warning, TrendCharts, CircleCheck, AlarmClock
+  Opportunity, Warning, TrendCharts, CircleCheck, AlarmClock, RefreshLeft
 } from '@element-plus/icons-vue'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
@@ -40,6 +40,10 @@ const tasks = ref([])
 const cases = ref([])
 const areas = ref([])
 const loading = ref(false)
+const savingTask = ref(false)
+const busyTasks = new Set()
+const undoAvailable = computed(canUndo)
+const undoBusy = ref(false)
 
 // 当前激活的标签页/透视
 // 'all' | 'inbox' | 'today' | 'upcoming' | 'multiday' | 'next' | 'waiting' | 'matrix' | 'bycase' | 'completed' | (customId)
@@ -98,17 +102,27 @@ const perspectives = [
   { key: 'multiday', label: '跨天专项', icon: TrendCharts, color: '#6C6A9C', desc: '多日连续阶段性任务' },
   { key: 'next', label: '随时行动', icon: ArrowRight, color: '#4C8067', desc: '无依赖可立即执行' },
   { key: 'waiting', label: '等待追踪', icon: Clock, color: '#B0823A', desc: '等待对方回复或委派跟进' },
+  { key: 'review', label: '待回顾', icon: RefreshRight, color: 'var(--c-info)', desc: '已到回顾日期的未完成任务' },
   { key: 'deferred', label: '已推迟', icon: AlarmClock, color: '#5B7A9E', desc: '推迟到未来日期的任务，到期自动回归' },
   { key: 'matrix', label: '四象限', icon: Grid, color: '#E6A23C', desc: '重要与紧急度决策看板' },
   { key: 'bycase', label: '按案件', icon: Folder, color: '#409EFF', desc: '按关联案件聚合分类' },
   { key: 'completed', label: '已完成', icon: CircleCheck, color: '#67C23A', desc: '历史归档与复盘' },
 ]
 
+watch(() => route.query.tab, tab => {
+  if (typeof tab === 'string' && perspectives.some(p => p.key === tab)) activePerspective.value = tab
+}, { immediate: true })
+const metricLabel = computed(() => ({ dueToday: '今日到期', waitingOverdue: '等待超时' }[route.query.metric] || ''))
+function clearMetric() {
+  const { metric, ...query } = route.query
+  router.replace({ query })
+}
+
 const priorityOptions = [
-  { value: 'urgent_important', label: '重要且紧急 (第一象限)', color: '#f56c6c' },
-  { value: 'important', label: '重要不紧急 (第二象限)', color: '#e6a23c' },
-  { value: 'urgent', label: '紧急不重要 (第三象限)', color: '#409eff' },
-  { value: 'normal', label: '普通/不紧急不重要 (第四象限)', color: '#909399' },
+  { value: 'urgent_important', label: '重要且紧急', color: '#f56c6c' },
+  { value: 'important', label: '重要不紧急', color: '#e6a23c' },
+  { value: 'urgent', label: '紧急不重要', color: '#409eff' },
+  { value: 'normal', label: '普通', color: '#909399' },
 ]
 
 const contextOptions = [
@@ -129,8 +143,10 @@ const snoozeOptions = [
 // ============================================================
 // 3. 统计计数计算 (Real Counts)
 // ============================================================
+const clockNow = ref(new Date())
+let dayTimer
 const todayStr = computed(() => {
-  const d = new Date()
+  const d = clockNow.value
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -152,6 +168,8 @@ const gtdTasks = computed(() => applyTaskCardFilters(
     contextFilter: selectedContextFilter.value,
     caseFilter: selectedCaseFilter.value,
     resolveCaseName: getCaseName,
+    metric: route.query.metric,
+    todayStr: todayStr.value,
   },
 ))
 
@@ -168,6 +186,7 @@ const childrenMap = computed(() => buildChildrenMap(tasks.value))
 // 5. 数据加载与持久化
 // ============================================================
 onMounted(async () => {
+  dayTimer = window.setInterval(() => { clockNow.value = new Date() }, 60000)
   await loadData()
   filtersStore.loadFilters('tasks')
 
@@ -180,19 +199,21 @@ onMounted(async () => {
     } else {
       ElMessage.warning('未找到对应任务（可能已被删除）')
     }
-    router.replace({ query: {} })
+    const { edit, ...query } = route.query
+    router.replace({ query })
   }
 
   unregisterKeys.push(
     registerShortcut('meta+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
     registerShortcut('ctrl+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
     // 撤销上一步删除/稍后等任务操作：接通 taskActions 的 Undo 栈
-    registerShortcut('meta+z', () => undoLast(), { description: '撤销上一步任务操作' }),
-    registerShortcut('ctrl+z', () => undoLast(), { description: '撤销上一步任务操作' })
+    registerShortcut('meta+z', () => undoTaskAction(), { description: '撤销上一步任务操作' }),
+    registerShortcut('ctrl+z', () => undoTaskAction(), { description: '撤销上一步任务操作' })
   )
 })
 
 onUnmounted(() => {
+  if (dayTimer) window.clearInterval(dayTimer)
   unregisterKeys.forEach(fn => fn())
 })
 
@@ -244,6 +265,7 @@ function getAreaName(areaId) {
 
 // 切换透视
 function switchPerspective(key) {
+  if (metricLabel.value) clearMetric()
   activePerspective.value = key
   tasksStore.activePerspective = key
 }
@@ -287,14 +309,31 @@ function onCaptureKeydown(e) {
 
 // 完成/取消完成任务
 async function toggleComplete(task) {
-  const newDone = !task.completed
-  const result = await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
-  if (!result.ok) {
-    ElMessage.error(result.error || '更新任务状态失败')
-    return
+  if (busyTasks.has(task.id)) return
+  busyTasks.add(task.id)
+  try {
+    const ok = task.completed ? await restoreTaskOptimistic(task) : await completeTaskOptimistic(task)
+    if (ok) await loadTasks()
+  } finally {
+    busyTasks.delete(task.id)
   }
-  ElMessage.success(newDone ? '任务已完成' : '已恢复为待办')
-  await loadTasks()
+}
+
+async function undoTaskAction() {
+  if (undoBusy.value) return
+  undoBusy.value = true
+  try { if (await undoLast()) await loadTasks() }
+  finally { undoBusy.value = false }
+}
+
+async function markReviewed(task) {
+  if (busyTasks.has(task.id)) return
+  busyTasks.add(task.id)
+  try {
+    const result = await casyContext.tasks.update({ id: task.id, lastReviewDate: todayStr.value, nextReviewDate: null })
+    if (result.ok) await loadTasks()
+    else ElMessage.error(result.error || '回顾保存失败')
+  } finally { busyTasks.delete(task.id) }
 }
 
 // 更改任务象限优先级 (拖拽落位)
@@ -343,6 +382,7 @@ function openNewTask() {
 
 // 保存任务编辑
 async function saveTask() {
+  if (savingTask.value) return
   if (!editForm.value.taskName.trim()) {
     ElMessage.warning('请输入任务名称')
     return
@@ -350,6 +390,8 @@ async function saveTask() {
 
   const data = toSavePayload(editingTask.value.id, editForm.value)
 
+  savingTask.value = true
+  try {
   const result = editingTask.value.id
     ? await casyContext.tasks.update(data)
     : await casyContext.tasks.create(data)
@@ -360,6 +402,7 @@ async function saveTask() {
   } else {
     ElMessage.error(result.error || '保存失败')
   }
+  } finally { savingTask.value = false }
 }
 
 async function moveTaskToday(task) {
@@ -383,11 +426,11 @@ async function markTaskWaiting(task) {
 }
 
 async function snoozeTask(task, option) {
-  const result = await casyContext.tasks.snooze(task.id, option)
-  if (result.ok) {
-    ElMessage.success('已稍后处理')
-    await loadTasks()
-  } else ElMessage.error(result.error || '操作失败')
+  if (busyTasks.has(task.id)) return
+  busyTasks.add(task.id)
+  try {
+    if (await snoozeTaskWithUndo(task, option, snoozeOptions.find(item => item.value === option)?.label || option)) await loadTasks()
+  } finally { busyTasks.delete(task.id) }
 }
 
 function triageTask(task) {
@@ -549,10 +592,10 @@ function getCustomPerspectiveCount(perspectiveId) {
     <div class="tasks-top-header">
       <div class="header-titles">
         <h1 class="tasks-heading">任务管理工作台</h1>
-        <span class="tasks-sub-hint">支持全景视角、四象限决策看板、GTD 流程与跨天专项排期</span>
       </div>
 
       <div class="header-actions">
+        <el-button :icon="RefreshLeft" :disabled="!undoAvailable || undoBusy" aria-label="撤销任务操作" title="撤销任务操作" @click="undoTaskAction" />
         <!-- 快速搜索 -->
         <div class="task-search-box">
           <el-icon class="search-icon" :size="14"><Search /></el-icon>
@@ -573,6 +616,7 @@ function getCustomPerspectiveCount(perspectiveId) {
     </div>
 
     <!-- ═══ 2. 丰富全景透视标签栏 (Full Dynamic Perspective Tabs) ═══ -->
+    <el-tag v-if="metricLabel" class="metric-filter" closable @close="clearMetric">{{ metricLabel }}</el-tag>
     <div class="perspective-tabs-scroll-bar">
       <!-- 基础内置与全景标签 -->
       <button
@@ -719,6 +763,8 @@ function getCustomPerspectiveCount(perspectiveId) {
             @toggle-expand="toggleExpand"
             @defer="openDeferDialog"
             @undefer="undeferTask"
+            @reviewed="markReviewed"
+            @follow-up="openDrawer"
           />
         </div>
       </div>
@@ -761,6 +807,8 @@ function getCustomPerspectiveCount(perspectiveId) {
             @toggle-expand="toggleExpand"
             @defer="openDeferDialog"
             @undefer="undeferTask"
+            @reviewed="markReviewed"
+            @follow-up="openDrawer"
           />
 
           <!-- 展开子任务 -->
@@ -800,13 +848,31 @@ function getCustomPerspectiveCount(perspectiveId) {
     <el-drawer
       v-model="showDrawer"
       :title="editingTask?.id ? '任务详细信息' : '新建任务（可直接关联案件）'"
-      size="480px"
+      size="min(480px, 100vw)"
+      :close-on-click-modal="!savingTask"
+      :close-on-press-escape="!savingTask"
+      :show-close="!savingTask"
       destroy-on-close
     >
       <div v-if="editingTask" class="drawer-body">
         <div class="form-item">
-          <label>任务名称</label>
-          <input v-model="editForm.taskName" class="form-input" placeholder="输入任务名称..." />
+          <label for="task-edit-name">任务名称</label>
+          <input id="task-edit-name" v-model="editForm.taskName" class="form-input" placeholder="输入任务名称..." />
+        </div>
+
+        <div class="form-row">
+          <div class="form-item">
+            <label for="task-edit-type">任务类型</label>
+            <select id="task-edit-type" v-model="editForm.taskType" class="form-select">
+              <option value="action">行动</option><option value="waiting">等待</option><option value="deadline">期限</option>
+            </select>
+          </div>
+          <div class="form-item">
+            <label for="task-edit-bucket">开始安排</label>
+            <select id="task-edit-bucket" v-model="editForm.startBucket" class="form-select">
+              <option value="inbox">待整理</option><option value="today">今天</option><option value="anytime">随时</option><option value="someday">将来也许</option>
+            </select>
+          </div>
         </div>
 
         <div class="form-row">
@@ -835,6 +901,20 @@ function getCustomPerspectiveCount(perspectiveId) {
           </div>
         </div>
 
+        <div class="form-row">
+          <div class="form-item"><label>截止时间</label><input v-model="editForm.dueTime" type="time" class="form-input" aria-label="截止时间" /></div>
+          <div class="form-item"><label>重复</label><select v-model="editForm.recurrenceRule" class="form-select" aria-label="重复">
+            <option value="">不重复</option><option value="daily">每天</option><option value="weekdays">每个工作日</option>
+            <option v-for="(day,index) in ['周一','周二','周三','周四','周五','周六','周日']" :key="day" :value="`weekly:${index + 1}`">每{{ day }}</option>
+            <option v-for="day in 31" :key="day" :value="`monthly:${day}`">每月 {{ day }} 日</option>
+          </select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-item"><label>等待对象</label><input v-model="editForm.waitingFor" class="form-input" aria-label="等待对象" /></div>
+          <div class="form-item"><label>跟进日期</label><input v-model="editForm.followUpDate" type="date" class="form-input" aria-label="跟进日期" /></div>
+        </div>
+        <div class="form-item"><label>下次回顾</label><input v-model="editForm.nextReviewDate" type="date" class="form-input" aria-label="下次回顾" /></div>
+
         <div class="form-item">
           <label>关联案件 (Matter)</label>
           <select v-model="editForm.caseId" class="form-select">
@@ -858,7 +938,6 @@ function getCustomPerspectiveCount(perspectiveId) {
               清除
             </button>
           </div>
-          <span class="defer-hint">未到期前在「今日专注」中隐藏，到期当天自动回归</span>
         </div>
 
         <div class="form-item">
@@ -884,13 +963,13 @@ function getCustomPerspectiveCount(perspectiveId) {
 
       <template #footer>
         <div class="drawer-footer">
-          <button v-if="editingTask?.id" class="btn-danger-del" @click="deleteTask(editingTask)">
+          <button v-if="editingTask?.id" class="btn-danger-del" :disabled="savingTask" @click="deleteTask(editingTask)">
             <el-icon><Delete /></el-icon>
             <span>删除</span>
           </button>
           <div class="drawer-right-btns">
-            <button class="btn-cancel" @click="showDrawer = false">取消</button>
-            <button class="btn-primary" @click="saveTask">{{ editingTask?.id ? '保存修改' : '创建任务' }}</button>
+            <button class="btn-cancel" :disabled="savingTask" @click="showDrawer = false">取消</button>
+            <button class="btn-primary" :disabled="savingTask" @click="saveTask">{{ savingTask ? '保存中...' : editingTask?.id ? '保存修改' : '创建任务' }}</button>
           </div>
         </div>
       </template>
@@ -937,6 +1016,7 @@ function getCustomPerspectiveCount(perspectiveId) {
 </template>
 
 <style scoped>
+.metric-filter { align-self: flex-start; }
 /* ═══════════════════════════════════════════════════════════
    Stitch Unified Task Management Styles
    ═══════════════════════════════════════════════════════════ */
@@ -1461,6 +1541,7 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 .form-item {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1611,5 +1692,14 @@ function getCustomPerspectiveCount(perspectiveId) {
   font-size: 12px;
   line-height: 1.6;
   color: var(--c-text-secondary);
+}
+
+@media (max-width: 600px) {
+  .stitch-tasks-workspace { padding: 20px 16px 32px; }
+  .header-actions { width: 100%; display: grid; grid-template-columns: 34px 1fr auto; }
+  .header-actions > .el-button { width: 34px; padding: 0; }
+  .task-search-box { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  .btn-action-ghost { justify-self: start; }
+  .btn-action-ghost, .btn-action-primary { white-space: nowrap; }
 }
 </style>

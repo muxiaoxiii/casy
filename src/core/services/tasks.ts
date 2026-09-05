@@ -2,6 +2,7 @@ import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { Task } from '../../types'
 import type { AreaDto, AreaStatsDto, CreateAreaOutput, SearchTaskDto, TaskDto } from '../../types/bindings'
+import type { CreateTaskPayload, UpdateTaskPayload } from '../../types/ipc'
 
 /**
  * 撤销删除（restore_task）快照：不能再是 TaskLike 那种 7 字段子集。
@@ -26,11 +27,14 @@ export interface AiAuthCtx {
 export class TasksService extends Service {
   static inject: string[] = []
 
-  async list(filter: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: Task[]; error?: string }> {
-    return tauriCallSafe('list_tasks', { filter })
+  async list(filter: Partial<import('../../types/bindings').TaskFilter> = {}): Promise<{ ok: boolean; data?: Task[]; error?: string }> {
+    const result = await tauriCallSafe('list_tasks', { filter })
+    return result.ok ? { ...result, data: result.data?.map(task => ({ ...task,
+      parentId: (task as Task & { parentTaskId?: string | null }).parentTaskId ?? task.parentId ?? null,
+    })) } : result
   }
 
-  async create(data: Record<string, unknown>): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
+  async create(data: CreateTaskPayload): Promise<{ ok: boolean; data?: { id: string }; error?: string }> {
     // B1：create_task 后端实际仅返回 { id }（非完整 Task），按真实契约标注返回类型
     const result = await tauriCallSafe('create_task', { data })
     // K-3①：领域事件由 service 层统一发出——人与 AI 触发同一事件流
@@ -48,9 +52,13 @@ export class TasksService extends Service {
     return result
   }
 
-  async update(data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  async update(data: UpdateTaskPayload): Promise<{ ok: boolean; error?: string }> {
     // id 必须在 data 内（后端 update_task 只收 data）
-    return tauriCallSafe('update_task', { data })
+    const result = await tauriCallSafe('update_task', { data })
+    if (result.ok && (data.completed === 1 || data.completed === true)) {
+      this.ctx.emit('task:completed', { id: data.id })
+    }
+    return result
   }
 
   async remove(id: string, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {

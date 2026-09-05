@@ -81,18 +81,6 @@ const waitingDays = computed(() =>
   props.task.taskType === 'waiting' ? getWaitingDays(props.task) : 0
 )
 
-/** 时间盒：dueTime+预估 → 「14:00–15:00」区间展示（序时参考三元组） */
-const timeRange = computed(() => {
-  const start = props.task.dueTime as string | null | undefined
-  const est = props.task.estimatedMinutes as number | null | undefined
-  if (!start || !est || est <= 0) return null
-  const [h, m] = String(start).split(':').map(Number)
-  if (Number.isNaN(h)) return null
-  const endMin = h * 60 + (m || 0) + est
-  const eh = Math.floor(endMin / 60) % 24
-  const em = endMin % 60
-  return `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}–${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
-})
 const focused = computed(() => props.task.isFocus === 1)
 
 /** W2：推迟中（deferUntil 晚于今天，本地日期字符串比较即可） */
@@ -142,9 +130,9 @@ function areaName(id: string | null | undefined): string {
     >★</span>
 
     <!-- 完成圆圈：Things3 式填充动画 -->
-    <div class="task-check" :class="{ done }" @click="emit('toggle', task)">
+    <button type="button" role="checkbox" :aria-checked="done" :aria-label="task.taskName" class="task-check" :class="{ done }" @click="emit('toggle', task)">
       <el-icon v-if="done"><Check /></el-icon>
-    </div>
+    </button>
 
     <!-- 任务内容 -->
     <div class="task-content" @click="emit('open', task)">
@@ -181,7 +169,7 @@ function areaName(id: string | null | undefined): string {
           :class="{ overdue }"
         >
           <el-icon><Calendar /></el-icon>
-          {{ formatDate(dueText) }}{{ timeRange ? ' ' + timeRange : task.dueTime ? ' ' + task.dueTime : '' }}
+          {{ formatDate(dueText) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
         </span>
 
         <span v-if="task.estimatedMinutes" class="meta-item estimated">
@@ -243,7 +231,7 @@ function areaName(id: string | null | undefined): string {
         提前结束推迟
       </el-button>
       <el-dropdown trigger="click">
-        <el-button :icon="More" circle size="small" />
+        <el-button :icon="More" circle size="small" aria-label="任务操作" title="任务操作" />
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item :icon="Edit" @click="emit('open', task)">编辑</el-dropdown-item>
@@ -347,6 +335,7 @@ function areaName(id: string | null | undefined): string {
 
 /* ── 完成圆圈：Things3 式填充动画 ── */
 .task-check {
+  padding: 0;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -433,6 +422,7 @@ function areaName(id: string | null | undefined): string {
 
 /* 划线过渡：background-size 0→100%（可动画的删除线） */
 .task-name-text {
+  overflow-wrap: anywhere;
   background-image: linear-gradient(currentColor, currentColor);
   background-size: 0% 1px;
   background-repeat: no-repeat;
@@ -462,7 +452,7 @@ function areaName(id: string | null | undefined): string {
 .meta-item.estimated { color: var(--gray-500); }
 .meta-item.blocked { color: var(--c-text-secondary); }
 
-.waiting-days { color: var(--c-danger, #F56C6C); }
+.waiting-days { color: var(--c-danger, #F56C6C); white-space: nowrap; }
 .waiting-warning { color: #F59E0B; font-weight: 500; }
 .follow-up-btn { margin-left: 8px; font-size: 11px; padding: 2px 6px; }
 .meta-item.context {
@@ -492,6 +482,14 @@ function areaName(id: string | null | undefined): string {
 
 /* ── 操作区 ── */
 .task-actions { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .task-card { flex-wrap: wrap; padding: 12px 8px; }
+  .task-content { min-width: 120px; }
+  .task-title { flex-wrap: wrap; }
+  .meta-item.waiting { flex-wrap: wrap; }
+  .task-actions { margin-left: auto; max-width: 100%; }
+  .review-info { white-space: normal; }
+}
 .review-info {
   font-size: 11px;
   color: var(--c-text-secondary, var(--c-text-secondary));

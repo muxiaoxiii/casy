@@ -13,6 +13,8 @@
 import { casyContext } from './plugin/context'
 import { ElMessage } from 'element-plus'
 import type { StartBucket, Task } from '../types'
+import type { UpdateTaskPayload } from '../types/ipc'
+import { ref } from 'vue'
 
 /**
  * 乐观任务操作的**最小字段子集**（仅用于 complete/restore/snooze 这类
@@ -27,6 +29,7 @@ export interface TaskLike {
   startDate?: string | null
   startBucket?: string | null
   actualMinutes?: number | null
+  timeBlock?: string | null
 }
 
 interface ListHooks {
@@ -43,14 +46,18 @@ interface UndoableAction {
 
 const undoStack: UndoableAction[] = []
 const MAX_UNDO = 20
+const undoRevision = ref(0)
+let undoing = false
 
 function registerUndo(action: UndoableAction): void {
   undoStack.push(action)
   if (undoStack.length > MAX_UNDO) undoStack.shift()
+  undoRevision.value++
 }
 
 /** 是否存在可撤销操作 */
 export function canUndo(): boolean {
+  void undoRevision.value
   return undoStack.length > 0
 }
 
@@ -61,15 +68,22 @@ export function peekUndoLabel(): string | null {
 
 /** 撤销最近一次操作；返回是否执行了撤销 */
 export async function undoLast(): Promise<boolean> {
-  const action = undoStack.pop()
+  if (undoing) return false
+  const action = undoStack[undoStack.length - 1]
   if (!action) return false
+  undoing = true
   try {
     await action.undo()
+    const index = undoStack.indexOf(action)
+    if (index >= 0) undoStack.splice(index, 1)
+    undoRevision.value++
     ElMessage.success(`已撤销：${action.label}`)
     return true
   } catch (err) {
     ElMessage.error('撤销失败')
     return false
+  } finally {
+    undoing = false
   }
 }
 
@@ -81,14 +95,13 @@ export async function completeTaskOptimistic(
   if (task.completed) return false
   const { actualMinutes = null, hooks = {} } = options
   const prevCompleted = task.completed
+  const prevMinutes = task.actualMinutes ?? null
 
   task.completed = 1
   hooks.remove?.()
 
-  const result = await casyContext.tasks.toggle(
-    task.id,
-    actualMinutes !== null && Number.isFinite(actualMinutes) ? actualMinutes : undefined
-  )
+  const result = await casyContext.tasks.update({ id: task.id, completed: 1,
+    ...(actualMinutes !== null && Number.isFinite(actualMinutes) ? { actualMinutes } : {}) })
   if (!result.ok) {
     task.completed = prevCompleted
     hooks.restore?.()
@@ -96,11 +109,14 @@ export async function completeTaskOptimistic(
     return false
   }
 
+  if (actualMinutes !== null && Number.isFinite(actualMinutes)) task.actualMinutes = actualMinutes
   registerUndo({
     label: `完成「${task.taskName}」`,
     undo: async () => {
-      await casyContext.tasks.toggle(task.id)
+      const result = await casyContext.tasks.update({ id: task.id, completed: prevCompleted, actualMinutes: prevMinutes })
+      if (!result.ok) throw new Error(result.error || '撤销完成失败')
       task.completed = prevCompleted
+      task.actualMinutes = prevMinutes
       hooks.restore?.()
     },
   })
@@ -112,7 +128,7 @@ export async function restoreTaskOptimistic(task: TaskLike): Promise<boolean> {
   if (!task.completed) return false
   const prev = task.completed
   task.completed = 0
-  const result = await casyContext.tasks.toggle(task.id)
+  const result = await casyContext.tasks.update({ id: task.id, completed: 0 })
   if (!result.ok) {
     task.completed = prev
     ElMessage.error(result.error || '恢复失败')
@@ -127,6 +143,7 @@ export async function restoreTaskOptimistic(task: TaskLike): Promise<boolean> {
  * 否则后端 restore_task 会静默丢掉 taskType/priority/context 等字段。
  */
 export async function deleteTaskOptimistic(task: Task, hooks: ListHooks = {}): Promise<boolean> {
+  const snapshot = { ...task }
   hooks.remove?.()
   const result = await casyContext.tasks.remove(task.id)
   if (!result.ok) {
@@ -140,7 +157,7 @@ export async function deleteTaskOptimistic(task: Task, hooks: ListHooks = {}): P
       // P1-6：撤销删除不再走 create_task（会另生成 id、completed 清零），
       // 改用专用 restore_task 按快照还原原 id / completed，并用后端返回对象对账，
       // 保证本地对象与 DB 一致。快照即完整 Task，非 TaskLike 子集。
-      const restored = await casyContext.tasks.restore(task)
+      const restored = await casyContext.tasks.restore(snapshot)
       if (restored.ok) {
         const d = restored.data
         if (d) {
@@ -170,11 +187,11 @@ export async function snoozeTaskWithUndo(
   option: string,
   label: string
 ): Promise<boolean> {
-  const snapshot = {
+  const snapshot: UpdateTaskPayload = {
     id: task.id,
-    dueDate: task.dueDate ?? null,
     startDate: task.startDate ?? null,
-    startBucket: task.startBucket ?? null,
+    startBucket: task.startBucket || 'anytime',
+    timeBlock: task.timeBlock ?? null,
   }
   const result = await casyContext.tasks.snooze(task.id, option)
   if (!result.ok) {
@@ -184,12 +201,13 @@ export async function snoozeTaskWithUndo(
   registerUndo({
     label: `稍后「${task.taskName}」→ ${label}`,
     undo: async () => {
-      await casyContext.tasks.update(snapshot as unknown as Record<string, unknown>)
-      task.dueDate = snapshot.dueDate
+      const result = await casyContext.tasks.update(snapshot)
+      if (!result.ok) throw new Error(result.error || '撤销计划失败')
       task.startDate = snapshot.startDate
       task.startBucket = snapshot.startBucket
+      task.timeBlock = snapshot.timeBlock
     },
   })
-  ElMessage.success(`已稍后到${label}（⌘Z 可撤销）`)
+  ElMessage.success(`已计划到${label}`)
   return true
 }
