@@ -568,6 +568,7 @@ export type CommandMap = {
 
   // ====================================契约门禁补齐（tests/contract.commands.test.ts 防回退）
   // 以下命令此前由前端调用但未登记 CommandMap（frontend ⊄ CommandMap）。
+  search_document_passages: Cmd<{ query: string; scope: string[] }, import('./documentRetrieval').DocumentPassage[]>
   // 多为复杂/尚未收口的契约：params 按调用现场尽量核定，result 以 any/unknown
   // 收口避免漏项（仍能为已登记调用提供参数检查），随后续收口逐步收紧。
   reasoning_search: Cmd<{ query: string; scope: string[] }, string>

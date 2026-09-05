@@ -1,378 +1,106 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { invoke } from '@tauri-apps/api/core'
-import { Search, Loading, Close, Document, MagicStick } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { tauriCallSafe } from '../../../core/tauriBridge'
+import { isTauriRuntime } from '../../../core/mockData'
+import { Search, Close, Document, FolderOpened } from '@element-plus/icons-vue'
+import type { DocumentPassage } from '../../../types/documentRetrieval'
 
-const props = defineProps<{
-  modelValue: boolean
-  caseId: string
-  fileIds: string[]
-}>()
-
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: boolean): void
-}>()
-
-const query = ref('')
-const isSearching = ref(false)
-const searchLogs = ref<{ timestamp: string; message: string; status: string }[]>([])
-const finalResult = ref<any>(null)
-const logContainerRef = ref<HTMLElement | null>(null)
-
+const props = defineProps<{ modelValue: boolean; caseId: string; files: Array<{id:string;fileName:string}> }>()
+const emit = defineEmits<{ (e:'update:modelValue', value:boolean):void }>()
+const query = ref(''), mode = ref('source'), busy = ref(false), error = ref(''), searched = ref(false)
+const passages = ref<DocumentPassage[]>([])
+const selectedFileIds = ref<string[]>([])
+const logs = ref<string[]>([])
+const answer = ref<{answer:string; excerpts:Array<{source:string;quote:string}>} | null>(null)
 let unlisten: UnlistenFn | null = null
+let disposed = false, revision = 0
 
 onMounted(async () => {
-  unlisten = await listen('reasoning_progress', (event: any) => {
-    const payload = event.payload
-    
-    // 构造终端风格时间戳
-    const now = new Date()
-    const ts = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
-    
-    searchLogs.value.push({
-      timestamp: ts,
-      message: payload.message,
-      status: payload.status
-    })
-
-    // 自动滚动到底部
-    nextTick(() => {
-      if (logContainerRef.value) {
-        logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
-      }
-    })
-  })
-})
-
-onUnmounted(() => {
-  if (unlisten) {
-    unlisten()
-  }
-})
-
-function closePanel() {
-  emit('update:modelValue', false)
-}
-
-async function doSearch() {
-  if (!query.value.trim()) return
-  if (!props.fileIds || props.fileIds.length === 0) {
-    ElMessage.warning('当前案件暂无已建立索引的文件')
-    return
-  }
-
-  isSearching.value = true
-  searchLogs.value = []
-  finalResult.value = null
-
+  if (!isTauriRuntime()) return
   try {
-    const res: string = await invoke('reasoning_search', {
-      query: query.value,
-      scope: props.fileIds
+    const stop = await listen<{message:string}>('reasoning_progress', event => {
+      if (busy.value && mode.value === 'answer') logs.value = [...logs.value.slice(-19),event.payload.message]
     })
-    
-    // res 应当为 JSON 字符串
-    const parsed = JSON.parse(res)
-    if (parsed.status === 'success' && parsed.data.length > 0) {
-      finalResult.value = parsed.data[0]
+    if (disposed) stop(); else unlisten = stop
+  } catch { /* Progress events are optional; command errors are shown below. */ }
+})
+onUnmounted(() => { disposed = true; revision++; unlisten?.() })
+watch(() => [props.modelValue,props.caseId], () => {
+  revision++; busy.value = false; passages.value = []; answer.value = null; error.value = ''; searched.value = false; logs.value = []
+  selectedFileIds.value = props.files.map(file => file.id)
+})
+watch([mode,selectedFileIds], () => {
+  revision++; busy.value = false; passages.value = []; answer.value = null; error.value = ''; searched.value = false; logs.value = []
+})
+
+async function search() {
+  if (busy.value || !query.value.trim()) return
+  if (!selectedFileIds.value.length) { error.value = '请选择需要检索的卷宗文件'; return }
+  if (selectedFileIds.value.length > 200) { error.value = '单次最多选择 200 份文档，请缩小范围'; return }
+  const current = ++revision
+  busy.value = true; error.value = ''; answer.value = null; passages.value = []; logs.value = []; searched.value = false
+  try {
+    if (mode.value === 'source') {
+      const result = await tauriCallSafe('search_document_passages',{query:query.value,scope:selectedFileIds.value})
+      if (current !== revision) return
+      if (!result.ok) throw new Error(result.error || '原文检索失败')
+      passages.value = result.data || []
     } else {
-      throw new Error('未获取到有效回答')
+      const result = await tauriCallSafe('reasoning_search',{query:query.value,scope:selectedFileIds.value})
+      if (current !== revision) return
+      if (!result.ok || !result.data) throw new Error(result.error || '问答失败')
+      const parsed = JSON.parse(result.data)
+      if (parsed.status !== 'success' || !parsed.data?.[0]?.answer) throw new Error('没有收到有效回答')
+      answer.value = parsed.data[0]
     }
-  } catch (error: any) {
-    ElMessage.error(error.toString())
-    searchLogs.value.push({
-      timestamp: new Date().toLocaleTimeString(),
-      message: `Error: ${error.toString()}`,
-      status: 'error'
-    })
-  } finally {
-    isSearching.value = false
-  }
+    searched.value = true
+  } catch (e) { if (current === revision) error.value = e instanceof Error ? e.message : String(e) }
+  finally { if (current === revision) busy.value = false }
+}
+async function openSource(passage:DocumentPassage) {
+  const result = await tauriCallSafe('open_file_with_default',{path:passage.sourcePath})
+  if (!result.ok) error.value = result.error || '无法打开原文件'
 }
 </script>
 
 <template>
-  <el-drawer
-    :model-value="modelValue"
-    @update:model-value="closePanel"
-    direction="rtl"
-    size="520px"
-    class="reasoning-drawer"
-    :with-header="false"
-  >
-    <div class="drawer-content">
-      <!-- 头部 -->
-      <div class="drawer-header">
-        <div class="header-title">
-          <el-icon class="title-icon"><MagicStick /></el-icon>
-          <h2>深度推理检索 (Reasoning RAG)</h2>
-        </div>
-        <el-button link @click="closePanel" class="close-btn">
-          <el-icon :size="20"><Close /></el-icon>
-        </el-button>
+  <el-drawer :model-value="modelValue" @update:model-value="emit('update:modelValue',false)" size="min(680px, 100vw)" class="reasoning-drawer" :with-header="false">
+    <section class="document-search">
+      <header><h2>卷宗检索</h2><el-button :icon="Close" title="关闭" aria-label="关闭" @click="emit('update:modelValue',false)" /></header>
+      <el-radio-group v-model="mode" :disabled="busy"><el-radio-button value="source">原文检索</el-radio-button><el-radio-button value="answer">AI 问答</el-radio-button></el-radio-group>
+      <el-select v-model="selectedFileIds" multiple filterable collapse-tags collapse-tags-tooltip :disabled="busy" placeholder="选择卷宗文件" aria-label="检索范围">
+        <el-option v-for="file in files" :key="file.id" :label="file.fileName" :value="file.id" />
+      </el-select>
+      <form class="query-row" @submit.prevent="search"><el-input v-model="query" :disabled="busy" placeholder="关键词或案情问题" maxlength="500" clearable /><el-button :icon="Search" :loading="busy" :disabled="!query.trim()" type="primary" native-type="submit" aria-label="检索" title="检索" /></form>
+      <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+      <p v-if="busy" role="status" class="progress">{{ logs[logs.length-1] || (mode === 'source' ? '正在查找原文…' : '正在读取文档证据…') }}</p>
+      <div class="results">
+        <p v-if="searched && !answer" class="result-count">{{ passages.length }} 处命中</p>
+        <article v-for="passage in passages" :key="passage.citation" class="passage">
+          <div class="passage-heading"><Document /><strong>{{ passage.fileName }}</strong><span>第 {{ passage.number }} {{ passage.locationKind === 'segment' ? '段' : '页' }}</span><el-button :icon="FolderOpened" title="打开原文件" aria-label="打开原文件" @click="openSource(passage)" /></div>
+          <pre>{{ passage.content.slice(0,800) }}</pre>
+          <details v-if="passage.content.length > 800"><summary>展开原文片段</summary><pre>{{ passage.content }}</pre></details>
+        </article>
+        <template v-if="answer"><h3>回答</h3><p class="answer">{{ answer.answer }}</p><h3>原文依据</h3><blockquote v-for="(citation,index) in answer.excerpts" :key="index"><p>{{ citation.quote }}</p><cite>{{ citation.source }}</cite></blockquote></template>
+        <el-empty v-if="searched && !passages.length && !answer" description="没有找到相关原文" :image-size="60" />
       </div>
-
-      <!-- 搜索框 -->
-      <div class="search-box">
-        <el-input
-          v-model="query"
-          placeholder="请输入您要检索的复杂案情问题..."
-          @keyup.enter="doSearch"
-          :disabled="isSearching"
-          clearable
-        >
-          <template #append>
-            <el-button @click="doSearch" :disabled="isSearching" type="primary">
-              <el-icon v-if="isSearching" class="is-loading"><Loading /></el-icon>
-              <el-icon v-else><Search /></el-icon>
-              {{ isSearching ? '正在推理...' : '开始探索' }}
-            </el-button>
-          </template>
-        </el-input>
-      </div>
-
-      <!-- 终端日志区域 -->
-      <div class="terminal-log" ref="logContainerRef" v-show="searchLogs.length > 0">
-        <div class="terminal-header">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-          <span class="terminal-title">Agent Thought Process</span>
-        </div>
-        <div class="terminal-body">
-          <div v-for="(log, idx) in searchLogs" :key="idx" class="log-line" :class="log.status">
-            <span class="log-ts">[{{ log.timestamp }}]</span>
-            <span class="log-msg">{{ log.message }}</span>
-          </div>
-          <div v-if="isSearching" class="log-line typing">
-            <span class="log-ts">[{{ new Date().toLocaleTimeString() }}]</span>
-            <span class="log-msg cursor-blink">...</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 最终结果展示 -->
-      <div class="result-box" v-if="finalResult">
-        <div class="result-header">
-          <h3>推理结论</h3>
-        </div>
-        <div class="result-body markdown-body">
-          {{ finalResult.answer }}
-        </div>
-        <div class="result-citations" v-if="finalResult.references && finalResult.references.length > 0">
-          <h4>来源溯源</h4>
-          <div class="citation-tags">
-            <el-tag v-for="(ref, i) in finalResult.references" :key="i" size="small" type="info" class="cite-tag">
-              <el-icon><Document /></el-icon> {{ ref }}
-            </el-tag>
-          </div>
-        </div>
-      </div>
-      
-      <!-- 空状态 -->
-      <div class="empty-state" v-if="!isSearching && searchLogs.length === 0 && !finalResult">
-        <el-icon class="empty-icon"><MagicStick /></el-icon>
-        <p>基于最新 PageIndex 架构，无需全量读取。<br/>AI Agent 将按需翻阅卷宗，为您进行深度逻辑推理。</p>
-      </div>
-    </div>
+    </section>
   </el-drawer>
 </template>
 
 <style scoped>
-.reasoning-drawer :deep(.el-drawer__body) {
-  padding: 0;
-  background: var(--c-surface);
-}
-
-.drawer-content {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 24px;
-}
-
-.drawer-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.title-icon {
-  font-size: 22px;
-  color: var(--c-primary);
-}
-
-.header-title h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-
-.close-btn {
-  color: var(--c-text-secondary);
-}
-.close-btn:hover {
-  color: var(--c-text);
-}
-
-.search-box {
-  margin-bottom: 24px;
-}
-.search-box :deep(.el-input-group__append) {
-  background-color: var(--c-primary);
-  color: white;
-  border-color: var(--c-primary);
-  padding: 0 16px;
-}
-.search-box :deep(.el-button) {
-  border-radius: 0 4px 4px 0;
-  display: flex;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.terminal-log {
-  background: #1e1e1e;
-  border-radius: 8px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 24px;
-  flex-shrink: 0;
-  max-height: 250px;
-}
-
-.terminal-header {
-  background: #2d2d2d;
-  padding: 8px 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-.dot.red { background: #ff5f56; }
-.dot.yellow { background: #ffbd2e; }
-.dot.green { background: #27c93f; }
-
-.terminal-title {
-  margin-left: 8px;
-  color: #888;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  letter-spacing: 0.5px;
-}
-
-.terminal-body {
-  padding: 12px 16px;
-  overflow-y: auto;
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.log-line {
-  margin-bottom: 6px;
-  word-break: break-all;
-}
-
-.log-ts {
-  color: #666;
-  margin-right: 8px;
-}
-
-.log-msg {
-  color: #d4d4d4;
-}
-
-.log-line.start .log-msg { color: #569cd6; }
-.log-line.reading .log-msg { color: #ce9178; }
-.log-line.extracting .log-msg { color: #dcdcaa; }
-.log-line.extracted .log-msg { color: #b5cea8; }
-.log-line.success .log-msg { color: #4ec9b0; font-weight: bold; }
-.log-line.error .log-msg { color: #f14c4c; }
-
-.cursor-blink {
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% { opacity: 0; }
-}
-
-.result-box {
-  flex: 1;
-  background: var(--c-bg-muted);
-  border: 1px solid var(--c-border);
-  border-radius: 8px;
-  padding: 20px;
-  overflow-y: auto;
-}
-
-.result-header h3 {
-  margin: 0 0 16px 0;
-  font-size: 16px;
-  color: var(--c-text);
-  font-weight: 600;
-}
-
-.result-body {
-  color: var(--c-text-regular);
-  font-size: 14px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  margin-bottom: 24px;
-}
-
-.result-citations h4 {
-  margin: 0 0 12px 0;
-  font-size: 13px;
-  color: var(--c-text-secondary);
-}
-
-.citation-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.cite-tag {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text-secondary);
-  text-align: center;
-  gap: 16px;
-}
-.empty-icon {
-  font-size: 48px;
-  opacity: 0.5;
-}
-.empty-state p {
-  font-size: 13px;
-  line-height: 1.8;
-  max-width: 80%;
-}
+.document-search {height:100%;display:flex;flex-direction:column;gap:16px;min-width:0;color:var(--c-text)}
+header {display:flex;align-items:center;justify-content:space-between;gap:12px}
+h2 {font-size:20px;margin:0} h3 {font-size:15px;margin:16px 0 10px}
+.query-row {display:flex;gap:8px}.query-row .el-input {min-width:0}
+.results {flex:1;min-height:0;overflow:auto}.result-count,.progress {font-size:13px;color:var(--c-text-secondary);margin:0}
+.passage {padding:18px 0;border-bottom:1px solid var(--c-border)}
+.passage-heading {display:flex;align-items:center;gap:8px;font-size:13px}.passage-heading>svg {width:16px;flex-shrink:0}
+.passage-heading strong {flex:1;min-width:0;overflow-wrap:anywhere}.passage-heading>span {white-space:nowrap;color:var(--c-text-secondary)}
+pre,.answer,blockquote p {white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px;line-height:1.7}
+pre {margin:12px 0}.answer {margin:0} summary {font-size:12px;color:var(--c-primary);cursor:pointer}
+blockquote {margin:12px 0;padding:4px 14px;border-left:3px solid var(--c-border)}
+cite {font-size:11px;color:var(--c-text-secondary);overflow-wrap:anywhere}
+@media(max-width:520px){.passage-heading {flex-wrap:wrap}.passage-heading strong {flex-basis:60%}}
 </style>

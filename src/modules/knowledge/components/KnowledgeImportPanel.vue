@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, Download, FolderOpened, Search } from '@element-plus/icons-vue'
+import { Document, Download, FolderOpened, Search, Refresh } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
 
 const emit = defineEmits(['imported', 'navigate'])
 const sources = ref([])
 const loading = ref(false)
+const loadError = ref('')
 const importingId = ref('')
 const query = ref('')
 const filtered = computed(() => {
@@ -17,6 +18,7 @@ const filtered = computed(() => {
 async function load() {
   loading.value = true
   const result = await casyContext.knowledge.documentSources()
+  loadError.value = result.ok ? '' : (result.error || '无法加载文档资料')
   sources.value = result.ok && Array.isArray(result.data) ? result.data : []
   loading.value = false
 }
@@ -38,16 +40,16 @@ defineExpose({ reload: load })
 
 <template>
   <div class="import-panel">
-    <div class="import-title"><Download /> OCR / PageIndex 沉淀</div>
-    <p class="import-help">将可搜索 PDF 的 OCR Markdown 作为全文根笔记，并把 PageIndex 目录节点转成可导航子笔记。</p>
+    <div class="import-title"><Download /> 文档资料<el-button :icon="Refresh" text :loading="loading" title="刷新文档资料" aria-label="刷新文档资料" @click="load" /></div>
     <div class="source-search"><Search /><input v-model="query" placeholder="搜索文件或案件" /></div>
     <div v-loading="loading" class="source-list">
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
       <div v-for="source in filtered" :key="source.fileId" class="source-item">
         <div class="source-icon"><Document /></div>
-        <div class="source-main"><strong>{{ source.fileName }}</strong><span><FolderOpened /> {{ source.caseName }}</span><small>{{ source.totalPages }} 页 · {{ source.markdownPath ? 'Markdown 已就绪' : 'Page IR 已就绪' }}</small></div>
+        <div class="source-main"><strong>{{ source.fileName }}</strong><span><FolderOpened /> {{ source.caseName }}</span><small>{{ source.totalPages }} {{ source.searchablePdfPath ? '页' : '段' }} · {{ source.markdownPath ? 'Markdown 已就绪' : '正文已就绪' }}</small></div>
         <el-button size="small" :type="source.importedKnowledgeId ? 'success' : 'primary'" :plain="!!source.importedKnowledgeId" :loading="importingId === source.fileId" @click="importSource(source)">{{ source.importedKnowledgeId ? '打开' : '沉淀' }}</el-button>
       </div>
-      <div v-if="!loading && !filtered.length" class="empty">暂无已完成 OCR/PageIndex 的 PDF。请先在案件案卷库中生成可搜索 PDF。</div>
+      <div v-if="!loading && !loadError && !filtered.length" class="empty">暂无已处理的文档</div>
     </div>
   </div>
 </template>

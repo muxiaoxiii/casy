@@ -35,7 +35,6 @@ function selectFile(file) {
 }
 
 const showReasoningPanel = ref(false)
-const allFileIds = computed(() => files.value.map(f => f.id))
 
 // W5 · OCR 状态（徽标 / 立即识别 / 查看文本）
 const ocrStates = ref({}) // fileId -> { status, hasText }
@@ -61,7 +60,11 @@ const OCR_BADGES = {
 function isOcrCandidateFile(file) {
   const ext = String(file?.fileType || file?.fileName?.split('.').pop() || '')
     .replace('.', '').toLowerCase()
-  return ['pdf', 'png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp', 'gif'].includes(ext)
+  return ['pdf', 'png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp', 'gif', 'md', 'markdown', 'txt', 'doc', 'docx', 'docm', 'rtf', 'odt'].includes(ext)
+}
+
+function isTextDocument(file) {
+  return /\.(md|markdown|txt|doc|docx|docm|rtf|odt)$/i.test(file?.fileName || '')
 }
 
 function ocrBadge(file) {
@@ -70,7 +73,7 @@ function ocrBadge(file) {
   if (job) {
     if (job.status === 'queued') return { ...OCR_BADGES.pending, label: '已排队', tip: '等待本地文档引擎处理' }
     if (job.status === 'running') return { ...OCR_BADGES.processing, label: `${Math.round((job.progress || 0) * 100)}%`, tip: job.totalPages ? `已识别 ${job.currentPage} / ${job.totalPages} 页` : '正在准备文档识别' }
-    if (job.status === 'completed') return { ...OCR_BADGES.completed, label: '可搜索', tip: '已生成可搜索 PDF 和文字备份' }
+    if (job.status === 'completed') return { ...OCR_BADGES.completed, label: '可搜索', tip: job.searchablePdfPath ? '已生成可搜索 PDF 和文字备份' : '正文索引及 Markdown 备份已就绪' }
     if (job.status === 'failed') return { ...OCR_BADGES.failed, tip: job.errorMessage || '文档处理失败' }
     if (job.status === 'cancelled') return { ...OCR_BADGES.pending, label: '已取消', tip: '任务已取消，可重新处理' }
   }
@@ -350,7 +353,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
         </el-button>
         
         <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn">
-          <el-icon><MagicStick /></el-icon> 深度推理检索
+          <el-icon><Search /></el-icon> 卷宗检索
         </el-button>
 
         <el-button type="primary" @click="uploadFile" :loading="uploading">
@@ -462,7 +465,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               >{{ ocrBadge(selectedFile).label }}</span>
               <span v-if="ocrStates[selectedFile.id]?.hasText" class="ocr-has-text">已提取文本</span>
             </div>
-            <p v-if="documentEngine && !documentEngine.available" class="ocr-engine-warning">
+            <p v-if="!isTextDocument(selectedFile) && documentEngine && !documentEngine.available" class="ocr-engine-warning">
               引擎未就绪：{{ documentEngine.missing?.join('、') || documentEngine.error }}
             </p>
             <p v-if="documentJobs[selectedFile.id]?.errorMessage" class="ocr-engine-error">
@@ -482,7 +485,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               :loading="!!ocrBusy[selectedFile.id]"
               :disabled="['queued', 'running'].includes(documentJobs[selectedFile.id]?.status)"
               @click="ocrNow(selectedFile)"
-            >生成可搜索 PDF</el-button>
+            >{{ isTextDocument(selectedFile) ? '提取正文并索引' : '生成可搜索 PDF' }}</el-button>
             <el-button
               v-if="['queued', 'running'].includes(documentJobs[selectedFile.id]?.status)"
               :icon="Close"
@@ -494,6 +497,11 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               plain
               @click="openSearchablePdf(selectedFile)"
             >打开可搜索 PDF</el-button>
+            <el-button
+              v-if="documentJobs[selectedFile.id]?.markdownPath"
+              :icon="Document"
+              @click="casyContext.files.openDefault(documentJobs[selectedFile.id].markdownPath)"
+            >打开 Markdown 备份</el-button>
             <el-button
               v-if="['failed', 'cancelled'].includes(documentJobs[selectedFile.id]?.status)"
               type="warning"
@@ -529,7 +537,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
     <ReasoningSearchPanel
       v-model="showReasoningPanel" 
       :caseId="caseId" 
-      :fileIds="allFileIds" 
+      :files="files"
     />
   </div>
 </template>

@@ -475,6 +475,8 @@ defineExpose({
 .md-wysiwyg-toolbar::-webkit-scrollbar { display: none; }
 
 .md-wysiwyg-toolbar button {
+  flex-shrink: 0;
+  white-space: nowrap;
   border: 0;
   background: transparent;
   color: var(--c-text-regular);
@@ -502,6 +504,7 @@ defineExpose({
 }
 
 .tb-sep {
+  flex-shrink: 0;
   width: 1px;
   height: 14px;
   background: var(--c-border);
