@@ -41,7 +41,7 @@ try {
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const commands = new Set([
-      'get_case', 'list_case_files', 'get_document_engine_status', 'queue_document_processing',
+      'get_case', 'list_case_files', 'list_removed_case_files', 'list_case_dirs', 'list_case_document_jobs', 'get_document_engine_status', 'queue_document_processing',
       'list_document_jobs', 'retry_document_job', 'cancel_document_job', 'get_file_ocr_text', 'list_case_ocr_states',
     ])
     window.__TAURI_INTERNALS__ = {

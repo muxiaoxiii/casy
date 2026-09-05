@@ -45,7 +45,8 @@ function suggest(orig: string): { name: string; chips: string[] } {
     stem.match(/(0?[1-9]|1[0-2])月(0?[1-9]|[12]\d|3[01])日/)
   if (mDate) {
     const y = mDate[1].length === 4 ? mDate[1] : String(new Date().getFullYear())
-    date = `${y}${String(mDate[2]).padStart(2, '0')}${String(mDate[3]).padStart(2, '0')}`
+    const offset = mDate[1].length === 4 ? 1 : 0
+    date = `${y}${mDate[1 + offset].padStart(2, '0')}${mDate[2 + offset].padStart(2, '0')}`
     chips.push(date)
   }
 
@@ -68,7 +69,7 @@ function suggest(orig: string): { name: string; chips: string[] } {
 
   // 新名组装：日期_类型_清洗后主体（去重段）
   let body = clean
-  if (date) body = body.replace(new RegExp(date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1[-._年]?$2[-._月]?$3')), '')
+  if (mDate) body = body.replace(mDate[0], '').replace(/^日/, '')
   if (type) body = body.replace(type, '')
   body = body.replace(/^[_\s-]+|[_\s-]+$/g, '').replace(/_{2,}/g, '_')
   const name = [date, type, body || undefined].filter(Boolean).join('_')
@@ -83,7 +84,7 @@ onMounted(() => {
   })
 })
 
-const pendingRows = computed(() => rows.value.filter(r => !r.done && r.suggested !== r.orig))
+const pendingRows = computed(() => rows.value.filter(r => !r.done && currentName(r) && currentName(r) !== r.orig))
 const doneCount = computed(() => rows.value.filter(r => r.done).length)
 
 function currentName(r: Row): string {
@@ -96,33 +97,52 @@ function editRow(r: Row) {
 }
 
 async function applyRow(r: Row) {
+  if (applying.value) return
   const newName = currentName(r)
   if (!newName || newName === r.orig) return
-  // applyRenames 返回 { ok, error }（后端失败不抛异常），必须校验 ok 才标记本地完成
-  const result = await casyContext.files.applyRenames(props.caseId, [{ id: r.id, newName }])
-  if (!result.ok) return ElMessage.error(result.error || '重命名失败')
-  r.done = true
-  r.edited = null
-  emit('applied')
+  applying.value = true
+  try {
+    const result = await casyContext.files.applyRenames(props.caseId, [{ id: r.id, newName }])
+    if (!result.ok) return ElMessage.error(result.error || '重命名失败')
+    acceptOutcomes(result.data || [])
+    emit('applied')
+  } finally {
+    applying.value = false
+  }
+}
+
+function acceptOutcomes(outcomes: { id: string; newName: string; warning?: string | null }[]) {
+  for (const outcome of outcomes) {
+    const row = rows.value.find(r => r.id === outcome.id)
+    if (!row) continue
+    row.suggested = outcome.newName
+    row.edited = null
+    row.done = true
+    if (outcome.warning) ElMessage.warning(outcome.warning)
+  }
 }
 
 async function applyAll() {
-  const targets = rows.value.filter(r => !r.done && currentName(r) !== r.orig)
+  if (applying.value) return
+  const targets = pendingRows.value
   if (!targets.length) {
     ElMessage.info('没有需要重命名的文件')
     return
   }
   applying.value = true
   const renames = targets.map(r => ({ id: r.id, newName: currentName(r) }))
-  const result = await casyContext.files.applyRenames(props.caseId, renames)
-  applying.value = false
-  if (result.ok) {
-    const n = result.data?.length ?? 0
-    ElMessage.success(`已批量重命名 ${n} 个文件`)
-    targets.forEach(r => { r.done = true })
-    emit('applied')
-  } else {
-    ElMessage.error(result.error || '批量应用失败')
+  try {
+    const result = await casyContext.files.applyRenames(props.caseId, renames)
+    if (result.ok) {
+      const n = result.data?.length ?? 0
+      ElMessage.success(`已批量重命名 ${n} 个文件`)
+      acceptOutcomes(result.data || [])
+      emit('applied')
+    } else {
+      ElMessage.error(result.error || '批量应用失败')
+    }
+  } finally {
+    applying.value = false
   }
 }
 </script>
@@ -172,7 +192,7 @@ async function applyAll() {
             size="small"
             type="primary"
             plain
-            :disabled="currentName(r) === r.orig"
+            :disabled="applying || !currentName(r) || currentName(r) === r.orig"
             @click="applyRow(r)"
           >
             应用

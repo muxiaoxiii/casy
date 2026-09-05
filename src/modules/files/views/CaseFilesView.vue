@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
 import { casyContext } from '../../../core/plugin/context'
@@ -7,7 +7,7 @@ import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Folder, Message, Paperclip, Upload, Download, Document,
-  ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close
+  ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close, EditPen, FolderAdd, RefreshLeft
 } from '@element-plus/icons-vue'
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
 import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
@@ -16,7 +16,7 @@ const route = useRoute()
 const router = useRouter()
 const casesStore = useCasesStore()
 
-const caseId = ref(route.params.caseId)
+const caseId = computed(() => String(route.params.caseId || ''))
 const caseData = ref(null)
 const loading = ref(false)
 const activeCategory = ref('all')
@@ -26,6 +26,18 @@ const fileInspector = ref(null)
 const files = ref([])
 const filesLoading = ref(false)
 const uploading = ref(false)
+const mutating = ref(false)
+const loadError = ref('')
+const directories = ref([])
+const selectedDir = ref('__all__')
+const removedFiles = ref([])
+const showRemoved = ref(false)
+const selectedIds = ref([])
+const moveOpen = ref(false)
+const moveIds = ref([])
+const moveDir = ref('')
+let loadRevision = 0
+let disposed = false
 
 function selectFile(file) {
   selectedFile.value = file
@@ -82,13 +94,10 @@ function ocrBadge(file) {
 }
 
 async function loadDocumentJobs() {
-  const pdfFiles = files.value.filter(isOcrCandidateFile)
-  const results = await Promise.all(pdfFiles.map(file => tauriCall('list_document_jobs', { fileId: file.id }, { silent: true })))
-  const map = {}
-  pdfFiles.forEach((file, index) => {
-    if (Array.isArray(results[index]) && results[index][0]) map[file.id] = results[index][0]
-  })
-  documentJobs.value = map
+  const target = caseId.value
+  const jobs = await tauriCall('list_case_document_jobs', { caseId: target }, { silent: true })
+  if (disposed || target !== caseId.value || !Array.isArray(jobs)) return
+  documentJobs.value = Object.fromEntries(jobs.map(job => [job.fileId, job]))
 }
 
 async function loadDocumentEngine() {
@@ -97,8 +106,9 @@ async function loadDocumentEngine() {
 
 async function loadOcrStates() {
   if (!caseId.value) return
-  const data = await tauriCall('list_case_ocr_states', { caseId: caseId.value }, { silent: true })
-  if (!Array.isArray(data)) return
+  const target = caseId.value
+  const data = await tauriCall('list_case_ocr_states', { caseId: target }, { silent: true })
+  if (disposed || target !== caseId.value || !Array.isArray(data)) return
   const map = {}
   for (const item of data) map[item.fileId] = { status: item.ocrStatus, hasText: item.hasText }
   ocrStates.value = map
@@ -163,28 +173,42 @@ const categories = [
 ]
 
 const currentCategory = computed(() =>
-  categories.find(category => category.key === activeCategory.value) || categories[0]
+  showRemoved.value ? { label: '已移除登记' } : categories.find(category => category.key === activeCategory.value) || categories[0]
 )
 
 async function loadCase() {
   if (!caseId.value) return
   loading.value = true
-  const result = await casesStore.loadCase(caseId.value)
+  const target = caseId.value
+  const result = await casesStore.loadCase(target)
+  if (disposed || target !== caseId.value) return
   if (result.ok) caseData.value = result.data
   loading.value = false
 }
 
 async function loadFiles() {
   if (!caseId.value) return
+  const target = caseId.value
+  const revision = ++loadRevision
   filesLoading.value = true
-  const result = await casyContext.files.list(caseId.value)
+  const [result, removed, dirs] = await Promise.all([
+    casyContext.files.list(target), casyContext.files.removed(target), casyContext.files.listCaseDirs(target),
+  ])
+  if (disposed || target !== caseId.value || revision !== loadRevision) return
+  loadError.value = [result, removed, dirs].filter(item => !item.ok).map(item => item.error || '读取卷宗失败').join('；')
+  if (removed.ok) removedFiles.value = removed.data || []
+  if (dirs.ok) directories.value = dirs.data || []
   if (result.ok) {
     files.value = Array.isArray(result.data) ? result.data : []
+    selectedIds.value = selectedIds.value.filter(id => files.value.some(file => file.id === id))
     // W4: 消费证据链接跳转约定 ?select=<fileId>&anchor=page:N（消费后即清除，避免粘性污染后续刷新）
     const wantId = route.query.select
     if (wantId) {
       const fromQuery = files.value.find(file => file.id === wantId)
       if (fromQuery) {
+        showRemoved.value = false
+        activeCategory.value = 'all'
+        selectedDir.value = '__all__'
         selectedFile.value = fromQuery
         if (route.query.anchor) {
           ElMessage.info(`已定位到证据链接出处（${route.query.anchor}）`)
@@ -194,7 +218,7 @@ async function loadFiles() {
       }
       router.replace({ query: {} })
     } else {
-      const retained = files.value.find(file => file.id === selectedFile.value?.id)
+      const retained = filteredFiles.value.find(file => file.id === selectedFile.value?.id)
       selectedFile.value = retained || filteredFiles.value[0] || null
     }
     loadOcrStates()
@@ -204,41 +228,127 @@ async function loadFiles() {
 }
 
 async function uploadFile() {
+  if (uploading.value || mutating.value) return
+  const target = caseId.value
+  const dir = selectedDir.value === '__all__' ? null : selectedDir.value
+  const category = activeCategory.value === 'all' ? 'other' : activeCategory.value
   const { open } = await import('@tauri-apps/plugin-dialog')
   const selected = await open({ multiple: true })
   if (!selected) return
 
   uploading.value = true
   const paths = Array.isArray(selected) ? selected : [selected]
-  let failed = 0
-  for (const filePath of paths) {
-    const result = await casyContext.files.add(
-      caseId.value,
-      filePath,
-      activeCategory.value === 'all' ? 'other' : activeCategory.value
-    )
-    if (!result.ok) failed += 1
-  }
+  const result = await casyContext.files.importToCase(target, dir, paths, category)
   uploading.value = false
-  if (failed) ElMessage.error(`${failed} 个文件添加失败`)
-  else ElMessage.success(paths.length > 1 ? `已添加 ${paths.length} 个文件` : '文件已添加')
+  if (!result.ok) ElMessage.error(result.error || '文件添加失败')
+  else ElMessage.success(`已登记 ${result.data?.length ?? 0} 个文件`)
   await loadFiles()
 }
 
 async function deleteFile(file) {
+  if (mutating.value) return
   try {
     await ElMessageBox.confirm(
-      `确定移除文件「${file.fileName}」的登记？`,
+      `移除「${file.fileName}」的登记？磁盘文件保留，可从已移除列表恢复。`,
       '移除文件',
       { type: 'warning', confirmButtonText: '移除登记', cancelButtonText: '取消' }
     )
   } catch { /* 用户取消：属预期 */ return }
+  mutating.value = true
   const result = await casyContext.files.remove(file.id)
+  mutating.value = false
   if (result.ok) {
     selectedFile.value = null
     ElMessage.success('已移除登记')
     await loadFiles()
   } else ElMessage.error(result.error || '移除失败')
+}
+
+async function restoreFile(file) {
+  if (mutating.value) return
+  mutating.value = true
+  const result = await casyContext.files.restore(file.id)
+  mutating.value = false
+  if (!result.ok) return ElMessage.error(result.error || '恢复失败')
+  showRemoved.value = false
+  activeCategory.value = 'all'
+  selectedDir.value = '__all__'
+  selectedFile.value = file
+  await loadFiles()
+  ElMessage.success('文件登记已恢复')
+}
+
+async function renameFile(file) {
+  if (mutating.value) return
+  const target = caseId.value
+  let value
+  try { ({ value } = await ElMessageBox.prompt('文件名', '重命名文件', { inputValue: file.fileName, confirmButtonText: '重命名', cancelButtonText: '取消', inputValidator: value => !!value?.trim() || '请输入文件名' })) }
+  catch { return }
+  if (disposed || target !== caseId.value) return
+  mutating.value = true
+  const result = await casyContext.files.applyRenames(target, [{ id: file.id, newName: value }])
+  mutating.value = false
+  if (!result.ok) return ElMessage.error(result.error || '重命名失败')
+  const warning = result.data?.find(item => item.warning)?.warning
+  if (warning) ElMessage.warning(warning)
+  else ElMessage.success('文件已重命名')
+  await loadFiles()
+}
+
+function openMove(ids) {
+  moveIds.value = [...ids]
+  moveDir.value = selectedDir.value === '__all__' ? '' : selectedDir.value
+  moveOpen.value = true
+}
+
+async function moveFiles() {
+  if (mutating.value) return
+  mutating.value = true
+  const result = await casyContext.files.move(caseId.value, moveIds.value, moveDir.value || null)
+  mutating.value = false
+  if (!result.ok) return ElMessage.error(result.error || '移动失败')
+  const warning = result.data?.find(item => item.warning)?.warning
+  if (warning) ElMessage.warning(warning)
+  else ElMessage.success(`已移动 ${result.data?.length || 0} 个文件`)
+  selectedDir.value = moveDir.value
+  selectedIds.value = []
+  moveOpen.value = false
+  await loadFiles()
+}
+
+async function createDirectory() {
+  if (mutating.value) return
+  const target = caseId.value
+  const parent = selectedDir.value === '__all__' ? '' : selectedDir.value
+  let value
+  try { ({ value } = await ElMessageBox.prompt('文件夹名称', '新建文件夹', { confirmButtonText: '新建', cancelButtonText: '取消' })) }
+  catch { return }
+  if (disposed || target !== caseId.value) return
+  mutating.value = true
+  const result = await casyContext.files.createSubdir(target, parent || null, value)
+  mutating.value = false
+  if (!result.ok) return ElMessage.error(result.error || '新建文件夹失败')
+  await loadFiles()
+  if (!disposed && target === caseId.value) selectedDir.value = [parent, value.trim()].filter(Boolean).join('/')
+}
+
+async function changeCategory(file, value) {
+  if (mutating.value) return
+  mutating.value = true
+  const result = await casyContext.files.setCategory(file.id, value)
+  mutating.value = false
+  if (!result.ok) return ElMessage.error(result.error || '修改分类失败')
+  await loadFiles()
+}
+
+function toggleSelection(id, checked) {
+  selectedIds.value = checked ? [...new Set([...selectedIds.value, id])] : selectedIds.value.filter(value => value !== id)
+}
+
+function showRemovedFiles() {
+  showRemoved.value = true
+  selectedIds.value = []
+  selectedFile.value = filteredFiles.value[0] || null
 }
 
 async function openFile(file) {
@@ -252,7 +362,7 @@ async function revealFile(file) {
 }
 
 function formatSize(bytes) {
-  if (!bytes) return '未知大小'
+  if (bytes === null || bytes === undefined) return '未知大小'
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
@@ -287,10 +397,13 @@ const categoryCounts = computed(() => {
 
 const filteredFiles = computed(() => {
   const query = fileSearch.value.trim().toLowerCase()
-  return files.value.filter(file => {
-    const matchesCategory = activeCategory.value === 'all' || file.category === activeCategory.value
+  const directory = directories.value.find(dir => dir.relPath === selectedDir.value)?.absolutePath?.replaceAll('\\', '/')
+  return (showRemoved.value ? removedFiles.value : files.value).filter(file => {
+    const matchesCategory = showRemoved.value || activeCategory.value === 'all' || file.category === activeCategory.value
+    const normalized = file.filePath.replaceAll('\\', '/')
+    const matchesDir = showRemoved.value || selectedDir.value === '__all__' || normalized.slice(0, normalized.lastIndexOf('/')) === directory
     const matchesSearch = !query || file.fileName?.toLowerCase().includes(query)
-    return matchesCategory && matchesSearch
+    return matchesCategory && matchesSearch && matchesDir
   })
 })
 
@@ -299,13 +412,22 @@ function categoryLabel(key) {
 }
 
 function onCategoryChange(key) {
+  showRemoved.value = false
+  selectedIds.value = []
   activeCategory.value = key
   selectedFile.value = filteredFiles.value[0] || null
 }
 
+watch(selectedDir, () => { selectedIds.value = []; selectedFile.value = filteredFiles.value[0] || null })
+watch(() => route.query.select, id => { if (id) loadFiles() })
+watch(caseId, () => {
+  files.value = []; removedFiles.value = []; directories.value = []; selectedIds.value = []
+  selectedFile.value = null; caseData.value = null; documentJobs.value = {}; ocrStates.value = {}
+  selectedDir.value = '__all__'; activeCategory.value = 'all'; showRemoved.value = false; moveOpen.value = false
+  loadCase(); loadFiles()
+}, { immediate: true })
+
 onMounted(() => {
-  loadCase()
-  loadFiles()
   loadDocumentEngine()
   let polling = false
   documentPollTimer = window.setInterval(async () => {
@@ -321,7 +443,7 @@ onMounted(() => {
     }
   }, 3000)
 })
-onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTimer) })
+onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) window.clearInterval(documentPollTimer) })
 </script>
 
 <template>
@@ -348,20 +470,21 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
           clearable
           placeholder="搜索当前卷宗"
         />
-        <el-button @click="loadFiles" circle>
+        <el-button @click="loadFiles" circle title="刷新文件" aria-label="刷新文件">
           <el-icon><Refresh /></el-icon>
         </el-button>
         
-        <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn">
+        <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn" :disabled="showRemoved">
           <el-icon><Search /></el-icon> 卷宗检索
         </el-button>
 
-        <el-button type="primary" @click="uploadFile" :loading="uploading">
+        <el-button type="primary" @click="uploadFile" :loading="uploading" :disabled="mutating || showRemoved">
           <el-icon><Upload /></el-icon>
           上传文件
         </el-button>
       </div>
     </header>
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" class="files-load-error" />
 
     <div class="files-workbench">
       <aside class="folder-panel">
@@ -372,24 +495,30 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
           </div>
         </div>
 
+        <div class="directory-picker">
+          <el-select v-model="selectedDir" aria-label="卷宗文件夹" :disabled="showRemoved" filterable>
+            <el-option label="所有文件夹" value="__all__" />
+            <el-option v-for="dir in directories" :key="dir.relPath" :label="dir.name" :value="dir.relPath" />
+          </el-select>
+          <el-button :icon="FolderAdd" :disabled="mutating || showRemoved" title="新建文件夹" aria-label="新建文件夹" @click="createDirectory" />
+        </div>
+
         <nav class="folder-list" aria-label="文件分类">
           <button
             v-for="category in categories"
             :key="category.key"
             type="button"
-            :class="['folder-item', { active: activeCategory === category.key }]"
+            :class="['folder-item', { active: !showRemoved && activeCategory === category.key }]"
             @click="onCategoryChange(category.key)"
           >
             <el-icon><component :is="category.icon" /></el-icon>
             <span>{{ category.label }}</span>
             <small>{{ categoryCounts[category.key] || 0 }}</small>
           </button>
+          <button type="button" :class="['folder-item', { active: showRemoved }]" @click="showRemovedFiles">
+            <el-icon><RefreshLeft /></el-icon><span>已移除登记</span><small>{{ removedFiles.length }}</small>
+          </button>
         </nav>
-
-        <div class="folder-note">
-          <span class="status-dot" />
-          文件登记与案件保持关联
-        </div>
       </aside>
 
       <main class="file-index">
@@ -400,22 +529,31 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
           </div>
           <el-button text :icon="Refresh" :loading="filesLoading" title="刷新" @click="loadFiles" />
         </div>
+        <div v-if="!showRemoved && filteredFiles.length" class="selection-actions">
+          <el-checkbox :model-value="filteredFiles.every(file => selectedIds.includes(file.id))" :indeterminate="selectedIds.length > 0 && !filteredFiles.every(file => selectedIds.includes(file.id))" aria-label="选择全部文件" @change="checked => selectedIds = checked ? filteredFiles.map(file => file.id) : []" />
+          <span>{{ selectedIds.length ? `已选择 ${selectedIds.length} 项` : `${filteredFiles.length} 项` }}</span>
+          <el-button v-if="selectedIds.length" :icon="FolderOpened" size="small" :disabled="mutating" @click="openMove(selectedIds)">移动</el-button>
+        </div>
 
         <div v-if="filteredFiles.length" class="file-list" v-loading="filesLoading">
-          <button
+          <div
             v-for="file in filteredFiles"
             :key="file.id"
-            type="button"
+            role="button"
+            tabindex="0"
             :class="['file-row', { selected: selectedFile?.id === file.id }]"
             @click="selectFile(file)"
             @dblclick="openFile(file)"
+            @keydown.enter.self="selectFile(file)"
           >
+            <el-checkbox v-if="!showRemoved" :model-value="selectedIds.includes(file.id)" :aria-label="`选择 ${file.fileName}`" @click.stop @change="checked => toggleSelection(file.id, checked)" />
+            <span v-else class="removed-mark"><RefreshLeft /></span>
             <span :class="['file-mark', fileTone(file)]">{{ fileExtension(file).slice(0, 4) }}</span>
             <span class="file-copy">
               <strong>
                 {{ file.fileName }}
                 <span
-                  v-if="ocrBadge(file)"
+                  v-if="!showRemoved && ocrBadge(file)"
                   :class="['ocr-badge', ocrBadge(file).cls]"
                   :title="ocrBadge(file).tip"
                 >{{ ocrBadge(file).label }}</span>
@@ -423,13 +561,12 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               <small>{{ categoryLabel(file.category) }} · {{ formatDate(file.createdAt) }}</small>
             </span>
             <span class="file-size">{{ formatSize(file.fileSize) }}</span>
-          </button>
+          </div>
         </div>
 
         <div v-else class="file-empty">
           <div class="empty-icon"><el-icon><Document /></el-icon></div>
           <strong>{{ fileSearch ? '没有匹配的文件' : '这个目录还是空的' }}</strong>
-          <span>{{ fileSearch ? '换一个关键词试试' : '添加文件后会在这里形成可追溯的卷宗索引' }}</span>
         </div>
       </main>
 
@@ -444,7 +581,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
           <div class="inspector-section">
             <span class="panel-kicker">文件信息</span>
             <dl>
-              <div><dt>分类</dt><dd>{{ categoryLabel(selectedFile.category) }}</dd></div>
+              <div><dt>分类</dt><dd><el-select v-if="!showRemoved" :model-value="selectedFile.category" size="small" aria-label="文件分类" :disabled="mutating" @change="value => changeCategory(selectedFile, value)"><el-option v-for="item in categories.slice(1)" :key="item.key" :label="item.label" :value="item.key" /></el-select><span v-else>{{ categoryLabel(selectedFile.category) }}</span></dd></div>
               <div><dt>类型</dt><dd>{{ fileExtension(selectedFile) }}</dd></div>
               <div><dt>登记时间</dt><dd>{{ formatDate(selectedFile.createdAt) }}</dd></div>
             </dl>
@@ -455,7 +592,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
             <p>{{ selectedFile.filePath }}</p>
           </div>
 
-          <div v-if="isOcrCandidateFile(selectedFile)" class="inspector-section">
+          <div v-if="!showRemoved && isOcrCandidateFile(selectedFile)" class="inspector-section">
             <span class="panel-kicker">文档识别</span>
             <div class="ocr-status-row">
               <span
@@ -479,7 +616,11 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
           </div>
 
           <div class="inspector-actions">
+            <el-button v-if="showRemoved" type="primary" :icon="RefreshLeft" :loading="mutating" @click="restoreFile(selectedFile)">恢复登记</el-button>
+            <template v-else>
             <el-button type="primary" @click="openFile(selectedFile)">打开文件</el-button>
+            <el-button :icon="EditPen" :disabled="mutating" @click="renameFile(selectedFile)">重命名</el-button>
+            <el-button :icon="FolderOpened" :disabled="mutating" @click="openMove([selectedFile.id])">移动到文件夹</el-button>
             <el-button
               v-if="isOcrCandidateFile(selectedFile)"
               :loading="!!ocrBusy[selectedFile.id]"
@@ -515,17 +656,21 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
               @click="viewOcrText(selectedFile)"
             >查看文本</el-button>
             <el-button text :icon="FolderOpened" @click="revealFile(selectedFile)">在访达中显示</el-button>
-            <el-button text type="danger" @click="deleteFile(selectedFile)">移除登记</el-button>
+            <el-button text type="danger" :disabled="mutating" @click="deleteFile(selectedFile)">移除登记</el-button>
+            </template>
           </div>
         </template>
 
         <div v-else class="inspector-empty">
           <div class="empty-icon"><el-icon><Files /></el-icon></div>
           <strong>选择一个文件</strong>
-          <span>在右侧查看来源、类型与登记信息</span>
         </div>
       </aside>
     </div>
+    <el-dialog v-model="moveOpen" title="移动文件" width="min(480px, calc(100vw - 32px))" :close-on-click-modal="!mutating" :show-close="!mutating">
+      <el-form label-position="top"><el-form-item :label="`目标文件夹 · ${moveIds.length} 个文件`"><el-select v-model="moveDir" filterable aria-label="移动目标文件夹" style="width:100%" :disabled="mutating"><el-option v-for="dir in directories" :key="dir.relPath" :value="dir.relPath" :label="dir.name" /></el-select></el-form-item></el-form>
+      <template #footer><el-button :disabled="mutating" @click="moveOpen = false">取消</el-button><el-button type="primary" :loading="mutating" @click="moveFiles">移动</el-button></template>
+    </el-dialog>
     
     <el-dialog v-model="ocrTextDialog" :title="`OCR 文本 · ${ocrTextTitle}`" width="min(640px, calc(100vw - 32px))">
       <pre class="ocr-text-view">{{ ocrTextContent }}</pre>
@@ -543,6 +688,9 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
 </template>
 
 <style scoped>
+.directory-picker{display:flex;gap:6px;padding:0 12px 12px;min-width:0}.directory-picker .el-select{min-width:0;flex:1}.directory-picker .el-button{margin:0;padding:8px}
+.selection-actions{display:flex;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--c-border);font-size:12px;color:var(--c-text-secondary)}.selection-actions span{margin-right:auto}
+.removed-mark svg{width:16px;color:var(--c-text-secondary)}.files-load-error{margin-bottom:12px}
 /* Stitch v4.1.1: 目录、文件索引、详情三栏工作台 */
 .case-files-view {
   width: min(1420px, 100%);
@@ -559,11 +707,11 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
 .workspace-title-row { gap: 10px; min-width: 0; }
 .workspace-title-row h1 {
   margin: 2px 0 0; overflow: hidden; color: var(--c-text); font-size: 20px;
-  font-weight: 650; letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 650; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap;
 }
 .workspace-eyebrow, .panel-kicker {
   display: block; color: var(--c-text-secondary); font-size: 10px; font-weight: 650;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: 0; text-transform: uppercase;
 }
 .case-number {
   padding: 3px 7px; border: 1px solid var(--c-border); border-radius: 4px;
@@ -614,7 +762,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
 .file-index { display: flex; flex-direction: column; }
 .file-list { padding: 6px 0; }
 .file-row {
-  display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; width: 100%;
+  display: grid; grid-template-columns: 20px 38px minmax(0, 1fr) auto; width: 100%; box-sizing: border-box;
   align-items: center; gap: 11px; padding: 10px 16px; border: 0;
   border-left: 2px solid transparent; background: transparent; color: inherit; cursor: pointer; text-align: left;
 }
@@ -654,7 +802,7 @@ onUnmounted(() => { if (documentPollTimer) window.clearInterval(documentPollTime
 .inspector-preview > span:last-child { color: var(--c-text-secondary); font-family: var(--font-mono); font-size: 10.5px; }
 .inspector-section { padding: 15px 16px; border-bottom: 1px solid var(--c-border); }
 .inspector-section dl { margin: 9px 0 0; }
-.inspector-section dl div { display: grid; grid-template-columns: 76px 1fr; gap: 8px; padding: 6px 0; }
+.inspector-section dl > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; padding: 6px 0; }
 .inspector-section dt { color: var(--c-text-secondary); font-size: 10.5px; }
 .inspector-section dd { margin: 0; color: var(--c-text-regular); font-size: 11px; text-align: right; }
 .source-section p {

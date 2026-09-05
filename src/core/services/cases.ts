@@ -137,7 +137,7 @@ export class CasesService extends Service {
     return tauriCallSafe('get_relations', { caseId })
   }
 
-  /** 添加关联关系并可选合并数据 */
+  /** 添加关联关系；旧版合并参数为 true 时后端明确拒绝。 */
   async addRelation(
     caseId: string,
     relatedId: string,

@@ -63,12 +63,15 @@ page.on('console', message => {
 })
 await page.exposeFunction('__casyTextDocument', call)
 try {
-  await page.goto(process.env.CASY_QA_URL || 'http://127.0.0.1:1421/')
+  const url = new URL(process.env.CASY_QA_URL || 'http://127.0.0.1:1421/')
+  url.hash = '/cases'
+  await page.goto(url.href)
   await page.getByRole('button', { name: '稍后再填' }).click()
+  await page.locator('.cases-topbar').waitFor()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const native = new Set([
-      'get_case', 'list_case_files', 'get_document_engine_status', 'queue_document_processing',
+      'get_case', 'list_case_files', 'list_removed_case_files', 'list_case_dirs', 'list_case_document_jobs', 'get_document_engine_status', 'queue_document_processing',
       'list_document_jobs', 'retry_document_job', 'cancel_document_job', 'get_file_ocr_text', 'list_case_ocr_states',
       'search_document_passages', 'list_knowledge_document_sources', 'import_pageindex_to_knowledge',
       'list_knowledge', 'get_knowledge_with_blocks', 'open_file_with_default',
@@ -76,6 +79,8 @@ try {
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args = {}) => {
         if (native.has(command)) return window.__casyTextDocument(command, args)
+        if (command === 'get_settings') return {}
+        if (command === 'get_lawyer_profile') return { onboarding_completed: true, name: '本地验收' }
         const result = tryMockCommand(command, args)
         if (result === undefined) throw new Error('Command outside text document UI test: ' + command)
         return result

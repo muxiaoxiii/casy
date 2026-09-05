@@ -24,8 +24,7 @@ const allCases = ref<any[]>([])
 const form = ref({
   targetCaseId: '',
   relationType: 'same_patent',
-  label: '',
-  mergeData: false
+  label: ''
 })
 
 const relationOptions = [
@@ -51,21 +50,16 @@ function handleClose() {
   form.value = {
     targetCaseId: '',
     relationType: 'same_patent',
-    label: '',
-    mergeData: false
+    label: ''
   }
   visible.value = false
 }
 
 async function handleSubmit() {
+  if (submitting.value) return
   if (!form.value.targetCaseId) {
     ElMessage.warning('请选择要关联的案件')
     return
-  }
-
-  if (form.value.mergeData) {
-    const confirm = await window.confirm('合并数据后，目标案件的文件、任务和排期将被永久转移到当前案件。此操作不可撤销，确认要继续吗？')
-    if (!confirm) return
   }
 
   submitting.value = true
@@ -74,11 +68,10 @@ async function handleSubmit() {
       props.currentCaseId,
       form.value.targetCaseId,
       form.value.relationType,
-      form.value.label,
-      form.value.mergeData
+      form.value.label
     )
     if (res.ok) {
-      ElMessage.success('关联案件成功' + (form.value.mergeData ? '，数据已合并' : ''))
+      ElMessage.success('关联案件成功')
       emit('relation-added')
       handleClose()
     } else {
@@ -136,14 +129,6 @@ async function handleSubmit() {
         <el-input v-model="form.label" placeholder="如：一审 -> 二审" />
       </el-form-item>
 
-      <el-form-item label="高级设置">
-        <el-checkbox v-model="form.mergeData">
-          合并目标案件的文件、任务与排期记录到当前案件
-        </el-checkbox>
-        <div v-if="form.mergeData" class="form-tip warning-tip">
-          ⚠️ 注意：目标案件中的所有附件、排期和任务将直接归入当前主案件之下，方便统一管理。
-        </div>
-      </el-form-item>
     </el-form>
 
     <template #footer>

@@ -180,6 +180,7 @@ export interface AiUsage {
 export interface CaseDirEntry {
   name: string
   relPath: string
+  absolutePath?: string
   fileCount: number
   state: 'ok' | 'empty' | 'warn'
 }
@@ -269,7 +270,7 @@ export type CommandMap = {
   list_case_dirs: Cmd<{ caseId: string }, CaseDirEntry[]>
   create_case_subdir: Cmd<{ caseId: string; parentRel: string | null; name: string }, string>
   import_files_to_case: Cmd<
-    { caseId: string; dirRel: string | null; paths: string[] },
+    { caseId: string; dirRel: string | null; paths: string[]; category?: string },
     Array<{ id: string; fileName: string; archivedPath: string; originalPath: string }>
   >
   scan_unregistered_files: Cmd<{ caseId: string }, Array<{ fileName: string; path: string; sizeBytes: number }>>
@@ -278,8 +279,12 @@ export type CommandMap = {
   open_file_with_default: Cmd<{ path: string }, null>
   apply_case_file_renames: Cmd<
     { caseId: string; renames: Array<{ id: string; newName: string }> },
-    Array<{ id: string; oldName: string; newName: string }>
+    Array<{ id: string; oldName: string; newName: string; warning?: string | null }>
   >
+  list_removed_case_files: Cmd<{ caseId: string }, CommandMap['list_case_files']['result']>
+  restore_case_file: Cmd<{ id: string }, void>
+  move_case_files: Cmd<{ caseId: string; ids: string[]; dirRel: string | null }, CommandMap['apply_case_file_renames']['result']>
+  set_case_file_category: Cmd<{ id: string; category: string }, void>
 
   // ── 项目域（A1-1 绞杀式阶段一）──
   list_projects: Cmd<{ query?: string }, ProjectRow[]>
@@ -581,6 +586,7 @@ export type CommandMap = {
   get_document_engine_status: Cmd<{}, import('./bindings').DocumentEngineStatus>
   queue_document_processing: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto>
   list_document_jobs: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto[]>
+  list_case_document_jobs: Cmd<{ caseId: string }, import('./bindings').DocumentJobDto[]>
   cancel_document_job: Cmd<{ jobId: string }, void>
   retry_document_job: Cmd<{ jobId: string }, void>
   list_case_hearings: Cmd<{ caseId: string }, import('./bindings').HearingDto[]>
