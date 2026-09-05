@@ -12,6 +12,13 @@ const selected = computed(() => store.config.profiles.find(p => p.id === selecte
 const testing = ref(false)
 const testResult = ref('')
 const testFailed = ref(false)
+const embeddingTesting = ref(false)
+const embeddingResult = ref('')
+const embeddingFailed = ref(false)
+const embeddingEnabled = computed({
+  get: () => !!store.config.embedding,
+  set: enabled => { store.config.embedding = enabled ? { profileId: selectedId.value || '', model: '', chunkChars: 1000 } : null; embeddingResult.value = '' },
+})
 watch(() => JSON.stringify(selected.value), () => { testResult.value = '' })
 const legacyAvailable = ref(!!localStorage.getItem('casy_ai_settings'))
 onMounted(async () => {
@@ -29,6 +36,7 @@ async function remove() {
   try { await ElMessageBox.confirm(`删除配置“${selected.value.name}”？`, '删除 AI 配置', { type: 'warning' }) } catch { return }
   store.config.profiles = store.config.profiles.filter(p => p.id !== selectedId.value)
   if (store.config.activeId === selectedId.value) store.config.activeId = null
+  if (store.config.embedding?.profileId === selectedId.value) store.config.embedding = null
   selectedId.value = store.config.profiles[0]?.id || ''
 }
 async function save() {
@@ -42,6 +50,16 @@ async function test() {
   testing.value = false
   testFailed.value = !result.ok
   testResult.value = result.ok ? result.data || 'API 未返回结果' : result.error || '连接失败'
+}
+async function testEmbedding() {
+  embeddingTesting.value = true
+  embeddingResult.value = ''
+  try {
+    if (!(await store.save())) return
+    const result = await tauriCallSafe('test_embedding_connection', {})
+    embeddingFailed.value = !result.ok
+    embeddingResult.value = result.ok ? result.data || '向量接口未返回测试结果' : result.error || '向量接口连接失败'
+  } finally { embeddingTesting.value = false }
 }
 async function migrateLegacy() {
   try {
@@ -67,7 +85,7 @@ async function migrateLegacy() {
     <header><h3>AI 接口与模型</h3><el-button :icon="Plus" @click="add">添加配置</el-button></header>
     <el-alert v-if="store.error" :title="store.error" type="error" :closable="false" />
     <el-button v-if="legacyAvailable" :icon="RefreshLeft" @click="migrateLegacy">迁移旧版配置</el-button>
-    <el-form label-position="top" :disabled="store.loading || testing" @submit.prevent="save">
+    <el-form label-position="top" :disabled="store.loading || testing || embeddingTesting" @submit.prevent="save">
       <el-form-item label="默认 AI 配置">
         <el-select v-model="store.config.activeId" clearable @clear="store.config.activeId = null" placeholder="未启用">
           <el-option v-for="p in store.config.profiles" :key="p.id" :value="p.id" :label="p.name" />
@@ -87,6 +105,15 @@ async function migrateLegacy() {
         <div class="profile-actions"><el-button :icon="Connection" :loading="testing" @click="test">测试连接</el-button><el-button :icon="Delete" title="删除配置" aria-label="删除配置" @click="remove" /></div>
         <el-alert v-if="testResult" :title="testResult" :type="testFailed ? 'error' : 'success'" :closable="false" />
       </template>
+      <el-divider />
+      <el-form-item label="知识库语义检索"><el-switch v-model="embeddingEnabled" /></el-form-item>
+      <div v-if="store.config.embedding" class="fields">
+        <el-form-item label="向量接口配置"><el-select v-model="store.config.embedding.profileId"><el-option v-for="p in store.config.profiles" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
+        <el-form-item label="向量模型 ID"><el-input v-model="store.config.embedding.model" /></el-form-item>
+        <el-form-item label="每段字数"><el-input-number v-model="store.config.embedding.chunkChars" :min="128" :max="4000" :step="128" :precision="0" /></el-form-item>
+        <el-form-item><el-button :icon="Connection" :loading="embeddingTesting" @click="testEmbedding">保存并测试向量接口</el-button></el-form-item>
+      </div>
+      <el-alert v-if="embeddingResult" :title="embeddingResult" :type="embeddingFailed ? 'error' : 'success'" :closable="false" />
       <el-form-item label="每日调用上限"><el-input-number v-model="store.config.dailyLimit" :min="0" :max="100000" :precision="0" /></el-form-item>
       <el-form-item label="系统提示词"><el-input v-model="store.config.systemPrompt" type="textarea" :rows="5" /></el-form-item>
       <el-button :icon="RefreshLeft" @click="store.config.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认提示词</el-button>

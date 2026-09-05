@@ -480,7 +480,13 @@ export type CommandMap = {
   }, ExportResponse>
 
   // ── 知识检索 ──
-  hybrid_search_knowledge: Cmd<{ query: string; limit?: number }, SearchResult>
+  hybrid_search_knowledge: Cmd<{ query: string; limit?: number }, SearchResult[]>
+  test_embedding_connection: Cmd<{}, string>
+  embed_knowledge: Cmd<{ itemId: string; force?: boolean }, string>
+  embed_all_knowledge: Cmd<{}, { queued: number; upToDate: number; alreadyQueued: number }>
+  get_knowledge_index_status: Cmd<{}, import('./knowledgeIndex').KnowledgeIndexStatus>
+  cancel_knowledge_index_job: Cmd<{ jobId: string }, void>
+  search_knowledge_index: Cmd<{ query: string; useSemantic: boolean }, import('./knowledgeIndex').KnowledgeSearchResponse>
 
   // ── 草稿 ──
   list_drafts: Cmd<{}, Draft[]>

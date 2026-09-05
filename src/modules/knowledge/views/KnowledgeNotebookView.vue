@@ -14,6 +14,7 @@ import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
 import KnowledgeRelationsPanel from '../components/KnowledgeRelationsPanel.vue'
 import KnowledgeHistoryPanel from '../components/KnowledgeHistoryPanel.vue'
 import KnowledgeImportPanel from '../components/KnowledgeImportPanel.vue'
+import KnowledgeSearchPanel from '../components/KnowledgeSearchPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,6 +32,7 @@ const editorRef = ref(null)
 const relationPanelRef = ref(null)
 const draft = ref(emptyDraft())
 const infoTab = ref('relations')
+const searchOpen = ref(false)
 const exporting = ref(false)
 const outlineItems = ref([])
 let saveTimer = null
@@ -362,6 +364,22 @@ async function onVersionRestored() {
 }
 
 onMounted(loadAll)
+
+async function openSearch() {
+  if (await flushSave()) searchOpen.value = true
+}
+
+async function openSearchHit(id) {
+  if (!(await flushSave())) return
+  const result = await casyContext.knowledge.getWithBlocks(id)
+  if (!result.ok || !result.data?.item) return ElMessage.error(result.error || '无法读取笔记')
+  const note = result.data.item
+  const existing = notes.value.findIndex(item => item.id === id)
+  if (existing < 0) notes.value.unshift(note)
+  else notes.value[existing] = note
+  await selectNote(note)
+  searchOpen.value = false
+}
 </script>
 
 <template>
@@ -369,6 +387,7 @@ onMounted(loadAll)
     <section class="note-list-panel">
       <div class="vault-head">
         <div class="vault-title"><Collection /><span>知识笔记</span></div>
+        <button class="new-note new-note-icon" title="知识库检索" aria-label="知识库检索" @click="openSearch"><Search /></button>
         <button class="new-note new-note-icon" title="新建笔记" @click="createNote"><Plus /></button>
       </div>
       <div class="list-head">
@@ -394,6 +413,10 @@ onMounted(loadAll)
         <button @click="router.push({ name: 'cases' })"><Folder />案件沉淀</button>
       </div>
     </section>
+
+    <el-drawer v-model="searchOpen" title="知识库检索" size="min(680px, 100vw)" class="knowledge-search-drawer" destroy-on-close>
+      <KnowledgeSearchPanel v-if="searchOpen" @navigate="openSearchHit" @settings="router.push({ path: '/settings', query: { tab: 'ai' } })" />
+    </el-drawer>
 
     <main class="editor-panel">
       <template v-if="selectedNote">

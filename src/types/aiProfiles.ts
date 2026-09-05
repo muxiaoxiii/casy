@@ -13,4 +13,5 @@ export interface AiProfiles {
   activeId: string | null
   dailyLimit: number
   systemPrompt: string
+  embedding?: { profileId: string; model: string; chunkChars: number } | null
 }
