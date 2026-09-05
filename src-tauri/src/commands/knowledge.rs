@@ -435,7 +435,7 @@ pub async fn list_knowledge_document_sources() -> Result<Vec<KnowledgeDocumentSo
                WHERE j2.file_id = cf.id AND j2.status = 'completed'
                ORDER BY j2.rowid DESC LIMIT 1
              )
-             ORDER BY j.updated_at DESC LIMIT 200",
+             WHERE cf.deleted_at IS NULL ORDER BY j.updated_at DESC LIMIT 200",
         )?;
         let items = stmt
             .query_map([], |row| {
@@ -480,7 +480,7 @@ pub fn import_pageindex_inner(
                SELECT j2.id FROM document_processing_jobs j2
                WHERE j2.file_id=cf.id AND j2.status='completed'
                ORDER BY j2.rowid DESC LIMIT 1)
-             WHERE cf.id=?1",
+             WHERE cf.id=?1 AND cf.deleted_at IS NULL",
             [file_id],
             |row| {
                 Ok((

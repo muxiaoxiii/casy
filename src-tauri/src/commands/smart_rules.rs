@@ -151,7 +151,7 @@ pub async fn apply_smart_rules(file_id: String) -> Result<SmartRuleApplyResult, 
 pub async fn run_smart_rules_for_all() -> Result<i64, String> {
     run_blocking(|| {
         let conn = db::open_db()?;
-        let mut stmt = conn.prepare("SELECT id FROM case_files")?;
+        let mut stmt = conn.prepare("SELECT id FROM case_files WHERE deleted_at IS NULL")?;
         let ids: Vec<String> = stmt
             .query_map([], |r| r.get(0))?
             .filter_map(|r| r.ok())
@@ -176,9 +176,10 @@ pub async fn run_smart_rules_for_all() -> Result<i64, String> {
 }
 
 pub(crate) fn apply_rules_inner(file_id: &str) -> Result<SmartRuleApplyResult, anyhow::Error> {
-    let conn = db::open_db()?;
+    let mut connection = db::open_db()?;
+    let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let (file_name, ocr_text, case_id): (String, Option<String>, String) = conn.query_row(
-        "SELECT file_name, ocr_text, case_id FROM case_files WHERE id = ?1",
+        "SELECT file_name, ocr_text, case_id FROM case_files WHERE id = ?1 AND deleted_at IS NULL",
         params![file_id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
@@ -264,6 +265,7 @@ pub(crate) fn apply_rules_inner(file_id: &str) -> Result<SmartRuleApplyResult, a
             }
         }
     }
+    conn.commit()?;
     Ok(SmartRuleApplyResult {
         file_id: file_id.to_string(),
         matched_rules: matched,
@@ -278,7 +280,7 @@ pub async fn list_pending_ocr_files() -> Result<Vec<(String, String, String)>, S
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, file_name, case_id FROM case_files
-             WHERE ocr_status = 'pending' AND (file_type LIKE '%pdf%' OR file_name LIKE '%.pdf'
+             WHERE deleted_at IS NULL AND ocr_status = 'pending' AND (file_type LIKE '%pdf%' OR file_name LIKE '%.pdf'
                    OR file_name LIKE '%.png' OR file_name LIKE '%.jpg' OR file_name LIKE '%.jpeg')
              ORDER BY created_at ASC",
         )?;
@@ -337,7 +339,7 @@ pub async fn ocr_all_pending() -> Result<i64, String> {
         let candidates = {
             let mut stmt = conn.prepare(
                 "SELECT id,file_name,file_type FROM case_files f
-                 WHERE ocr_status='pending' AND NOT EXISTS
+                 WHERE deleted_at IS NULL AND ocr_status='pending' AND NOT EXISTS
                  (SELECT 1 FROM document_processing_jobs j WHERE j.file_id=f.id)
                  AND (lower(file_path) LIKE '%.md' OR lower(file_path) LIKE '%.markdown'
                    OR lower(file_path) LIKE '%.txt' OR lower(file_path) LIKE '%.doc'
@@ -397,7 +399,7 @@ pub async fn list_case_ocr_states(case_id: String) -> Result<Vec<FileOcrStateDto
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, ocr_status, (ocr_text IS NOT NULL AND LENGTH(ocr_text) > 0)
-             FROM case_files WHERE case_id = ?1",
+             FROM case_files WHERE case_id = ?1 AND deleted_at IS NULL",
         )?;
         let rows = stmt.query_map(params![case_id], |r| {
             Ok(FileOcrStateDto {
@@ -420,7 +422,7 @@ pub async fn get_file_ocr_text(file_id: String) -> Result<Option<String>, String
         let conn = db::open_db()?;
         let text = conn
             .query_row(
-                "SELECT ocr_text FROM case_files WHERE id = ?1",
+                "SELECT ocr_text FROM case_files WHERE id = ?1 AND deleted_at IS NULL",
                 params![file_id],
                 |r| r.get(0),
             )

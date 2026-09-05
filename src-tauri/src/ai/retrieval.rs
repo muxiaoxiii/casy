@@ -79,7 +79,7 @@ pub fn search(
       WITH latest AS (
         SELECT j.id FROM case_files f JOIN document_processing_jobs j ON j.id=(
           SELECT id FROM document_processing_jobs WHERE file_id=f.id AND status='completed' ORDER BY rowid DESC LIMIT 1
-        ) WHERE f.id IN (SELECT value FROM json_each(?1))
+        ) WHERE f.deleted_at IS NULL AND f.id IN (SELECT value FROM json_each(?1))
       ), hits AS (
         SELECT p.rowid FROM document_pages_fts ft JOIN document_pages p ON p.rowid=ft.rowid
           WHERE document_pages_fts MATCH ?2 AND p.job_id IN (SELECT id FROM latest)

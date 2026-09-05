@@ -17,6 +17,9 @@ async fn main() -> Result<()> {
     let request: Value = serde_json::from_str(&input)?;
     db::init_db(&db::open_db()?)?;
     let args = &request["args"];
+    let case_id = args["caseId"].as_str().unwrap_or("").to_owned();
+    let id = args["id"].as_str().unwrap_or("").to_owned();
+    let dir = args["dirRel"].as_str().map(str::to_owned);
     let file = args["fileId"].as_str().unwrap_or("").to_owned();
     let job = args["jobId"].as_str().unwrap_or("").to_owned();
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
@@ -62,9 +65,61 @@ async fn main() -> Result<()> {
                 json!({"ocrStatus":state.0,"indexStatus":state.1,"category":state.2,"pages":pages,"nodes":nodes,"integrity":integrity,"foreignKeyErrors":fk}),
             )
         }
+        "qa_file_audit" => {
+            let conn = db::open_db()?;
+            let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+            let fk: i64 =
+                conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
+                    r.get(0)
+                })?;
+            Ok(json!({"integrity":integrity,"foreignKeyErrors":fk}))
+        }
         "get_case" => cases::get_case(args["id"].as_str().unwrap_or("").into())
             .await
             .map(|v| json!(v)),
+        "create_case" => cases::create_case(args["data"].clone())
+            .await
+            .map(|v| json!(v)),
+        "list_removed_case_files" => files::list_removed_case_files(case_id)
+            .await
+            .map(|v| json!(v)),
+        "list_case_dirs" => files::list_case_dirs(case_id).await.map(|v| json!(v)),
+        "list_case_document_jobs" => docs::list_case_document_jobs(case_id)
+            .await
+            .map(|v| json!(v)),
+        "delete_case_file" => files::delete_case_file(id).await.map(|v| json!(v)),
+        "restore_case_file" => files::restore_case_file(id).await.map(|v| json!(v)),
+        "set_case_file_category" => {
+            files::set_case_file_category(id, args["category"].as_str().unwrap_or("").into())
+                .await
+                .map(|v| json!(v))
+        }
+        "create_case_subdir" => files::create_case_subdir(
+            case_id,
+            args["parentRel"].as_str().map(str::to_owned),
+            args["name"].as_str().unwrap_or("").into(),
+        )
+        .await
+        .map(|v| json!(v)),
+        "import_files_to_case" => files::import_files_to_case(
+            case_id,
+            dir,
+            serde_json::from_value(args["paths"].clone())?,
+            args["category"].as_str().map(str::to_owned),
+        )
+        .await
+        .map(|v| json!(v)),
+        "move_case_files" => {
+            files::move_case_files(case_id, serde_json::from_value(args["ids"].clone())?, dir)
+                .await
+                .map(|v| json!(v))
+        }
+        "apply_case_file_renames" => files::apply_case_file_renames(
+            case_id,
+            serde_json::from_value(args["renames"].clone())?,
+        )
+        .await
+        .map(|v| json!(v)),
         "list_case_files" => {
             files::list_case_files(args["caseId"].as_str().unwrap_or("").into(), None)
                 .await

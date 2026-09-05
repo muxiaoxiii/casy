@@ -111,7 +111,7 @@ pub async fn list_fact_nodes(whiteboard_id: String) -> Result<Vec<FactNodeDto>, 
             "SELECT fn.id, fn.whiteboard_id, fn.file_id, cf.file_name, fn.page, fn.excerpt,
                     fn.note, fn.x, fn.y, fn.created_at, fn.updated_at
              FROM fact_nodes fn
-             LEFT JOIN case_files cf ON cf.id = fn.file_id
+             LEFT JOIN case_files cf ON cf.id = fn.file_id AND cf.deleted_at IS NULL
              WHERE fn.whiteboard_id = ?1
              ORDER BY fn.created_at ASC",
         )?;

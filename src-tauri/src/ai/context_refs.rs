@@ -143,7 +143,7 @@ fn resolve_one(conn: &Connection, kind: &str, id: &str) -> Result<Option<(UsedRe
         "file" => {
             let row: Option<(String, String, Option<String>)> = conn
                 .query_row(
-                    "SELECT file_name, category, knowledge_summary FROM case_files WHERE id = ?1",
+                    "SELECT file_name, category, knowledge_summary FROM case_files WHERE id = ?1 AND deleted_at IS NULL",
                     params![id],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )

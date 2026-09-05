@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 28;
+pub const CURRENT_SCHEMA_VERSION: i64 = 29;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -701,7 +701,30 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("26", MIGRATION_V26_SQL),
     ("27", MIGRATION_V27_SQL),
     ("28", MIGRATION_V28_SQL),
+    ("29", MIGRATION_V29_SQL),
 ];
+
+pub const MIGRATION_V29_SQL: &str = r#"
+ALTER TABLE case_files ADD COLUMN deleted_at TEXT;
+CREATE INDEX idx_files_live ON case_files(case_id,deleted_at);
+DROP TRIGGER IF EXISTS trg_files_au;
+CREATE TRIGGER trg_files_au AFTER UPDATE OF file_name,knowledge_summary,knowledge_keywords ON case_files
+WHEN OLD.file_name IS NOT NEW.file_name OR OLD.knowledge_summary IS NOT NEW.knowledge_summary OR OLD.knowledge_keywords IS NOT NEW.knowledge_keywords
+BEGIN
+  INSERT INTO files_fts(files_fts,rowid,file_name,knowledge_summary,knowledge_keywords)
+    VALUES('delete',OLD.rowid,OLD.file_name,OLD.knowledge_summary,OLD.knowledge_keywords);
+  INSERT INTO files_fts(rowid,file_name,knowledge_summary,knowledge_keywords)
+    VALUES(NEW.rowid,NEW.file_name,NEW.knowledge_summary,NEW.knowledge_keywords);
+END;
+INSERT INTO files_fts(files_fts) VALUES('rebuild');
+CREATE TRIGGER trg_files_remove AFTER UPDATE OF deleted_at ON case_files
+WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+BEGIN
+  UPDATE document_processing_jobs SET status='cancelled',error_code='FILE_REMOVED',
+    error_message='文件登记已移除',updated_at=datetime('now','localtime')
+    WHERE file_id=NEW.id AND status IN ('queued','running');
+END;
+"#;
 
 pub const MIGRATION_V28_SQL: &str = r#"
 DROP TRIGGER IF EXISTS trg_knowledge_au;

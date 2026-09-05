@@ -61,7 +61,7 @@ pub(crate) fn queue_file(
     file_id: &str,
 ) -> anyhow::Result<DocumentJobDto> {
     let source_path: String = conn.query_row(
-        "SELECT file_path FROM case_files WHERE id=?1",
+        "SELECT file_path FROM case_files WHERE id=?1 AND deleted_at IS NULL",
         [file_id],
         |row| row.get(0),
     )?;
@@ -71,6 +71,8 @@ pub(crate) fn queue_file(
     }
     let source_sha256 = document_pipeline::sha256_file(path)?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let unchanged: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM case_files WHERE id=?1 AND file_path=?2 AND deleted_at IS NULL)", rusqlite::params![file_id,source_path], |r|r.get(0))?;
+    if !unchanged { anyhow::bail!("文件已移动或移除，请刷新后重试"); }
     let active = tx.query_row(
         &format!("SELECT {JOB_COLUMNS} FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running') ORDER BY rowid DESC LIMIT 1"),
         [file_id], map_job,
@@ -123,13 +125,26 @@ pub async fn list_document_jobs(file_id: String) -> Result<Vec<DocumentJobDto>, 
 }
 
 #[tauri::command]
+pub async fn list_case_document_jobs(case_id: String) -> Result<Vec<DocumentJobDto>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let columns = JOB_COLUMNS.split(',').map(|column|format!("j.{column}")).collect::<Vec<_>>().join(",");
+        let mut stmt = conn.prepare(&format!("SELECT {columns} FROM document_processing_jobs j
+            JOIN case_files f ON f.id=j.file_id WHERE f.case_id=?1 AND f.deleted_at IS NULL
+            AND j.rowid=(SELECT max(newer.rowid) FROM document_processing_jobs newer WHERE newer.file_id=j.file_id)"))?;
+        let rows = stmt.query_map([case_id],map_job)?.collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }).await
+}
+
+#[tauri::command]
 pub async fn retry_document_job(job_id: String) -> Result<(), String> {
     run_blocking(move || retry_job(&mut db::open_db()?, &job_id)).await
 }
 
 pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow::Result<()> {
     let (path, expected): (String, String) = conn.query_row(
-        "SELECT f.file_path,j.source_sha256 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.id=?1",
+        "SELECT f.file_path,j.source_sha256 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.id=?1 AND f.deleted_at IS NULL",
         [job_id], |row| Ok((row.get(0)?,row.get(1)?)),
     )?;
     if document_pipeline::sha256_file(std::path::Path::new(&path))? != expected {
@@ -137,6 +152,8 @@ pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow
     }
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // A retry gets its own identity so a cancelled process cannot publish into it.
+    let live: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.id=?1 AND f.file_path=?2 AND f.deleted_at IS NULL)",rusqlite::params![job_id,path],|r|r.get(0))?;
+    if !live { anyhow::bail!("文件已移动或移除，请刷新后重试"); }
     let changed = tx.execute(
         "INSERT INTO document_processing_jobs(id,file_id,source_sha256)
          SELECT ?2,file_id,source_sha256 FROM document_processing_jobs

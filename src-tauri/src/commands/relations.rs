@@ -50,6 +50,9 @@ pub async fn add_relation(
     if case_id == related_id {
         return Err("不能与自身建立关系".to_string());
     }
+    if merge_data.unwrap_or(false) {
+        return Err("不支持通过关联转移案件数据，请保留各案归属后建立关联".into());
+    }
     run_blocking(move || {
         let conn = db::open_db()?;
         let id = db::new_id();
@@ -69,30 +72,6 @@ pub async fn add_relation(
                 anyhow::anyhow!(e.to_string())
             }
         })?;
-
-        if merge_data.unwrap_or(false) {
-            // 合并关联案件的文件、任务、排期等到当前案件
-            let _ = conn.execute(
-                "UPDATE case_files SET case_id = ?1 WHERE case_id = ?2",
-                params![case_id, related_id],
-            );
-            let _ = conn.execute(
-                "UPDATE tasks SET case_id = ?1 WHERE case_id = ?2",
-                params![case_id, related_id],
-            );
-            let _ = conn.execute(
-                "UPDATE hearings SET case_id = ?1 WHERE case_id = ?2",
-                params![case_id, related_id],
-            );
-            let _ = conn.execute(
-                "UPDATE case_deadlines SET case_id = ?1 WHERE case_id = ?2",
-                params![case_id, related_id],
-            );
-            let _ = conn.execute(
-                "UPDATE case_logs SET case_id = ?1 WHERE case_id = ?2",
-                params![case_id, related_id],
-            );
-        }
 
         Ok(CaseRelation {
             id,

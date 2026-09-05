@@ -28,7 +28,7 @@ fn global_search_inner(
         SELECT 'file' as item_type, cf.id, cf.file_name as title, cf.category, snippet(files_fts, -1, '<b>', '</b>', '...', 64) as snippet, f.rank
         FROM files_fts f
         JOIN case_files cf ON cf.rowid = f.rowid
-        WHERE files_fts MATCH ?1
+        WHERE files_fts MATCH ?1 AND cf.deleted_at IS NULL
 
         UNION ALL
 
@@ -39,7 +39,7 @@ fn global_search_inner(
         JOIN document_pages dp ON dp.rowid = pf.rowid
         JOIN case_files cf ON cf.id = dp.file_id
         JOIN document_processing_jobs j ON j.id = dp.job_id
-        WHERE document_pages_fts MATCH ?1
+        WHERE document_pages_fts MATCH ?1 AND cf.deleted_at IS NULL
           AND j.status = 'completed'
           AND j.id = (
             SELECT j2.id

@@ -210,7 +210,7 @@ fn migration_backfills_cjk_search_and_invalidates_only_changed_vectors() {
     let conn = Connection::open_in_memory().unwrap();
     db::schema::run_migrations(&conn, 0).unwrap();
     // Recreate the v27 boundary with a pre-existing note, then use the normal upgrader.
-    conn.execute_batch("DROP TRIGGER trg_knowledge_vector_invalidate; DROP TRIGGER trg_knowledge_trigram_insert; DROP TRIGGER trg_knowledge_trigram_delete; DROP TRIGGER trg_knowledge_trigram_update; DROP TABLE knowledge_trigram; DROP TABLE knowledge_index_chunks; DROP TABLE knowledge_index_jobs; PRAGMA user_version=27;").unwrap();
+    conn.execute_batch("DROP TRIGGER trg_files_remove; DROP INDEX idx_files_live; ALTER TABLE case_files DROP COLUMN deleted_at; DROP TRIGGER trg_knowledge_vector_invalidate; DROP TRIGGER trg_knowledge_trigram_insert; DROP TRIGGER trg_knowledge_trigram_delete; DROP TRIGGER trg_knowledge_trigram_update; DROP TABLE knowledge_trigram; DROP TABLE knowledge_index_chunks; DROP TABLE knowledge_index_jobs; PRAGMA user_version=27;").unwrap();
     conn.execute("INSERT INTO knowledge_items(id,title,content,category) VALUES('note','侵权研究','依法确认第三人的损害赔偿金额与诉讼费用','reference')", []).unwrap();
     db::schema::run_migrations(&conn, 27).unwrap();
     assert_eq!(

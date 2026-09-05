@@ -16,7 +16,7 @@ fn claim_next_job() -> anyhow::Result<Option<ClaimedJob>> {
     let mut conn = crate::db::open_db()?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let candidate:Option<(String,String,String,String)>=tx.query_row(
-        "SELECT j.id,j.file_id,f.file_path,j.source_sha256 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.status='queued' ORDER BY j.created_at LIMIT 1",
+        "SELECT j.id,j.file_id,f.file_path,j.source_sha256 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.status='queued' AND f.deleted_at IS NULL ORDER BY j.created_at LIMIT 1",
         [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
     ).optional()?;
     let Some((id, file_id, source_path, source_sha256)) = candidate else {

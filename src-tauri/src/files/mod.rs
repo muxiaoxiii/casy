@@ -160,19 +160,56 @@ fn hardcoded_fallback(case_type: Option<&str>) -> Vec<(String, String)> {
 /// 确保案件文件夹存在，按案件类型创建标准化子目录
 pub fn ensure_case_folder(case: &db::cases::Case) -> Result<PathBuf> {
     let base = case_folder_base();
+    std::fs::create_dir_all(&base)?;
+    let base = base.canonicalize()?;
     let case_no = case.case_no.as_deref().unwrap_or("无案号");
     // Snapshot IDs share a namespace prefix; hash the identity to avoid folder collisions.
     use sha2::{Digest, Sha256};
     let imported_suffix = hex::encode(Sha256::digest(case.id.as_bytes()));
-    let short_id = if case.id.starts_with("feishu:") {
+    let short_id = if uuid::Uuid::parse_str(&case.id).is_err() {
         &imported_suffix[..12]
     } else {
-        &case.id[..8.min(case.id.len())]
+        case.id.get(..8).unwrap_or(&case.id)
     };
     let folder_name = format!("{}_{}", sanitize_filename(case_no), short_id);
-    let folder = base.join(&folder_name);
+    let folder = match case.folder_path.as_deref().filter(|p| !p.is_empty()) {
+        Some(saved) => {
+            let saved = PathBuf::from(saved);
+            if saved.exists() {
+                let canonical = saved.canonicalize()?;
+                if !canonical.starts_with(&base) || canonical == base {
+                    anyhow::bail!("已保存的卷宗目录不在当前卷宗根目录内");
+                }
+                canonical
+            } else if saved.starts_with(&base) && saved != base {
+                let relative = saved.strip_prefix(&base)?;
+                if relative
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+                {
+                    anyhow::bail!("已保存的卷宗目录包含非法路径");
+                }
+                let ancestor = saved
+                    .ancestors()
+                    .find(|path| path.exists())
+                    .ok_or_else(|| anyhow::anyhow!("卷宗父目录不存在"))?
+                    .canonicalize()?;
+                if !ancestor.starts_with(&base) {
+                    anyhow::bail!("卷宗父目录越出案件范围");
+                }
+                saved
+            } else {
+                anyhow::bail!("已保存的卷宗目录不存在，请先恢复卷宗目录");
+            }
+        }
+        None => base.join(&folder_name),
+    };
 
     std::fs::create_dir_all(&folder)?;
+    let folder = folder.canonicalize()?;
+    if !folder.starts_with(&base) || folder == base {
+        anyhow::bail!("卷宗目录越出案件范围");
+    }
 
     // 按模板或案件类型创建子目录
     let subs = subdirectories_for_case_type(
@@ -180,7 +217,18 @@ pub fn ensure_case_folder(case: &db::cases::Case) -> Result<PathBuf> {
         case.folder_template_id.as_deref(),
     );
     for (name, _desc) in &subs {
-        std::fs::create_dir_all(folder.join(name))?;
+        if Path::new(name).components().count() != 1
+            || name.contains(['/', '\\'])
+            || name == "."
+            || name == ".."
+        {
+            anyhow::bail!("卷宗模板包含非法目录名");
+        }
+        let child = folder.join(name);
+        if child.is_symlink() {
+            anyhow::bail!("卷宗子目录不能是符号链接");
+        }
+        std::fs::create_dir_all(child)?;
     }
 
     Ok(folder)

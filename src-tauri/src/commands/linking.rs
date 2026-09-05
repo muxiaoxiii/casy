@@ -42,7 +42,7 @@ fn row_to_link(row: &rusqlite::Row) -> rusqlite::Result<LinkDto> {
 /// 尽力解析目标展示名（按 target_type 查对应表）
 fn resolve_title(conn: &rusqlite::Connection, link: &mut LinkDto) {
     let sql = match link.target_type.as_str() {
-        "file" => Some("SELECT file_name FROM case_files WHERE id = ?1"),
+        "file" => Some("SELECT file_name FROM case_files WHERE id = ?1 AND deleted_at IS NULL"),
         "knowledge" => Some("SELECT title FROM knowledge_items WHERE id = ?1"),
         "task" => Some("SELECT task_name FROM tasks WHERE id = ?1 AND deleted_at IS NULL"),
         "case" => Some("SELECT case_name FROM cases WHERE id = ?1"),
