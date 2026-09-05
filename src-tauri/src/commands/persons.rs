@@ -195,12 +195,14 @@ pub async fn detach_person_from_case(link_id: String) -> Result<(), String> {
 pub async fn list_case_persons(case_id: String) -> Result<Vec<CasePersonDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut stmt = conn.prepare(&format!(
-            "SELECT cp.id AS link_id, cp.role, {PERSON_COLS}
+        let mut stmt = conn.prepare(
+            "SELECT cp.id AS link_id, cp.role, persons.id, persons.kind, persons.name,
+                    persons.org, persons.phone, persons.email, persons.preferences,
+                    persons.notes, persons.created_at, persons.updated_at
              FROM case_persons cp JOIN persons ON persons.id = cp.person_id
              WHERE cp.case_id = ?1
-             ORDER BY persons.kind, persons.name"
-        ))?;
+             ORDER BY persons.kind, persons.name",
+        )?;
         let rows = stmt.query_map(params![case_id], |row| {
             Ok(CasePersonDto {
                 link_id: row.get("link_id")?,

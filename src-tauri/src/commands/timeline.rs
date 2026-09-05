@@ -24,7 +24,7 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
         // 办案日志
         let mut stmt = conn.prepare(
             "SELECT id, event_date, event_type, event_summary, content
-             FROM case_logs WHERE case_id = ?1",
+             FROM case_logs WHERE case_id = ?1 OR EXISTS (SELECT 1 FROM case_log_links cll WHERE cll.log_id=case_logs.id AND cll.case_id=?1)",
         )?;
         for row in stmt.query_map(rusqlite::params![case_id], |r| {
             let event_type: String = r.get(2)?;
@@ -46,7 +46,7 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
         // 庭审
         let mut stmt = conn.prepare(
             "SELECT id, hearing_date, hearing_name, venue
-             FROM hearings WHERE case_id = ?1",
+             FROM hearings WHERE case_id = ?1 OR EXISTS (SELECT 1 FROM case_hearing_links chl WHERE chl.hearing_id=hearings.id AND chl.case_id=?1)",
         )?;
         for row in stmt.query_map(rusqlite::params![case_id], |r| {
             Ok(TimelineEvent {
@@ -69,7 +69,7 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
         // 任务
         let mut stmt = conn.prepare(
             "SELECT id, created_date, task_name, description, completed
-             FROM tasks WHERE case_id = ?1 AND deleted_at IS NULL",
+             FROM tasks WHERE (case_id = ?1 OR EXISTS (SELECT 1 FROM case_task_links ctl WHERE ctl.task_id=tasks.id AND ctl.case_id=?1)) AND deleted_at IS NULL",
         )?;
         for row in stmt.query_map(rusqlite::params![case_id], |r| {
             let completed: i32 = r.get(4)?;

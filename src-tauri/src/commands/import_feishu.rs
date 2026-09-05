@@ -9,9 +9,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::import_excel::{
-    clean_array_to_json, clean_date_str, extract_dates_list, infer_track_and_route,
-    match_field_confidence, CaseImportConfig, CaseImportReport, ColumnMappingRecommendation,
-    SubtableImportConfig, SubtableImportReport,
+    clean_admin_status, clean_array_to_json, clean_civil_status, clean_date_str,
+    clean_invalidation_status, extract_dates_list, infer_track_and_route, match_field_confidence,
+    CaseImportConfig, CaseImportReport, ColumnMappingRecommendation, SubtableImportConfig,
+    SubtableImportReport,
 };
 use super::run_blocking;
 use crate::db;
@@ -144,7 +145,7 @@ pub fn convert_feishu_val_to_string(val: &serde_json::Value) -> String {
 // 飞书 OpenAPI 交互辅助
 // ============================================================
 
-async fn get_feishu_client_and_token() -> Result<(Client, String)> {
+pub(super) async fn get_feishu_client_and_token() -> Result<(Client, String)> {
     let mut auth = FeishuAuth::new();
     let token = auth
         .get_token()
@@ -572,7 +573,7 @@ pub async fn feishu_import_bitable_cases(
             let (inferred_track, raw_track, case_route) = infer_track_and_route(
                 config.default_track.as_deref(),
                 extracted.get("track").map(|s| s.as_str()),
-                None,
+                extracted.get("caseRoute").map(|s| s.as_str()),
                 &final_case_name,
                 extracted.get("causeAction").map(|s| s.as_str()),
             );
@@ -596,6 +597,19 @@ pub async fn feishu_import_bitable_cases(
             let completed_text = extracted.get("completedText").cloned();
             let stay_date = extracted.get("stayDate").and_then(|s| clean_date_str(s));
             let relief_deadline = extracted.get("reliefDeadline").and_then(|s| clean_date_str(s));
+            let civil_status = clean_civil_status(extracted.get("civilStatus"));
+            let invalidation_status = clean_invalidation_status(extracted.get("invalidationStatus"));
+            let admin_status = clean_admin_status(extracted.get("adminStatus"));
+            let invalidation_decision_date = extracted
+                .get("invalidationDecisionDate")
+                .and_then(|s| clean_date_str(s));
+            let invalidation_decision_type = extracted
+                .get("invalidationDecisionType")
+                .cloned()
+                .filter(|s| !s.trim().is_empty());
+            let admin_filing_date = extracted.get("adminFilingDate").and_then(|s| clean_date_str(s));
+            let admin_verdict_date = extracted.get("adminVerdictDate").and_then(|s| clean_date_str(s));
+            let admin_trial2_date = extracted.get("adminTrial2Date").and_then(|s| clean_date_str(s));
             let attorneys = extracted.get("attorneys").and_then(|s| clean_array_to_json(s));
             let final_notes = if !notes_collected.is_empty() {
                 Some(notes_collected.join("\n"))
@@ -642,14 +656,24 @@ pub async fn feishu_import_bitable_cases(
                             judge_panel = COALESCE(NULLIF(?12, ''), judge_panel),
                             clerk = COALESCE(NULLIF(?13, ''), clerk),
                             stay_date = COALESCE(NULLIF(?14, ''), stay_date),
+                            relief_deadline = COALESCE(NULLIF(?15, ''), relief_deadline),
+                            case_route = COALESCE(NULLIF(?16, ''), case_route),
+                            civil_status = COALESCE(NULLIF(?17, ''), civil_status),
+                            invalidation_status = COALESCE(NULLIF(?18, ''), invalidation_status),
+                            admin_status = COALESCE(NULLIF(?19, ''), admin_status),
+                            invalidation_decision_date = COALESCE(NULLIF(?20, ''), invalidation_decision_date),
+                            invalidation_decision_type = COALESCE(NULLIF(?21, ''), invalidation_decision_type),
+                            admin_filing_date = COALESCE(NULLIF(?22, ''), admin_filing_date),
+                            admin_verdict_date = COALESCE(NULLIF(?23, ''), admin_verdict_date),
+                            admin_trial2_date = COALESCE(NULLIF(?24, ''), admin_trial2_date),
                             notes = CASE
-                                WHEN notes IS NULL OR notes = '' THEN ?15
-                                WHEN ?15 IS NULL OR ?15 = '' THEN notes
-                                WHEN notes = ?15 THEN notes
-                                ELSE notes || char(10) || ?15
+                                WHEN notes IS NULL OR notes = '' THEN ?25
+                                WHEN ?25 IS NULL OR ?25 = '' THEN notes
+                                WHEN notes = ?25 THEN notes
+                                ELSE notes || char(10) || ?25
                             END,
                             updated_at = datetime('now', 'localtime')
-                        WHERE id = ?16",
+                         WHERE id = ?26",
                         rusqlite::params![
                             final_case_name,
                             final_client_name,
@@ -665,6 +689,16 @@ pub async fn feishu_import_bitable_cases(
                             extracted.get("judgePanel"),
                             extracted.get("clerk"),
                             stay_date,
+                            relief_deadline,
+                            case_route,
+                            civil_status,
+                            invalidation_status,
+                            admin_status,
+                            invalidation_decision_date,
+                            invalidation_decision_type,
+                            admin_filing_date,
+                            admin_verdict_date,
+                            admin_trial2_date,
                             final_notes,
                             exist_id
                         ],
@@ -738,14 +772,20 @@ pub async fn feishu_import_bitable_cases(
                             case_level, case_progress, case_result,
                             patent_name, patent_app_no,
                             filing_date, trial_date, trial2_date, trial3_date, verdict_date, completed_text,
-                            stay_date, relief_deadline, case_route, notes, created_at, updated_at
+                            stay_date, relief_deadline, case_route, civil_status, invalidation_status, admin_status,
+                            invalidation_decision_date, invalidation_decision_type,
+                            admin_filing_date, admin_verdict_date, admin_trial2_date,
+                            notes, created_at, updated_at
                         ) VALUES (
                             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                             ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                             ?16, ?17, ?18,
                             ?19, ?20,
                             ?21, ?22, ?23, ?24, ?25, ?26,
-                            ?27, ?28, ?29, ?30, datetime('now', 'localtime'), datetime('now', 'localtime')
+                            ?27, ?28, ?29, ?30, ?31, ?32,
+                            ?33, ?34,
+                            ?35, ?36, ?37,
+                            ?38, datetime('now', 'localtime'), datetime('now', 'localtime')
                         )",
                         rusqlite::params![
                             new_case_id,
@@ -777,6 +817,14 @@ pub async fn feishu_import_bitable_cases(
                             stay_date,
                             relief_deadline,
                             case_route,
+                            civil_status,
+                            invalidation_status,
+                            admin_status,
+                            invalidation_decision_date,
+                            invalidation_decision_type,
+                            admin_filing_date,
+                            admin_verdict_date,
+                            admin_trial2_date,
                             final_notes,
                         ],
                     );
@@ -1098,13 +1146,23 @@ pub async fn feishu_import_bitable_subtable(
                     }
 
                     let l_id = db::new_id();
-                    let event_date = extracted.get("eventDate").and_then(|s| clean_date_str(s)).unwrap_or_else(|| "2026-08-31".to_string());
-                    let event_type = extracted.get("eventType").cloned().unwrap_or_else(|| "办案日志".to_string());
-                    let operator = extracted.get("operator").cloned();
+                    let Some(event_date) = extracted.get("eventDate").and_then(|s| clean_date_str(s)) else {
+                        report.failed_count += 1;
+                        report.errors.push(format!("第 {} 条日志缺少有效发生日期", row_line));
+                        continue;
+                    };
+                    let event_type = match extracted.get("eventType").map(String::as_str) {
+                        Some("任务" | "task") => "task",
+                        Some("交文" | "submitted") => "submitted",
+                        Some("收文" | "received") => "received",
+                        Some("email") => "email",
+                        _ => "record",
+                    };
+                    let summary = extracted.get("eventSummary").cloned().unwrap_or_else(|| content.lines().next().unwrap_or("").to_string());
 
                     let res = tx.execute(
                         "INSERT INTO case_logs (
-                            id, case_id, event_date, event_type, content, operator, created_at
+                            id, case_id, event_date, event_type, content, event_summary, created_at
                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', 'localtime'))",
                         rusqlite::params![
                             l_id,
@@ -1112,7 +1170,7 @@ pub async fn feishu_import_bitable_subtable(
                             event_date,
                             event_type,
                             content,
-                            operator,
+                            summary,
                         ],
                     );
 

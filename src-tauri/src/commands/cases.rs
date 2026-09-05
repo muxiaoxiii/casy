@@ -61,7 +61,8 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
             }
         }
 
-        let mut case: db::cases::Case = serde_json::from_value(data)
+        db::intake::validate_case(&data)?;
+        let mut case: db::cases::Case = serde_json::from_value(data.clone())
             .map_err(|e| anyhow::anyhow!("Failed to parse Case: {}", e))?;
         case.id = db::new_id();
         case.created_at = Some(db::now_local());
@@ -76,6 +77,7 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
         }
 
         db::cases::insert_case(&conn, &case)?;
+        db::intake::insert_children(&conn, &case.id, &data)?;
 
         // 自动创建案件文件夹（7 个子目录）
         match crate::files::ensure_case_folder(&case) {
@@ -91,11 +93,9 @@ pub async fn create_case(mut data: serde_json::Value) -> Result<db::cases::Case,
             Err(e) => log::warn!("创建案件文件夹失败: {}", e),
         }
 
-        // 触发飞书自动推送（5 秒防抖）
-        crate::sync::feishu::get_auto_push_manager().notify_change();
-
         conn.commit()?;
-        Ok(case)
+        crate::sync::feishu::get_auto_push_manager().notify_change();
+        db::cases::get_case(&raw_conn, &case.id)
     })
     .await
 }
@@ -960,7 +960,7 @@ pub async fn list_case_hearings(case_id: String) -> Result<Vec<HearingDto>, Stri
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT id, case_id, hearing_record, hearing_name, hearing_date, venue, attendees, judges, court, case_level, contact_info, actual_status, created_at
-             FROM hearings WHERE case_id = ?1 ORDER BY hearing_date ASC"
+             FROM hearings WHERE case_id = ?1 OR EXISTS (SELECT 1 FROM case_hearing_links chl WHERE chl.hearing_id=hearings.id AND chl.case_id=?1) ORDER BY hearing_date ASC"
         )?;
         let rows = stmt.query_map(rusqlite::params![case_id], |r| {
             Ok(HearingDto {

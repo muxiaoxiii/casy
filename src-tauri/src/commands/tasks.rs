@@ -135,7 +135,7 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
             }
             if let Some(case_id) = &f.case_id {
                 if !case_id.is_empty() {
-                    sql.push_str(&format!(" AND case_id = ?{}", idx));
+                    sql.push_str(&format!(" AND (case_id = ?{0} OR EXISTS (SELECT 1 FROM case_task_links ctl WHERE ctl.task_id=tasks.id AND ctl.case_id=?{0}))", idx));
                     params.push(Box::new(case_id.clone()));
                     idx += 1;
                 }

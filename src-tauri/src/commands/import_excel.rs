@@ -363,16 +363,40 @@ pub fn infer_track_and_route(
     };
 
     let validate_route = |r: &str| -> String {
+        let trimmed = r.trim();
+        let normalized = trimmed
+            .replace('＋', "+")
+            .replace('、', "+")
+            .replace('，', "+")
+            .replace(',', "+")
+            .replace('/', "+")
+            .replace('／', "+");
+        let has_civil = normalized.contains("民事") || normalized.contains("侵权");
+        let has_invalidation = normalized.contains("无效");
+        let has_admin = normalized.contains("行政");
+        if has_civil && has_invalidation && has_admin {
+            return "三轨并行".to_string();
+        }
+        if has_civil && has_admin {
+            return "民事诉讼+行政诉讼".to_string();
+        }
+        if has_civil && has_invalidation {
+            return "民事诉讼+专利无效".to_string();
+        }
+        if has_invalidation && has_admin {
+            return "专利无效+行政诉讼".to_string();
+        }
         let valid = [
             "民事诉讼",
             "专利无效",
             "行政诉讼",
             "民事诉讼+专利无效",
+            "民事诉讼+行政诉讼",
             "专利无效+行政诉讼",
             "三轨并行",
         ];
-        if valid.contains(&r) {
-            r.to_string()
+        if valid.contains(&trimmed) {
+            trimmed.to_string()
         } else {
             "民事诉讼".to_string() // Fallback to avoid constraint error if it ever mattered
         }
@@ -440,6 +464,16 @@ pub fn infer_track_and_route(
         }
     }
 
+    if let Some(route) = row_route_opt {
+        if !route.trim().is_empty() {
+            let track_source = default_track_opt
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(route);
+            let (safe_t, raw_t) = get_tracks(&track_source.to_lowercase());
+            return (safe_t, raw_t, validate_route(route));
+        }
+    }
+
     if let (Some(t), Some(r)) = (default_track_opt, row_route_opt) {
         if !t.is_empty() && !r.is_empty() {
             let (safe_t, raw_t) = get_tracks(&t.to_lowercase());
@@ -464,6 +498,65 @@ pub fn infer_track_and_route(
     )
 }
 
+fn clean_enum_value(raw: Option<&String>, valid: &[&str]) -> Option<String> {
+    let value = raw?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    valid.contains(&value).then(|| value.to_string())
+}
+
+pub fn clean_civil_status(raw: Option<&String>) -> Option<String> {
+    clean_enum_value(
+        raw,
+        &[
+            "intake",
+            "filed",
+            "pre_hearing",
+            "in_trial",
+            "settled",
+            "awaiting_verdict",
+            "verdict_issued",
+            "appeal_period",
+            "second_instance",
+            "second_verdict",
+            "retrial",
+            "enforcement",
+            "suspended",
+            "closed",
+        ],
+    )
+}
+
+pub fn clean_invalidation_status(raw: Option<&String>) -> Option<String> {
+    clean_enum_value(
+        raw,
+        &[
+            "preparing",
+            "filed",
+            "pre_oral",
+            "oral_done",
+            "awaiting_decision",
+            "decision_issued",
+        ],
+    )
+}
+
+pub fn clean_admin_status(raw: Option<&String>) -> Option<String> {
+    clean_enum_value(
+        raw,
+        &[
+            "filed",
+            "pre_hearing",
+            "in_trial",
+            "awaiting_verdict",
+            "verdict_issued",
+            "second_instance",
+            "closed",
+        ],
+    )
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 智能表头与字段映射匹配 (Header Detection & Fuzzy Matcher)
 // ═══════════════════════════════════════════════════════════════════
@@ -485,6 +578,50 @@ const FIELD_MATCHERS: &[FieldMatcher] = &[
             "诉讼案号",
             "caseno",
             "case no",
+        ],
+    },
+    FieldMatcher {
+        field_name: "caseRoute",
+        keywords: &[
+            "案件路由",
+            "程序路由",
+            "并行程序",
+            "并行案件",
+            "案件路径",
+            "程序组合",
+            "程序类型组合",
+            "民事行政并行",
+            "route",
+            "case route",
+        ],
+    },
+    FieldMatcher {
+        field_name: "civilStatus",
+        keywords: &[
+            "民事状态",
+            "民事诉讼状态",
+            "民事程序状态",
+            "侵权程序状态",
+            "civil status",
+        ],
+    },
+    FieldMatcher {
+        field_name: "invalidationStatus",
+        keywords: &[
+            "无效状态",
+            "无效程序状态",
+            "专利无效状态",
+            "invalidation status",
+        ],
+    },
+    FieldMatcher {
+        field_name: "adminStatus",
+        keywords: &[
+            "行政状态",
+            "行政诉讼状态",
+            "行政程序状态",
+            "行政裁决状态",
+            "admin status",
         ],
     },
     FieldMatcher {
@@ -726,6 +863,55 @@ const FIELD_MATCHERS: &[FieldMatcher] = &[
             "裁定时间",
             "裁判时间",
             "verdict date",
+        ],
+    },
+    FieldMatcher {
+        field_name: "invalidationDecisionDate",
+        keywords: &[
+            "无效决定日",
+            "无效决定日期",
+            "无效裁决日期",
+            "决定日",
+            "invalidation decision date",
+        ],
+    },
+    FieldMatcher {
+        field_name: "invalidationDecisionType",
+        keywords: &[
+            "无效决定类型",
+            "无效结果类型",
+            "全部无效",
+            "部分无效",
+            "维持有效",
+        ],
+    },
+    FieldMatcher {
+        field_name: "adminFilingDate",
+        keywords: &[
+            "行政立案日",
+            "行政立案日期",
+            "行政起诉日期",
+            "行政受理日期",
+            "admin filing date",
+        ],
+    },
+    FieldMatcher {
+        field_name: "adminVerdictDate",
+        keywords: &[
+            "行政判决日",
+            "行政判决日期",
+            "行政裁判日期",
+            "行政裁决日期",
+            "admin verdict date",
+        ],
+    },
+    FieldMatcher {
+        field_name: "adminTrial2Date",
+        keywords: &[
+            "行政二审日期",
+            "行政二审开庭",
+            "行政二审",
+            "admin second trial",
         ],
     },
     FieldMatcher {
@@ -1412,6 +1598,19 @@ pub async fn excel_import_cases(
             let completed_text = extracted.get("completedText").cloned();
             let stay_date = extracted.get("stayDate").and_then(|s| clean_date_str(s));
             let relief_deadline = extracted.get("reliefDeadline").and_then(|s| clean_date_str(s));
+            let civil_status = clean_civil_status(extracted.get("civilStatus"));
+            let invalidation_status = clean_invalidation_status(extracted.get("invalidationStatus"));
+            let admin_status = clean_admin_status(extracted.get("adminStatus"));
+            let invalidation_decision_date = extracted
+                .get("invalidationDecisionDate")
+                .and_then(|s| clean_date_str(s));
+            let invalidation_decision_type = extracted
+                .get("invalidationDecisionType")
+                .cloned()
+                .filter(|s| !s.trim().is_empty());
+            let admin_filing_date = extracted.get("adminFilingDate").and_then(|s| clean_date_str(s));
+            let admin_verdict_date = extracted.get("adminVerdictDate").and_then(|s| clean_date_str(s));
+            let admin_trial2_date = extracted.get("adminTrial2Date").and_then(|s| clean_date_str(s));
             let attorneys = extracted.get("attorneys").and_then(|s| clean_array_to_json(s));
             let final_notes = if !notes_collected.is_empty() {
                 Some(notes_collected.join("\n"))
@@ -1421,7 +1620,7 @@ pub async fn excel_import_cases(
             let (track, raw_track, case_route) = infer_track_and_route(
                 config.default_track.as_deref(),
                 extracted.get("track").map(|s| s.as_str()),
-                None,
+                extracted.get("caseRoute").map(|s| s.as_str()),
                 &final_case_name,
                 extracted.get("causeAction").map(|s| s.as_str()),
             );
@@ -1466,14 +1665,24 @@ pub async fn excel_import_cases(
                             judge_panel = COALESCE(NULLIF(?12, ''), judge_panel),
                             clerk = COALESCE(NULLIF(?13, ''), clerk),
                             stay_date = COALESCE(NULLIF(?14, ''), stay_date),
+                            relief_deadline = COALESCE(NULLIF(?15, ''), relief_deadline),
+                            case_route = COALESCE(NULLIF(?16, ''), case_route),
+                            civil_status = COALESCE(NULLIF(?17, ''), civil_status),
+                            invalidation_status = COALESCE(NULLIF(?18, ''), invalidation_status),
+                            admin_status = COALESCE(NULLIF(?19, ''), admin_status),
+                            invalidation_decision_date = COALESCE(NULLIF(?20, ''), invalidation_decision_date),
+                            invalidation_decision_type = COALESCE(NULLIF(?21, ''), invalidation_decision_type),
+                            admin_filing_date = COALESCE(NULLIF(?22, ''), admin_filing_date),
+                            admin_verdict_date = COALESCE(NULLIF(?23, ''), admin_verdict_date),
+                            admin_trial2_date = COALESCE(NULLIF(?24, ''), admin_trial2_date),
                             notes = CASE
-                                WHEN notes IS NULL OR notes = '' THEN ?15
-                                WHEN ?15 IS NULL OR ?15 = '' THEN notes
-                                WHEN notes = ?15 THEN notes
-                                ELSE notes || char(10) || ?15
+                                WHEN notes IS NULL OR notes = '' THEN ?25
+                                WHEN ?25 IS NULL OR ?25 = '' THEN notes
+                                WHEN notes = ?25 THEN notes
+                                ELSE notes || char(10) || ?25
                             END,
                             updated_at = datetime('now', 'localtime')
-                         WHERE id = ?16",
+                         WHERE id = ?26",
                         rusqlite::params![
                             final_case_name,
                             final_client_name,
@@ -1489,6 +1698,16 @@ pub async fn excel_import_cases(
                             extracted.get("judgePanel"),
                             extracted.get("clerk"),
                             stay_date,
+                            relief_deadline,
+                            case_route,
+                            civil_status,
+                            invalidation_status,
+                            admin_status,
+                            invalidation_decision_date,
+                            invalidation_decision_type,
+                            admin_filing_date,
+                            admin_verdict_date,
+                            admin_trial2_date,
                             final_notes,
                             exist_id
                         ],
@@ -1563,14 +1782,20 @@ pub async fn excel_import_cases(
                             case_level, case_progress, case_result,
                             patent_name, patent_app_no,
                             filing_date, trial_date, trial2_date, trial3_date, verdict_date, completed_text,
-                            stay_date, relief_deadline, case_route, notes, created_at, updated_at
+                            stay_date, relief_deadline, case_route, civil_status, invalidation_status, admin_status,
+                            invalidation_decision_date, invalidation_decision_type,
+                            admin_filing_date, admin_verdict_date, admin_trial2_date,
+                            notes, created_at, updated_at
                         ) VALUES (
                             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                             ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                             ?16, ?17, ?18,
                             ?19, ?20,
                             ?21, ?22, ?23, ?24, ?25, ?26,
-                            ?27, ?28, ?29, ?30, datetime('now', 'localtime'), datetime('now', 'localtime')
+                            ?27, ?28, ?29, ?30, ?31, ?32,
+                            ?33, ?34,
+                            ?35, ?36, ?37,
+                            ?38, datetime('now', 'localtime'), datetime('now', 'localtime')
                         )",
                         rusqlite::params![
                             new_case_id,
@@ -1602,6 +1827,14 @@ pub async fn excel_import_cases(
                             stay_date,
                             relief_deadline,
                             case_route,
+                            civil_status,
+                            invalidation_status,
+                            admin_status,
+                            invalidation_decision_date,
+                            invalidation_decision_type,
+                            admin_filing_date,
+                            admin_verdict_date,
+                            admin_trial2_date,
                             final_notes,
                         ],
                     );
@@ -1853,13 +2086,23 @@ pub async fn excel_import_subtable(
                     }
 
                     let l_id = db::new_id();
-                    let event_date = extracted.get("eventDate").and_then(|s| clean_date_str(s)).unwrap_or_else(|| "2026-08-31".to_string());
-                    let event_type = extracted.get("eventType").cloned().unwrap_or_else(|| "办案日志".to_string());
-                    let operator = extracted.get("operator").cloned();
+                    let Some(event_date) = extracted.get("eventDate").and_then(|s| clean_date_str(s)) else {
+                        report.failed_count += 1;
+                        report.errors.push(format!("第 {} 条日志缺少有效发生日期", row_line));
+                        continue;
+                    };
+                    let event_type = match extracted.get("eventType").map(String::as_str) {
+                        Some("任务" | "task") => "task",
+                        Some("交文" | "submitted") => "submitted",
+                        Some("收文" | "received") => "received",
+                        Some("email") => "email",
+                        _ => "record",
+                    };
+                    let summary = extracted.get("eventSummary").cloned().unwrap_or_else(|| content.lines().next().unwrap_or("").to_string());
 
                     let res = tx.execute(
                         "INSERT INTO case_logs (
-                            id, case_id, event_date, event_type, content, operator, created_at
+                            id, case_id, event_date, event_type, content, event_summary, created_at
                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', 'localtime'))",
                         rusqlite::params![
                             l_id,
@@ -1867,7 +2110,7 @@ pub async fn excel_import_subtable(
                             event_date,
                             event_type,
                             content,
-                            operator,
+                            summary,
                         ],
                     );
 

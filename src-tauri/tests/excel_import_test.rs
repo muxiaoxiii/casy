@@ -87,6 +87,20 @@ fn test_track_and_route_inference() {
     );
     assert_eq!(t3, "civil_tort");
     assert_eq!(r3, "民事诉讼");
+
+    let (t4, _raw4, r4) = infer_track_and_route(
+        Some("civil_tort"),
+        Some("民事侵权"),
+        Some("民事诉讼+行政诉讼"),
+        "侵权与行政裁决并行案件",
+        Some("民事侵权及行政裁决"),
+    );
+    assert_eq!(t4, "civil_tort");
+    assert_eq!(r4, "民事诉讼+行政诉讼");
+
+    let (_t5, _raw5, r5) =
+        infer_track_and_route(None, None, Some("侵权、行政裁决并行"), "并行案件", None);
+    assert_eq!(r5, "民事诉讼+行政诉讼");
 }
 
 #[tokio::test]

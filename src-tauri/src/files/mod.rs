@@ -161,7 +161,14 @@ fn hardcoded_fallback(case_type: Option<&str>) -> Vec<(String, String)> {
 pub fn ensure_case_folder(case: &db::cases::Case) -> Result<PathBuf> {
     let base = case_folder_base();
     let case_no = case.case_no.as_deref().unwrap_or("无案号");
-    let short_id = &case.id[..8.min(case.id.len())];
+    // Snapshot IDs share a namespace prefix; hash the identity to avoid folder collisions.
+    use sha2::{Digest, Sha256};
+    let imported_suffix = hex::encode(Sha256::digest(case.id.as_bytes()));
+    let short_id = if case.id.starts_with("feishu:") {
+        &imported_suffix[..12]
+    } else {
+        &case.id[..8.min(case.id.len())]
+    };
     let folder_name = format!("{}_{}", sanitize_filename(case_no), short_id);
     let folder = base.join(&folder_name);
 

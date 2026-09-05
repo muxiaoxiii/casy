@@ -1,4 +1,5 @@
 pub mod cases;
+pub mod intake;
 pub mod schema;
 pub mod search;
 
@@ -313,9 +314,11 @@ pub fn enable_test_mode() {
 /// 数据库文件路径
 fn db_path() -> PathBuf {
     if IS_TEST_MODE.load(Ordering::SeqCst) || std::env::var("TEST_ENV").is_ok() {
-        return TEST_DB_PATH.get_or_init(|| {
-            std::env::temp_dir().join(format!("casy_test_{}.db", uuid::Uuid::new_v4()))
-        }).clone();
+        return TEST_DB_PATH
+            .get_or_init(|| {
+                std::env::temp_dir().join(format!("casy_test_{}.db", uuid::Uuid::new_v4()))
+            })
+            .clone();
     }
     crate::runtime_paths::data_root().join("casy.db")
 }

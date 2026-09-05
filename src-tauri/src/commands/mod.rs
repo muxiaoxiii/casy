@@ -12,6 +12,7 @@ pub mod demo;
 pub mod docs;
 pub mod document_intelligence;
 pub mod drafts;
+pub mod feishu_snapshot;
 pub mod files;
 pub mod filters;
 pub mod import_excel;
@@ -200,6 +201,12 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         import_feishu_data,
         import_feishu::feishu_check_config,
         import_feishu::feishu_inspect_bitable,
+        feishu_snapshot::feishu_download_snapshot,
+        feishu_snapshot::feishu_import_snapshot,
+        feishu_snapshot::get_case_source_records,
+        feishu_snapshot::get_imported_asset,
+        feishu_snapshot::export_imported_asset,
+        feishu_snapshot::save_feishu_snapshot,
         import_feishu::feishu_import_bitable_cases,
         import_feishu::feishu_import_bitable_subtable,
         import_excel::excel_get_sheets,

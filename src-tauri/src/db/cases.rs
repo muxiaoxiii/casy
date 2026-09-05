@@ -20,6 +20,15 @@ pub struct Case {
     pub opponent_role: Option<String>,
     pub opponent_firm: Option<String>,
     pub opponent_agent: Option<String>,
+    pub third_parties: Option<String>,
+    pub case_amount: Option<String>,
+    pub legal_fees: Option<String>,
+    pub fee_payment: Option<String>,
+    pub claims: Option<String>,
+    pub jurisdiction_objection: Option<String>,
+    pub external_case_no: Option<String>,
+    pub defense_deadline: Option<String>,
+    pub estimated_trial_end: Option<String>,
     pub court: Option<String>,
     pub judge_panel: Option<String>,
     pub clerk: Option<String>,
@@ -28,6 +37,7 @@ pub struct Case {
     pub case_status: Option<String>,
     pub case_progress: Option<String>,
     pub case_result: Option<String>,
+    pub case_goal: Option<String>,
     pub patent_name: Option<String>,
     pub patent_app_no: Option<String>,
     pub procedure_type: Option<String>,
@@ -275,7 +285,7 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
     conn.execute(
         "INSERT INTO cases (id, track, case_name, case_no, internal_no, cause_action,
          client_name, our_role, opponent_name, opponent_role, opponent_firm, opponent_agent,
-         court, judge_panel, clerk, attorneys, case_level, case_progress, case_result,
+         court, judge_panel, clerk, attorneys, case_level, case_progress, case_result, case_goal,
          patent_name, patent_app_no, procedure_type,
          filing_date, complaint_received_date, trial_date, trial2_date, trial3_date,
          verdict_type, verdict_date, stay_date, relief_deadline,
@@ -289,7 +299,7 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
          folder_path, notes, created_at, updated_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
                  ?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,
-                 ?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,?53,?54)",
+                 ?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,?53,?54,?55)",
         params![
             case.id,
             case.track,
@@ -310,6 +320,7 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
             case.case_level,
             case.case_progress,
             case.case_result,
+            case.case_goal,
             case.patent_name,
             case.patent_app_no,
             case.procedure_type,
@@ -332,7 +343,14 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
             case.patentee_received_supp_date,
             case.patentee_supp_deadline,
             case.patentee_submit_supp_date,
-            case.case_route,
+            case.case_route
+                .as_deref()
+                .unwrap_or(match case.track.as_str() {
+                    "patent_invalidation" => "专利无效",
+                    "admin_litigation" => "行政诉讼",
+                    "other" => "其他",
+                    _ => "民事诉讼",
+                }),
             case.civil_status,
             case.invalidation_status,
             case.admin_status,
@@ -343,15 +361,28 @@ pub fn insert_case(conn: &Connection, case: &Case) -> Result<()> {
             case.admin_trial2_date,
             case.folder_path,
             case.notes,
-            case.created_at,
-            case.updated_at,
+            case.created_at.clone().unwrap_or_else(super::now_local),
+            case.updated_at.clone().unwrap_or_else(super::now_local),
         ],
+    )?;
+    update_case(
+        conn,
+        &case.id,
+        &serde_json::json!({
+            "thirdParties": case.third_parties, "caseAmount": case.case_amount,
+            "legalFees": case.legal_fees, "feePayment": case.fee_payment,
+            "claims": case.claims, "jurisdictionObjection": case.jurisdiction_objection,
+            "externalCaseNo": case.external_case_no, "defenseDeadline": case.defense_deadline,
+            "estimatedTrialEnd": case.estimated_trial_end, "completedText": case.completed_text,
+            "folderTemplateId": case.folder_template_id
+        }),
     )?;
     Ok(())
 }
 
 /// 更新案件（PATCH 语义）
 pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Result<Case> {
+    super::intake::validate_patch(data)?;
     let mut sql = String::from("UPDATE cases SET updated_at = datetime('now','localtime')");
     let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -366,6 +397,15 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
         ("opponentRole", "opponent_role"),
         ("opponentFirm", "opponent_firm"),
         ("opponentAgent", "opponent_agent"),
+        ("thirdParties", "third_parties"),
+        ("caseAmount", "case_amount"),
+        ("legalFees", "legal_fees"),
+        ("feePayment", "fee_payment"),
+        ("claims", "claims"),
+        ("jurisdictionObjection", "jurisdiction_objection"),
+        ("externalCaseNo", "external_case_no"),
+        ("defenseDeadline", "defense_deadline"),
+        ("estimatedTrialEnd", "estimated_trial_end"),
         ("court", "court"),
         ("judgePanel", "judge_panel"),
         ("clerk", "clerk"),
@@ -373,6 +413,7 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
         ("caseLevel", "case_level"),
         ("caseProgress", "case_progress"),
         ("caseResult", "case_result"),
+        ("caseGoal", "case_goal"),
         ("patentName", "patent_name"),
         ("patentAppNo", "patent_app_no"),
         ("procedureType", "procedure_type"),
@@ -450,12 +491,24 @@ pub fn delete_case(conn: &Connection, id: &str) -> Result<()> {
 
 /// 全文搜索
 pub fn search_cases(conn: &Connection, query: &str) -> Result<Vec<Case>> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(vec![]);
+    }
+    let pattern = format!(
+        "%{}%",
+        query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
     let mut stmt = conn.prepare(
-        "SELECT c.* FROM cases_fts f JOIN cases c ON c.rowid = f.rowid
-         WHERE cases_fts MATCH ?1 ORDER BY rank LIMIT 50",
+        "SELECT * FROM cases WHERE case_name LIKE ?1 ESCAPE '\\' OR case_no LIKE ?1 ESCAPE '\\'
+         OR client_name LIKE ?1 ESCAPE '\\' OR opponent_name LIKE ?1 ESCAPE '\\'
+         OR patent_app_no LIKE ?1 ESCAPE '\\' ORDER BY updated_at DESC LIMIT 50",
     )?;
     let cases = stmt
-        .query_map(params![query], row_to_case)?
+        .query_map(params![pattern], row_to_case)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(cases)
 }
@@ -575,6 +628,15 @@ fn row_to_case(row: &rusqlite::Row) -> rusqlite::Result<Case> {
         opponent_role: row_get_string(row, "opponent_role")?,
         opponent_firm: row_get_string(row, "opponent_firm")?,
         opponent_agent: row_get_string(row, "opponent_agent")?,
+        third_parties: row_get_string(row, "third_parties")?,
+        case_amount: row_get_string(row, "case_amount")?,
+        legal_fees: row_get_string(row, "legal_fees")?,
+        fee_payment: row_get_string(row, "fee_payment")?,
+        claims: row_get_string(row, "claims")?,
+        jurisdiction_objection: row_get_string(row, "jurisdiction_objection")?,
+        external_case_no: row_get_string(row, "external_case_no")?,
+        defense_deadline: row_get_string(row, "defense_deadline")?,
+        estimated_trial_end: row_get_string(row, "estimated_trial_end")?,
         court: row_get_string(row, "court")?,
         judge_panel: row_get_string(row, "judge_panel")?,
         clerk: row_get_string(row, "clerk")?,
@@ -583,6 +645,7 @@ fn row_to_case(row: &rusqlite::Row) -> rusqlite::Result<Case> {
         case_status: row_get_string(row, "case_status")?,
         case_progress: row_get_string(row, "case_progress")?,
         case_result: row_get_string(row, "case_result")?,
+        case_goal: row_get_string(row, "case_goal")?,
         patent_name: row_get_string(row, "patent_name")?,
         patent_app_no: row_get_string(row, "patent_app_no")?,
         procedure_type: row_get_string(row, "procedure_type")?,
