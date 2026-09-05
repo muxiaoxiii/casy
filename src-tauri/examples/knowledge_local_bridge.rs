@@ -25,6 +25,22 @@ async fn main() -> Result<()> {
         }
     }
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
+        "qa_seed_editing" => {
+            conn.execute("INSERT INTO knowledge_items(id,title,content,category,status,block_type,updated_at) VALUES('edit-a','甲研究',?1,'reference','current','page','2099-01-01')", ["# 甲研究\n\n* 原始项目\n\n保留两个空格  \n保留换行\n"])?;
+            conn.execute("INSERT INTO knowledge_items(id,title,content,category,status,block_type) VALUES('edit-b','乙研究','乙笔记原文','reference','current','page')", [])?;
+            let long = (0..3000).map(|n|format!("## 材料第{n}节\n\n第三人代理人与法院核对送达地址，保留关联案件及证据编号。\n\n")).collect::<String>() + "末尾完整性标记-END";
+            conn.execute("INSERT INTO knowledge_items(id,title,content,category,status,block_type) VALUES('edit-long','长篇材料',?1,'reference','current','page')", [&long])?;
+            Ok(json!({"bytes":long.len()}))
+        }
+        "create_knowledge" => knowledge::create_knowledge(serde_json::from_value(args["data"].clone())?).await.map(|v|json!(v)),
+        "update_knowledge" => knowledge::update_knowledge(args["id"].as_str().unwrap_or("").into(),args["data"].clone()).await.map(|v|json!(v)),
+        "delete_knowledge" => knowledge::delete_knowledge(args["id"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "list_knowledge_versions" => knowledge::list_knowledge_versions(args["itemId"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "diff_knowledge_with_current" => knowledge::diff_knowledge_with_current(args["versionId"].as_str().unwrap_or("").into(),args["itemId"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "restore_knowledge_version" => knowledge::restore_knowledge_version(args["itemId"].as_str().unwrap_or("").into(),args["versionId"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "export_knowledge_markdown" => knowledge::export_knowledge_markdown(args["itemId"].as_str().unwrap_or("").into(),args["outputPath"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "list_links_for" => casy_lib::commands::linking::list_links_for(args["sourceType"].as_str().unwrap_or("").into(),args["sourceId"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "get_backlinks" => casy_lib::commands::linking::get_backlinks(args["targetType"].as_str().unwrap_or("").into(),args["targetId"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
         "qa_seed" => {
             conn.execute("DELETE FROM knowledge_items", [])?;
             conn.execute("INSERT INTO knowledge_items(id,title,content,category,updated_at) VALUES('qa-long','第三人赔偿研究',?1,'reference','2000-01-01')", ["程序材料已经核对。".repeat(500) + "第三人的赔偿金额为125000.25元。"])?;

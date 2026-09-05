@@ -12,6 +12,13 @@ afterEach(() => {
 })
 
 describe('MarkdownWysiwygEditor', () => {
+  it('不编辑正文时保留原始 Markdown 格式', async () => {
+    const source = '# 标题\n\n* 第一项\n* 第二项\n\n正文  \n换行\n'
+    wrapper = mount(MarkdownWysiwygEditor, { props: { modelValue: source } })
+    await waitForEditor()
+    expect((wrapper.vm as unknown as { flushAndGetMarkdown: () => string }).flushAndGetMarkdown()).toBe(source)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
   async function waitForEditor() {
     for (let index = 0; index < 10; index += 1) {
       await new Promise(resolve => setTimeout(resolve, 0))
@@ -19,6 +26,17 @@ describe('MarkdownWysiwygEditor', () => {
       if (wrapper?.find('.tiptap').exists()) return
     }
   }
+
+  it('立即恢复外部正文时保留权威 Markdown，包括仅格式不同的替换', async () => {
+    wrapper = mount(MarkdownWysiwygEditor, { props: { modelValue: '原文' } })
+    await waitForEditor()
+    const api = wrapper.vm as unknown as { setMarkdown: (value: string) => string; flushAndGetMarkdown: () => string }
+    api.setMarkdown('刚编辑的正文')
+    await wrapper.setProps({ modelValue: '* 恢复项目\n' })
+    expect(api.flushAndGetMarkdown()).toBe('* 恢复项目\n')
+    await wrapper.setProps({ modelValue: '- 恢复项目' })
+    expect(api.flushAndGetMarkdown()).toBe('- 恢复项目')
+  })
 
   it('载入并 flush 时保留 Markdown 图片', async () => {
     wrapper = mount(MarkdownWysiwygEditor, {

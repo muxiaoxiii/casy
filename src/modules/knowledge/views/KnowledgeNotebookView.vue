@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -15,12 +15,11 @@ import KnowledgeRelationsPanel from '../components/KnowledgeRelationsPanel.vue'
 import KnowledgeHistoryPanel from '../components/KnowledgeHistoryPanel.vue'
 import KnowledgeImportPanel from '../components/KnowledgeImportPanel.vue'
 import KnowledgeSearchPanel from '../components/KnowledgeSearchPanel.vue'
+import { useNotebookSave } from '../composables/useNotebookSave'
 
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
-const saving = ref(false)
-const dirty = ref(false)
 const notes = ref([])
 const cases = ref([])
 const selectedId = ref('')
@@ -30,15 +29,33 @@ const mode = ref('rich')
 const titleInput = ref(null)
 const editorRef = ref(null)
 const relationPanelRef = ref(null)
+const historyPanelRef = ref(null)
 const draft = ref(emptyDraft())
 const infoTab = ref('relations')
 const searchOpen = ref(false)
 const exporting = ref(false)
 const outlineItems = ref([])
-let saveTimer = null
-let hydrating = false
-let editRevision = 0
-let activeSavePromise = null
+let selectionRevision = 0
+let loadRevision = 0
+let stopCloseListener
+let unmounted = false
+const documentBusy = ref(false)
+const mobilePane = ref('notes')
+const persistence = useNotebookSave({
+  draft,
+  syncEditor: syncEditorContent,
+  update: (id, data) => casyContext.knowledge.update(id, data),
+  onSaved: (id, data) => {
+    const item = notes.value.find(note => note.id === id)
+    if (item) Object.assign(item, { ...data, updatedAt: new Date().toISOString() })
+    if (selectedId.value === id) {
+      refreshRelations()
+      historyPanelRef.value?.reload?.()
+    }
+  },
+  onError: message => ElMessage.error(message),
+})
+const { dirty, saving, error: saveError } = persistence
 
 const categories = [
   { value: 'all', label: '全部笔记', color: '#64748b' },
@@ -109,7 +126,7 @@ const selectedCaseName = computed(() => {
 })
 
 function noteSummary(note) {
-  return String(note.content || '').replace(/[#>*_`\[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110) || '空白笔记'
+  return String(note.content || '').slice(0, 512).replace(/[#>*_`\[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110) || '空白笔记'
 }
 
 function displayTime(value) {
@@ -227,14 +244,18 @@ function syncEditorContent() {
 }
 
 async function loadAll(preferredId = '') {
+  if (!(await flushSave())) return
+  const request = ++loadRevision
   loading.value = true
   const [noteRes, caseRes] = await Promise.all([
     casyContext.knowledge.list({}),
     casyContext.cases.list({}),
   ])
-  notes.value = noteRes.ok ? normalizeList(noteRes.data) : []
-  cases.value = caseRes.ok ? normalizeList(caseRes.data) : []
+  if (request !== loadRevision) return
   loading.value = false
+  if (!noteRes.ok) return ElMessage.error(noteRes.error || '无法读取笔记列表')
+  notes.value = normalizeList(noteRes.data)
+  if (caseRes.ok) cases.value = normalizeList(caseRes.data)
   const queryId = typeof route.query.select === 'string' ? route.query.select : ''
   const nextId = preferredId || queryId || selectedId.value || filteredNotes.value[0]?.id
   if (nextId) await selectNote(notes.value.find(n => n.id === nextId))
@@ -242,23 +263,38 @@ async function loadAll(preferredId = '') {
 
 async function selectNote(note) {
   if (!note) return
-  if (selectedId.value && selectedId.value !== note.id && !(await flushSave())) return
-  hydrating = true
-  selectedId.value = note.id
-  draft.value = {
-    id: note.id,
-    title: note.title || '',
-    content: note.content || '',
-    category: note.category || 'reference',
-    tags: note.tags || '',
-    linkedCaseId: note.linkedCaseId || '',
-    parentId: note.parentId || '',
-  }
-  dirty.value = false
-  nextTick(() => { hydrating = false })
+  if (documentBusy.value) return
+  if (selectedId.value === note.id) { mobilePane.value = 'editor'; return }
+  const request = ++selectionRevision
+  if (!(await flushSave())) return
+  if (request !== selectionRevision) return
+  documentBusy.value = true
+  try {
+    const result = await casyContext.knowledge.getWithBlocks(note.id)
+    if (request !== selectionRevision) return
+    if (!result.ok || !result.data?.item) return ElMessage.error(result.error || '无法读取笔记')
+    const current = result.data.item
+    const index = notes.value.findIndex(item => item.id === current.id)
+    if (index < 0) notes.value.unshift(current)
+    else notes.value[index] = current
+    selectedId.value = current.id
+    persistence.hydrate({
+      id: current.id,
+      title: current.title || '',
+      content: current.content || '',
+      category: current.category || 'reference',
+      tags: current.tags || '',
+      linkedCaseId: current.linkedCaseId || '',
+      parentId: current.parentId || '',
+    })
+    outlineItems.value = []
+    mobilePane.value = 'editor'
+    await nextTick()
+  } finally { documentBusy.value = false }
 }
 
 async function createNote(parentId = '') {
+  if (documentBusy.value) return
   parentId = typeof parentId === 'string' ? parentId : ''
   if (!(await flushSave())) return
   const result = await casyContext.knowledge.create({
@@ -283,58 +319,20 @@ function refreshRelations() {
 }
 
 async function saveNow(silent = false) {
-  syncEditorContent()
-  // v-model 更新与 deep watch 默认在下一 tick 执行，确保 Cmd+S 不会因 dirty 尚未更新而被跳过。
-  await nextTick()
-  if (activeSavePromise) await activeSavePromise
-  if (!draft.value.id || !dirty.value) return true
-
-  const noteId = draft.value.id
-  const revision = editRevision
-  const payload = {
-    title: draft.value.title.trim() || '无标题笔记',
-    content: draft.value.content,
-    category: draft.value.category,
-    tags: draft.value.tags || null,
-    linkedCaseId: draft.value.linkedCaseId || null,
-    parentId: draft.value.parentId || null,
-    status: 'current',
-  }
-  saving.value = true
-  const request = casyContext.knowledge.update(noteId, payload)
-  activeSavePromise = request
-  const result = await request
-  if (activeSavePromise === request) activeSavePromise = null
-  saving.value = false
-  if (result.ok) {
-    // 只有同一笔记且保存期间没有新编辑，才允许清除 dirty。
-    if (draft.value.id === noteId && editRevision === revision) dirty.value = false
-    const item = notes.value.find(n => n.id === noteId)
-    if (item) Object.assign(item, { ...payload, id: noteId, updatedAt: new Date().toISOString() })
-    if (draft.value.id === noteId) refreshRelations()
-    if (!silent) ElMessage.success('笔记已保存')
-    return true
-  }
-  dirty.value = draft.value.id === noteId ? true : dirty.value
-  ElMessage.error(result.error || '保存失败，修改仍保留在编辑器中，请重试')
-  return false
+  const ok = await persistence.flush()
+  if (ok && !silent) ElMessage.success('笔记已保存')
+  return ok
 }
 
 async function flushSave() {
-  syncEditorContent()
-  await nextTick()
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = null
-  return await saveNow(true)
+  return persistence.flush()
 }
 
-watch(draft, () => {
-  if (hydrating || !draft.value.id) return
-  editRevision += 1
-  dirty.value = true
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => saveNow(true), 900)
-}, { deep: true })
+function changeMode(nextMode) {
+  if (documentBusy.value || mode.value === nextMode) return
+  syncEditorContent()
+  mode.value = nextMode
+}
 
 watch(() => route.query.select, (id) => {
   if (typeof id !== 'string') return
@@ -342,48 +340,108 @@ watch(() => route.query.select, (id) => {
 })
 
 onBeforeRouteLeave(async () => {
+  if (documentBusy.value) return false
   return await flushSave()
 })
 
 async function deleteNote() {
-  if (!draft.value.id) return
+  if (!draft.value.id || documentBusy.value) return
+  const id = draft.value.id
   try {
     await ElMessageBox.confirm(`删除笔记「${draft.value.title || '无标题笔记'}」？`, '删除确认', { type: 'warning' })
   } catch { /* 用户取消：属预期 */ return }
-  const result = await casyContext.knowledge.remove(draft.value.id)
-  if (!result.ok) return ElMessage.error(result.error || '删除失败')
-  selectedId.value = ''
-  draft.value = emptyDraft()
+  if (draft.value.id !== id) return
+  documentBusy.value = true
+  try {
+    if (!(await flushSave())) return
+    const result = await casyContext.knowledge.remove(id)
+    if (!result.ok) return ElMessage.error(result.error || '删除失败')
+    selectedId.value = ''
+    persistence.hydrate(emptyDraft())
+  } finally { documentBusy.value = false }
   await loadAll()
   ElMessage.success('笔记已删除')
 }
 
-async function onVersionRestored() {
-  await loadAll(selectedId.value)
-  refreshRelations()
+async function restoreVersion(noteId, versionId) {
+  if (documentBusy.value || draft.value.id !== noteId) return { ok: false, error: '当前笔记已改变' }
+  documentBusy.value = true
+  try {
+    if (!(await flushSave())) return { ok: false, error: '请先保存当前修改' }
+    const result = await casyContext.knowledge.restoreVersion(noteId, versionId)
+    if (!result.ok) return result
+    const refreshed = await casyContext.knowledge.getWithBlocks(noteId)
+    if (!refreshed.ok || !refreshed.data?.item) return { ok: false, error: '版本已恢复，但重新读取失败，请重新打开笔记' }
+    const note = refreshed.data.item
+    Object.assign(notes.value.find(item => item.id === noteId), note)
+    persistence.hydrate({ ...emptyDraft(), ...note, tags: note.tags || '', linkedCaseId: note.linkedCaseId || '', parentId: note.parentId || '' })
+    await nextTick()
+    refreshRelations()
+    return { ok: true }
+  } finally { documentBusy.value = false }
 }
 
-onMounted(loadAll)
+function beforeUnload(event) {
+  syncEditorContent()
+  if (!dirty.value && !saving.value && !documentBusy.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(async () => {
+  window.addEventListener('beforeunload', beforeUnload)
+  try {
+    if (window.__TAURI_INTERNALS__?.metadata?.currentWindow) {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      if (unmounted) return
+      const current = getCurrentWindow()
+      const unlisten = await current.onCloseRequested(async event => {
+        syncEditorContent()
+        if (!dirty.value && !saving.value && !documentBusy.value) return
+        event.preventDefault()
+        if (documentBusy.value) return
+        documentBusy.value = true
+        try {
+          if (!(await flushSave())) return
+          documentBusy.value = false
+          await current.close()
+        } catch {
+          ElMessage.error('关闭窗口失败，笔记已保留')
+        } finally { documentBusy.value = false }
+      })
+      if (unmounted) unlisten()
+      else stopCloseListener = unlisten
+    }
+  } catch {
+    ElMessage.error('无法启用窗口关闭保护，请保存笔记后再退出')
+  }
+  if (!unmounted) await loadAll()
+})
+onBeforeUnmount(() => {
+  unmounted = true
+  ++loadRevision
+  ++selectionRevision
+  window.removeEventListener('beforeunload', beforeUnload)
+  stopCloseListener?.()
+})
 
 async function openSearch() {
   if (await flushSave()) searchOpen.value = true
 }
 
 async function openSearchHit(id) {
-  if (!(await flushSave())) return
-  const result = await casyContext.knowledge.getWithBlocks(id)
-  if (!result.ok || !result.data?.item) return ElMessage.error(result.error || '无法读取笔记')
-  const note = result.data.item
-  const existing = notes.value.findIndex(item => item.id === id)
-  if (existing < 0) notes.value.unshift(note)
-  else notes.value[existing] = note
-  await selectNote(note)
-  searchOpen.value = false
+  await selectNote({ id })
+  if (selectedId.value === id) searchOpen.value = false
 }
 </script>
 
 <template>
-  <div class="notebook-shell">
+  <div class="notebook-shell" :class="`mobile-${mobilePane}`">
+    <nav class="mobile-notebook-nav" aria-label="笔记视图">
+      <button :class="{ active: mobilePane === 'notes' }" @click="mobilePane = 'notes'">笔记</button>
+      <button :disabled="!selectedNote" :class="{ active: mobilePane === 'editor' }" @click="mobilePane = 'editor'">正文</button>
+      <button :disabled="!selectedNote" :class="{ active: mobilePane === 'info' }" @click="mobilePane = 'info'">关联与历史</button>
+    </nav>
     <section class="note-list-panel">
       <div class="vault-head">
         <div class="vault-title"><Collection /><span>知识笔记</span></div>
@@ -401,7 +459,7 @@ async function openSearchHit(id) {
         </button>
       </div>
       <div class="note-scroll" v-loading="loading">
-        <button v-for="note in visibleNotes" :key="note.id" class="note-card" :class="{ active: note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)">
+        <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)">
           <div class="note-card-top"><strong>{{ note.title || '无标题笔记' }}</strong><span class="note-category">{{ categories.find(c => c.value === note.category)?.label || '其他' }}</span></div>
           <p>{{ noteSummary(note) }}</p>
           <div class="note-meta"><span><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span></div>
@@ -418,11 +476,11 @@ async function openSearchHit(id) {
       <KnowledgeSearchPanel v-if="searchOpen" @navigate="openSearchHit" @settings="router.push({ path: '/settings', query: { tab: 'ai' } })" />
     </el-drawer>
 
-    <main class="editor-panel">
+    <main class="editor-panel" :inert="documentBusy">
       <template v-if="selectedNote">
         <header class="editor-toolbar">
-          <div class="save-state"><span :class="{ dirty }" />{{ saving ? '保存中…' : dirty ? '等待自动保存' : '已保存' }}</div>
-          <div class="mode-switch"><button :class="{ active: mode === 'rich' }" @click="mode = 'rich'"><MagicStick /> 富文本</button><button :class="{ active: mode === 'edit' }" @click="mode = 'edit'"><EditPen /> 源码</button><button :class="{ active: mode === 'split' }" @click="mode = 'split'"><Tickets /> 分栏</button><button :class="{ active: mode === 'preview' }" @click="mode = 'preview'"><View /> 预览</button></div>
+          <div class="save-state" role="status"><span :class="{ dirty }" />{{ saving ? '保存中…' : saveError ? '保存失败' : dirty ? '等待自动保存' : '已保存' }}</div>
+          <div class="mode-switch"><button title="富文本" :class="{ active: mode === 'rich' }" @click="changeMode('rich')"><MagicStick /> 富文本</button><button title="源码" :class="{ active: mode === 'edit' }" @click="changeMode('edit')"><EditPen /> 源码</button><button title="分栏" :class="{ active: mode === 'split' }" @click="changeMode('split')"><Tickets /> 分栏</button><button title="预览" :class="{ active: mode === 'preview' }" @click="changeMode('preview')"><View /> 预览</button></div>
           <el-dropdown trigger="click" :disabled="exporting" @command="handleExportCommand">
             <button class="export-button" :disabled="exporting"><Download />{{ exporting ? '导出中…' : '导出' }}</button>
             <template #dropdown>
@@ -449,7 +507,7 @@ async function openSearchHit(id) {
         </div>
         <div class="markdown-workspace" :class="`mode-${mode}`">
           <!-- :key 随笔记切换重建编辑器，撤销历史不跨笔记残留（对齐 CodeMirror 重建 state 的语义） -->
-          <MarkdownWysiwygEditor v-if="mode === 'rich' || mode === 'split'" :key="`rich-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-rich" :note-titles="noteTitleOptions" @save="saveNow(false)" @wiki-link-click="onWikiLinkClick" @outline-change="onOutlineChange" />
+          <MarkdownWysiwygEditor v-if="mode === 'rich' || mode === 'split'" :key="`rich-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-rich" :note-titles="noteTitleOptions" @change="persistence.changed" @save="saveNow(false)" @wiki-link-click="onWikiLinkClick" @outline-change="onOutlineChange" />
           <MarkdownCodeMirror v-if="mode === 'edit'" :key="`src-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-source" :note-titles="noteTitleOptions" @save="saveNow(false)" />
           <article v-if="mode === 'split' || mode === 'preview'" class="markdown-preview" v-html="previewHtml" />
         </div>
@@ -470,7 +528,7 @@ async function openSearchHit(id) {
         <button v-for="item in outlineItems" :key="item.id" :style="{ paddingLeft: `${10 + (item.level - 1) * 13}px` }" @click="jumpToHeading(item.id)">{{ item.text }}</button>
         <div v-if="!outlineItems.length" class="outline-empty">添加标题后，这里会生成可跳转目录。</div>
       </nav>
-      <KnowledgeHistoryPanel v-else-if="infoTab==='history'" :note="selectedNote" :before-restore="flushSave" @restored="onVersionRestored" />
+      <KnowledgeHistoryPanel v-else-if="infoTab==='history'" ref="historyPanelRef" :note="selectedNote" :restore-version="restoreVersion" />
       <KnowledgeImportPanel v-else @navigate="id => selectNote(notes.find(item => item.id === id))" @imported="id => loadAll(id)" />
     </aside>
   </div>
@@ -494,7 +552,9 @@ async function openSearchHit(id) {
 .markdown-preview :deep(span[data-wiki-link]){color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 9%,transparent);border-bottom:1px dashed var(--c-primary);border-radius:4px;padding:0 4px;cursor:pointer}
 .markdown-preview :deep(hr){border:0;border-top:1px solid var(--c-border);margin:20px 0}
 .markdown-preview :deep(mark){background:color-mix(in srgb,var(--c-primary) 22%,transparent);border-radius:3px;padding:0 2px}
-.knowledge-info-rail{min-width:0;overflow:auto;border-left:1px solid var(--c-border);background:var(--c-bg-card)}
+.knowledge-info-rail{min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;border-left:1px solid var(--c-border);background:var(--c-bg-card)}
+.knowledge-info-rail>.history-panel{height:auto;min-height:0;flex:1}
+.knowledge-info-rail>.info-tabs{flex-shrink:0}
 .info-tabs{height:45px;display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--c-border);padding:0 6px}
 .info-tabs button{display:flex;align-items:center;justify-content:center;gap:4px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--c-text-secondary);font-size:10px;cursor:pointer}.info-tabs button.active{color:var(--c-primary);border-bottom-color:var(--c-primary)}.info-tabs svg{width:12px}
 .vault-head{height:62px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--c-border)}
@@ -520,6 +580,28 @@ async function openSearchHit(id) {
 .outline-panel button{width:100%;display:block;border:0;border-radius:6px;background:transparent;color:var(--c-text-secondary);padding-top:6px;padding-right:8px;padding-bottom:6px;text-align:left;font-size:11px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .outline-panel button:hover{background:var(--c-bg-subtle);color:var(--c-primary)}
 .outline-empty{padding:12px 8px;color:var(--c-text-secondary);font-size:10px;line-height:1.6}
-@media(max-width:1300px){.notebook-shell{grid-template-columns:260px minmax(440px,1fr) 240px}.editor-toolbar{padding-left:10px;padding-right:10px;gap:6px}.child-button{font-size:0}.child-button svg{width:13px}.note-fields{padding-left:18px;padding-right:18px}.mode-switch button{font-size:0}.mode-switch svg{width:14px}}
+@media(max-width:1380px){.notebook-shell{grid-template-columns:260px minmax(440px,1fr) 240px}.editor-toolbar{padding-left:10px;padding-right:10px;gap:6px}.child-button{font-size:0}.child-button svg{width:13px}.note-fields{padding-left:18px;padding-right:18px}.mode-switch button{font-size:0}.mode-switch svg{width:14px}}
 @media(max-width:980px){.notebook-shell{grid-template-columns:240px minmax(430px,1fr)}.knowledge-info-rail{display:none}}
+.mobile-notebook-nav{display:none}
+@media(max-width:1180px){
+  .notebook-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:40px minmax(0,1fr);min-height:0}
+  .mobile-notebook-nav{display:flex;gap:4px;padding:4px 8px;border-bottom:1px solid var(--c-border)}
+  .mobile-notebook-nav button{flex:1;border:0;background:transparent;color:var(--c-text);border-radius:4px}
+  .mobile-notebook-nav button.active{background:var(--c-bg-subtle);font-weight:600}
+  .notebook-shell>.note-list-panel,.notebook-shell>.editor-panel,.notebook-shell>.knowledge-info-rail{display:none;min-height:0}
+  .mobile-notes>.note-list-panel,.mobile-editor>.editor-panel,.mobile-info>.knowledge-info-rail{display:flex}
+  .editor-toolbar{height:auto;min-height:56px;flex-wrap:wrap;padding:8px;gap:8px}
+  .mode-switch{order:2;flex-basis:100%;justify-content:space-between}
+  .mode-switch button{padding:6px}
+  .note-fields{padding:16px}
+  .property-row{gap:10px}
+  .property-row label{flex:1;min-width:0}
+  .property-row select,.property-row input{min-width:0;width:100%;box-sizing:border-box}
+  .markdown-workspace.mode-split{grid-template-columns:minmax(0,1fr)}
+  .markdown-preview{padding:16px}
+  .knowledge-info-rail{border-left:0}
+}
+@media(max-width:500px){
+  .property-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 </style>

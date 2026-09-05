@@ -58,6 +58,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   save: []
+  change: []
   blur: []
   submit: []
   'wiki-link-click': [payload: { title: string }]
@@ -160,9 +161,9 @@ const RawHtmlBlock = Node.create({
 })
 
 // ── 双向同步守卫（参考 MarkdownCodeMirror 的 applyingExternal 模式）─────────
-let applyingExternal = false
 let serializeTimer: ReturnType<typeof setTimeout> | null = null
 let lastEmitted = props.modelValue || ''
+let contentChanged = false
 
 /** 防抖 400ms 把编辑器 HTML 序列化为 Markdown 回写 modelValue */
 function scheduleSerialize() {
@@ -175,13 +176,12 @@ function flushSerialize(): string {
   serializeTimer = null
   const ed = editor.value
   if (!ed) return String(props.modelValue ?? '')
+  if (!contentChanged) return lastEmitted
   const md = htmlToMd(ed.getHTML())
+  contentChanged = false
   if (md === lastEmitted) return md
   lastEmitted = md
-  applyingExternal = true
   emit('update:modelValue', md)
-  // 等父组件 v-model 回灌完成后再解除标记
-  setTimeout(() => { applyingExternal = false }, 0)
   return md
 }
 
@@ -286,7 +286,9 @@ const editor = useEditor({
     },
   },
   onUpdate: () => {
-    if (!applyingExternal) scheduleSerialize()
+    contentChanged = true
+    emit('change')
+    scheduleSerialize()
     collectOutline(editor.value)
   },
   onCreate: ({ editor: activeEditor }) => collectOutline(activeEditor),
@@ -299,10 +301,12 @@ const editor = useEditor({
 // 外部 modelValue 变化（模式切换/切换笔记/版本恢复）→ 重建内容；自身回写不重建
 watch(() => props.modelValue, (value) => {
   const ed = editor.value
-  if (!ed || applyingExternal) return
+  if (!ed) return
   const next = String(value ?? '')
-  if (next === lastEmitted || next === htmlToMd(ed.getHTML())) return
+  if (next === lastEmitted) return
   lastEmitted = next
+  contentChanged = false
+  if (serializeTimer) clearTimeout(serializeTimer)
   ed.commands.setContent(mdToHtml(next), { emitUpdate: false })
 })
 
@@ -372,6 +376,7 @@ defineExpose({
   setMarkdown: (markdown: string) => {
     const next = String(markdown ?? '')
     editor.value?.commands.setContent(mdToHtml(next), { emitUpdate: false })
+    contentChanged = true
     return flushSerialize()
   },
   /**

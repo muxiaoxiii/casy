@@ -11,6 +11,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-hide",
     "core:window:allow-close",
+    "core:window:allow-destroy",
     "dialog:default",
     "notification:default",
     "global-shortcut:allow-register",

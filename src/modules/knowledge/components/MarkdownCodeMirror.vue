@@ -107,7 +107,10 @@ onBeforeUnmount(() => {
   view?.destroy()
 })
 
-defineExpose({ focus: () => view?.focus() })
+defineExpose({
+  focus: () => view?.focus(),
+  flushAndGetMarkdown: () => view?.state.doc.toString() ?? props.modelValue,
+})
 </script>
 
 <template><div ref="host" class="codemirror-host" /></template>

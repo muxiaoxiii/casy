@@ -82,10 +82,17 @@ function onOnboardingDismiss() {
 // ============================================================
 // 侧栏折叠
 // ============================================================
-const sidebarCollapsed = ref(false)
+const sidebarCollapsed = ref(localStorage.getItem('casy_sidebar_collapsed') === '1')
+const mobileNavOpen = ref(false)
 function toggleSidebar() {
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    mobileNavOpen.value = !mobileNavOpen.value
+    return
+  }
   sidebarCollapsed.value = !sidebarCollapsed.value
+  localStorage.setItem('casy_sidebar_collapsed', sidebarCollapsed.value ? '1' : '0')
 }
+watch(() => route.fullPath, () => { mobileNavOpen.value = false })
 const showGlobalSearch = ref(false)
 
 const aiStatusText = computed(() => {
@@ -228,11 +235,9 @@ function onMenuSelect(name) {
 
 <template>
   <div class="app-shell">
-    <div class="mock-watermark" v-if="isBrowserPreview">
-      <span>[Mock 预览模式] 本地无后端</span>
-    </div>
     <!-- ═══ 左侧侧栏 (Stitch UI 240px Fixed Sidebar) ═══ -->
-    <aside class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <button v-if="mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" @click="mobileNavOpen = false" />
+    <aside id="app-navigation" class="app-sidebar" :class="{ collapsed: sidebarCollapsed && !mobileNavOpen, 'mobile-open': mobileNavOpen }" @keydown.esc="mobileNavOpen = false">
       <!-- 品牌 Header -->
       <div class="sidebar-brand" @click="router.push('/')">
         <div class="brand-badge">
@@ -317,7 +322,7 @@ function onMenuSelect(name) {
       <!-- 顶栏 (Stitch UI 64px Topbar with Backdrop Blur) -->
       <header class="topbar">
         <div class="topbar-left">
-          <button class="sidebar-toggle-btn" @click="toggleSidebar" title="折叠/展开侧栏">
+          <button class="sidebar-toggle-btn" @click="toggleSidebar" title="折叠/展开侧栏" aria-label="折叠/展开侧栏" aria-controls="app-navigation" :aria-expanded="mobileNavOpen || !sidebarCollapsed">
             <el-icon :size="17">
               <Expand v-if="sidebarCollapsed" />
               <Fold v-else />
@@ -668,6 +673,7 @@ function onMenuSelect(name) {
 }
 
 .topbar-left {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -676,6 +682,7 @@ function onMenuSelect(name) {
 }
 
 .sidebar-toggle-btn {
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   border-radius: 6px;
@@ -694,6 +701,7 @@ function onMenuSelect(name) {
 }
 
 .search-trigger {
+  min-width: 0;
   flex: 1;
   height: 36px;
   background: var(--c-bg-card);
@@ -736,6 +744,7 @@ function onMenuSelect(name) {
 }
 
 .topbar-right {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -769,6 +778,7 @@ function onMenuSelect(name) {
 }
 
 .btn-secondary {
+  white-space: nowrap;
   height: 34px;
   display: inline-flex;
   align-items: center;
@@ -792,6 +802,7 @@ function onMenuSelect(name) {
 }
 
 .btn-primary {
+  white-space: nowrap;
   height: 34px;
   display: inline-flex;
   align-items: center;
@@ -845,6 +856,8 @@ function onMenuSelect(name) {
 
 /* ── 页面主体滚动 ─────────────────────────────────────────── */
 .content-scroll {
+  min-height: 0;
+  container-type: inline-size;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -852,17 +865,32 @@ function onMenuSelect(name) {
 }
 
 @media (max-width: 900px) {
-  .app-sidebar:not(.collapsed) {
+  .topbar { padding: 0 16px; gap: 10px; }
+  .topbar-right { gap: 8px; }
+  .shortcut-tag, .kbd-badge { display: none; }
+  .app-sidebar:not(.mobile-open) {
     width: 68px;
     min-width: 68px;
   }
-  .app-sidebar:not(.collapsed) .brand-copy,
-  .app-sidebar:not(.collapsed) .nav-group-label,
-  .app-sidebar:not(.collapsed) .nav-label-group,
-  .app-sidebar:not(.collapsed) .ai-status-pill,
-  .app-sidebar:not(.collapsed) .user-profile-card,
-  .app-sidebar:not(.collapsed) .settings-item .nav-label-main {
+  .app-sidebar:not(.mobile-open) .brand-copy,
+  .app-sidebar:not(.mobile-open) .nav-group-label,
+  .app-sidebar:not(.mobile-open) .nav-label-group,
+  .app-sidebar:not(.mobile-open) .ai-status-pill,
+  .app-sidebar:not(.mobile-open) .user-profile-card,
+  .app-sidebar:not(.mobile-open) .settings-item .nav-label-main {
     display: none;
   }
+  .app-sidebar.mobile-open { position: fixed; inset: 0 auto 0 0; width: 240px; min-width: 240px; box-shadow: var(--shadow-lg); }
+  .mobile-open .brand-copy, .mobile-open .nav-label-group, .mobile-open .nav-group-label { display: flex !important; }
+  .nav-backdrop { position: fixed; inset: 0; background: var(--c-overlay); border: 0; z-index: 45; }
+}
+@media (max-width: 600px) {
+  .app-sidebar:not(.mobile-open) { display: none; }
+  .topbar { height: 56px; padding: 0 12px; }
+  .topbar-left { gap: 8px; }
+  .search-trigger { flex: 0 0 34px; width: 34px; padding: 0; justify-content: center; }
+  .search-placeholder, .topbar .btn-secondary { display: none; }
+  .btn-primary { padding: 0 10px; }
+  .browser-preview-pill { padding: 3px 6px; font-size: 10px; }
 }
 </style>

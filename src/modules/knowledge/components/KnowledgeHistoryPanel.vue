@@ -7,6 +7,7 @@ import { casyContext } from '../../../core/plugin/context'
 const props = defineProps({
   note: { type: Object, default: null },
   beforeRestore: { type: Function, default: null },
+  restoreVersion: { type: Function, default: null },
 })
 const emit = defineEmits(['restored'])
 const versions = ref([])
@@ -14,41 +15,57 @@ const loading = ref(false)
 const selected = ref(null)
 const diff = ref([])
 const restoring = ref(false)
+let loadRevision = 0
+let diffRevision = 0
 
 function normalize(value) { return Array.isArray(value) ? value : [] }
 function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '未知时间' }
 function reasonLabel(reason) { return reason === 'before_restore' ? '恢复前快照' : reason === 'edit_session' ? '编辑会话' : reason || '编辑' }
 
 async function load() {
+  const request = ++loadRevision
+  ++diffRevision
   versions.value = []
   selected.value = null
   diff.value = []
+  loading.value = false
   if (!props.note?.id) return
   loading.value = true
   const result = await casyContext.knowledge.versions(props.note.id)
+  if (request !== loadRevision) return
   versions.value = result.ok ? normalize(result.data) : []
   loading.value = false
 }
 
 async function inspect(version) {
+  const request = ++diffRevision
+  const noteId = props.note?.id
   selected.value = version
-  const result = await casyContext.knowledge.diffWithCurrent(version.id, props.note.id)
-  diff.value = result.ok && Array.isArray(result.data?.diffs) ? result.data.diffs : []
+  diff.value = []
+  const result = await casyContext.knowledge.diffWithCurrent(version.id, noteId)
+  if (request !== diffRevision || noteId !== props.note?.id) return
+  diff.value = result.ok && Array.isArray(result.data?.diffs) ? result.data.diffs.map(line => ({ ...line, type: line.diffType || line.type })) : []
 }
 
 async function restore() {
-  if (!selected.value) return
+  if (!selected.value || restoring.value) return
+  const noteId = props.note?.id
+  const versionId = selected.value.id
   try {
     await ElMessageBox.confirm('恢复后，当前正文会先保存为一个快照，可以再次找回。', '恢复历史版本', { type: 'warning', confirmButtonText: '恢复' })
   } catch { /* 用户取消：属预期 */ return }
-  if (props.beforeRestore && !(await props.beforeRestore())) return
+  if (noteId !== props.note?.id || versionId !== selected.value?.id) return
   restoring.value = true
-  const result = await casyContext.knowledge.restoreVersion(props.note.id, selected.value.id)
-  restoring.value = false
-  if (!result.ok) return ElMessage.error(result.error || '恢复失败')
-  ElMessage.success('历史版本已恢复')
-  emit('restored')
-  await load()
+  try {
+    if (props.beforeRestore && !(await props.beforeRestore())) return
+    const result = props.restoreVersion
+      ? await props.restoreVersion(noteId, versionId)
+      : await casyContext.knowledge.restoreVersion(noteId, versionId)
+    if (!result.ok) return ElMessage.error(result.error || '恢复失败')
+    ElMessage.success('历史版本已恢复')
+    emit('restored')
+    await load()
+  } finally { restoring.value = false }
 }
 
 watch(() => props.note?.id, load, { immediate: true })
