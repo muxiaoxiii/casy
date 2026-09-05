@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 27;
+pub const CURRENT_SCHEMA_VERSION: i64 = 28;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -700,7 +700,69 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("25", MIGRATION_V25_SQL),
     ("26", MIGRATION_V26_SQL),
     ("27", MIGRATION_V27_SQL),
+    ("28", MIGRATION_V28_SQL),
 ];
+
+pub const MIGRATION_V28_SQL: &str = r#"
+DROP TRIGGER IF EXISTS trg_knowledge_au;
+CREATE TRIGGER trg_knowledge_au AFTER UPDATE OF title,content,tags ON knowledge_items
+WHEN OLD.title IS NOT NEW.title OR OLD.content IS NOT NEW.content OR OLD.tags IS NOT NEW.tags
+BEGIN
+  INSERT INTO knowledge_fts(knowledge_fts,rowid,title,content,tags)
+    VALUES('delete',OLD.rowid,OLD.title,OLD.content,OLD.tags);
+  INSERT INTO knowledge_fts(rowid,title,content,tags) VALUES(NEW.rowid,NEW.title,NEW.content,NEW.tags);
+END;
+INSERT INTO knowledge_fts(knowledge_fts) VALUES('rebuild');
+CREATE TABLE knowledge_index_jobs (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+  source_hash TEXT NOT NULL,
+  config_hash TEXT NOT NULL,
+  model TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','cancelled','stale')),
+  completed_chunks INTEGER NOT NULL DEFAULT 0,
+  total_chunks INTEGER NOT NULL DEFAULT 0,
+  dimension INTEGER,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE UNIQUE INDEX idx_knowledge_index_active ON knowledge_index_jobs(item_id)
+  WHERE status IN ('queued','running');
+CREATE INDEX idx_knowledge_index_config ON knowledge_index_jobs(config_hash,status,item_id);
+CREATE TABLE knowledge_index_chunks (
+  job_id TEXT NOT NULL REFERENCES knowledge_index_jobs(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  embedding BLOB NOT NULL,
+  PRIMARY KEY(job_id,chunk_index)
+);
+CREATE TRIGGER trg_knowledge_vector_invalidate AFTER UPDATE OF title,content ON knowledge_items
+WHEN OLD.title IS NOT NEW.title OR OLD.content IS NOT NEW.content
+BEGIN
+  UPDATE knowledge_index_jobs SET status='stale',error='正文已修改，请重新建立索引',updated_at=datetime('now','localtime')
+    WHERE item_id=NEW.id AND status IN ('queued','running','completed');
+  DELETE FROM knowledge_index_chunks WHERE job_id IN (SELECT id FROM knowledge_index_jobs WHERE item_id=NEW.id);
+  DELETE FROM knowledge_embeddings WHERE item_id=NEW.id;
+END;
+CREATE VIRTUAL TABLE knowledge_trigram USING fts5(title,content,tags,
+  content='knowledge_items',content_rowid='rowid',tokenize='trigram');
+INSERT INTO knowledge_trigram(knowledge_trigram) VALUES('rebuild');
+CREATE TRIGGER trg_knowledge_trigram_insert AFTER INSERT ON knowledge_items BEGIN
+  INSERT INTO knowledge_trigram(rowid,title,content,tags) VALUES(NEW.rowid,NEW.title,NEW.content,NEW.tags);
+END;
+CREATE TRIGGER trg_knowledge_trigram_delete AFTER DELETE ON knowledge_items BEGIN
+  INSERT INTO knowledge_trigram(knowledge_trigram,rowid,title,content,tags)
+    VALUES('delete',OLD.rowid,OLD.title,OLD.content,OLD.tags);
+END;
+CREATE TRIGGER trg_knowledge_trigram_update AFTER UPDATE OF title,content,tags ON knowledge_items
+WHEN OLD.title IS NOT NEW.title OR OLD.content IS NOT NEW.content OR OLD.tags IS NOT NEW.tags
+BEGIN
+  INSERT INTO knowledge_trigram(knowledge_trigram,rowid,title,content,tags)
+    VALUES('delete',OLD.rowid,OLD.title,OLD.content,OLD.tags);
+  INSERT INTO knowledge_trigram(rowid,title,content,tags) VALUES(NEW.rowid,NEW.title,NEW.content,NEW.tags);
+END;
+"#;
 
 pub const MIGRATION_V27_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS case_task_links (

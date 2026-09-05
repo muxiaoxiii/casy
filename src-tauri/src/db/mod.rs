@@ -1,5 +1,6 @@
 pub mod cases;
 pub mod intake;
+pub mod knowledge_index;
 pub mod schema;
 pub mod search;
 

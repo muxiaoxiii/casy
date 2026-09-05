@@ -13,6 +13,7 @@ pub mod insights;
 pub mod learning;
 pub mod page_index;
 pub mod retrieval;
+pub mod embeddings;
 pub mod profiles;
 pub mod recommender;
 pub mod recursive_check;

@@ -166,6 +166,24 @@ pub async fn process_next_document_job() -> anyhow::Result<bool> {
 pub fn start_background_worker(_app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         if let Ok(conn) = crate::db::open_db() {
+            if let Err(error) = crate::db::knowledge_index::recover_interrupted(&conn) {
+                error!("knowledge index recovery failed: {}", error);
+                return;
+            }
+        }
+        loop {
+            match crate::db::knowledge_index::process_next().await {
+                Ok(true) => {}
+                Ok(false) => tokio::time::sleep(Duration::from_secs(3)).await,
+                Err(error) => {
+                    error!("knowledge index worker failed: {}", error);
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            }
+        }
+    });
+    tauri::async_runtime::spawn(async move {
+        if let Ok(conn) = crate::db::open_db() {
             let _ = conn.execute(
                 "UPDATE case_files SET ocr_status='failed',index_status='failed',ocr_error='INTERRUPTED: 应用上次退出时任务仍在运行，请重试' WHERE id IN (SELECT file_id FROM document_processing_jobs WHERE status='running')",
                 [],

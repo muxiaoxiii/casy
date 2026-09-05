@@ -16,7 +16,7 @@ pub struct DocumentPassage {
     pub citation: String,
 }
 
-fn query_terms(query: &str) -> Vec<String> {
+pub(crate) fn query_terms(query: &str) -> Vec<String> {
     static JIEBA: OnceLock<jieba_rs::Jieba> = OnceLock::new();
     let tokenizer = JIEBA.get_or_init(jieba_rs::Jieba::new);
     let mut seen = HashSet::new();

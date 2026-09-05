@@ -29,6 +29,16 @@ pub struct AiProfiles {
     pub active_id: Option<String>,
     pub daily_limit: u32,
     pub system_prompt: String,
+    #[serde(default)]
+    pub embedding: Option<EmbeddingSettings>,
+}
+
+#[derive(Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingSettings {
+    pub profile_id: String,
+    pub model: String,
+    pub chunk_chars: u32,
 }
 
 impl Default for AiProfiles {
@@ -38,6 +48,7 @@ impl Default for AiProfiles {
             active_id: None,
             daily_limit: 50,
             system_prompt: "你是一个专业的法律 AI 助手。".into(),
+            embedding: None,
         }
     }
 }
@@ -125,6 +136,15 @@ pub fn validate(config: &mut AiProfiles) -> Result<()> {
         .is_some_and(|id| !ids.contains(id))
     {
         bail!("默认配置不存在");
+    }
+    if let Some(embedding) = &mut config.embedding {
+        embedding.model = embedding.model.trim().to_owned();
+        if !ids.contains(&embedding.profile_id) || embedding.model.is_empty() {
+            bail!("请选择向量接口配置并填写向量模型 ID");
+        }
+        if !(128..=4000).contains(&embedding.chunk_chars) {
+            bail!("向量分段长度须为 128 至 4000 字");
+        }
     }
     Ok(())
 }
