@@ -177,6 +177,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         whiteboard::delete_whiteboard_edge,
         search::global_search,
         search::reasoning_search,
+        search::search_document_passages,
         cases::list_cases,
         cases::get_case,
         cases::create_case,

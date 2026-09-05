@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Casy - 跨端案件管理系统"
 authors = ["only"]
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 [lib]
 name = "casy_lib"
@@ -78,6 +78,9 @@ specta = { version = "1.0.5", features = ["export"] }
 pdf-extract = "0.12.0"
 lopdf = "0.36.0"
 docx-rs = "0.4.22"
+anydoc = "=0.1.8"
+pulldown-cmark = "0.13"
+jieba-rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

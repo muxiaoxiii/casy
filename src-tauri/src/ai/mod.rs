@@ -12,6 +12,7 @@ pub mod gateway;
 pub mod insights;
 pub mod learning;
 pub mod page_index;
+pub mod retrieval;
 pub mod profiles;
 pub mod recommender;
 pub mod recursive_check;

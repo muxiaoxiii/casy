@@ -1,7 +1,7 @@
 //! Isolated document QA bridge. Never connects to Feishu or starts recurring workers.
 use anyhow::{bail, Result};
 use casy_lib::{
-    commands::{cases, document_intelligence as docs, files, smart_rules},
+    commands::{cases, document_intelligence as docs, files, knowledge, search, smart_rules},
     db,
 };
 use serde_json::{json, Value};
@@ -31,11 +31,12 @@ async fn main() -> Result<()> {
             );
             std::fs::copy(source, &destination)?;
             let conn = db::open_db()?;
-            conn.execute("INSERT INTO cases(id,case_name,client_name) VALUES('ocr-case','中文卷宗识别验收','本地测试')", [])?;
-            conn.execute("INSERT INTO case_files(id,case_id,file_name,file_path,file_type,category) VALUES('ocr-file','ocr-case',?1,?2,?3,'evidence')",
-                rusqlite::params![source.file_name().unwrap().to_string_lossy(),destination.display().to_string(),source.extension().unwrap().to_string_lossy()])?;
-            conn.execute("INSERT INTO smart_rules(id,name,match_field,match_pattern,action_type,action_payload,enabled) VALUES('ocr-rule','通知书归类','ocr_text','开庭通知书','set_category','summons',1)", [])?;
-            Ok(json!({"fileId":"ocr-file","caseId":"ocr-case"}))
+            let file_id = args["fileId"].as_str().unwrap_or("ocr-file");
+            conn.execute("INSERT OR IGNORE INTO cases(id,case_name,client_name) VALUES('ocr-case','中文卷宗识别验收','本地测试')", [])?;
+            conn.execute("INSERT INTO case_files(id,case_id,file_name,file_path,file_type,category) VALUES(?4,'ocr-case',?1,?2,?3,'evidence')",
+                rusqlite::params![source.file_name().unwrap().to_string_lossy(),destination.display().to_string(),source.extension().unwrap().to_string_lossy(),file_id])?;
+            conn.execute("INSERT OR IGNORE INTO smart_rules(id,name,match_field,match_pattern,action_type,action_payload,enabled) VALUES('ocr-rule','通知书归类','ocr_text','开庭通知书','set_category','summons',1)", [])?;
+            Ok(json!({"fileId":file_id,"caseId":"ocr-case"}))
         }
         "qa_process_next" => casy_lib::background_jobs::process_next_document_job()
             .await
@@ -70,6 +71,24 @@ async fn main() -> Result<()> {
                 .map(|v| json!(v))
         }
         "get_document_engine_status" => docs::get_document_engine_status().await.map(|v| json!(v)),
+        "search_document_passages" => search::search_document_passages(
+            args["query"].as_str().unwrap_or("").into(),
+            serde_json::from_value(args["scope"].clone())?,
+        )
+        .await
+        .map(|v| json!(v)),
+        "list_knowledge_document_sources" => knowledge::list_knowledge_document_sources()
+            .await
+            .map(|v| json!(v)),
+        "import_pageindex_to_knowledge" => knowledge::import_pageindex_to_knowledge(file)
+            .await
+            .map(|v| json!(v)),
+        "list_knowledge" => knowledge::list_knowledge(None).await.map(|v| json!(v)),
+        "get_knowledge_with_blocks" => {
+            knowledge::get_knowledge_with_blocks(args["id"].as_str().unwrap_or("").into())
+                .await
+                .map(|v| json!(v))
+        }
         "queue_document_processing" => docs::queue_document_processing(file)
             .await
             .map(|v| json!(v)),

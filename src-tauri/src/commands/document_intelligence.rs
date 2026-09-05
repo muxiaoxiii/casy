@@ -67,7 +67,7 @@ pub(crate) fn queue_file(
     )?;
     let path = std::path::Path::new(&source_path);
     if !document_pipeline::supports_path(path) {
-        anyhow::bail!("文档流水线支持 PDF、PNG、JPEG、TIFF、BMP、WebP 和 GIF");
+        anyhow::bail!("支持 PDF、图片、Markdown、TXT、Word、RTF 和 ODT");
     }
     let source_sha256 = document_pipeline::sha256_file(path)?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -88,13 +88,12 @@ pub(crate) fn queue_file(
     if let Some(job) = completed {
         if job.status == "completed"
             && job.source_sha256 == source_sha256
-            && [
-                &job.searchable_pdf_path,
-                &job.page_ir_path,
-                &job.markdown_path,
-            ]
-            .iter()
-            .all(|p| {
+            && (crate::parse::text_document::supports(path)
+                || job
+                    .searchable_pdf_path
+                    .as_ref()
+                    .is_some_and(|p| std::path::Path::new(p).is_file()))
+            && [&job.page_ir_path, &job.markdown_path].iter().all(|p| {
                 p.as_ref()
                     .is_some_and(|p| std::path::Path::new(p).is_file())
             })

@@ -424,14 +424,16 @@ pub async fn list_knowledge_document_sources() -> Result<Vec<KnowledgeDocumentSo
                     j.total_pages, j.markdown_path, j.searchable_pdf_path,
                     (SELECT ki.id FROM knowledge_items ki
                      WHERE ki.source_type = 'ocr-pageindex' AND ki.source_id = cf.id
-                       AND ki.parent_id IS NULL
+                       AND EXISTS (SELECT 1 FROM links l WHERE l.source_type='knowledge'
+                         AND l.source_id=ki.id AND l.target_type='file' AND l.target_id=cf.id
+                         AND l.anchor='source:document-job:' || j.id)
                      ORDER BY ki.created_at DESC LIMIT 1)
              FROM case_files cf
              JOIN cases c ON c.id = cf.case_id
              JOIN document_processing_jobs j ON j.id = (
                SELECT j2.id FROM document_processing_jobs j2
                WHERE j2.file_id = cf.id AND j2.status = 'completed'
-               ORDER BY j2.updated_at DESC LIMIT 1
+               ORDER BY j2.rowid DESC LIMIT 1
              )
              ORDER BY j.updated_at DESC LIMIT 200",
         )?;
@@ -456,43 +458,64 @@ pub async fn list_knowledge_document_sources() -> Result<Vec<KnowledgeDocumentSo
 
 /// 将 OCR Markdown 全文作为根笔记，并把 PageIndex 结构节点作为子笔记沉淀（可测内层；
 /// pub 供 examples/real_db_regression.rs 对真实库副本做端到端回归）。
-/// 重复调用复用既有根笔记；去重检查在事务内完成，杜绝并发双树。
-/// 根被删但子树残留时，先清理该文件的孤儿子笔记再重建，不产生第二棵树。
+/// 同一处理版本复用既有根笔记；新版生成独立快照，保留旧笔记及人工修改。
 pub fn import_pageindex_inner(
     conn: &mut rusqlite::Connection,
     file_id: &str,
 ) -> anyhow::Result<PageIndexImportResultDto> {
     let tx = conn.transaction()?;
 
-    if let Some(existing) = tx
+    let (case_id, case_name, file_name, markdown_path, searchable_pdf_path, latest_job): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+    ) = tx
         .query_row(
-            "SELECT id FROM knowledge_items WHERE source_type='ocr-pageindex' AND source_id=?1 AND parent_id IS NULL ORDER BY created_at DESC LIMIT 1",
-            [file_id],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
-    {
-        let child_count = tx.query_row(
-            "SELECT COUNT(*) FROM knowledge_items WHERE parent_id=?1",
-            [&existing],
-            |row| row.get::<_, i64>(0),
-        )? as usize;
-        tx.commit()?;
-        return Ok(PageIndexImportResultDto { knowledge_id: existing, child_count, reused: true });
-    }
-
-    let (case_id, case_name, file_name, markdown_path, searchable_pdf_path, latest_job):
-        (String, String, String, Option<String>, Option<String>, String) = tx.query_row(
             "SELECT cf.case_id,c.case_name,cf.file_name,j.markdown_path,j.searchable_pdf_path,j.id
              FROM case_files cf JOIN cases c ON c.id=cf.case_id
              JOIN document_processing_jobs j ON j.id=(
                SELECT j2.id FROM document_processing_jobs j2
                WHERE j2.file_id=cf.id AND j2.status='completed'
-               ORDER BY j2.updated_at DESC LIMIT 1)
+               ORDER BY j2.rowid DESC LIMIT 1)
              WHERE cf.id=?1",
             [file_id],
-            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
-        ).map_err(|_| anyhow::anyhow!("该文件尚未完成 OCR/PageIndex 处理"))?;
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("该文件尚未完成正文提取与索引"))?;
+
+    let revision_anchor = format!("source:document-job:{latest_job}");
+    use rusqlite::OptionalExtension;
+    if let Some(existing) = tx.query_row(
+        "SELECT ki.id FROM knowledge_items ki
+         JOIN links l ON l.source_type='knowledge' AND l.source_id=ki.id
+           AND l.target_type='file' AND l.target_id=?1 AND l.anchor=?2
+         WHERE ki.source_type='ocr-pageindex' AND ki.source_id=?1
+         ORDER BY ki.rowid DESC LIMIT 1",
+        rusqlite::params![file_id, revision_anchor],
+        |row| row.get::<_, String>(0),
+    ).optional()? {
+        let child_count = tx.query_row(
+            "WITH RECURSIVE children(id) AS (
+               SELECT id FROM knowledge_items WHERE parent_id=?1
+               UNION SELECT ki.id FROM knowledge_items ki JOIN children c ON ki.parent_id=c.id
+             ) SELECT COUNT(*) FROM children",
+            [&existing], |row| row.get::<_, i64>(0),
+        )? as usize;
+        tx.commit()?;
+        return Ok(PageIndexImportResultDto { knowledge_id: existing, child_count, reused: true });
+    }
 
     let full_markdown = markdown_path.as_deref()
         .and_then(|path| std::fs::read_to_string(path).ok())
@@ -514,28 +537,29 @@ pub fn import_pageindex_inner(
             output
         });
     if full_markdown.trim().is_empty() {
-        return Err(anyhow::anyhow!("OCR 已完成，但没有可沉淀的 Markdown 内容"));
+        return Err(anyhow::anyhow!("文档处理已完成，但没有可导入的 Markdown 内容"));
     }
 
-    // 孤儿子树清理：走到这里说明根笔记已不存在，该文件所有旧结构子笔记必然都是孤儿
-    // （只删"父缺失"一层会漏掉孙节点：它们的父在单次 DELETE 求值时仍存在），
-    // 因此整棵旧子树连同 links 一起清除后重建。
-    tx.execute(
-        "DELETE FROM links WHERE
-           (source_type='knowledge' AND source_id IN (
-             SELECT id FROM knowledge_items WHERE source_type='pageindex-node'
-               AND source_id IN (SELECT id FROM page_index_nodes WHERE file_id=?1)))
-           OR (target_type='knowledge' AND target_id IN (
-             SELECT id FROM knowledge_items WHERE source_type='pageindex-node'
-               AND source_id IN (SELECT id FROM page_index_nodes WHERE file_id=?1)))",
-        [file_id],
-    )?;
-    tx.execute(
-        "DELETE FROM knowledge_items
-         WHERE source_type='pageindex-node'
-           AND source_id IN (SELECT id FROM page_index_nodes WHERE file_id=?1)",
-        [file_id],
-    )?;
+    // Only clean structures whose snapshot root has disappeared. Live older snapshots remain editable.
+    let orphans: Vec<String> = {
+        let mut stmt = tx.prepare(
+            "SELECT ki.id FROM knowledge_items ki
+             JOIN links structure ON structure.source_type='knowledge' AND structure.source_id=ki.id
+               AND structure.target_type='knowledge' AND structure.anchor='pageindex:structure'
+             JOIN links origin ON origin.source_type='knowledge' AND origin.source_id=structure.target_id
+               AND origin.target_type='file' AND origin.target_id=?1
+             WHERE ki.source_type='pageindex-node'
+               AND NOT EXISTS(SELECT 1 FROM knowledge_items root WHERE root.id=structure.target_id)",
+        )?;
+        let rows = stmt.query_map([file_id], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows
+    };
+    for id in orphans {
+        tx.execute("DELETE FROM links WHERE (source_type='knowledge' AND source_id=?1)
+                    OR (target_type='knowledge' AND target_id=?1)", [&id])?;
+        tx.execute("DELETE FROM knowledge_items WHERE id=?1", [&id])?;
+    }
 
     let root_id = db::new_id();
     let root_title = format!("[卷宗] {}", file_name);
@@ -543,7 +567,7 @@ pub fn import_pageindex_inner(
         "> 来源案件：{}\n> 原始文件：{}\n> 可搜索 PDF：{}\n\n",
         case_name,
         file_name,
-        searchable_pdf_path.as_deref().unwrap_or("未记录")
+        searchable_pdf_path.as_deref().unwrap_or("文本来源，按段索引")
     );
     tx.execute(
         "INSERT INTO knowledge_items(id,title,category,content,tags,source_type,source_id,linked_case_id,status,block_type)
@@ -552,28 +576,43 @@ pub fn import_pageindex_inner(
     )?;
     tx.execute(
         "INSERT INTO links(id,source_type,source_id,target_type,target_id,anchor,label)
-         VALUES(?1,'knowledge',?2,'file',?3,'source:ocr-pageindex','原始可搜索 PDF')",
-        rusqlite::params![db::new_id(), root_id, file_id],
+         VALUES(?1,'knowledge',?2,'file',?3,?4,'原始文档')",
+        rusqlite::params![db::new_id(), root_id, file_id, revision_anchor],
     )?;
 
     let mut nodes_stmt = tx.prepare(
         "SELECT id,parent_id,title,summary,level,page_start,page_end
-         FROM page_index_nodes WHERE file_id=?1 AND level>0 ORDER BY page_start,level LIMIT 500"
+         FROM page_index_nodes WHERE file_id=?1 AND level>0 ORDER BY page_start,level LIMIT 500",
     )?;
-    let nodes = nodes_stmt.query_map([file_id], |row| {
-        Ok((row.get::<_,String>(0)?,row.get::<_,Option<String>>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,i64>(4)?,row.get::<_,i64>(5)?,row.get::<_,i64>(6)?))
-    })?.collect::<std::result::Result<Vec<_>,_>>()?;
+    let nodes = nodes_stmt
+        .query_map([file_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(nodes_stmt);
-    let mut id_map = std::collections::HashMap::<String,String>::new();
+    let mut id_map = std::collections::HashMap::<String, String>::new();
     let mut child_count = 0usize;
     for (node_id, parent_node_id, title, summary, _level, page_start, page_end) in nodes {
         let knowledge_id = db::new_id();
-        let parent_id = parent_node_id.as_ref().and_then(|id| id_map.get(id)).cloned().unwrap_or_else(|| root_id.clone());
+        let parent_id = parent_node_id
+            .as_ref()
+            .and_then(|id| id_map.get(id))
+            .cloned()
+            .unwrap_or_else(|| root_id.clone());
         // 结构归属由 links 表（anchor='pageindex:structure'）承载；正文只用纯文本注明来源，
         // 不用 [[根标题]]：根标题含方括号，Wiki 语法无法解析，且该链接不应被 Wiki 自动回收管辖。
+        let location = if searchable_pdf_path.is_some() { "页码" } else { "段落" };
         let content = format!(
-            "> 来源卷宗：{}\n> 页码：{}-{}\n\n{}",
-            root_title, page_start, page_end, summary
+            "> 来源卷宗：{}\n> {}：{}-{}\n\n{}",
+            root_title, location, page_start, page_end, summary
         );
         tx.execute(
             "INSERT INTO knowledge_items(id,title,category,content,tags,source_type,source_id,linked_case_id,status,parent_id,block_type)
@@ -583,17 +622,21 @@ pub fn import_pageindex_inner(
         tx.execute(
             "INSERT INTO links(id,source_type,source_id,target_type,target_id,anchor,label)
              VALUES(?1,'knowledge',?2,'knowledge',?3,'pageindex:structure',?4)",
-            rusqlite::params![db::new_id(),knowledge_id,root_id,root_title],
+            rusqlite::params![db::new_id(), knowledge_id, root_id, root_title],
         )?;
         id_map.insert(node_id, knowledge_id);
         child_count += 1;
     }
     tx.commit()?;
-    Ok(PageIndexImportResultDto { knowledge_id: root_id, child_count, reused: false })
+    Ok(PageIndexImportResultDto {
+        knowledge_id: root_id,
+        child_count,
+        reused: false,
+    })
 }
 
 /// 将 OCR Markdown 全文作为根笔记，并把 PageIndex 结构节点作为子笔记沉淀。
-/// 重复调用会复用既有根笔记，避免产生重复知识树。
+/// 同一处理版本复用既有笔记；新版保留为独立快照。
 #[tauri::command]
 pub async fn import_pageindex_to_knowledge(
     file_id: String,
@@ -601,7 +644,8 @@ pub async fn import_pageindex_to_knowledge(
     run_blocking(move || {
         let mut conn = db::open_db()?;
         import_pageindex_inner(&mut conn, &file_id)
-    }).await
+    })
+    .await
 }
 
 #[derive(Debug, serde::Serialize, specta::Type)]
@@ -1539,27 +1583,39 @@ mod tests {
 
         let first = import_pageindex_inner(&mut conn, "f1").unwrap();
         assert!(!first.reused);
-        assert_eq!(first.child_count, 2, "level>0 节点沉淀为子笔记（root 节点除外）");
+        assert_eq!(
+            first.child_count, 2,
+            "level>0 节点沉淀为子笔记（root 节点除外）"
+        );
 
         // 根笔记内容与归属
         let (title, content, case_id): (String, String, String) = conn
-            .query_row("SELECT title, content, linked_case_id FROM knowledge_items WHERE id=?1", [&first.knowledge_id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            }).unwrap();
+            .query_row(
+                "SELECT title, content, linked_case_id FROM knowledge_items WHERE id=?1",
+                [&first.knowledge_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
         assert!(title.contains("[卷宗]"));
-        assert!(content.contains("第一页正文"), "Markdown 缺失时回退逐页 Page IR");
+        assert!(
+            content.contains("第一页正文"),
+            "Markdown 缺失时回退逐页 Page IR"
+        );
         assert_eq!(case_id, "case1");
 
         // 链接：根→原始文件；子→根（pageindex:structure，非 wiki:，不受自动回收管辖）
         let file_link: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM links WHERE source_id=?1 AND target_type='file' AND anchor='source:ocr-pageindex'",
+            "SELECT COUNT(*) FROM links WHERE source_id=?1 AND target_type='file' AND anchor='source:document-job:j1'",
             [&first.knowledge_id], |r| r.get(0),
         ).unwrap();
         assert_eq!(file_link, 1);
-        let struct_links: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM links WHERE target_id=?1 AND anchor='pageindex:structure'",
-            [&first.knowledge_id], |r| r.get(0),
-        ).unwrap();
+        let struct_links: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM links WHERE target_id=?1 AND anchor='pageindex:structure'",
+                [&first.knowledge_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(struct_links, 2);
 
         // 子笔记层级保持 PageIndex 父子关系
@@ -1577,11 +1633,36 @@ mod tests {
         let second = import_pageindex_inner(&mut conn, "f1").unwrap();
         assert!(second.reused);
         assert_eq!(second.knowledge_id, first.knowledge_id);
+        assert_eq!(second.child_count, first.child_count);
         let total: i64 = conn.query_row(
             "SELECT COUNT(*) FROM knowledge_items WHERE source_type IN ('ocr-pageindex','pageindex-node')",
             [], |r| r.get(0),
         ).unwrap();
         assert_eq!(total, 3);
+
+        insert_note(&conn, "folder", "研究资料", "");
+        conn.execute("UPDATE knowledge_items SET parent_id='folder' WHERE id=?1", [&first.knowledge_id]).unwrap();
+        let moved = import_pageindex_inner(&mut conn, "f1").unwrap();
+        assert!(moved.reused);
+        assert_eq!(moved.knowledge_id, first.knowledge_id);
+    }
+
+    #[test]
+    fn test_import_new_revision_preserves_previous_tree_and_edits() {
+        let mut conn = test_conn();
+        fixture_document(&conn);
+        let old = import_pageindex_inner(&mut conn, "f1").unwrap();
+        conn.execute("UPDATE knowledge_items SET content='人工编辑的结构笔记' WHERE source_id='pn-2'", []).unwrap();
+        conn.execute_batch("INSERT INTO document_processing_jobs(id,file_id,source_sha256,status,total_pages)
+            VALUES('j2','f1','new-sha','completed',1);
+            INSERT INTO document_pages(job_id,file_id,page_number,plain_text) VALUES('j2','f1',1,'修订正文');").unwrap();
+        let new = import_pageindex_inner(&mut conn, "f1").unwrap();
+        assert!(!new.reused);
+        assert_ne!(new.knowledge_id, old.knowledge_id);
+        let preserved: i64 = conn.query_row("SELECT count(*) FROM knowledge_items WHERE content='人工编辑的结构笔记'", [], |r| r.get(0)).unwrap();
+        assert_eq!(preserved, 1);
+        let total: i64 = conn.query_row("SELECT count(*) FROM knowledge_items", [], |r| r.get(0)).unwrap();
+        assert_eq!(total, 6);
     }
 
     #[test]
@@ -1591,16 +1672,23 @@ mod tests {
         let first = import_pageindex_inner(&mut conn, "f1").unwrap();
 
         // 用户直接删掉根笔记（绕过 delete_knowledge 的提升逻辑），子树残留
-        conn.execute("DELETE FROM knowledge_items WHERE id=?1", [&first.knowledge_id]).unwrap();
+        conn.execute(
+            "DELETE FROM knowledge_items WHERE id=?1",
+            [&first.knowledge_id],
+        )
+        .unwrap();
 
         let second = import_pageindex_inner(&mut conn, "f1").unwrap();
         assert!(!second.reused, "根已删应重建而非复用");
-        let orphans: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM knowledge_items
+        let orphans: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_items
              WHERE source_type='pageindex-node'
                AND (parent_id IS NULL OR parent_id NOT IN (SELECT id FROM knowledge_items))",
-            [], |r| r.get(0),
-        ).unwrap();
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(orphans, 0, "重建后不应有孤儿子笔记");
         let total: i64 = conn.query_row(
             "SELECT COUNT(*) FROM knowledge_items WHERE source_type IN ('ocr-pageindex','pageindex-node')",

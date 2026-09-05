@@ -33,7 +33,7 @@ fn global_search_inner(
         UNION ALL
 
         SELECT 'file' as item_type, cf.id, cf.file_name as title, cf.category,
-               '[p' || dp.page_number || '] ' || snippet(document_pages_fts, -1, '<b>', '</b>', '...', 64) as snippet,
+               '[' || CASE WHEN j.engine='text-document' THEN 's' ELSE 'p' END || dp.page_number || '] ' || snippet(document_pages_fts, -1, '<b>', '</b>', '...', 64) as snippet,
                pf.rank as rank
         FROM document_pages_fts pf
         JOIN document_pages dp ON dp.rowid = pf.rowid
@@ -90,6 +90,14 @@ pub async fn global_search(query: String) -> Result<Vec<GlobalSearchResult>, Str
         global_search_inner(&conn, &query)
     })
     .await
+}
+
+#[tauri::command]
+pub async fn search_document_passages(
+    query: String,
+    scope: Vec<String>,
+) -> Result<Vec<crate::ai::retrieval::DocumentPassage>, String> {
+    run_blocking(move || crate::ai::retrieval::search(&db::open_db()?, &query, &scope, 30)).await
 }
 
 #[tauri::command]

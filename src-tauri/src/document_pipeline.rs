@@ -60,7 +60,7 @@ pub struct ProcessResult {
     pub source_sha256: String,
     pub engine: String,
     pub model_version: Option<String>,
-    pub searchable_pdf_path: String,
+    pub searchable_pdf_path: Option<String>,
     pub page_ir_path: String,
     pub markdown_path: String,
     pub pages: Vec<DocumentPage>,
@@ -194,6 +194,14 @@ pub fn artifact_dir(file_id: &str, sha256: &str) -> Result<PathBuf> {
 }
 
 pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
+    if crate::parse::text_document::supports(Path::new(&request.source_path)) {
+        return tokio::task::spawn_blocking(move || {
+            let result = crate::parse::text_document::process(&request)?;
+            validate_result(&request, &result)?;
+            Ok(result)
+        })
+        .await?;
+    }
     let executable = engine_executable().ok_or_else(|| {
         anyhow!("DOC_ENGINE_NOT_FOUND: 请设置 CASY_DOC_ENGINE 或安装 casy-doc-engine")
     })?;
@@ -293,6 +301,9 @@ struct EngineProgress {
 }
 
 pub fn supports_path(path: &Path) -> bool {
+    if crate::parse::text_document::supports(path) {
+        return true;
+    }
     matches!(
         path.extension()
             .and_then(|s| s.to_str())
@@ -310,11 +321,14 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     }
     let root = std::fs::canonicalize(&request.output_dir)?;
     let source = std::fs::canonicalize(&request.source_path)?;
-    for path in [
-        &result.searchable_pdf_path,
-        &result.page_ir_path,
-        &result.markdown_path,
-    ] {
+    let text_document = crate::parse::text_document::supports(Path::new(&request.source_path));
+    if !text_document && result.searchable_pdf_path.is_none() {
+        return Err(anyhow!("INVALID_PDF: 缺少可搜索 PDF"));
+    }
+    for path in [&result.page_ir_path, &result.markdown_path]
+        .into_iter()
+        .chain(result.searchable_pdf_path.iter())
+    {
         let resolved = std::fs::canonicalize(path).context("ARTIFACT_MISSING: 文档产物缺失")?;
         if !resolved.starts_with(&root) || resolved == source || !resolved.is_file() {
             return Err(anyhow!("INVALID_ARTIFACT: 产物不在任务输出目录"));
@@ -329,8 +343,9 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
         if page.page_number as usize != index + 1
             || !w.is_finite()
             || !h.is_finite()
-            || w <= 0.0
-            || h <= 0.0
+            || (!text_document && (w <= 0.0 || h <= 0.0))
+            || (text_document
+                && (page.width.is_some() || page.height.is_some() || !page.regions.is_empty()))
             || page
                 .confidence
                 .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
@@ -359,19 +374,29 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     if disk_pages != result.pages {
         return Err(anyhow!("INVALID_PAGE_IR: 落盘页面与返回数据不一致"));
     }
-    let expected_md = result
-        .pages
-        .iter()
-        .map(|p| format!("<!-- page {} -->\n{}", p.page_number, p.markdown))
-        .collect::<Vec<_>>()
-        .join("\n\n---\n\n");
+    let expected_md = if text_document {
+        result
+            .pages
+            .iter()
+            .map(|p| p.markdown.as_str())
+            .collect::<String>()
+    } else {
+        result
+            .pages
+            .iter()
+            .map(|p| format!("<!-- page {} -->\n{}", p.page_number, p.markdown))
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n")
+    };
     if std::fs::read_to_string(&result.markdown_path)? != expected_md {
         return Err(anyhow!("INVALID_MARKDOWN: Markdown 备份与页面不一致"));
     }
-    let mut header = [0u8; 5];
-    std::fs::File::open(&result.searchable_pdf_path)?.read_exact(&mut header)?;
-    if &header != b"%PDF-" {
-        return Err(anyhow!("INVALID_PDF: 可搜索文件不是 PDF"));
+    if let Some(pdf) = &result.searchable_pdf_path {
+        let mut header = [0u8; 5];
+        std::fs::File::open(pdf)?.read_exact(&mut header)?;
+        if &header != b"%PDF-" {
+            return Err(anyhow!("INVALID_PDF: 可搜索文件不是 PDF"));
+        }
     }
     Ok(())
 }
@@ -431,12 +456,16 @@ mod tests {
             source_sha256: request.source_sha256.clone(),
             engine: "test".into(),
             model_version: None,
-            searchable_pdf_path: root.join("search.pdf").display().to_string(),
+            searchable_pdf_path: Some(root.join("search.pdf").display().to_string()),
             page_ir_path: root.join("pages.json").display().to_string(),
             markdown_path: root.join("source.md").display().to_string(),
             pages,
         };
-        std::fs::write(&result.searchable_pdf_path, b"%PDF-derived").unwrap();
+        std::fs::write(
+            result.searchable_pdf_path.as_ref().unwrap(),
+            b"%PDF-derived",
+        )
+        .unwrap();
         std::fs::write(
             &result.page_ir_path,
             serde_json::to_vec(&result.pages).unwrap(),
@@ -448,7 +477,7 @@ mod tests {
         assert!(validate_result(&request, &result).is_err());
         result.pages[0].page_number = 1;
         let pdf = result.searchable_pdf_path.clone();
-        result.searchable_pdf_path = source.display().to_string();
+        result.searchable_pdf_path = Some(source.display().to_string());
         assert!(validate_result(&request, &result).is_err());
         result.searchable_pdf_path = pdf;
         std::fs::write(&result.markdown_path, "mismatched backup").unwrap();

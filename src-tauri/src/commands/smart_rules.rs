@@ -292,6 +292,7 @@ pub async fn list_pending_ocr_files() -> Result<Vec<(String, String, String)>, S
 
 /// 是否 OCR 候选文件（pdf / 常见图片）
 fn is_ocr_candidate(file_name: &str, file_type: Option<&str>) -> bool {
+    if crate::document_pipeline::supports_path(std::path::Path::new(file_name)) { return true; }
     let ext = file_type
         .map(|s| s.trim_start_matches('.').to_lowercase())
         .filter(|s| !s.is_empty())
@@ -338,7 +339,11 @@ pub async fn ocr_all_pending() -> Result<i64, String> {
                 "SELECT id,file_name,file_type FROM case_files f
                  WHERE ocr_status='pending' AND NOT EXISTS
                  (SELECT 1 FROM document_processing_jobs j WHERE j.file_id=f.id)
-                 AND (lower(file_path) LIKE '%.pdf' OR lower(file_path) LIKE '%.png'
+                 AND (lower(file_path) LIKE '%.md' OR lower(file_path) LIKE '%.markdown'
+                   OR lower(file_path) LIKE '%.txt' OR lower(file_path) LIKE '%.doc'
+                   OR lower(file_path) LIKE '%.docx' OR lower(file_path) LIKE '%.docm'
+                   OR lower(file_path) LIKE '%.rtf' OR lower(file_path) LIKE '%.odt'
+                   OR lower(file_path) LIKE '%.pdf' OR lower(file_path) LIKE '%.png'
                    OR lower(file_path) LIKE '%.jpg' OR lower(file_path) LIKE '%.jpeg'
                    OR lower(file_path) LIKE '%.tif' OR lower(file_path) LIKE '%.tiff'
                    OR lower(file_path) LIKE '%.bmp' OR lower(file_path) LIKE '%.webp'

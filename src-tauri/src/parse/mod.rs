@@ -1,4 +1,5 @@
 pub mod pdf_extractor;
+pub mod text_document;
 use regex::Regex;
 use serde::Serialize;
 
