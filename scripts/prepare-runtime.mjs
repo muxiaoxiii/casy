@@ -138,6 +138,7 @@ if (process.platform === 'darwin') {
   await cp(resolve(distribution), runtime, { recursive: true })
 }
 await copyFile(join(project, 'docs/compliance/LICENSES.md'), join(runtime, 'licenses/Casy-dependencies.md'))
+await copyFile(join(project, 'docs/compliance/MinerU-Popo-LICENSE.txt'), join(runtime, 'licenses/MinerU-Popo-LICENSE.txt'))
 await copyFile(join(project, 'scripts/prepare-runtime.mjs'), join(runtime, 'licenses/runtime-build.mjs'))
 await copyFile(join(project, 'scripts/prepare-notices.mjs'), join(runtime, 'licenses/prepare-notices.mjs'))
 await copyFile(join(project, 'scripts/homebrew-source.rb'), join(runtime, 'licenses/homebrew-source.rb'))

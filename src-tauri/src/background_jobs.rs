@@ -164,6 +164,7 @@ pub async fn process_next_document_job() -> anyhow::Result<bool> {
 }
 
 pub fn start_background_worker(_app: AppHandle) {
+    crate::workspace_sync::start();
     tauri::async_runtime::spawn(async move {
         if let Ok(conn) = crate::db::open_db() {
             if let Err(error) = crate::db::knowledge_index::recover_interrupted(&conn) {
@@ -203,20 +204,4 @@ pub fn start_background_worker(_app: AppHandle) {
         }
     });
 
-    tauri::async_runtime::spawn(async move {
-        info!("auto-ocr trigger loop started");
-        loop {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            match crate::commands::smart_rules::ocr_all_pending().await {
-                Ok(count) => {
-                    if count > 0 {
-                        info!("auto-ocr triggered {} pending files", count);
-                    }
-                }
-                Err(e) => {
-                    error!("auto-ocr trigger failed: {}", e);
-                }
-            }
-        }
-    });
 }

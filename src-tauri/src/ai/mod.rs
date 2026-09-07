@@ -7,6 +7,7 @@
 //! - NoOpBackend: 无 AI 时的 fallback（规则匹配）
 
 pub mod context_refs;
+pub mod continuations;
 pub mod distillation;
 pub mod gateway;
 pub mod insights;

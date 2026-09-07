@@ -18,6 +18,7 @@ mod sync;
 mod tray;
 pub mod types;
 mod watcher;
+pub mod workspace_sync;
 
 #[cfg(test)]
 mod export_bindings;

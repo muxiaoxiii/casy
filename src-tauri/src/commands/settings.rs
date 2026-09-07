@@ -26,6 +26,7 @@ pub async fn get_settings() -> Result<HashMap<String, serde_json::Value>, String
                 serde_json::from_str(&value_str).unwrap_or(serde_json::Value::String(value_str));
             map.insert(key, value);
         }
+        map.insert("caseFolderBase".into(), crate::files::case_folder_base().to_string_lossy().to_string().into());
         Ok(map)
     })
     .await
@@ -37,8 +38,13 @@ pub async fn save_settings(settings: HashMap<String, serde_json::Value>) -> Resu
     run_blocking(move || {
         let conn = db::open_db()?;
         for (key, value) in &settings {
-            if key.starts_with("ai_") {
+            if key.starts_with("ai_") || key == "caseFolderBase" {
                 continue;
+            }
+            if key == "workspace_sync" { serde_json::from_value::<crate::workspace_sync::Options>(value.clone())?; }
+            if key == "quote_sources" {
+                let names = value.as_array().filter(|v|v.len()==4).ok_or_else(||anyhow::anyhow!("引用来源须为四项"))?;
+                if names.iter().any(|v|v.as_str().is_none_or(|s|s.chars().count()>24)) { anyhow::bail!("引用来源名称过长或格式错误"); }
             }
             let value_str = match value {
                 serde_json::Value::String(s) => s.clone(),

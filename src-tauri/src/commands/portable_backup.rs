@@ -114,7 +114,7 @@ fn markdown_references(value: &str) -> Vec<(std::ops::Range<usize>, String)> {
     references
 }
 
-fn relocate_markdown(value: &str, mappings: &[(PathBuf, PathBuf)]) -> String {
+pub(crate) fn relocate_markdown(value: &str, mappings: &[(PathBuf, PathBuf)]) -> String {
     let mut replacements = Vec::new();
     for (range, destination) in markdown_references(value) {
         let Some(path) = local_reference(&destination) else {

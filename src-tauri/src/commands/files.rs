@@ -253,7 +253,7 @@ fn find_registered(
     }
 }
 
-fn insert_file(
+pub(crate) fn insert_file(
     conn: &rusqlite::Connection,
     case_id: &str,
     path: &Path,
@@ -852,7 +852,7 @@ pub async fn apply_case_file_renames(
     run_blocking(move || relocate_files(&case_id, &renames, None)).await
 }
 
-fn relocate_files(
+pub(crate) fn relocate_files(
     case_id: &str,
     renames: &[RenameItem],
     target: Option<&Path>,
@@ -915,6 +915,7 @@ fn relocate_files(
             "UPDATE case_files SET file_name=?1,file_path=?2 WHERE file_path=?3",
             params![final_name, dest.to_string_lossy(), row.file_path],
         )?;
+        relocate_knowledge_references(&tx, source, &dest)?;
         out.push(RenameOutcome {
             id: row.id.clone(),
             old_name: row.file_name.clone(),
@@ -940,6 +941,22 @@ fn relocate_files(
         }
     }
     Ok(out)
+}
+
+pub(crate) fn relocate_knowledge_references(conn: &rusqlite::Connection, source: &Path, destination: &Path) -> anyhow::Result<()> {
+    let mappings = [(source.to_owned(), destination.to_owned())];
+    let items = {
+        let mut stmt = conn.prepare("SELECT id,content FROM knowledge_items")?;
+        let items = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        items
+    };
+    for (id, content) in items {
+        let relocated = super::portable_backup::relocate_markdown(&content, &mappings);
+        if relocated != content {
+            conn.execute("UPDATE knowledge_items SET content=?2,updated_at=datetime('now','localtime') WHERE id=?1",params![id,relocated])?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
