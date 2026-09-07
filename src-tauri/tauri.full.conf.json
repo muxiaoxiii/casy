@@ -3,6 +3,7 @@
     "beforeBuildCommand": "npm run runtime:prepare && npm run build"
   },
   "bundle": {
+    "macOS": { "signingIdentity": "-" },
     "resources": { "runtime/": "runtime/" }
   }
 }
