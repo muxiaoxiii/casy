@@ -1,4 +1,5 @@
 <script setup>
+import { surroundingMonths, monthWorkingDays, eventDuration } from '../calendarDates'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
@@ -319,9 +320,10 @@ function openEditDetail(item, type = 'task') {
       startDate: item.date || item.eventDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
       dueDate: item.date || item.eventDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
       startTime: item.time || item.startTime || '',
+      endTime: item.endTime || '',
       caseId: item.caseId || '',
       estimatedMinutes: 60,
-      description: item.notes || item.location || '',
+      description: item.notes || '',
       completed: 0,
     }
   }
@@ -367,6 +369,7 @@ async function saveEditingItem() {
           title: item.title,
           eventDate: item.dueDate || item.startDate,
           startTime: item.startTime || null,
+          endTime: item.endTime || null,
           caseId: item.caseId || null,
           notes: item.description || null,
         })
@@ -374,6 +377,7 @@ async function saveEditingItem() {
           title: item.title,
           eventDate: item.dueDate || item.startDate,
           startTime: item.startTime || null,
+          endTime: item.endTime || null,
           caseId: item.caseId || null,
           notes: item.description || null,
         })
@@ -461,14 +465,14 @@ const monthInsights = computed(() => {
   const monthTs = tasks.value.filter(t => t.dueDate?.startsWith(currentMonthStr))
 
   const deadlinesCount = monthEvs.filter(e => e.type === 'court' || e.type === 'hearing' || e.type?.startsWith('deadline')).length
-  const totalMinutes = monthTs.reduce((acc, t) => acc + (t.estimatedMinutes || 60), 0)
+  const totalMinutes = monthTs.reduce((acc, t) => acc + (t.estimatedMinutes || 0), 0)
   const workloadHours = Math.round(totalMinutes / 60)
-  const holidaysCount = holidayEntries.value.length
+  const holidaysCount = holidayEntries.value.filter(e => e.date?.startsWith(currentMonthStr) && e.kind === 'holiday').length
 
   return {
     deadlines: deadlinesCount,
     workload: `${workloadHours}h`,
-    workdays: 22,
+    workdays: monthWorkingDays(currentDate.value, holidayEntries.value),
     holidays: holidaysCount,
   }
 })
@@ -476,7 +480,8 @@ const monthInsights = computed(() => {
 // 事件与任务匹配
 function eventsForDay(date) {
   const ds = formatDate(date)
-  return events.value.filter(e => e.date === ds)
+  const ids = new Set(tasksForDay(date).map(task => task.id))
+  return events.value.filter(e => e.date === ds && !(e.type === 'task' && ids.has(e.id)))
 }
 
 function tasksForDay(date) {
@@ -496,15 +501,7 @@ function multiDayTasksForDay(date) {
 }
 
 function distinctEventsForModal(date) {
-  const dayEvs = eventsForDay(date)
-  const dayTasks = tasksForDay(date)
-  const taskNames = new Set(dayTasks.map(t => t.taskName?.trim()))
-  return dayEvs.filter(e => {
-    if (taskNames.has(e.title?.trim()) && e.type !== 'court' && e.type !== 'hearing') {
-      return false
-    }
-    return true
-  })
+  return eventsForDay(date)
 }
 
 function hasHardEventOnDay(date) {
@@ -540,20 +537,21 @@ const timelineStream = computed(() => {
 
   // 2. 收集事件
   for (const ev of events.value) {
+    if (ev.type === 'task' && tasks.value.some(t => t.id === ev.id && (t.dueDate || t.startDate) === ev.date)) continue
     if (allowedCases && ev.caseId && !allowedCases.has(ev.caseId)) continue
     const dateStr = ev.date
     if (!dateStr) continue
     if (!map.has(dateStr)) map.set(dateStr, [])
     map.get(dateStr).push({
       id: ev.id,
-      time: ev.time || '09:00',
+      time: ev.time || '全天',
       title: ev.title,
       caseName: ev.caseName || '律所事项',
       type: ev.type === 'court' || ev.type === 'hearing' ? 'court' : 'primary',
       tag1: ev.type === 'court' ? 'Trial' : 'Event',
       tag2: ev.type === 'court' ? 'Hard Boundary' : 'Scheduled',
       tag2Type: ev.type === 'court' ? 'risk' : 'neutral',
-      duration: '1.5h',
+      duration: eventDuration(ev.time, ev.endTime),
     })
   }
 
@@ -565,14 +563,14 @@ const timelineStream = computed(() => {
     if (!map.has(dateStr)) map.set(dateStr, [])
     map.get(dateStr).push({
       id: t.id,
-      time: t.startTime || '14:00',
+      time: t.startTime || '未排时',
       title: t.taskName,
       caseName: t.caseName || '常规待办',
       type: 'primary',
       tag1: 'Task',
       tag2: 'Flexible',
       tag2Type: 'warning',
-      duration: t.estimatedMinutes ? `${Math.round(t.estimatedMinutes / 60)}h` : '1h',
+      duration: t.estimatedMinutes ? `${t.estimatedMinutes} 分钟` : '',
     })
   }
 
@@ -666,7 +664,7 @@ const forecast14Days = computed(() => {
     const dayTasks = tasksForDay(d)
     const dayMultis = multiDayTasksForDay(d)
 
-    const totalMinutes = dayTasks.reduce((acc, t) => acc + (t.estimatedMinutes || 60), 0)
+    const totalMinutes = dayTasks.reduce((acc, t) => acc + (t.estimatedMinutes || 0), 0)
     const totalHours = Math.round((totalMinutes / 60) * 10) / 10
 
     const hasCourt = dayEvs.some(e => e.type === 'court' || e.type === 'hearing')
@@ -796,19 +794,18 @@ async function loadEvents() {
   const request = ++eventRequest
   eventError.value = ''
   events.value = []
-  const y = currentDate.value.getFullYear()
-  const m = currentDate.value.getMonth() + 1
-  const result = await casyContext.calendar.events(y, m)
+  const results = await Promise.all(surroundingMonths(currentDate.value).map(({ year, month }) => casyContext.calendar.events(year, month)))
   if (request !== eventRequest) return
-  if (result.ok && Array.isArray(result.data)) {
-    events.value = result.data.map(e => ({
+  const failed = results.find(result => !result.ok || !Array.isArray(result.data))
+  if (!failed) {
+    events.value = results.flatMap(result => result.data).map(e => ({
       ...e,
       time: e.startTime || null,
       endTime: e.endTime || null,
       allDay: !!e.allDay,
     }))
   } else {
-    eventError.value = result.error || '日程加载失败'
+    eventError.value = failed.error || '日程加载失败'
   }
 }
 
@@ -861,6 +858,7 @@ function prevPeriod() {
   } else if (activeView.value === 'forecast') {
     d.setDate(d.getDate() - 14)
   } else {
+    d.setDate(1)
     d.setMonth(d.getMonth() - 1)
   }
   currentDate.value = d
@@ -876,6 +874,7 @@ function nextPeriod() {
   } else if (activeView.value === 'forecast') {
     d.setDate(d.getDate() + 14)
   } else {
+    d.setDate(1)
     d.setMonth(d.getMonth() + 1)
   }
   currentDate.value = d
@@ -1641,12 +1640,16 @@ async function createFromNaturalLanguage() {
 
         <div class="edit-form-row">
           <div class="edit-form-item">
-            <label>具体时段 (例如 09:30)</label>
-            <input v-model="editingItem.startTime" placeholder="如 09:30" class="edit-input" />
+            <label>开始时间</label>
+            <input v-model="editingItem.startTime" type="time" class="edit-input" />
           </div>
-          <div class="edit-form-item">
+          <div v-if="editingItem.type === 'task'" class="edit-form-item">
             <label>预计工时 (分钟)</label>
             <input v-model.number="editingItem.estimatedMinutes" type="number" min="0" step="15" class="edit-input" />
+          </div>
+          <div v-else class="edit-form-item">
+            <label>结束时间</label>
+            <input v-model="editingItem.endTime" type="time" class="edit-input" />
           </div>
         </div>
 

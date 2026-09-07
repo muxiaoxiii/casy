@@ -62,7 +62,7 @@ try {
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const native = new Set(['list_knowledge', 'get_knowledge_with_blocks', 'create_knowledge', 'update_knowledge', 'delete_knowledge',
-      'list_knowledge_versions', 'diff_knowledge_with_current', 'restore_knowledge_version', 'list_links_for', 'get_backlinks'])
+      'list_knowledge_versions', 'diff_knowledge_with_current', 'restore_knowledge_version', 'list_links_for', 'get_backlinks', 'save_editor_recovery', 'recover_editor_drafts'])
     window.__TAURI_INTERNALS__ = { invoke: async (command, args = {}) => {
       if (native.has(command)) return window.__casyNotebook(command, args)
       if (command === 'get_settings') return {}

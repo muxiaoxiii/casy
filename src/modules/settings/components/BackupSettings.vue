@@ -1,19 +1,57 @@
 <script setup>
-/**
- * 数据备份与恢复（R-5）
- *
- * - 备份 = VACUUM INTO 一致性快照（SQLCipher 加密保持），存应用数据目录 backups/
- * - 恢复 = 覆盖活动库文件，**必须重启应用生效**；恢复前自动生成 pre-restore 快照
- * - 仅接受 backups 目录内的 casy-backup-*.db 文件名
- */
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { open, save } from '@tauri-apps/plugin-dialog'
+import { Download, Upload, Refresh } from '@element-plus/icons-vue'
 import { casyContext } from '../../../core/plugin/context'
 
 const backups = ref([])
 const loading = ref(false)
 const backingUp = ref(false)
 const restoringId = ref(null)
+const fullBusy = ref(false)
+const password = ref('')
+const confirmation = ref('')
+const backupDialog = ref(false)
+const backupMode = ref('export')
+const backupPath = ref('')
+
+async function chooseFull(mode) {
+  try {
+    const filters = [{ name: 'Casy 加密备份', extensions: ['casy'] }]
+    const selected = mode === 'export'
+      ? await save({ filters, defaultPath: `Casy-${new Date().toISOString().slice(0, 10)}.casy` })
+      : await open({ filters, multiple: false, directory: false })
+    if (typeof selected !== 'string') return
+    backupMode.value = mode
+    backupPath.value = selected
+    password.value = ''
+    confirmation.value = ''
+    backupDialog.value = true
+  } catch (error) { ElMessage.error(String(error)) }
+}
+
+async function submitFull() {
+  if (backupMode.value === 'export' && (password.value.length < 10 || password.value !== confirmation.value)) {
+    ElMessage.error('密码至少 10 个字符，两次输入必须一致')
+    return
+  }
+  if (!password.value) return
+  fullBusy.value = true
+  try {
+    const result = backupMode.value === 'export'
+      ? await casyContext.backup.exportFull(backupPath.value, password.value)
+      : await casyContext.backup.importFull(backupPath.value, password.value)
+    if (!result.ok) { ElMessage.error(result.error || '操作失败'); return }
+    backupDialog.value = false
+    password.value = ''
+    confirmation.value = ''
+    if (backupMode.value === 'import') {
+      await ElMessageBox.alert('卷宗和数据库已恢复，界面将重新加载。外部服务的账号密钥需要在新机器上重新配置。', '恢复完成', { confirmButtonText: '重新加载', showClose: false })
+      window.location.reload()
+    } else ElMessage.success('完整加密备份已保存')
+  } finally { fullBusy.value = false }
+}
 
 function fmtSize(bytes) {
   if (bytes > 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
@@ -70,13 +108,33 @@ onMounted(() => {
 <template>
   <div class="backup-settings">
     <div class="backup-intro">
-      数据库以加密形式保存在本机。建议每周至少手动备份一次；当前备份为数据库加密快照，
-      可恢复案件、任务、日历与索引记录，不包含案件目录中的原始卷宗文件。
+      完整备份包含数据库、原始卷宗和本地文档产物，使用独立密码加密。请保管好密码，遗失后无法恢复。
     </div>
 
     <div class="backup-actions">
+      <el-button type="primary" :icon="Download" :disabled="fullBusy" @click="chooseFull('export')">导出完整备份</el-button>
+      <el-button :icon="Upload" :disabled="fullBusy" @click="chooseFull('import')">从完整备份恢复</el-button>
+    </div>
+
+    <el-dialog v-model="backupDialog" :title="backupMode === 'export' ? '导出完整备份' : '恢复完整备份'" width="480px" :close-on-click-modal="false" :close-on-press-escape="!fullBusy" :show-close="!fullBusy" :before-close="(done) => { if (!fullBusy) done() }">
+      <div class="backup-path">{{ backupPath }}</div>
+      <p v-if="backupMode === 'import'">将恢复案件及卷宗，并自动创建使用同一密码加密的恢复前备份。当前数据库将被替换，原始文件保留。</p>
+      <el-form label-position="top" @submit.prevent="submitFull">
+        <el-form-item label="备份密码"><el-input v-model="password" type="password" show-password :disabled="fullBusy" autocomplete="off" /></el-form-item>
+        <el-form-item v-if="backupMode === 'export'" label="再次输入密码"><el-input v-model="confirmation" type="password" show-password :disabled="fullBusy" autocomplete="off" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="fullBusy" @click="backupDialog = false">取消</el-button>
+        <el-button type="primary" :loading="fullBusy" @click="submitFull">{{ backupMode === 'export' ? '加密并导出' : '恢复数据' }}</el-button>
+      </template>
+    </el-dialog>
+
+    <h3 class="snapshot-title">本机数据库快照</h3>
+    <p class="backup-note">仅包含数据库，不包含卷宗原件，也不能代替完整备份。</p>
+
+    <div class="backup-actions">
       <el-button type="primary" :loading="backingUp" @click="createBackup">立即备份</el-button>
-      <el-button :loading="loading" @click="load">刷新</el-button>
+      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
     </div>
 
     <div v-loading="loading" class="backup-list">
@@ -116,6 +174,7 @@ onMounted(() => {
 }
 .backup-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -134,6 +193,8 @@ onMounted(() => {
 .backup-row:last-child { border-bottom: none; }
 .bf-name {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--c-text);
@@ -150,4 +211,7 @@ onMounted(() => {
   font-size: 12px;
   color: var(--c-text-secondary);
 }
+.backup-path { overflow-wrap: anywhere; font-size: 12px; margin-bottom: 16px; }
+.snapshot-title { font-size: 15px; margin: 28px 0 8px; }
+@media (max-width: 600px) { .backup-row { flex-wrap: wrap; } }
 </style>

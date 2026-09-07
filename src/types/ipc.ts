@@ -274,6 +274,7 @@ export interface CalendarEventInput {
 }
 
 export interface KnowledgePatchInput {
+  expectedContent?: string
   title?: string | null
   category?: string | null
   content?: string | null

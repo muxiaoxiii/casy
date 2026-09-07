@@ -278,6 +278,11 @@ export type CommandMap = {
   create_backup: Cmd<{}, import('./bindings').BackupFile>
   list_backups: Cmd<{}, import('./bindings').BackupFile[]>
   restore_backup: Cmd<{ filename: string }, boolean>
+  export_full_backup: Cmd<{ destination: string; password: string }, boolean>
+  import_full_backup: Cmd<{ source: string; password: string }, boolean>
+  save_editor_recovery: Cmd<{ sessionId: string; draft: Record<string, unknown> | null }, void>
+  recover_editor_drafts: Cmd<{}, number>
+  correct_document_region: Cmd<{ fileId: string; jobId: string; pageNumber: number; regionIndex: number; expectedText: string; text: string }, string>
 
   // ── 同步域 ──
   get_sync_status: Cmd<{}, SyncStatus>
@@ -499,7 +504,7 @@ export type CommandMap = {
     Draft
   >
   update_draft: Cmd<
-    { id: string; title?: string; content?: string | null; status?: string; caseId?: string | null },
+    { id: string; title?: string; content?: string | null; status?: string; caseId?: string | null; expectedVersion?: number },
     Draft
   >
   delete_draft: Cmd<{ id: string }, boolean>

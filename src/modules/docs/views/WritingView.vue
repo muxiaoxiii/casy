@@ -1,4 +1,6 @@
 <script setup>
+import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
+import { useDraftRecovery } from '../../../composables/useDraftRecovery'
 import { ref, reactive, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
@@ -36,9 +38,16 @@ const loading = ref(false)
 
 // 草稿
 const draftId = ref(null)
+const recovery = useDraftRecovery()
+let draftVersion = undefined
 const draftTitle = ref('未命名文档')
 const saving = ref(false)
 let autoSaveTimer = null
+let savePending = null
+let editRevision = 0
+let savedRevision = 0
+useSaveBeforeLeave(() => editRevision !== savedRevision || saving.value, saveDraft)
+watch(draftTitle, scheduleAutoSave)
 
 // 右键知识入库
 const contextMenu = reactive({ visible: false, x: 0, y: 0, selectedText: '' })
@@ -206,12 +215,21 @@ function onCaseSelect(selectedId) {
 
 // 自动保存
 function scheduleAutoSave() {
+  recovery.checkpoint({ id: draftId.value || 'new-document', title: draftTitle.value, content: editor.value?.getHTML() || '' })
+  editRevision++
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
-  autoSaveTimer = setTimeout(() => saveDraft(), 5000)
+  autoSaveTimer = setTimeout(() => saveDraft(), 900)
 }
 
-async function saveDraft() {
-  if (!editor.value || saving.value) return
+function saveDraft() {
+  if (savePending) return savePending
+  if (!editor.value) return Promise.resolve(true)
+  if (savedRevision === editRevision) return Promise.resolve(true)
+  clearTimeout(autoSaveTimer)
+  savePending = (async () => {
+  try {
+  while (savedRevision !== editRevision) {
+  const revision = editRevision
   saving.value = true
 
   const content = editor.value.getHTML()
@@ -224,7 +242,7 @@ async function saveDraft() {
 
   let result
   if (draftId.value) {
-    result = await casyContext.docs.updateDraft(draftId.value, payload)
+    result = await casyContext.docs.updateDraft(draftId.value, { ...payload, expectedVersion: draftVersion })
   } else {
     result = await casyContext.docs.createDraft(payload)
     if (result.ok && result.data?.id) {
@@ -232,10 +250,19 @@ async function saveDraft() {
     }
   }
 
-  saving.value = false
-  if (result.ok) {
-    ElMessage.success('已自动保存')
+  if (!result.ok) {
+    ElMessage.error(result.error || '文书保存失败，修改仍保留')
+    return false
   }
+  savedRevision = revision
+  draftVersion = result.data?.version
+  }
+  await recovery.clear()
+  return true
+  } catch (error) { ElMessage.error(String(error)); return false }
+  finally { saving.value = false; savePending = null }
+  })()
+  return savePending
 }
 
 // 加载已有草稿
@@ -243,6 +270,7 @@ async function loadDraft(id) {
   const result = await casyContext.docs.getDraft(id)
   if (result.ok && result.data) {
     draftId.value = result.data.id
+    draftVersion = result.data.version
     draftTitle.value = result.data.title || '未命名文档'
     if (result.data.caseId) {
       caseId.value = result.data.caseId
@@ -336,7 +364,8 @@ function onDocumentClick() {
   hideContextMenu()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await recovery.recover()
   loadCasesList()
   if (caseId.value) {
     loadCaseData()

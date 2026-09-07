@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount, type VueWrapper } from '@vue/test-utils'
 import KnowledgeNotebookView from '../../src/modules/knowledge/views/KnowledgeNotebookView.vue'
+vi.mock('../../src/core/tauriBridge', () => ({ tauriCallSafe: vi.fn(async (command: string) => ({ ok: true, data: command === 'recover_editor_drafts' ? 0 : undefined })) }))
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(), get: vi.fn(), update: vi.fn(), register: vi.fn(), close: vi.fn(), stop: vi.fn(), error: vi.fn(),

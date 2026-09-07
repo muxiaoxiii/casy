@@ -16,6 +16,7 @@ import KnowledgeHistoryPanel from '../components/KnowledgeHistoryPanel.vue'
 import KnowledgeImportPanel from '../components/KnowledgeImportPanel.vue'
 import KnowledgeSearchPanel from '../components/KnowledgeSearchPanel.vue'
 import { useNotebookSave } from '../composables/useNotebookSave'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 
 const router = useRouter()
 const route = useRoute()
@@ -41,6 +42,7 @@ let stopCloseListener
 let unmounted = false
 const documentBusy = ref(false)
 const mobilePane = ref('notes')
+const editorSession = crypto.randomUUID()
 const persistence = useNotebookSave({
   draft,
   syncEditor: syncEditorContent,
@@ -54,6 +56,16 @@ const persistence = useNotebookSave({
     }
   },
   onError: message => ElMessage.error(message),
+  recovery: window.__TAURI_INTERNALS__ ? {
+    write: async draft => {
+      const result = await tauriCallSafe('save_editor_recovery', { sessionId: editorSession, draft })
+      if (!result.ok) throw new Error(result.error)
+    },
+    clear: async () => {
+      const result = await tauriCallSafe('save_editor_recovery', { sessionId: editorSession, draft: null })
+      if (!result.ok) throw new Error(result.error)
+    },
+  } : undefined,
 })
 const { dirty, saving, error: saveError } = persistence
 
@@ -415,7 +427,13 @@ onMounted(async () => {
   } catch {
     ElMessage.error('无法启用窗口关闭保护，请保存笔记后再退出')
   }
-  if (!unmounted) await loadAll()
+  if (!unmounted) {
+    if (window.__TAURI_INTERNALS__) {
+      const recovered = await tauriCallSafe('recover_editor_drafts', {})
+      if (recovered.ok && recovered.data > 0) ElMessage.info(`已找回 ${recovered.data} 份内容，保留为恢复草稿`)
+    }
+    await loadAll()
+  }
 })
 onBeforeUnmount(() => {
   unmounted = true

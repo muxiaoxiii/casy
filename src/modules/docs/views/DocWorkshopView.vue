@@ -158,6 +158,8 @@
 </template>
 
 <script setup>
+import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
+import { useDraftRecovery } from '../../../composables/useDraftRecovery'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { Collection, Link } from '@element-plus/icons-vue'
@@ -237,17 +239,22 @@ async function loadCases() {
 }
 
 // 选择草稿
+let selectionRevision = 0
+let selectingId = null
 async function selectDraft(id) {
-  if (currentDraft.value && saveStatus.value === 'saving') {
-    await saveDraft()
-  }
-
-  currentDraftId.value = id
+  if (currentDraft.value?.id === id || selectingId === id) return
+  const selection = ++selectionRevision
+  if (currentDraft.value && !(await saveDraft())) return
+  if (selection !== selectionRevision) return
+  selectingId = id
   const result = await casyContext.docs.getDraft(id)
+  if (selection !== selectionRevision) return
+  selectingId = null
   if (result.ok) {
+    currentDraftId.value = id
     currentDraft.value = result.data
     saveStatus.value = 'idle'
-  }
+  } else ElMessage.error(result.error || '文书加载失败')
 }
 
 // 新建草稿（开箱即写）
@@ -263,32 +270,59 @@ async function createNewDraft() {
 }
 
 // 保存草稿
-async function saveDraft() {
-  if (!currentDraft.value) return
+let savePending = null
+const recovery = useDraftRecovery()
+let editRevision = 0
+let savedRevision = 0
+useSaveBeforeLeave(() => editRevision !== savedRevision || saveStatus.value === 'saving', saveDraft)
+function saveDraft() {
+  if (savePending) return savePending
+  if (!currentDraft.value) return Promise.resolve(true)
+  if (savedRevision === editRevision) return Promise.resolve(true)
+  if (saveTimer.value) clearTimeout(saveTimer.value)
+  savePending = (async () => {
+  try {
+  while (editRevision !== savedRevision) {
+  const revision = editRevision
+  const snapshot = { ...currentDraft.value }
 
   saveStatus.value = 'saving'
-  const result = await casyContext.docs.updateDraft(currentDraft.value.id, {
-    title: currentDraft.value.title,
-    content: currentDraft.value.content,
-    status: currentDraft.value.status,
-    caseId: currentDraft.value.caseId || null,
+  const result = await casyContext.docs.updateDraft(snapshot.id, {
+    title: snapshot.title,
+    content: snapshot.content,
+    status: snapshot.status,
+    caseId: snapshot.caseId || null,
+    expectedVersion: snapshot.version,
   })
 
   if (result.ok) {
+    currentDraft.value.version = result.data.version
+    savedRevision = revision
     saveStatus.value = 'saved'
     const idx = drafts.value.findIndex(d => d.id === currentDraft.value.id)
     if (idx >= 0) {
-      drafts.value[idx] = { ...drafts.value[idx], ...currentDraft.value }
+      drafts.value[idx] = { ...drafts.value[idx], ...snapshot, version: result.data.version, updatedAt: result.data.updatedAt }
     }
     setTimeout(() => {
       if (saveStatus.value === 'saved') saveStatus.value = 'idle'
     }, 2500)
   } else {
     saveStatus.value = 'error'
+    ElMessage.error(result.error || '文书保存失败')
+    return false
   }
+  }
+  await recovery.clear()
+  return true
+  } catch (error) { saveStatus.value = 'error'; ElMessage.error(String(error)); return false }
+  finally { savePending = null }
+  })()
+  return savePending
 }
 
 function scheduleSave() {
+  if (currentDraft.value) recovery.checkpoint({ id: currentDraft.value.id, title: currentDraft.value.title, content: currentDraft.value.content || '' })
+  editRevision++
   if (saveTimer.value) clearTimeout(saveTimer.value)
   saveTimer.value = setTimeout(() => {
     saveDraft()
@@ -361,6 +395,7 @@ function statusLabel(status) {
 }
 
 onMounted(async () => {
+  await recovery.recover()
   await Promise.all([loadDrafts(), loadCases()])
   if (drafts.value.length > 0) {
     selectDraft(drafts.value[0].id)
@@ -385,7 +420,6 @@ async function onTemplateSelect(template) {
 
 onUnmounted(() => {
   if (saveTimer.value) clearTimeout(saveTimer.value)
-  if (currentDraft.value) saveDraft()
 })
 </script>
 

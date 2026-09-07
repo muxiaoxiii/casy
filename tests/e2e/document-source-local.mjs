@@ -42,7 +42,7 @@ try {
   await page.evaluate(async()=>{
     const {tryMockCommand}=await import('/src/core/mockData.ts')
     const commands=new Set(['get_case','list_case_files','list_removed_case_files','list_case_dirs','list_case_document_jobs',
-      'get_document_engine_status','list_document_jobs','get_file_ocr_text','list_case_ocr_states','search_document_passages','get_document_page'])
+      'get_document_engine_status','list_document_jobs','get_file_ocr_text','list_case_ocr_states','search_document_passages','get_document_page','correct_document_region'])
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(commands.has(command))return window.__documentSourceCall(command,args)
       if(command==='get_settings')return {}
@@ -87,6 +87,20 @@ try {
   const bounds=await dialog.boundingBox()
   assert(bounds.x>=0&&bounds.x+bounds.width<=391)
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false)
+  await page.setViewportSize({width:1440,height:1000})
+  await dialog.getByRole('button',{name:'校订选中区域'}).click()
+  await dialog.getByRole('textbox',{name:'校订文字'}).fill('ersatz Prüfung - 校订测试')
+  await dialog.getByRole('button',{name:'保存校订'}).click()
+  await dialog.locator('pre').filter({hasText:'校订测试'}).waitFor({timeout:120000})
+  const revisedJobs=await call('list_document_jobs',{fileId:'ocr-file'})
+  const revised=revisedJobs.find(j=>j.engine==='paddle-onnx-corrected'&&j.status==='completed')
+  assert(revised,'Correction did not create an immutable completed revision')
+  const oldPage=await call('get_document_page',{fileId:'ocr-file',jobId:job.id,pageNumber:2})
+  assert(!oldPage.markdown.includes('校订测试'),'Old revision was overwritten')
+  const correctedHits=await call('search_document_passages',{query:'校订测试',scope:['ocr-file']})
+  assert(correctedHits.some(h=>h.jobId===revised.id&&h.locations.some(l=>l.pageNumber===2)))
+  await assert.rejects(call('correct_document_region',{fileId:'ocr-file',jobId:job.id,pageNumber:2,regionIndex:0,expectedText:oldPage.regions[0].text,text:'stale correction'}),/OCR_VERSION_CHANGED/)
+  await page.screenshot({path:path.join(profile,'source-corrected.png'),animations:'disabled'})
   // Change only the isolated copy to prove old coordinates are never used on a new source.
   const localSource=path.join(profile,'source',path.basename(source))
   fs.appendFileSync(localSource,'\n% changed test copy\n')

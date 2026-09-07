@@ -44,8 +44,7 @@ export class CalendarService extends Service {
   }
 
   /**
-   * 更新日程——整组提交契约：title/eventDate 必传，其余可传 null 显式清空
-   * （后端不做 COALESCE，改期/取消时刻是常规操作）
+   * 更新日程：title/eventDate 必传，缺省字段保留，null 显式清空。
    */
   async updateEvent(id: string, data: CalendarEventInput): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe('update_calendar_event', { id, data })

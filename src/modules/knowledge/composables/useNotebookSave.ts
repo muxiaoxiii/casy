@@ -16,6 +16,10 @@ export function useNotebookSave(options: {
   update: (id: string, data: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>
   onSaved: (id: string, data: Record<string, unknown>) => void
   onError: (message: string) => void
+  recovery?: {
+    write: (draft: NotebookDraft) => Promise<void>
+    clear: () => Promise<void>
+  }
 }) {
   const dirty = ref(false)
   const saving = ref(false)
@@ -25,12 +29,35 @@ export function useNotebookSave(options: {
   let timer: ReturnType<typeof setTimeout> | undefined
   let pending: Promise<boolean> | null = null
   let disposed = false
+  let baselineContent = options.draft.value.content
+  let recoveryPending: Promise<void> = Promise.resolve()
+  let recoveryLatest: NotebookDraft | null | undefined
+  let recoveryRunning = false
+
+  function checkpoint(draft: NotebookDraft | null) {
+    if (!options.recovery) return
+    recoveryLatest = draft ? { ...draft } : null
+    if (recoveryRunning) return
+    recoveryRunning = true
+    recoveryPending = (async () => {
+      try {
+        while (recoveryLatest !== undefined) {
+          const snapshot = recoveryLatest
+          recoveryLatest = undefined
+          if (snapshot) await options.recovery!.write(snapshot)
+          else await options.recovery!.clear()
+        }
+      } finally { recoveryRunning = false }
+    })()
+    recoveryPending.catch(cause => options.onError(`恢复草稿保存失败：${String(cause)}`))
+  }
 
   function changed() {
     if (hydrating || disposed || !options.draft.value.id) return
     revision++
     dirty.value = true
     error.value = ''
+    checkpoint(options.draft.value)
     clearTimeout(timer)
     timer = setTimeout(flush, 900)
   }
@@ -39,6 +66,7 @@ export function useNotebookSave(options: {
   function hydrate(value: NotebookDraft) {
     hydrating = true
     options.draft.value = value
+    baselineContent = value.content
     revision++
     dirty.value = false
     error.value = ''
@@ -60,6 +88,7 @@ export function useNotebookSave(options: {
           const id = draft.id
           const savingRevision = revision
           const data = {
+            expectedContent: baselineContent,
             title: draft.title.trim() || '无标题笔记', content: draft.content,
             category: draft.category, tags: draft.tags || null,
             linkedCaseId: draft.linkedCaseId || null, parentId: draft.parentId || null,
@@ -68,8 +97,13 @@ export function useNotebookSave(options: {
           saving.value = true
           const result = await options.update(id, data)
           if (!result.ok) throw new Error(result.error || '保存失败，修改仍保留在编辑器中')
+          baselineContent = data.content
           error.value = ''
-          if (options.draft.value.id === id && revision === savingRevision) dirty.value = false
+          if (options.draft.value.id === id && revision === savingRevision) {
+            dirty.value = false
+            checkpoint(null)
+            await recoveryPending
+          }
           options.onSaved(id, data)
         }
         return false

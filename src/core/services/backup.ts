@@ -11,6 +11,14 @@ export interface BackupFileDto {
 export class BackupService extends Service {
   static inject: string[] = []
 
+  async exportFull(destination: string, password: string) {
+    return tauriCallSafe('export_full_backup', { destination, password })
+  }
+
+  async importFull(source: string, password: string) {
+    return tauriCallSafe('import_full_backup', { source, password })
+  }
+
   async create(): Promise<{ ok: boolean; data?: BackupFileDto; error?: string }> {
     return tauriCallSafe('create_backup', {})
   }

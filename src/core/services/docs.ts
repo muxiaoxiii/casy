@@ -69,6 +69,7 @@ export class DocsService extends Service {
       content?: string | null
       status?: string
       caseId?: string | null
+      expectedVersion?: number
     } = {}
   ): Promise<{ ok: boolean; data?: Draft; error?: string }> {
     return tauriCallSafe('update_draft', { id, ...data })
