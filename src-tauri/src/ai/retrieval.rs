@@ -1,3 +1,4 @@
+use super::document_match::{PageText, SourceLocation, SourceText};
 use anyhow::{bail, Result};
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -14,6 +15,7 @@ pub struct DocumentPassage {
     pub location_kind: String,
     pub content: String,
     pub citation: String,
+    pub locations: Vec<SourceLocation>,
 }
 
 pub(crate) fn query_terms(query: &str) -> Vec<String> {
@@ -114,6 +116,7 @@ pub fn search(
                 let kind = if engine == "text-document" { "s" } else { "p" };
                 Ok(DocumentPassage {
                     citation: format!("file {file_id} {kind}{number}"),
+                    locations: vec![],
                     file_id,
                     job_id: row.get(1)?,
                     file_name: row.get(2)?,
@@ -129,11 +132,101 @@ pub fn search(
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut candidates = candidates;
+    // FTS indexes individual pages. Scan adjacent pages in the selected, latest
+    // document versions too, so a word split at a page break is still found.
+    let mut stmt = conn.prepare(r#"
+        SELECT f.id,j.id,f.file_name,f.file_path,j.engine,p.page_number,p.width,p.height,
+               CASE WHEN p.plain_text='' THEN p.markdown ELSE p.plain_text END,p.regions_json
+        FROM case_files f JOIN document_processing_jobs j ON j.id=(
+            SELECT id FROM document_processing_jobs WHERE file_id=f.id AND status='completed' ORDER BY rowid DESC LIMIT 1)
+        JOIN document_pages p ON p.job_id=j.id
+        WHERE f.deleted_at IS NULL AND f.id IN (SELECT value FROM json_each(?1))
+        ORDER BY f.id,p.page_number
+    "#)?;
+    let mut rows = stmt.query([serde_json::to_string(scope)?])?;
+    let mut previous: Option<(String, PageText)> = None;
+    while let Some(row) = rows.next()? {
+        let file_id: String = row.get(0)?;
+        let job_id: String = row.get(1)?;
+        let engine: String = row.get(4)?;
+        let page = PageText {
+            number: row.get(5)?,
+            width: row.get(6)?,
+            height: row.get(7)?,
+            text: row.get(8)?,
+            regions: serde_json::from_str(&row.get::<_, String>(9)?)?,
+        };
+        let source = SourceText::new(&[&page]);
+        let matched = source
+            .find(query)
+            .or_else(|| terms.iter().find_map(|term| source.find(term)));
+        if let Some((content, locations)) = matched {
+            if let Some(hit) = candidates
+                .iter_mut()
+                .find(|hit| hit.job_id == job_id && hit.number == page.number)
+            {
+                hit.locations = locations;
+                hit.content = content;
+            } else {
+                let kind = if engine == "text-document" { "s" } else { "p" };
+                candidates.push(DocumentPassage {
+                    file_id: file_id.clone(),
+                    job_id: job_id.clone(),
+                    file_name: row.get(2)?,
+                    source_path: row.get(3)?,
+                    number: page.number,
+                    location_kind: if kind == "s" { "segment" } else { "page" }.into(),
+                    content,
+                    citation: format!("file {file_id} {kind}{}", page.number),
+                    locations,
+                });
+            }
+        }
+        if let Some((old_job, old)) = &previous {
+            if old_job == &job_id && old.number + 1 == page.number {
+                let pair = SourceText::new(&[old, &page]);
+                if let Some((content, locations)) = pair.find_cross_page(query) {
+                    if locations.iter().any(|l| l.page_number == old.number)
+                        && locations.iter().any(|l| l.page_number == page.number)
+                    {
+                        let kind = if engine == "text-document" { "s" } else { "p" };
+                        candidates.push(DocumentPassage {
+                            file_id: file_id.clone(),
+                            job_id: job_id.clone(),
+                            file_name: row.get(2)?,
+                            source_path: row.get(3)?,
+                            number: old.number,
+                            location_kind: if kind == "s" { "segment" } else { "page" }.into(),
+                            content,
+                            citation: format!(
+                                "file {file_id} {kind}{}-{kind}{}",
+                                old.number, page.number
+                            ),
+                            locations,
+                        });
+                    }
+                }
+            }
+        }
+        // Bound retained candidates even for a very common term in a large library.
+        if candidates.len() > 200 {
+            rank_candidates(&mut candidates, query, &terms);
+            candidates.truncate(100);
+        }
+        previous = Some((job_id, page));
+    }
     let mut ranked: Vec<_> = candidates
         .into_iter()
         .map(|passage| {
             let text = passage.content.to_lowercase();
-            let score = usize::from(text.contains(&query.to_lowercase())) * 100
+            let score = usize::from(
+                passage
+                    .locations
+                    .iter()
+                    .any(|l| l.page_number != passage.number),
+            ) * 200
+                + usize::from(text.contains(&query.to_lowercase())) * 100
                 + terms
                     .iter()
                     .filter(|term| text.contains(&term.to_lowercase()))
@@ -165,9 +258,57 @@ pub fn search(
         .collect())
 }
 
+fn rank_candidates(candidates: &mut [DocumentPassage], query: &str, terms: &[String]) {
+    let score = |p: &DocumentPassage| {
+        let text = p.content.to_lowercase();
+        usize::from(p.locations.iter().any(|l| l.page_number != p.number)) * 200
+            + usize::from(text.contains(&query.to_lowercase())) * 100
+            + terms
+                .iter()
+                .filter(|t| text.contains(&t.to_lowercase()))
+                .count()
+                * 10
+    };
+    candidates.sort_by_key(|p| std::cmp::Reverse(score(p)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cross_page_word_is_searchable_with_both_region_references() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::run_migrations(&conn, 0).unwrap();
+        conn.execute_batch("INSERT INTO cases(id,case_name,client_name) VALUES('c','Synthetic','Test');
+          INSERT INTO case_files(id,case_id,file_name,file_path,category) VALUES('f','c','claim.pdf','/tmp/claim.pdf','evidence');
+          INSERT INTO document_processing_jobs(id,file_id,source_sha256,status,engine) VALUES('j','f','hash','completed','paddle-onnx-visual');").unwrap();
+        for (number, text) in [(1, "Schadens-"), (2, "ersatz Prüfung")] {
+            let regions =
+                serde_json::json!([{"text":text,"bbox":[10,20,200,40],"confidence":0.99}])
+                    .to_string();
+            conn.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json) VALUES('j','f',?1,400,600,?2,?2,?3)",params![number,text,regions]).unwrap();
+        }
+        let hits = search(&conn, "Schadensersatz", &["f".into()], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].citation, "file f p1-p2");
+        assert_eq!(
+            hits[0]
+                .locations
+                .iter()
+                .map(|l| l.page_number)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(hits[0].content.contains("Schadens-\nersatz"));
+        conn.execute(
+            "UPDATE case_files SET deleted_at='2026-09-07' WHERE id='f'",
+            [],
+        )
+        .unwrap();
+        assert!(search(&conn, "Schadensersatz", &["f".into()], 10)
+            .unwrap()
+            .is_empty());
+    }
     #[test]
     fn searches_chinese_questions_and_never_leaks_other_files_or_old_jobs() {
         let conn = Connection::open_in_memory().unwrap();

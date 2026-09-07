@@ -13,6 +13,7 @@ pub mod insights;
 pub mod learning;
 pub mod page_index;
 pub mod retrieval;
+pub mod document_match;
 pub mod embeddings;
 pub mod profiles;
 pub mod usage;

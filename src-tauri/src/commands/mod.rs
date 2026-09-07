@@ -135,6 +135,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::clear_task_defer,
         ai_routes::get_proposal_preview,
         document_intelligence::get_document_engine_status,
+        document_intelligence::get_document_page,
         document_intelligence::queue_document_processing,
         document_intelligence::list_document_jobs,
         document_intelligence::list_case_document_jobs,

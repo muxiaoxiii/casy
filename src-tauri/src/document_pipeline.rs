@@ -4,6 +4,9 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use DocumentPage as Page;
+#[path = "../../tools/casy-doc-engine/src/source_map.rs"]
+mod source_map;
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -19,7 +22,7 @@ pub struct DocumentEngineStatus {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentRegion {
     pub text: String,
@@ -48,10 +51,7 @@ pub struct ProcessRequest {
     pub source_sha256: String,
     pub output_dir: String,
     pub coordinate_model_dir: Option<String>,
-    pub ovis_model_dir: Option<String>,
-    pub paddle_model_dir: Option<String>,
     pub cjk_font_path: Option<String>,
-    pub device: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +63,8 @@ pub struct ProcessResult {
     pub searchable_pdf_path: Option<String>,
     pub page_ir_path: String,
     pub markdown_path: String,
+    #[serde(default)]
+    pub source_map_path: Option<String>,
     pub pages: Vec<DocumentPage>,
 }
 
@@ -328,6 +330,7 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     for path in [&result.page_ir_path, &result.markdown_path]
         .into_iter()
         .chain(result.searchable_pdf_path.iter())
+        .chain(result.source_map_path.iter())
     {
         let resolved = std::fs::canonicalize(path).context("ARTIFACT_MISSING: 文档产物缺失")?;
         if !resolved.starts_with(&root) || resolved == source || !resolved.is_file() {
@@ -391,6 +394,18 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     if std::fs::read_to_string(&result.markdown_path)? != expected_md {
         return Err(anyhow!("INVALID_MARKDOWN: Markdown 备份与页面不一致"));
     }
+    if result.engine == "paddle-onnx-visual" && result.source_map_path.is_none() {
+        return Err(anyhow!("INVALID_SOURCE_MAP: 缺少来源映射"));
+    }
+    if let Some(path) = &result.source_map_path {
+        let map: source_map::SourceMap = serde_json::from_slice(&std::fs::read(path)?)?;
+        let (_, expected) = source_map::build(&result.pages, &result.source_sha256);
+        if map != expected {
+            return Err(anyhow!(
+                "INVALID_SOURCE_MAP: 来源映射与页面或 Markdown 不一致"
+            ));
+        }
+    }
     if let Some(pdf) = &result.searchable_pdf_path {
         let mut header = [0u8; 5];
         std::fs::File::open(pdf)?.read_exact(&mut header)?;
@@ -413,10 +428,7 @@ pub fn process_request(
         source_sha256: sha256.into(),
         output_dir: output_dir.display().to_string(),
         coordinate_model_dir: env_path("CASY_PPOCR_MODEL_DIR"),
-        ovis_model_dir: env_path("CASY_OVISOCR2_MODEL_DIR"),
-        paddle_model_dir: env_path("CASY_PADDLEOCR_VL_MODEL_DIR"),
         cjk_font_path: env_path("CASY_OCR_FONT"),
-        device: std::env::var("CASY_OCR_DEVICE").unwrap_or_else(|_| "cpu".into()),
     }
 }
 
@@ -459,6 +471,7 @@ mod tests {
             searchable_pdf_path: Some(root.join("search.pdf").display().to_string()),
             page_ir_path: root.join("pages.json").display().to_string(),
             markdown_path: root.join("source.md").display().to_string(),
+            source_map_path: None,
             pages,
         };
         std::fs::write(
@@ -473,6 +486,19 @@ mod tests {
         .unwrap();
         std::fs::write(&result.markdown_path, "<!-- page 1 -->\n# Evidence").unwrap();
         validate_result(&request, &result).unwrap();
+        let (_, map) = source_map::build(&result.pages, &result.source_sha256);
+        let map_path = root.join("source.map.json");
+        std::fs::write(&map_path, serde_json::to_vec(&map).unwrap()).unwrap();
+        result.source_map_path = Some(map_path.display().to_string());
+        validate_result(&request, &result).unwrap();
+        let mut corrupt = serde_json::to_value(&map).unwrap();
+        corrupt["markdownSha256"] = serde_json::json!("wrong-hash");
+        std::fs::write(&map_path, serde_json::to_vec(&corrupt).unwrap()).unwrap();
+        assert!(validate_result(&request, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("INVALID_SOURCE_MAP"));
+        std::fs::write(&map_path, serde_json::to_vec(&map).unwrap()).unwrap();
         result.pages[0].page_number = 2;
         assert!(validate_result(&request, &result).is_err());
         result.pages[0].page_number = 1;

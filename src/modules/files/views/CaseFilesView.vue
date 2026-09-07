@@ -10,6 +10,7 @@ import {
   ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close, EditPen, FolderAdd, RefreshLeft
 } from '@element-plus/icons-vue'
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
+import DocumentSourceViewer from '../components/DocumentSourceViewer.vue'
 import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
 
 const route = useRoute()
@@ -47,6 +48,8 @@ function selectFile(file) {
 }
 
 const showReasoningPanel = ref(false)
+const sourceViewer = ref(null)
+const sourceViewerOpen = ref(false)
 
 // W5 · OCR 状态（徽标 / 立即识别 / 查看文本）
 const ocrStates = ref({}) // fileId -> { status, hasText }
@@ -641,6 +644,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
             <el-button
               v-if="documentJobs[selectedFile.id]?.markdownPath"
               :icon="Document"
+              @click="sourceViewer={fileId:selectedFile.id,jobId:documentJobs[selectedFile.id].id};sourceViewerOpen=true"
+            >对照阅读</el-button>
+            <el-button
+              v-if="documentJobs[selectedFile.id]?.markdownPath"
+              :icon="Document"
               @click="casyContext.files.openDefault(documentJobs[selectedFile.id].markdownPath)"
             >打开 Markdown 备份</el-button>
             <el-button
@@ -679,6 +687,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
       </template>
     </el-dialog>
 
+    <DocumentSourceViewer v-if="sourceViewer" v-model="sourceViewerOpen" :file-id="sourceViewer.fileId" :job-id="sourceViewer.jobId" />
     <ReasoningSearchPanel
       v-model="showReasoningPanel" 
       :caseId="caseId" 

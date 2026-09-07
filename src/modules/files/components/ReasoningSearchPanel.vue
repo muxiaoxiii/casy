@@ -5,11 +5,14 @@ import { tauriCallSafe } from '../../../core/tauriBridge'
 import { isTauriRuntime } from '../../../core/mockData'
 import { Search, Close, Document, FolderOpened } from '@element-plus/icons-vue'
 import type { DocumentPassage } from '../../../types/documentRetrieval'
+import DocumentSourceViewer from './DocumentSourceViewer.vue'
 
 const props = defineProps<{ modelValue: boolean; caseId: string; files: Array<{id:string;fileName:string}> }>()
 const emit = defineEmits<{ (e:'update:modelValue', value:boolean):void }>()
 const query = ref(''), mode = ref('source'), busy = ref(false), error = ref(''), searched = ref(false)
 const passages = ref<DocumentPassage[]>([])
+const source = ref<DocumentPassage|null>(null)
+const sourceOpen = ref(false)
 const selectedFileIds = ref<string[]>([])
 const logs = ref<string[]>([])
 const answer = ref<{answer:string; excerpts:Array<{source:string;quote:string}>} | null>(null)
@@ -59,8 +62,7 @@ async function search() {
   finally { if (current === revision) busy.value = false }
 }
 async function openSource(passage:DocumentPassage) {
-  const result = await tauriCallSafe('open_file_with_default',{path:passage.sourcePath})
-  if (!result.ok) error.value = result.error || '无法打开原文件'
+  source.value=passage; sourceOpen.value=true
 }
 </script>
 
@@ -78,7 +80,7 @@ async function openSource(passage:DocumentPassage) {
       <div class="results">
         <p v-if="searched && !answer" class="result-count">{{ passages.length }} 处命中</p>
         <article v-for="passage in passages" :key="passage.citation" class="passage">
-          <div class="passage-heading"><Document /><strong>{{ passage.fileName }}</strong><span>第 {{ passage.number }} {{ passage.locationKind === 'segment' ? '段' : '页' }}</span><el-button :icon="FolderOpened" title="打开原文件" aria-label="打开原文件" @click="openSource(passage)" /></div>
+          <div class="passage-heading"><Document /><strong>{{ passage.fileName }}</strong><span>第 {{ [...new Set([passage.number,...(passage.locations||[]).map(l=>l.pageNumber)])].join('、') }} {{ passage.locationKind === 'segment' ? '段' : '页' }}</span><el-button :icon="FolderOpened" title="定位原文" aria-label="定位原文" @click="openSource(passage)" /></div>
           <pre>{{ passage.content.slice(0,800) }}</pre>
           <details v-if="passage.content.length > 800"><summary>展开原文片段</summary><pre>{{ passage.content }}</pre></details>
         </article>
@@ -87,6 +89,7 @@ async function openSource(passage:DocumentPassage) {
       </div>
     </section>
   </el-drawer>
+  <DocumentSourceViewer v-if="source" v-model="sourceOpen" :file-id="source.fileId" :job-id="source.jobId" :initial-page="source.number" :locations="source.locations" />
 </template>
 
 <style scoped>

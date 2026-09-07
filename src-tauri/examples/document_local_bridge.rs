@@ -126,6 +126,11 @@ async fn main() -> Result<()> {
                 .map(|v| json!(v))
         }
         "get_document_engine_status" => docs::get_document_engine_status().await.map(|v| json!(v)),
+        "get_document_page" => {
+            docs::get_document_page(file, job, args["pageNumber"].as_u64().unwrap_or(1) as u32)
+                .await
+                .map(|v| json!(v))
+        }
         "search_document_passages" => search::search_document_passages(
             args["query"].as_str().unwrap_or("").into(),
             serde_json::from_value(args["scope"].clone())?,

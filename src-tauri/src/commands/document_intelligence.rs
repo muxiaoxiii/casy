@@ -72,7 +72,9 @@ pub(crate) fn queue_file(
     let source_sha256 = document_pipeline::sha256_file(path)?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let unchanged: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM case_files WHERE id=?1 AND file_path=?2 AND deleted_at IS NULL)", rusqlite::params![file_id,source_path], |r|r.get(0))?;
-    if !unchanged { anyhow::bail!("文件已移动或移除，请刷新后重试"); }
+    if !unchanged {
+        anyhow::bail!("文件已移动或移除，请刷新后重试");
+    }
     let active = tx.query_row(
         &format!("SELECT {JOB_COLUMNS} FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running') ORDER BY rowid DESC LIMIT 1"),
         [file_id], map_job,
@@ -90,6 +92,7 @@ pub(crate) fn queue_file(
     if let Some(job) = completed {
         if job.status == "completed"
             && job.source_sha256 == source_sha256
+            && (crate::parse::text_document::supports(path) || job.engine == "paddle-onnx-visual")
             && (crate::parse::text_document::supports(path)
                 || job
                     .searchable_pdf_path
@@ -153,7 +156,9 @@ pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // A retry gets its own identity so a cancelled process cannot publish into it.
     let live: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.id=?1 AND f.file_path=?2 AND f.deleted_at IS NULL)",rusqlite::params![job_id,path],|r|r.get(0))?;
-    if !live { anyhow::bail!("文件已移动或移除，请刷新后重试"); }
+    if !live {
+        anyhow::bail!("文件已移动或移除，请刷新后重试");
+    }
     let changed = tx.execute(
         "INSERT INTO document_processing_jobs(id,file_id,source_sha256)
          SELECT ?2,file_id,source_sha256 FROM document_processing_jobs
@@ -184,6 +189,119 @@ pub(crate) fn cancel_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyho
     tx.execute("UPDATE case_files SET ocr_status='failed',index_status='failed',ocr_error='CANCELLED: 已取消处理' WHERE id=(SELECT file_id FROM document_processing_jobs WHERE id=?1)", [job_id])?;
     tx.commit()?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentPageView {
+    pub file_id: String,
+    pub job_id: String,
+    pub file_name: String,
+    pub page_number: u32,
+    pub total_pages: u32,
+    pub markdown: String,
+    pub image_data: Option<String>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub regions: Vec<document_pipeline::DocumentRegion>,
+}
+
+#[tauri::command]
+pub async fn get_document_page(
+    file_id: String,
+    job_id: String,
+    page_number: u32,
+) -> Result<DocumentPageView, String> {
+    let (mut view, source, hash, render_source) = run_blocking(move || {
+        let conn = db::open_db()?;
+        load_document_page(&conn, &file_id, &job_id, page_number)
+    })
+    .await?;
+    if let Some(pdf) = render_source {
+        let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let prefix = temp.path().join("page");
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            tokio::process::Command::new("pdftoppm")
+                .args([
+                    "-f",
+                    &page_number.to_string(),
+                    "-l",
+                    &page_number.to_string(),
+                    "-singlefile",
+                    "-png",
+                    "-scale-to",
+                    "1600",
+                ])
+                .arg(pdf)
+                .arg(&prefix)
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .map_err(|_| "页面预览超时".to_owned())?
+        .map_err(|e| format!("无法渲染 PDF 页面: {e}"))?;
+        if !output.status.success() {
+            return Err("无法渲染原 PDF 页面".into());
+        }
+        let path = prefix.with_extension("png");
+        if std::fs::metadata(&path).map_err(|e| e.to_string())?.len() > 16 * 1024 * 1024 {
+            return Err("页面预览超过大小限制".into());
+        }
+        use base64::Engine;
+        view.image_data = Some(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD
+                .encode(std::fs::read(path).map_err(|e| e.to_string())?)
+        ));
+    }
+    run_blocking(move || {
+        if document_pipeline::sha256_file(std::path::Path::new(&source))? != hash {
+            anyhow::bail!("SOURCE_CHANGED: 原文件已变化，请重新处理后定位");
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(view)
+}
+
+fn load_document_page(
+    conn: &rusqlite::Connection,
+    file: &str,
+    job: &str,
+    number: u32,
+) -> anyhow::Result<(DocumentPageView, String, String, Option<String>)> {
+    let (view,source,hash,engine,searchable) = conn.query_row(r#"
+        SELECT f.file_name,f.file_path,j.source_sha256,j.engine,j.searchable_pdf_path,j.total_pages,
+               p.markdown,p.width,p.height,p.regions_json
+        FROM case_files f JOIN document_processing_jobs j ON j.file_id=f.id
+        JOIN document_pages p ON p.job_id=j.id AND p.file_id=f.id
+        WHERE f.id=?1 AND j.id=?2 AND p.page_number=?3 AND j.status='completed' AND f.deleted_at IS NULL
+    "#,rusqlite::params![file,job,number],|r|Ok((DocumentPageView {
+        file_id:file.into(),job_id:job.into(),file_name:r.get(0)?,page_number:number,total_pages:r.get(5)?,
+        markdown:r.get(6)?,width:r.get(7)?,height:r.get(8)?,regions:vec![],image_data:None
+    },r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,
+      (r.get::<_,Option<String>>(4)?,r.get::<_,String>(9)?))))?;
+    if document_pipeline::sha256_file(std::path::Path::new(&source))? != hash {
+        anyhow::bail!("SOURCE_CHANGED: 原文件已变化，请重新处理后定位");
+    }
+    let mut view = view;
+    view.regions = serde_json::from_str(&searchable.1)?;
+    let render = if engine == "text-document" {
+        None
+    } else if std::path::Path::new(&source)
+        .extension()
+        .is_some_and(|s| s.eq_ignore_ascii_case("pdf"))
+    {
+        Some(source.clone())
+    } else {
+        Some(
+            searchable
+                .0
+                .ok_or_else(|| anyhow::anyhow!("缺少图片文档的 PDF 预览"))?,
+        )
+    };
+    Ok((view, source, hash, render))
 }
 
 #[cfg(test)]
@@ -270,5 +388,30 @@ mod tests {
         let next = queue_file(&mut conn, "f").unwrap();
         assert_ne!(first.id, next.id);
         assert_eq!(next.status, "queued");
+    }
+
+    #[test]
+    fn source_view_rejects_wrong_binding_deleted_files_and_changed_originals() {
+        let (mut conn, _temp, path) = fixture();
+        let job = queue_file(&mut conn, "f").unwrap();
+        conn.execute("UPDATE document_processing_jobs SET status='completed',engine='text-document',total_pages=1 WHERE id=?1",[&job.id]).unwrap();
+        conn.execute("INSERT INTO document_pages(job_id,file_id,page_number,markdown) VALUES(?1,'f',1,'evidence')",[&job.id]).unwrap();
+        let (view, _, _, _) = load_document_page(&conn, "f", &job.id, 1).unwrap();
+        assert_eq!(view.markdown, "evidence");
+        assert!(load_document_page(&conn, "other", &job.id, 1).is_err());
+        assert!(load_document_page(&conn, "f", &job.id, 2).is_err());
+        conn.execute(
+            "UPDATE case_files SET deleted_at='2026-09-07' WHERE id='f'",
+            [],
+        )
+        .unwrap();
+        assert!(load_document_page(&conn, "f", &job.id, 1).is_err());
+        conn.execute("UPDATE case_files SET deleted_at=NULL WHERE id='f'", [])
+            .unwrap();
+        std::fs::write(path, b"changed original").unwrap();
+        assert!(load_document_page(&conn, "f", &job.id, 1)
+            .unwrap_err()
+            .to_string()
+            .contains("SOURCE_CHANGED"));
     }
 }

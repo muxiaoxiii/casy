@@ -581,6 +581,7 @@ export type CommandMap = {
   reasoning_search: Cmd<{ query: string; scope: string[] }, string>
   search_document_passages: Cmd<{ query: string; scope: string[] }, import('./documentRetrieval').DocumentPassage[]>
   get_document_engine_status: Cmd<{}, import('./bindings').DocumentEngineStatus>
+  get_document_page: Cmd<{fileId:string; jobId:string; pageNumber:number}, import('./documentRetrieval').DocumentPageView>
   queue_document_processing: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto>
   list_document_jobs: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto[]>
   list_case_document_jobs: Cmd<{ caseId: string }, import('./bindings').DocumentJobDto[]>

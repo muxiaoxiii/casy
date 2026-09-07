@@ -122,6 +122,7 @@ pub fn process(request: &ProcessRequest) -> Result<ProcessResult> {
     std::fs::write(&markdown_path, markdown)?;
     serde_json::to_writer(std::fs::File::create(&page_ir_path)?, &pages)?;
     Ok(ProcessResult {
+        source_map_path: None,
         source_sha256: request.source_sha256.clone(),
         engine: "text-document".into(),
         model_version: Some("anydoc-0.1.8".into()),

@@ -73,7 +73,7 @@ try {
     const native = new Set([
       'get_case', 'list_case_files', 'list_removed_case_files', 'list_case_dirs', 'list_case_document_jobs', 'get_document_engine_status', 'queue_document_processing',
       'list_document_jobs', 'retry_document_job', 'cancel_document_job', 'get_file_ocr_text', 'list_case_ocr_states',
-      'search_document_passages', 'list_knowledge_document_sources', 'import_pageindex_to_knowledge',
+      'search_document_passages', 'get_document_page', 'list_knowledge_document_sources', 'import_pageindex_to_knowledge',
       'list_knowledge', 'get_knowledge_with_blocks', 'open_file_with_default',
     ])
     window.__TAURI_INTERNALS__ = {
@@ -110,8 +110,11 @@ try {
   await drawer.locator('.passage').filter({ hasText: '125000.25' }).first().waitFor()
   assert.equal(await drawer.locator('.passage').count(), 1)
   assert((await drawer.innerText()).includes('第 1 段'))
-  await drawer.getByRole('button', { name: '打开原文件' }).first().click()
-  assert(opened.length >= 2)
+  await drawer.getByRole('button', { name: '定位原文' }).first().click()
+  const sourceDialog=page.locator('.document-source-dialog')
+  await sourceDialog.locator('pre').filter({hasText:'125000.25'}).waitFor()
+  assert.equal(await sourceDialog.locator('.source-page-image').count(),0)
+  await sourceDialog.getByRole('button',{name:'关闭此对话框',exact:true}).click()
   await page.screenshot({ path: path.join(profile, 'source-search-desktop.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: path.join(profile, 'source-search-mobile.png'), animations: 'disabled' })
