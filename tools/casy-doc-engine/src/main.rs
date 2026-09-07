@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 mod source_map;
 #[cfg(feature = "models")]
 mod layout;
+#[cfg(feature = "models")]
+mod embedding;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -526,6 +528,8 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
 fn run() -> Result<()> {
     let command = std::env::args().nth(1).unwrap_or_default();
     match command.as_str() {
+        #[cfg(feature = "models")]
+        "embed" => embedding::serve()?,
         "probe" => println!("{}", serde_json::to_string(&probe())?),
         "process" => {
             let mut input = Vec::new();

@@ -1,6 +1,6 @@
 //! Keyword and versioned chunk-vector retrieval, combined with reciprocal rank fusion.
 use crate::ai::{
-    embeddings::{cosine, EmbeddingPlan},
+    embeddings::{stored_cosine, EmbeddingPlan},
     retrieval::query_terms,
 };
 use anyhow::{bail, Result};
@@ -89,14 +89,7 @@ pub fn semantic_search(
     let mut best: HashMap<String, (f64, String)> = HashMap::new();
     while let Some(row) = rows.next()? {
         let bytes: Vec<u8> = row.get(1)?;
-        if bytes.len() != query.len() * 4 {
-            continue;
-        }
-        let vector: Vec<f32> = bytes
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-            .collect();
-        let score = cosine(query, &vector);
+        let score = stored_cosine(query, &bytes);
         if score <= 0.1 {
             continue;
         }
@@ -157,8 +150,8 @@ pub async fn search(query: &str, limit: usize, use_semantic: bool) -> Result<Sea
                 if let Some(client) = client {
                     let result = async {
                         tokio::time::timeout(
-                            std::time::Duration::from_secs(5),
-                            client.embed(&[query.to_owned()]),
+                            std::time::Duration::from_secs(if plan.mode == "local" { 15 } else { 5 }),
+                            client.embed_query(query),
                         )
                         .await
                         .map_err(|_| anyhow::anyhow!("向量查询超时，本次返回关键词结果"))?

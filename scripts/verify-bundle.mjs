@@ -24,4 +24,7 @@ const env={...process.env,PATH:'/usr/bin:/bin'}
 for(const key of Object.keys(env))if(key.startsWith('CASY_'))delete env[key]
 const probe=JSON.parse(execFileSync(join(runtime,'bin/casy-doc-engine'),['probe'],{env,encoding:'utf8'}))
 assert(probe.available,JSON.stringify(probe))
-console.log(JSON.stringify({app,files:manifest.files.length,runtimeBytes:manifest.files.reduce((sum,file)=>sum+file.bytes,0),signature:'ad-hoc verified',probe}))
+const embeddings=JSON.parse(execFileSync(join(runtime,'bin/casy-doc-engine'),['embed'],{env:{...env,CASY_EMBEDDING_MODEL_DIR:join(runtime,'models/embedding-e5-base')},input:JSON.stringify({inputs:['专利侵权赔偿','Prüfung français 日本語'],query:true})+'\n',encoding:'utf8',timeout:30000}))
+assert.equal(embeddings.embeddings?.length,2,JSON.stringify(embeddings))
+assert(embeddings.embeddings.every(vector=>vector.length===768&&vector.every(Number.isFinite)))
+console.log(JSON.stringify({app,files:manifest.files.length,runtimeBytes:manifest.files.reduce((sum,file)=>sum+file.bytes,0),signature:'ad-hoc verified',probe,embeddingDimensions:768}))

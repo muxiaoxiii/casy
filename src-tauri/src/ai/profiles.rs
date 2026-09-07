@@ -102,7 +102,7 @@ pub fn validate(config: &mut AiProfiles) -> Result<()> {
         p.name = p.name.trim().to_owned();
         p.model = p.model.trim().to_owned();
         p.api_url = p.api_url.trim().trim_end_matches('/').to_owned();
-        if p.id.is_empty() || !ids.insert(p.id.clone()) {
+        if p.id.is_empty() || p.id == super::local_embedding::PROFILE || !ids.insert(p.id.clone()) {
             bail!("配置 ID 为空或重复");
         }
         if p.name.is_empty() || p.model.is_empty() {
@@ -139,7 +139,9 @@ pub fn validate(config: &mut AiProfiles) -> Result<()> {
     }
     if let Some(embedding) = &mut config.embedding {
         embedding.model = embedding.model.trim().to_owned();
-        if !ids.contains(&embedding.profile_id) || embedding.model.is_empty() {
+        if embedding.profile_id == super::local_embedding::PROFILE {
+            embedding.model = super::local_embedding::MODEL.into();
+        } else if !ids.contains(&embedding.profile_id) || embedding.model.is_empty() {
             bail!("请选择向量接口配置并填写向量模型 ID");
         }
         if !(128..=4000).contains(&embedding.chunk_chars) {

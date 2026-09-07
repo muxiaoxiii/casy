@@ -4,6 +4,32 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use tauri::{AppHandle, Emitter};
 
+/// Local heading ancestry for retrieval chunks, excluding quoted sources and fenced code.
+pub(crate) fn markdown_contexts(markdown: &str) -> Vec<(usize, String)> {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let mut result = Vec::new();
+    let mut stack: Vec<(usize, String)> = Vec::new();
+    let mut quote = 0;
+    let mut current: Option<(usize, usize, String)> = None;
+    for (event, range) in Parser::new(markdown).into_offset_iter() {
+        match event {
+            Event::Start(Tag::BlockQuote(_)) => quote += 1,
+            Event::End(TagEnd::BlockQuote(_)) => quote -= 1,
+            Event::Start(Tag::Heading { level, .. }) if quote == 0 => current = Some((range.start, level as usize, String::new())),
+            Event::Text(text) | Event::Code(text) => { if let Some((_,_,title)) = &mut current { title.push_str(&text); } }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some((offset, level, title)) = current.take() {
+                    while stack.last().is_some_and(|(depth,_)| *depth >= level) { stack.pop(); }
+                    stack.push((level,title));
+                    result.push((offset, stack.iter().map(|(_,title)|title.as_str()).collect::<Vec<_>>().join(" / ")));
+                }
+            }
+            _ => {}
+        }
+    }
+    result
+}
+
 #[derive(Debug, Clone)]
 struct PageRecord {
     number: u32,

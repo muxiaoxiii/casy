@@ -282,6 +282,7 @@ async fn process(job: &ClaimedJob) -> Result<()> {
         bail!("正文已变化，请重试");
     }
     let chunks = segments(&content, plan.chunk_chars);
+    let contexts = crate::ai::page_index::markdown_contexts(&content);
     conn.execute(
         "UPDATE knowledge_index_jobs SET total_chunks=?1 WHERE id=?2",
         params![chunks.len(), job.id],
@@ -292,11 +293,11 @@ async fn process(job: &ClaimedJob) -> Result<()> {
         let inputs: Vec<String> = batch
             .iter()
             .map(|chunk| {
-                format!(
-                    "{}\n\n{}",
-                    title.chars().take(120).collect::<String>(),
-                    chunk
-                )
+                let offset = chunk.as_ptr() as usize - content.as_ptr() as usize;
+                let context = contexts.iter().rev().find(|(start,_)| *start <= offset).map(|(_,title)|title.as_str()).unwrap_or("");
+                // Titles remain in FTS. Generic file labels can distort short-passage embeddings.
+                if context.is_empty() { (*chunk).to_owned() }
+                else { format!("{}\n\n{}", context.chars().take(160).collect::<String>(), chunk) }
             })
             .collect();
         let vectors = client.embed(&inputs).await?;
@@ -307,7 +308,7 @@ async fn process(job: &ClaimedJob) -> Result<()> {
                 bail!("向量模型在处理中改变了维数");
             }
             dimension = Some(vector.len());
-            let bytes: Vec<u8> = vector.iter().flat_map(|n| n.to_le_bytes()).collect();
+            let bytes = crate::ai::embeddings::compact_vector(vector);
             tx.execute("INSERT INTO knowledge_index_chunks(job_id,chunk_index,content,embedding) VALUES(?1,?2,?3,?4)", params![job.id,batch_index * 8 + index,chunk,bytes])?;
         }
         tx.execute("UPDATE knowledge_index_jobs SET completed_chunks=?1,dimension=?2,updated_at=datetime('now','localtime') WHERE id=?3", params![batch_index * 8 + batch.len(),dimension,job.id])?;
@@ -365,5 +366,13 @@ mod tests {
             rebuilt.extend(chunk.chars().skip(125));
         }
         assert_eq!(rebuilt, text);
+    }
+
+    #[test]
+    fn retrieval_context_tracks_heading_ancestry_without_other_source_headings() {
+        let text = "# 本案\n\n## 赔偿计算\n\n正文\n\n> # 其他来源\n\n```\n# 代码\n```\n\n## 证据\n\n证据内容";
+        let contexts = crate::ai::page_index::markdown_contexts(text);
+        assert_eq!(contexts.iter().map(|(_,title)|title.as_str()).collect::<Vec<_>>(), vec!["本案","本案 / 赔偿计算","本案 / 证据"]);
+        assert_eq!(&text[contexts[2].0..], "## 证据\n\n证据内容");
     }
 }

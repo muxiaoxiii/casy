@@ -16,6 +16,7 @@ pub mod page_index;
 pub mod retrieval;
 pub mod document_match;
 pub mod embeddings;
+pub mod local_embedding;
 pub mod profiles;
 pub mod usage;
 pub mod recommender;

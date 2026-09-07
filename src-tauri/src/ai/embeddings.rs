@@ -26,13 +26,20 @@ impl EmbeddingPlan {
         let Some(settings) = config.embedding else {
             return Ok(None);
         };
+        if settings.profile_id == super::local_embedding::PROFILE {
+            return Ok(Some(Self {
+                profile_id: settings.profile_id, mode: "local".into(), api_url: String::new(), model: settings.model,
+                chunk_chars: settings.chunk_chars as usize,
+                fingerprint: digest(format!("e5-base-1ec9243-mean-window512-heading-v2:{}", settings.chunk_chars).as_bytes()),
+            }));
+        }
         let profile = config
             .profiles
             .iter()
             .find(|p| p.id == settings.profile_id)
             .context("向量接口配置不存在")?;
         let fingerprint = digest(&serde_json::to_vec(&(
-            "knowledge-chunks-v1",
+            "knowledge-heading-chunks-v2",
             &profile.id,
             &profile.mode,
             &profile.api_url,
@@ -54,6 +61,7 @@ impl EmbeddingPlan {
     }
 
     pub fn client(&self, conn: &Connection) -> Result<EmbeddingClient> {
+        if self.mode == "local" { return EmbeddingClient::new(self, None); }
         let resolved = profiles::resolve(conn, Some(&self.profile_id))?;
         // A saved profile may have changed between reading the plan and resolving its key.
         if resolved.mode != self.mode || resolved.api_url.as_deref() != Some(self.api_url.as_str())
@@ -74,6 +82,9 @@ pub struct EmbeddingClient {
 
 impl EmbeddingClient {
     pub fn new(plan: &EmbeddingPlan, key: Option<&str>) -> Result<Self> {
+        if plan.mode == "local" {
+            return Ok(Self { client: reqwest::Client::new(), url: String::new(), model: plan.model.clone(), mode: plan.mode.clone(), key: None });
+        }
         let url = reqwest::Url::parse(&plan.api_url)?;
         let loopback = url.host_str().is_some_and(|host| {
             host == "localhost"
@@ -110,6 +121,7 @@ impl EmbeddingClient {
         if inputs.is_empty() || inputs.len() > 8 {
             bail!("向量请求每批须为 1 至 8 段");
         }
+        if self.mode == "local" { return super::local_embedding::embed(inputs, false).await; }
         let mut body = serde_json::json!({"model": self.model, "input": inputs});
         if self.mode == "ollama" {
             body["truncate"] = false.into();
@@ -139,9 +151,14 @@ impl EmbeddingClient {
             serde_json::from_slice(&bytes).context("向量接口未返回有效 JSON")?;
         parse_response(&value, &self.mode, inputs.len())
     }
+
+    pub async fn embed_query(&self, query: &str) -> Result<Vec<Vec<f32>>> {
+        if self.mode == "local" { super::local_embedding::embed(&[query.into()], true).await }
+        else { self.embed(&[query.into()]).await }
+    }
 }
 
-fn parse_response(value: &serde_json::Value, mode: &str, count: usize) -> Result<Vec<Vec<f32>>> {
+pub(super) fn parse_response(value: &serde_json::Value, mode: &str, count: usize) -> Result<Vec<Vec<f32>>> {
     let mut ordered = vec![None; count];
     let entries = value[if mode == "ollama" {
         "embeddings"
@@ -214,6 +231,29 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f64 {
     }
 }
 
+pub fn compact_vector(vector: &[f32]) -> Vec<u8> {
+    let peak = vector.iter().fold(0.0f32, |m, n| m.max(n.abs()));
+    let mut bytes = b"CVQ1".to_vec();
+    bytes.extend(vector.iter().map(|n| ((n / peak * 127.0).round().clamp(-127.0, 127.0) as i8) as u8));
+    bytes
+}
+
+pub fn stored_cosine(query: &[f32], bytes: &[u8]) -> f64 {
+    if bytes.len() == query.len() + 4 && bytes.starts_with(b"CVQ1") {
+        let (mut dot, mut qq, mut vv) = (0.0f64, 0.0f64, 0.0f64);
+        for (&q, &v) in query.iter().zip(&bytes[4..]) {
+            let q = q as f64;
+            let v = v as i8 as f64;
+            dot += q * v; qq += q * q; vv += v * v;
+        }
+        if qq == 0.0 || vv == 0.0 { return 0.0; }
+        return dot / (qq * vv).sqrt();
+    }
+    if bytes.len() != query.len() * 4 { return 0.0; }
+    let vector: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0],b[1],b[2],b[3]])).collect();
+    cosine(query, &vector)
+}
+
 #[tauri::command]
 pub async fn test_embedding_connection() -> Result<String, String> {
     let (plan, client) = crate::commands::run_blocking(|| {
@@ -234,6 +274,18 @@ pub async fn test_embedding_connection() -> Result<String, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn compact_vectors_preserve_ranking_and_read_legacy_floats() {
+        let a: Vec<f32> = (0..384).map(|n| (n as f32 * 0.17).sin()).collect();
+        let bytes = compact_vector(&a);
+        assert_eq!(bytes.len(), 388);
+        assert!(stored_cosine(&a, &bytes) > 0.9999);
+        let opposite: Vec<f32> = a.iter().map(|v| -v).collect();
+        assert!(stored_cosine(&opposite, &bytes) < -0.9999);
+        let legacy: Vec<u8> = a.iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert!(stored_cosine(&a, &legacy) > 0.99999);
+        assert_eq!(stored_cosine(&a, &bytes[..200]), 0.0);
+    }
     #[test]
     fn validates_indexes_dimensions_and_numbers() {
         let result = parse_response(
