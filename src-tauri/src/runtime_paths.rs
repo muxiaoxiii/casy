@@ -1,5 +1,17 @@
 use std::path::PathBuf;
 
+pub struct ProfileLock { _file: std::fs::File }
+
+impl ProfileLock {
+    pub fn acquire(root: &std::path::Path) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(root)?;
+        let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true)
+            .open(root.join(".profile.lock"))?;
+        file.try_lock().map_err(|error| anyhow::anyhow!("该资料库已由另一个 Casy 进程打开，无法重复打开：{error}"))?;
+        Ok(Self { _file: file })
+    }
+}
+
 /// Debug 构建可通过环境变量切换到完全隔离的数据目录；release 构建忽略这些覆盖。
 fn debug_override(name: &str) -> Option<PathBuf> {
     if !cfg!(debug_assertions) {
@@ -11,7 +23,32 @@ fn debug_override(name: &str) -> Option<PathBuf> {
 }
 
 pub fn isolated_data_root() -> Option<PathBuf> {
-    debug_override("CASY_TEST_DATA_DIR")
+    let args: Vec<_> = std::env::args_os().collect();
+    args.windows(2)
+        .find(|pair| pair[0] == "--profile-dir")
+        .map(|pair| PathBuf::from(&pair[1]))
+        .filter(|path| path.is_absolute())
+        .or_else(|| debug_override("CASY_TEST_DATA_DIR"))
+}
+
+pub fn bundled_runtime() -> Option<PathBuf> {
+    use tauri::Manager;
+    crate::get_app_handle()
+        .and_then(|app| app.path().resource_dir().ok())
+        .map(|dir| dir.join("runtime"))
+        .filter(|dir| dir.is_dir())
+        .or_else(|| debug_override("CASY_RUNTIME_DIR").filter(|dir| dir.is_dir()))
+}
+
+pub fn runtime_asset(environment: &str, relative: &str) -> Option<PathBuf> {
+    std::env::var_os(environment).filter(|v| !v.is_empty()).map(PathBuf::from)
+        .filter(|p| p.exists())
+        .or_else(|| bundled_runtime().map(|root| root.join(relative)).filter(|p| p.exists()))
+}
+
+pub fn pdf_renderer() -> PathBuf {
+    runtime_asset("CASY_PDFTOPPM", if cfg!(windows) { "bin/pdftoppm.exe" } else { "bin/pdftoppm" })
+        .unwrap_or_else(|| PathBuf::from("pdftoppm"))
 }
 
 pub fn data_root() -> PathBuf {
@@ -53,6 +90,15 @@ pub fn log_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_lock_excludes_other_handles_and_releases_on_drop() {
+        let root = tempfile::tempdir().unwrap();
+        let first = ProfileLock::acquire(root.path()).unwrap();
+        assert!(ProfileLock::acquire(root.path()).is_err());
+        drop(first);
+        assert!(ProfileLock::acquire(root.path()).is_ok());
+    }
 
     #[test]
     fn default_subdirectories_share_the_same_root_contract() {

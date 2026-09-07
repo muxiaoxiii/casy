@@ -345,6 +345,13 @@ pub async fn update_knowledge(id: String, data: serde_json::Value) -> Result<(),
             return Err(anyhow::anyhow!("知识条目不存在: {id}"));
         }
 
+        if let Some(expected) = data.get("expectedContent").and_then(|v| v.as_str()) {
+            let current: String = tx.query_row("SELECT content FROM knowledge_items WHERE id=?1", [&id], |r| r.get(0))?;
+            if current != expected {
+                return Err(anyhow::anyhow!("EDIT_CONFLICT: 此笔记已在其他窗口修改，当前修改已保留为恢复草稿，请重新打开原笔记后合并"));
+            }
+        }
+
         if let Some(next_content) = data.get("content").and_then(|value| value.as_str()) {
             maybe_snapshot_edit(&tx, &id, next_content)?;
         }

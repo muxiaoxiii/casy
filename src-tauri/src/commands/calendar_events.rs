@@ -132,17 +132,28 @@ pub(super) fn create_event_in_transaction(conn: &rusqlite::Connection, data: ser
         Ok(ev)
 }
 
-/// 更新日程。语义：整组提交——前端编辑表单持有完整字段；
-/// date/time 字段允许显式清空（改期/取消时刻是常规操作），故不做 COALESCE。
+/// 更新日程：缺省字段保留原值，显式 null 清空。
 #[tauri::command]
 pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Result<(), String> {
     run_blocking(move || {
         validate_event(&data)?;
-        let conn = db::open_db()?;
+        let mut connection = db::open_db()?;
+        let conn = connection.transaction()?;
+        let existing = conn.query_row(&format!("SELECT {EVENT_COLS} FROM calendar_events WHERE id=?1"), [&id], row_to_event)?;
+        let mut merged = serde_json::to_value(existing)?;
+        for (key, value) in data.as_object().ok_or_else(|| anyhow::anyhow!("日程数据无效"))? {
+            merged[key] = value.clone();
+        }
+        if data.get("startTime").is_some() && data.get("allDay").is_none() {
+            merged["allDay"] = serde_json::Value::Bool(data["startTime"].is_null());
+        }
+        if data.get("startTime").is_some_and(|v| v.is_null()) && data.get("endTime").is_none() {
+            merged["endTime"] = serde_json::Value::Null;
+        }
+        validate_event(&merged)?;
+        let data = merged;
         let now = db::now_local();
 
-        // 未提供的字段保持原值（serde_json 缺键 → None → 沿用旧值需读旧值，
-        // 这里简化为前端整组提交契约：title/eventDate 必传，其余可传 null 显式清空）
         let title = data["title"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing event title"))?;
@@ -176,6 +187,7 @@ pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Resul
                 "日程不存在",
             )));
         }
+        conn.commit()?;
         Ok(())
     })
     .await
@@ -189,16 +201,32 @@ pub async fn move_calendar_event(
     new_start: Option<String>,
 ) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
-        let changed = conn.execute(
+        let mut conn = db::open_db()?;
+        let tx = conn.transaction()?;
+        let (old_start, old_end): (Option<String>, Option<String>) = tx.query_row(
+            "SELECT start_time,end_time FROM calendar_events WHERE id=?1", [&id], |r| Ok((r.get(0)?,r.get(1)?)))?;
+        let new_end = match (old_start.as_deref(),old_end.as_deref(),new_start.as_deref()) {
+            (Some(start),Some(end),Some(next)) => {
+                let start = chrono::NaiveTime::parse_from_str(start,"%H:%M")?;
+                let end = chrono::NaiveTime::parse_from_str(end,"%H:%M")?;
+                let next = chrono::NaiveTime::parse_from_str(next,"%H:%M")?;
+                let (shifted, overflow) = next.overflowing_add_signed(end - start);
+                anyhow::ensure!(overflow==0 && shifted>next,"移动后日程跨越午夜，请拆分为两天的日程");
+                Some(shifted.format("%H:%M").to_string())
+            },
+            _ => None,
+        };
+        validate_event(&serde_json::json!({"title":"move","eventDate":new_date,"startTime":new_start,"endTime":new_end}))?;
+        let changed = tx.execute(
             "UPDATE calendar_events SET event_date = ?1, start_time = ?2,
-                all_day = ?3, updated_at = ?4 WHERE id = ?5",
+                all_day = ?3, updated_at = ?4,end_time=?6 WHERE id = ?5",
             rusqlite::params![
                 new_date,
                 new_start,
                 if new_start.is_none() { 1 } else { 0 },
                 db::now_local(),
-                id
+                id,
+                new_end
             ],
         )?;
         if changed == 0 {
@@ -207,6 +235,7 @@ pub async fn move_calendar_event(
                 "日程不存在",
             )));
         }
+        tx.commit()?;
         Ok(())
     })
     .await

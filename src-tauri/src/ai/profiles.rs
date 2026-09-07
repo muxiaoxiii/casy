@@ -250,13 +250,13 @@ pub fn save(conn: &mut Connection, mut config: AiProfiles) -> Result<AiProfiles>
 
 #[tauri::command]
 pub async fn get_ai_profiles() -> Result<AiProfiles, String> {
-    crate::commands::run_blocking(|| read(&crate::db::open_db()?)).await
+    crate::commands::run_blocking(|| read(&*crate::db::open_db()?)).await
 }
 
 #[tauri::command]
 pub async fn save_ai_profiles(config: AiProfiles) -> Result<AiProfiles, String> {
     let saved =
-        crate::commands::run_blocking(move || save(&mut crate::db::open_db()?, config)).await?;
+        crate::commands::run_blocking(move || save(&mut *crate::db::open_db()?, config)).await?;
     Ok(saved)
 }
 

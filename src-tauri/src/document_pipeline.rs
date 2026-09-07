@@ -84,8 +84,7 @@ pub fn sha256_file(path: &Path) -> Result<String> {
 }
 
 pub fn engine_executable() -> Option<PathBuf> {
-    std::env::var_os("CASY_DOC_ENGINE")
-        .map(PathBuf::from)
+    crate::runtime_paths::runtime_asset("CASY_DOC_ENGINE", if cfg!(windows) { "bin/casy-doc-engine.exe" } else { "bin/casy-doc-engine" })
         .filter(|path| path.is_file())
         .or_else(|| {
             let candidate = crate::db::get_db_path()
@@ -170,9 +169,12 @@ pub async fn probe_engine() -> DocumentEngineStatus {
 }
 
 fn env_path(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    let relative = match name {
+        "CASY_PPOCR_MODEL_DIR" => "models/ppocrv6-medium",
+        "CASY_OCR_FONT" => "fonts/NotoSansCJK-Regular.ttf",
+        _ => return None,
+    };
+    crate::runtime_paths::runtime_asset(name, relative).map(|p| p.to_string_lossy().into_owned())
 }
 
 pub fn artifact_dir(file_id: &str, sha256: &str) -> Result<PathBuf> {
@@ -204,11 +206,21 @@ pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
         })
         .await?;
     }
+    let payload = serde_json::to_vec(&request)?;
+    run_engine_command(request, "process", payload).await
+}
+
+pub async fn run_revision(request: ProcessRequest, pages: Vec<DocumentPage>) -> Result<ProcessResult> {
+    let payload = serde_json::to_vec(&serde_json::json!({"request":request,"pages":pages}))?;
+    run_engine_command(request, "revise", payload).await
+}
+
+async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec<u8>) -> Result<ProcessResult> {
     let executable = engine_executable().ok_or_else(|| {
         anyhow!("DOC_ENGINE_NOT_FOUND: 请设置 CASY_DOC_ENGINE 或安装 casy-doc-engine")
     })?;
     let mut child = tokio::process::Command::new(executable)
-        .arg("process")
+        .arg(command)
         .env("RAYON_NUM_THREADS", "2")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -220,7 +232,7 @@ pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
         .stdin
         .take()
         .ok_or_else(|| anyhow!("无法打开文档引擎输入"))?
-        .write_all(&serde_json::to_vec(&request)?)
+        .write_all(&payload)
         .await?;
     let stdout = child
         .stdout
@@ -394,7 +406,7 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     if std::fs::read_to_string(&result.markdown_path)? != expected_md {
         return Err(anyhow!("INVALID_MARKDOWN: Markdown 备份与页面不一致"));
     }
-    if result.engine == "paddle-onnx-visual" && result.source_map_path.is_none() {
+    if result.engine.starts_with("paddle-onnx-") && result.source_map_path.is_none() {
         return Err(anyhow!("INVALID_SOURCE_MAP: 缺少来源映射"));
     }
     if let Some(path) = &result.source_map_path {

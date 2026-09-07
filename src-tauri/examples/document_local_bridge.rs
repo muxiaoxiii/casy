@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let request: Value = serde_json::from_str(&input)?;
-    db::init_db(&db::open_db()?)?;
+    db::init_db(&*db::open_db()?)?;
     let args = &request["args"];
     let case_id = args["caseId"].as_str().unwrap_or("").to_owned();
     let id = args["id"].as_str().unwrap_or("").to_owned();
@@ -23,6 +23,7 @@ async fn main() -> Result<()> {
     let file = args["fileId"].as_str().unwrap_or("").to_owned();
     let job = args["jobId"].as_str().unwrap_or("").to_owned();
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
+        "correct_document_region" => docs::correct_document_region(file,job,args["pageNumber"].as_u64().unwrap() as u32,args["regionIndex"].as_u64().unwrap() as usize,args["expectedText"].as_str().unwrap().into(),args["text"].as_str().unwrap().into()).await.map(|v|json!(v)),
         "qa_seed" => {
             let root = db::get_db_path().parent().unwrap().join("source");
             std::fs::create_dir_all(&root)?;

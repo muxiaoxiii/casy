@@ -53,7 +53,7 @@ pub async fn get_document_engine_status() -> Result<document_pipeline::DocumentE
 
 #[tauri::command]
 pub async fn queue_document_processing(file_id: String) -> Result<DocumentJobDto, String> {
-    run_blocking(move || queue_file(&mut db::open_db()?, &file_id)).await
+    run_blocking(move || queue_file(&mut *db::open_db()?, &file_id)).await
 }
 
 pub(crate) fn queue_file(
@@ -92,7 +92,7 @@ pub(crate) fn queue_file(
     if let Some(job) = completed {
         if job.status == "completed"
             && job.source_sha256 == source_sha256
-            && (crate::parse::text_document::supports(path) || job.engine == "paddle-onnx-visual")
+            && (crate::parse::text_document::supports(path) || job.engine.starts_with("paddle-onnx-"))
             && (crate::parse::text_document::supports(path)
                 || job
                     .searchable_pdf_path
@@ -142,7 +142,7 @@ pub async fn list_case_document_jobs(case_id: String) -> Result<Vec<DocumentJobD
 
 #[tauri::command]
 pub async fn retry_document_job(job_id: String) -> Result<(), String> {
-    run_blocking(move || retry_job(&mut db::open_db()?, &job_id)).await
+    run_blocking(move || retry_job(&mut *db::open_db()?, &job_id)).await
 }
 
 pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow::Result<()> {
@@ -177,7 +177,7 @@ pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow
 
 #[tauri::command]
 pub async fn cancel_document_job(job_id: String) -> Result<(), String> {
-    run_blocking(move || cancel_job(&mut db::open_db()?, &job_id)).await
+    run_blocking(move || cancel_job(&mut *db::open_db()?, &job_id)).await
 }
 
 pub(crate) fn cancel_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow::Result<()> {
@@ -207,6 +207,63 @@ pub struct DocumentPageView {
 }
 
 #[tauri::command]
+pub async fn correct_document_region(file_id: String, job_id: String, page_number: u32, region_index: usize, expected_text: String, text: String) -> Result<String, String> {
+    let (job, request, pages) = run_blocking(move || {
+        anyhow::ensure!(text.chars().count() <= 10000, "单一区域文字不能超过 10000 字");
+        let mut conn = db::open_db()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (source, hash, engine): (String,String,String) = tx.query_row("SELECT f.file_path,j.source_sha256,j.engine FROM case_files f JOIN document_processing_jobs j ON j.file_id=f.id WHERE f.id=?1 AND j.id=?2 AND j.status='completed' AND f.deleted_at IS NULL", rusqlite::params![file_id,job_id], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        anyhow::ensure!(engine.starts_with("paddle-onnx-"), "此文档没有可校订的 OCR 区域");
+        let newest:String = tx.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY rowid DESC LIMIT 1",[&file_id],|r|r.get(0))?;
+        anyhow::ensure!(newest == job_id, "OCR_VERSION_CHANGED: 已有更新版本，请重新打开后校订");
+        let running:bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running'))",[&file_id],|r|r.get(0))?;
+        anyhow::ensure!(!running, "此文档正在处理，请完成后校订");
+        anyhow::ensure!(document_pipeline::sha256_file(std::path::Path::new(&source))? == hash,"SOURCE_CHANGED: 原文件已变化，请重新处理");
+        let mut stmt = tx.prepare("SELECT page_number,width,height,plain_text,markdown,regions_json,confidence FROM document_pages WHERE job_id=?1 ORDER BY page_number")?;
+        let raw = stmt.query_map([&job_id], |r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<f32>>(6)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+        let mut pages = raw.into_iter().map(|(page_number,width,height,plain_text,markdown,regions,confidence)| Ok(document_pipeline::DocumentPage {page_number,width,height,plain_text,markdown,regions:serde_json::from_str(&regions)?,confidence})).collect::<anyhow::Result<Vec<_>>>()?;
+        let page = pages.iter_mut().find(|p|p.page_number==page_number).ok_or_else(||anyhow::anyhow!("页码不存在"))?;
+        let region = page.regions.get_mut(region_index).ok_or_else(||anyhow::anyhow!("区域不存在"))?;
+        anyhow::ensure!(region.text == expected_text,"OCR_VERSION_CHANGED: 区域文字已变化");
+        region.text = text;
+        region.confidence = None;
+        page.plain_text = page.regions.iter().map(|r|r.text.as_str()).collect::<Vec<_>>().join("\n");
+        page.markdown = page.plain_text.clone();
+        let id = db::new_id();
+        let output = document_pipeline::artifact_dir(&file_id,&hash)?.join(&id);
+        std::fs::create_dir_all(&output)?;
+        let request = document_pipeline::process_request(&id,&source,&hash,&output);
+        tx.execute("INSERT INTO document_processing_jobs(id,file_id,source_sha256,status,engine,started_at) VALUES(?1,?2,?3,'running','paddle-onnx-corrected',datetime('now','localtime'))",rusqlite::params![id,file_id,hash])?;
+        tx.commit()?;
+        Ok((crate::background_jobs::ClaimedJob {id,file_id,source_path:source,source_sha256:hash},request,pages))
+    }).await?;
+    let result = document_pipeline::run_revision(request,pages).await;
+    let job_id = job.id.clone();
+    let index_file = job.file_id.clone();
+    let index_source = job.source_path.clone();
+    let saved = run_blocking(move || {
+        match result {
+            Ok(result) => {
+                if let Err(error) = crate::background_jobs::persist_success(&job,&result) {
+                    crate::background_jobs::persist_failure(&job,&error);
+                    return Err(error);
+                }
+                Ok(job_id)
+            }
+            Err(error) => { crate::background_jobs::persist_failure(&job,&error); Err(error) }
+        }
+    }).await?;
+    let indexing = crate::ai::page_index::build_page_index_tree(&index_file,&index_source).await;
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        conn.execute("UPDATE case_files SET index_status=?1 WHERE id=?2",rusqlite::params![if indexing.is_ok(){"completed"}else{"failed"},index_file])?;
+        Ok(())
+    }).await?;
+    Ok(saved)
+}
+
+#[tauri::command]
 pub async fn get_document_page(
     file_id: String,
     job_id: String,
@@ -220,9 +277,11 @@ pub async fn get_document_page(
     if let Some(pdf) = render_source {
         let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
         let prefix = temp.path().join("page");
+        let mut renderer = tokio::process::Command::new(crate::runtime_paths::pdf_renderer());
+        if let Some(config) = crate::runtime_paths::runtime_asset("FONTCONFIG_FILE","fonts/fonts.conf") { renderer.env("FONTCONFIG_FILE",config); }
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(60),
-            tokio::process::Command::new("pdftoppm")
+            renderer
                 .args([
                     "-f",
                     &page_number.to_string(),

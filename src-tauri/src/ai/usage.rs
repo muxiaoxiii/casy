@@ -44,7 +44,7 @@ pub async fn current() -> Result<(u64, u64)> {
 pub async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
     let (client, request) = request.build_split();
     let request = request.context("AI 请求参数无效")?;
-    tokio::task::spawn_blocking(|| reserve(&mut crate::db::open_db()?, &crate::db::today())).await??;
+    tokio::task::spawn_blocking(|| reserve(&mut *crate::db::open_db()?, &crate::db::today())).await??;
     client.execute(request).await.map_err(|_| anyhow::anyhow!("AI 接口连接失败或超时"))
 }
 

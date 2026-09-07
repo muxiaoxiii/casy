@@ -80,7 +80,9 @@ pub fn run() {
         )
         .manage(conversion_state)
         .setup(|app| {
+            app.manage(runtime_paths::ProfileLock::acquire(&runtime_paths::data_root())?);
             let _ = APP_HANDLE.set(app.handle().clone());
+            commands::portable_backup::recover_interrupted_restore()?;
             // 初始化数据库
             let conn = db::open_db()?;
             db::init_db(&conn)?;
@@ -267,8 +269,20 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(commands::build_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                use tauri::Manager;
+                let windows = app.webview_windows();
+                if !windows.is_empty() {
+                    api.prevent_exit();
+                    for window in windows.values() {
+                        let _ = window.close();
+                    }
+                }
+            }
+        });
 }
 
 /// 每日期限重算定时器

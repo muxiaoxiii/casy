@@ -368,7 +368,7 @@ pub async fn ocr_all_pending() -> Result<i64, String> {
             if !is_ocr_candidate(&name, kind.as_deref()) {
                 continue;
             }
-            match super::document_intelligence::queue_file(&mut db::open_db()?, &id) {
+            match super::document_intelligence::queue_file(&mut *db::open_db()?, &id) {
                 Ok(_) => queued += 1,
                 Err(error) => {
                     conn.execute(

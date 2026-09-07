@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let request: Value = serde_json::from_str(&input)?;
-    db::init_db(&db::open_db()?)?;
+    db::init_db(&*db::open_db()?)?;
     let p = &request["args"];
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
         "qa_ai_storage" => {

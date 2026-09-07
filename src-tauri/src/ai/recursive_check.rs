@@ -33,7 +33,7 @@ struct DecisionSnapshot {
 ///
 /// `conn` 按值传入：owned Connection 是 Send，可跨 await 持有（&Connection 不是 Send）。
 pub async fn recursive_check_decision(
-    conn: Connection,
+    conn: crate::db::ManagedConnection,
     decision_id: &str,
 ) -> Result<serde_json::Value> {
     // ── 阶段 1：采集有界核对范围（同步 SQL）──

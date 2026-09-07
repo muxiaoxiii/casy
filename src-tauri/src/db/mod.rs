@@ -25,6 +25,32 @@ static MAINTENANCE_MODE: AtomicBool = AtomicBool::new(false);
 /// 逐命令开关的开销随命令数线性放大；共享单连接 + 互斥串行化是当前规模下
 /// 最小侵入的池化形态。存量 open_db() 调用点不受影响，按域逐步迁移。
 static SHARED_CONN: std::sync::Mutex<Option<Connection>> = std::sync::Mutex::new(None);
+static ACTIVE_CONNECTIONS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+static CONNECTIONS_CLOSED: std::sync::Condvar = std::sync::Condvar::new();
+
+#[derive(Debug)]
+pub struct ManagedConnection {
+    connection: Option<Connection>,
+}
+
+impl std::ops::Deref for ManagedConnection {
+    type Target = Connection;
+    fn deref(&self) -> &Connection { self.connection.as_ref().unwrap() }
+}
+
+impl std::ops::DerefMut for ManagedConnection {
+    fn deref_mut(&mut self) -> &mut Connection { self.connection.as_mut().unwrap() }
+}
+
+impl Drop for ManagedConnection {
+    fn drop(&mut self) {
+        // Close SQLite before allowing a restore to replace its files.
+        drop(self.connection.take());
+        let mut count = ACTIVE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        *count -= 1;
+        CONNECTIONS_CLOSED.notify_all();
+    }
+}
 
 /// 检查系统当前是否处于独占维护模式
 pub fn is_maintenance_mode() -> bool {
@@ -57,18 +83,32 @@ pub fn enter_maintenance() -> Result<MaintenanceGuard> {
         anyhow::bail!("系统已处于维护模式中，请勿重复执行维护操作");
     }
 
+    let guard = MaintenanceGuard;
     // 释放共享连接池持有的文件句柄
     reset_shared_conn();
+    let count = ACTIVE_CONNECTIONS.lock().map_err(|_| anyhow::anyhow!("数据库连接计数不可用"))?;
+    let (count, _) = CONNECTIONS_CLOSED
+        .wait_timeout_while(count, std::time::Duration::from_secs(30), |count| *count > 0)
+        .map_err(|_| anyhow::anyhow!("等待数据库连接关闭失败"))?;
+    if *count > 0 {
+        MAINTENANCE_MODE.store(false, Ordering::SeqCst);
+        anyhow::bail!("仍有操作进行中，请稍后重试备份或恢复");
+    }
     log::info!("Entered exclusive database maintenance mode");
-    Ok(MaintenanceGuard)
+    Ok(guard)
 }
 
 /// 打开数据库连接（自动加密，兼容旧版明文 DB 迁移，受维护模式守卫拦截）
-pub fn open_db() -> Result<Connection> {
+pub fn open_db() -> Result<ManagedConnection> {
+    let mut count = ACTIVE_CONNECTIONS.lock().map_err(|_| anyhow::anyhow!("数据库连接计数不可用"))?;
     if is_maintenance_mode() {
         anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
     }
-    open_db_encrypted()
+    *count += 1;
+    drop(count);
+    let mut managed = ManagedConnection { connection: None };
+    managed.connection = Some(open_db_encrypted()?);
+    Ok(managed)
 }
 
 /// 在共享连接上执行一个数据库操作单元（B1 底座，新代码优先使用）
@@ -83,6 +123,9 @@ pub fn with_conn<T>(f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
     let mut guard = SHARED_CONN
         .lock()
         .map_err(|e| anyhow::anyhow!("数据库连接锁中毒: {e}"))?;
+    if is_maintenance_mode() {
+        anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
+    }
     if guard.is_none() {
         let conn = open_db_encrypted()?;
         *guard = Some(conn);
@@ -127,7 +170,8 @@ pub fn get_or_create_encryption_key() -> Result<String> {
         k
     } else {
         let mut buf = [0u8; 32];
-        let _ = getrandom::getrandom(&mut buf);
+        getrandom::getrandom(&mut buf)
+            .map_err(|error| anyhow::anyhow!("生成数据库密钥失败: {error}"))?;
         let key = hex::encode(buf);
         write_key_file(&key)?;
         log::info!("Generated new database encryption key (file storage)");
@@ -206,7 +250,7 @@ fn write_key_file(key: &str) -> Result<()> {
 }
 
 /// 打开加密数据库连接
-pub fn open_db_encrypted() -> Result<Connection> {
+pub(crate) fn open_db_encrypted() -> Result<Connection> {
     let path = db_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

@@ -145,7 +145,8 @@ pub fn search(
         ORDER BY f.id,p.page_number
     "#)?;
     let mut rows = stmt.query([serde_json::to_string(scope)?])?;
-    let mut previous: Option<(String, PageText)> = None;
+    let mut window = std::collections::VecDeque::<PageText>::new();
+    let mut window_job = String::new();
     while let Some(row) = rows.next()? {
         let file_id: String = row.get(0)?;
         let job_id: String = row.get(1)?;
@@ -183,12 +184,17 @@ pub fn search(
                 });
             }
         }
-        if let Some((old_job, old)) = &previous {
-            if old_job == &job_id && old.number + 1 == page.number {
-                let pair = SourceText::new(&[old, &page]);
+        if window_job != job_id || window.back().is_some_and(|old|old.number + 1 != page.number) { window.clear(); }
+        window_job = job_id.clone();
+        window.push_back(page);
+        while window.len() > 2 && (window.len() > 100 || window.iter().skip(1).map(|p|p.text.chars().count()).sum::<usize>() > query.chars().count() + 2000) { window.pop_front(); }
+        if window.len() > 1 {
+                let refs: Vec<_> = window.iter().collect();
+                let pair = SourceText::continuous(&refs);
                 if let Some((content, locations)) = pair.find_cross_page(query) {
-                    if locations.iter().any(|l| l.page_number == old.number)
-                        && locations.iter().any(|l| l.page_number == page.number)
+                    let first = locations.first().unwrap().page_number;
+                    let last = locations.last().unwrap().page_number;
+                    if last == window.back().unwrap().number
                     {
                         let kind = if engine == "text-document" { "s" } else { "p" };
                         candidates.push(DocumentPassage {
@@ -196,25 +202,23 @@ pub fn search(
                             job_id: job_id.clone(),
                             file_name: row.get(2)?,
                             source_path: row.get(3)?,
-                            number: old.number,
+                            number: first,
                             location_kind: if kind == "s" { "segment" } else { "page" }.into(),
                             content,
                             citation: format!(
                                 "file {file_id} {kind}{}-{kind}{}",
-                                old.number, page.number
+                                first, last
                             ),
                             locations,
                         });
                     }
                 }
-            }
         }
         // Bound retained candidates even for a very common term in a large library.
         if candidates.len() > 200 {
             rank_candidates(&mut candidates, query, &terms);
             candidates.truncate(100);
         }
-        previous = Some((job_id, page));
     }
     let mut ranked: Vec<_> = candidates
         .into_iter()

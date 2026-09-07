@@ -52,7 +52,10 @@ pub fn verify_db_file_integrity(path: &Path, key: &str) -> Result<()> {
         return Err(anyhow!("数据库文件不存在: {:?}", path));
     }
 
-    let conn = Connection::open(path)?;
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    if key.len() != 64 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(anyhow!("数据库密钥格式无效"));
+    }
     conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key))?;
     conn.execute_batch("PRAGMA busy_timeout=5000;")?;
 
@@ -61,18 +64,7 @@ pub fn verify_db_file_integrity(path: &Path, key: &str) -> Result<()> {
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
 
     if table_count.is_err() {
-        // 如果直接解密失败，尝试 cipher_migrate 兼容升级
-        let migrate_res: Result<String, _> =
-            conn.query_row("PRAGMA cipher_migrate;", [], |r| r.get(0));
-        if let Ok(res) = migrate_res {
-            if res != "0" && res != "already_migrated" {
-                return Err(anyhow!(
-                    "SQLCipher 密钥不匹配或库损坏 (migrate 失败: {res})"
-                ));
-            }
-        } else {
-            return Err(anyhow!("SQLCipher 密钥不匹配或库损坏，无法解密"));
-        }
+        return Err(anyhow!("SQLCipher 密钥不匹配或库损坏，无法解密"));
     }
 
     // 2. 快速完整性校验
@@ -93,7 +85,7 @@ pub async fn create_backup() -> Result<BackupFile, String> {
     run_blocking(move || {
         let dir = backups_dir();
         std::fs::create_dir_all(&dir).map_err(|e| anyhow!("创建备份目录失败: {e}"))?;
-        let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let ts = format!("{}-{}", chrono::Local::now().format("%Y%m%d-%H%M%S"), uuid::Uuid::new_v4());
         let dest = dir.join(format!("casy-backup-{ts}.db"));
 
         let key = db::get_or_create_encryption_key()?;
@@ -161,7 +153,7 @@ pub async fn list_backups() -> Result<Vec<BackupFile>, String> {
                     size_bytes: meta.len(),
                     modified_at: modified,
                     sha256: None, // 列表展示时按需轻量获取
-                    verified: true,
+                    verified: false,
                 })
             })
             .collect();
@@ -259,17 +251,28 @@ pub async fn restore_backup(filename: String) -> Result<bool, String> {
         let _guard = db::enter_maintenance()?;
 
         let live = db::get_db_path();
+        let conn = db::open_db_encrypted()?;
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
 
         // 4. 恢复前自保快照：pre-restore-<ts>.db
         let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let pre_restore_path = bdir.join(format!("pre-restore-{ts}.db"));
         if live.exists() {
-            std::fs::copy(&live, &pre_restore_path)
-                .map_err(|e| anyhow!("创建恢复前保护快照失败: {e}"))?;
+            conn.execute("VACUUM INTO ?1", [pre_restore_path.to_string_lossy().as_ref()])?;
         }
+        drop(conn);
 
         // 5. 覆盖活动数据库文件
-        std::fs::copy(&can_src, &live).map_err(|e| anyhow!("恢复写入活动数据库失败: {e}"))?;
+        let next = live.with_extension("restore-next");
+        let previous = live.with_extension("restore-previous");
+        std::fs::copy(&can_src, &next)?;
+        std::fs::File::open(&next)?.sync_all()?;
+        if previous.exists() { std::fs::remove_file(&previous)?; }
+        std::fs::rename(&live, &previous)?;
+        if let Err(error) = std::fs::rename(&next, &live) {
+            std::fs::rename(&previous, &live)?;
+            return Err(error.into());
+        }
 
         // 6. 覆盖后活动库一致性再确认
         if let Err(e) = verify_db_file_integrity(&live, &key) {

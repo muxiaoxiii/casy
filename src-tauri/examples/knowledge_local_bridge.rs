@@ -25,6 +25,8 @@ async fn main() -> Result<()> {
         }
     }
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
+        "save_editor_recovery" => casy_lib::commands::editor_recovery::save_editor_recovery(args["sessionId"].as_str().unwrap_or("").into(), args.get("draft").filter(|v| !v.is_null()).cloned()).await.map(|v|json!(v)),
+        "recover_editor_drafts" => casy_lib::commands::editor_recovery::recover_editor_drafts().await.map(|v|json!(v)),
         "qa_seed_editing" => {
             conn.execute("INSERT INTO knowledge_items(id,title,content,category,status,block_type,updated_at) VALUES('edit-a','甲研究',?1,'reference','current','page','2099-01-01')", ["# 甲研究\n\n* 原始项目\n\n保留两个空格  \n保留换行\n"])?;
             conn.execute("INSERT INTO knowledge_items(id,title,content,category,status,block_type) VALUES('edit-b','乙研究','乙笔记原文','reference','current','page')", [])?;

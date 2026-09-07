@@ -5,11 +5,11 @@ use std::time::Duration;
 use tauri::AppHandle;
 
 #[derive(Debug)]
-struct ClaimedJob {
-    id: String,
-    file_id: String,
-    source_path: String,
-    source_sha256: String,
+pub(crate) struct ClaimedJob {
+    pub(crate) id: String,
+    pub(crate) file_id: String,
+    pub(crate) source_path: String,
+    pub(crate) source_sha256: String,
 }
 
 fn claim_next_job() -> anyhow::Result<Option<ClaimedJob>> {
@@ -41,7 +41,7 @@ fn claim_next_job() -> anyhow::Result<Option<ClaimedJob>> {
     }))
 }
 
-fn persist_success(
+pub(crate) fn persist_success(
     job: &ClaimedJob,
     result: &crate::document_pipeline::ProcessResult,
 ) -> anyhow::Result<()> {
@@ -75,7 +75,7 @@ fn persist_success(
     Ok(())
 }
 
-fn persist_failure(job: &ClaimedJob, error: &anyhow::Error) {
+pub(crate) fn persist_failure(job: &ClaimedJob, error: &anyhow::Error) {
     if let Ok(mut conn) = crate::db::open_db() {
         let message = error.to_string();
         let code = message.split(':').next().unwrap_or("DOC_PROCESSING_FAILED");

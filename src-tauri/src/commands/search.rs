@@ -97,7 +97,7 @@ pub async fn search_document_passages(
     query: String,
     scope: Vec<String>,
 ) -> Result<Vec<crate::ai::retrieval::DocumentPassage>, String> {
-    run_blocking(move || crate::ai::retrieval::search(&db::open_db()?, &query, &scope, 30)).await
+    run_blocking(move || crate::ai::retrieval::search(&*db::open_db()?, &query, &scope, 30)).await
 }
 
 #[tauri::command]

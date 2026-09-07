@@ -1042,7 +1042,7 @@ pub async fn test_ai_connection() -> Result<String, String> {
 #[tauri::command]
 pub async fn get_ai_config() -> Result<AiConfig, String> {
     crate::commands::run_blocking(|| {
-        let mut config = profiles::resolve(&crate::db::open_db()?, None)?;
+        let mut config = profiles::resolve(&*crate::db::open_db()?, None)?;
         config.api_key = None;
         Ok(config)
     })
@@ -1088,7 +1088,7 @@ pub async fn ai_chat(
 ) -> Result<AiChatResult, String> {
     // @ 引用沙箱：先注入受控上下文，使 input_hash 覆盖模型实际可见内容（§11.9）
     let mut messages = messages;
-    let system_prompt = profiles::read(&crate::db::open_db().map_err(|e| e.to_string())?)
+    let system_prompt = profiles::read(&*crate::db::open_db().map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?
         .system_prompt;
     if !system_prompt.trim().is_empty() {
@@ -1128,7 +1128,7 @@ pub async fn ai_chat(
 
     // 覆盖配置（不改写全局设置）
     let mut config = profiles::resolve(
-        &crate::db::open_db().map_err(|e| e.to_string())?,
+        &*crate::db::open_db().map_err(|e| e.to_string())?,
         profile_id.as_deref(),
     )
     .map_err(|e| e.to_string())?;

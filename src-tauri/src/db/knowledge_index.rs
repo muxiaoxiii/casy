@@ -221,7 +221,7 @@ pub fn status_inner(conn: &Connection) -> Result<IndexStatus> {
 
 #[tauri::command]
 pub async fn get_knowledge_index_status() -> Result<IndexStatus, String> {
-    crate::commands::run_blocking(|| status_inner(&super::open_db()?)).await
+    crate::commands::run_blocking(|| status_inner(&*super::open_db()?)).await
 }
 
 struct ClaimedJob {
@@ -331,7 +331,7 @@ async fn process(job: &ClaimedJob) -> Result<()> {
 }
 
 pub async fn process_next() -> Result<bool> {
-    let Some(job) = claim(&mut super::open_db()?)? else {
+    let Some(job) = claim(&mut *super::open_db()?)? else {
         return Ok(false);
     };
     if let Err(error) = process(&job).await {

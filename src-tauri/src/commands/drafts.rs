@@ -128,13 +128,15 @@ pub async fn update_draft(
     content: Option<String>,
     status: Option<String>,
     case_id: Option<String>,
+    expected_version: Option<i32>,
 ) -> Result<Draft, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut connection = db::open_db()?;
+        let conn = connection.transaction()?;
 
         // 先获取当前草稿
         let current = conn.query_row(
-            "SELECT title, content, status, case_id FROM drafts WHERE id = ?1",
+            "SELECT title, content, status, case_id, version FROM drafts WHERE id = ?1",
             rusqlite::params![id],
             |row| {
                 Ok((
@@ -142,9 +144,11 @@ pub async fn update_draft(
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i32>(4)?,
                 ))
             },
         )?;
+        anyhow::ensure!(expected_version.is_none_or(|version| version == current.4), "EDIT_CONFLICT: 文书已在其他页面修改，当前内容已保留，请重新打开后核对");
 
         let new_title = title.unwrap_or(current.0);
         let new_content = content.or(current.1);
@@ -176,7 +180,7 @@ pub async fn update_draft(
                 })
             },
         )?;
-
+        conn.commit()?;
         Ok(draft)
     })
     .await

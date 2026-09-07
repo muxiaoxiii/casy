@@ -839,7 +839,7 @@ fn dispatch_calendar_channel(
             account,
             message,
             summary,
-            ctx.due_date,
+            dtstart.format("%Y-%m-%dT%H:%M:%S").to_string(),
             level,
         ],
     )?;
@@ -1267,20 +1267,16 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
     use std::sync::OnceLock;
     static ENGINE_RUNNING: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
-    let interval = interval_secs.unwrap_or(300); // 默认 5 分钟
+    let interval = interval_secs.unwrap_or(300).clamp(30, 3600);
 
     // 防重复启动：已有运行中的引擎则直接返回
-    if let Some(running) = ENGINE_RUNNING.get() {
-        if running.load(Ordering::SeqCst) {
-            log::info!("提醒引擎已在运行中，跳过重复启动");
-            return Ok(());
-        }
+    let running = ENGINE_RUNNING.get_or_init(|| Arc::new(AtomicBool::new(false))).clone();
+    if running.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_err() {
+        return Ok(());
     }
 
     std::thread::spawn(move || {
         let engine = ReminderEngine::new(interval);
-        let running = engine.start_loop();
-        let _ = ENGINE_RUNNING.set(running.clone());
 
         log::info!("提醒引擎启动，检查间隔: {}秒", interval);
 
@@ -1300,6 +1296,12 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
                     log::error!("提醒引擎打开数据库失败: {}", e);
                 }
             }
+
+            tauri::async_runtime::spawn(async {
+                if let Err(error) = super::caldav::sync_reminders_to_calendar().await {
+                    log::warn!("日历待同步作业重试失败：{error}");
+                }
+            });
 
             std::thread::sleep(std::time::Duration::from_secs(interval));
         }

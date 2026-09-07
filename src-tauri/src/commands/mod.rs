@@ -1,6 +1,8 @@
 pub mod ai_routes;
 pub mod areas;
 pub mod backup;
+pub mod portable_backup;
+pub mod editor_recovery;
 pub mod caldav;
 pub mod calendar;
 pub mod calendar_events;
@@ -136,6 +138,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         ai_routes::get_proposal_preview,
         document_intelligence::get_document_engine_status,
         document_intelligence::get_document_page,
+        document_intelligence::correct_document_region,
         document_intelligence::queue_document_processing,
         document_intelligence::list_document_jobs,
         document_intelligence::list_case_document_jobs,
@@ -244,6 +247,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         backup::list_backups,
         backup::restore_backup,
         backup::verify_backup_integrity_cmd,
+        portable_backup::export_full_backup,
+        portable_backup::import_full_backup,
+        editor_recovery::save_editor_recovery,
+        editor_recovery::recover_editor_drafts,
         dashboard::get_project_status_distribution,
         dashboard::get_track_distribution,
         dashboard::get_monthly_task_trend,

@@ -26,6 +26,26 @@ pub struct SourceText {
 
 impl SourceText {
     pub fn new(pages: &[&PageText]) -> Self {
+        Self::build(pages, false)
+    }
+
+    pub fn continuous(pages: &[&PageText]) -> Self {
+        Self::build(pages, true)
+    }
+
+    fn build(pages: &[&PageText], exclude_repeated_margins: bool) -> Self {
+        let margin = |page: &PageText, region: &DocumentRegion| {
+            page.height.is_some_and(|h| region.bbox[3] < h * 0.08 || region.bbox[1] > h * 0.92)
+        };
+        let signature = |text: &str| text.chars().filter(|c| !c.is_whitespace() && !c.is_numeric()).collect::<String>();
+        let mut margins = std::collections::HashMap::<String, std::collections::HashSet<u32>>::new();
+        if exclude_repeated_margins {
+            for page in pages {
+                for region in &page.regions {
+                    if margin(page,region) { margins.entry(signature(&region.text)).or_default().insert(page.number); }
+                }
+            }
+        }
         let mut result = Self {
             raw: String::new(),
             spans: vec![],
@@ -47,6 +67,7 @@ impl SourceText {
                 result.spans.push((start, result.raw.len(), location));
             } else {
                 for (index, region) in page.regions.iter().enumerate() {
+                    if exclude_repeated_margins && margin(page, region) && margins.get(&signature(&region.text)).is_some_and(|pages| pages.len() >= 2) { continue; }
                     if index > 0 {
                         result.raw.push('\n');
                     }
@@ -176,5 +197,20 @@ mod tests {
             assert!(locations.iter().all(|l| l.bbox.is_some()));
         }
         assert_ne!(normalize("123-456").0, normalize("123456").0);
+    }
+
+    #[test]
+    fn repeated_margins_do_not_interrupt_a_three_page_match() {
+        let mut pages = vec![page(1,"赔偿"),page(2,"责任"),page(3,"承担")];
+        for page in &mut pages {
+            page.regions[0].bbox = [10.,100.,200.,140.];
+            page.regions.insert(0,DocumentRegion {text:format!("Evidence {}",page.number),bbox:[10.,5.,200.,20.],confidence:None});
+            page.regions.push(DocumentRegion {text:page.number.to_string(),bbox:[10.,575.,40.,595.],confidence:None});
+        }
+        let refs: Vec<_> = pages.iter().collect();
+        let source=SourceText::continuous(&refs);
+        let (_,locations)=source.find_cross_page("赔偿责任承担").unwrap();
+        assert_eq!(locations.iter().map(|l|(l.page_number,l.region_index)).collect::<Vec<_>>(),vec![(1,Some(1)),(2,Some(1)),(3,Some(1))]);
+        assert!(SourceText::new(&[&pages[0]]).find("Evidence 1").is_some());
     }
 }

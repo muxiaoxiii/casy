@@ -14,6 +14,8 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rusqlite::params;
 use serde::Serialize;
 
+static CALENDAR_OPERATIONS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// 单个日历同步作业的载荷
 pub struct CalendarJobPayload {
     /// reminder_jobs.id
@@ -44,7 +46,9 @@ pub(crate) fn alarm_minutes_for_level(level: &str) -> i64 {
 
 /// 截止日期 → 当天 09:00（本地浮动时间，无具体时间点时的默认）
 pub(crate) fn parse_due_morning(due_date: &str) -> Option<NaiveDateTime> {
-    parse_due_datetime(due_date, None)
+    ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
+        .iter().find_map(|format| NaiveDateTime::parse_from_str(due_date, format).ok())
+        .or_else(||parse_due_datetime(due_date, None))
 }
 
 /// 截止日期 + 具体时间点 → 提醒日历事件时间（设计哲学 §7/§11.2：交接真实时间点）
@@ -79,15 +83,15 @@ fn update_job_status(job_id: &str, status: &str, etag: Option<&str>, error: Opti
             conn.execute(
                 "UPDATE reminder_jobs
                  SET status='synced', calendar_event_id=?2, calendar_etag=?3,
-                     last_error=NULL, attempts=attempts+1
-                 WHERE id=?1",
+                     last_error=NULL, attempts=attempts+1, updated_at=datetime('now','localtime')
+                 WHERE id=?1 AND status != 'cancelled'",
                 params![job_id, job_id, etag],
             )?;
         } else {
             conn.execute(
                 "UPDATE reminder_jobs
-                 SET status=?2, last_error=?3, attempts=attempts+1
-                 WHERE id=?1",
+                 SET status=?2, last_error=?3, attempts=attempts+1, next_attempt_at=datetime('now','localtime','+5 minutes'), updated_at=datetime('now','localtime')
+                 WHERE id=?1 AND status != 'cancelled'",
                 params![job_id, status, error],
             )?;
         }
@@ -105,6 +109,13 @@ fn update_job_status(job_id: &str, status: &str, etag: Option<&str>, error: Opti
 /// 先 get_event_etag 对账确认存在性。
 /// 返回最终状态（"synced" / "sync_failed" / "delivery_unknown"）。
 pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
+    let _operation = CALENDAR_OPERATIONS.lock().await;
+    let state = db::open_db().ok().and_then(|conn|conn.query_row("SELECT status FROM reminder_jobs WHERE id=?1",[&p.job_id],|r|r.get::<_,String>(0)).ok());
+    match state.as_deref() {
+        Some("synced") => return "synced",
+        Some("pending" | "sync_failed" | "delivery_unknown") => {},
+        _ => return "cancelled",
+    }
     let result = match open_client() {
         Ok(client) => {
             client
@@ -183,22 +194,25 @@ pub struct CalendarSyncReport {
     pub synced: usize,
     /// 本轮失败（sync_failed / delivery_unknown）
     pub failed: usize,
-    /// 超过重试上限（3 次）跳过
+    /// 已撤销等不再需要投递的作业
     pub skipped: usize,
 }
 
 /// 手动把 pending/sync_failed/delivery_unknown 的 reminder_jobs 补同步到日历
-/// 重试上限 3 次/作业（attempts >= 3 跳过）
+/// 每个失败作业至少间隔五分钟重试，断网恢复后仍可继续。
 #[tauri::command]
 pub async fn sync_reminders_to_calendar() -> Result<CalendarSyncReport, String> {
+    retry_cancelled_calendar_jobs().await?;
     let jobs = run_blocking(|| {
         let conn = db::open_db()?;
+        if !caldav::calendar_sync_enabled(&conn) || caldav::load_caldav_config(&conn)?.is_none() { return Ok(Vec::new()); }
         let mut stmt = conn.prepare(
             "SELECT id, masked_content, due_snapshot, offset_snapshot, content, attempts
              FROM reminder_jobs
              WHERE channel = 'calendar'
                AND status IN ('pending', 'sync_failed', 'delivery_unknown')
-             ORDER BY scheduled_at",
+               AND (attempts=0 OR COALESCE(next_attempt_at,datetime(updated_at,'+5 minutes')) <= datetime('now','localtime'))
+             ORDER BY scheduled_at LIMIT 100",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -223,11 +237,7 @@ pub async fn sync_reminders_to_calendar() -> Result<CalendarSyncReport, String> 
         skipped: 0,
     };
 
-    for (job_id, masked, due, level, content, attempts) in jobs {
-        if attempts >= 3 {
-            report.skipped += 1;
-            continue;
-        }
+    for (job_id, masked, due, level, content, _attempts) in jobs {
         let Some(dtstart) = due.as_deref().and_then(parse_due_morning) else {
             update_job_status(&job_id, "sync_failed", None, Some("缺少/无法解析截止日期"));
             report.failed += 1;
@@ -246,6 +256,7 @@ pub async fn sync_reminders_to_calendar() -> Result<CalendarSyncReport, String> 
 
         match execute_calendar_job(payload).await {
             "synced" => report.synced += 1,
+            "cancelled" => report.skipped += 1,
             _ => report.failed += 1,
         }
     }
@@ -275,45 +286,60 @@ pub(crate) async fn delete_calendar_event_by_uid(uid: &str) -> Result<()> {
     Ok(())
 }
 
-/// 撤销实体关联的提醒作业：
-/// - status IN ('pending','synced','delivery_unknown') 的作业置为 'cancelled'
-///   （local executor 的作业仅置 cancelled，不涉及外部副作用）
-/// - 其中 executor='calendar' 且已 synced 的作业异步调用 CalDAV delete_event
-///   （失败只记日志，不阻塞主流程）
-///
-/// 返回被撤销的作业数。供 toggle_task / delete_task 及前端显式调用复用。
+async fn finish_calendar_deletion(uid: &str) -> Result<()> {
+    let result = delete_calendar_event_by_uid(uid).await;
+    let conn = db::open_db()?;
+    match result {
+        Ok(()) => { conn.execute("UPDATE reminder_jobs SET calendar_event_id=NULL, calendar_etag=NULL,last_error=NULL,updated_at=datetime('now','localtime') WHERE id=?1 AND status='cancelled'", [uid])?; }
+        Err(error) => { conn.execute("UPDATE reminder_jobs SET last_error=?2,next_attempt_at=datetime('now','localtime','+5 minutes'),updated_at=datetime('now','localtime') WHERE id=?1 AND status='cancelled'", params![uid,error.to_string()])?; }
+    }
+    Ok(())
+}
+
+async fn retry_cancelled_calendar_jobs() -> Result<(), String> {
+    let _operation = CALENDAR_OPERATIONS.lock().await;
+    let jobs = run_blocking(|| {
+        let conn = db::open_db()?;
+        if !caldav::calendar_sync_enabled(&conn) || caldav::load_caldav_config(&conn)?.is_none() { return Ok(Vec::new()); }
+        let mut stmt = conn.prepare("SELECT id FROM reminder_jobs WHERE status='cancelled' AND executor='calendar' AND calendar_event_id IS NOT NULL AND (last_error IS NULL OR COALESCE(next_attempt_at,datetime(updated_at,'+5 minutes'))<=datetime('now','localtime')) LIMIT 100")?;
+        let rows = stmt.query_map([], |r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await?;
+    for uid in jobs { finish_calendar_deletion(&uid).await.map_err(|error|error.to_string())?; }
+    Ok(())
+}
+
+/// Persist cancellation before contacting the server. The UID remains until DELETE succeeds.
 pub async fn cancel_jobs_for_entity(entity_type: &str, entity_id: &str) -> Result<usize, String> {
+    let _operation = CALENDAR_OPERATIONS.lock().await;
     let et = entity_type.to_string();
     let eid = entity_id.to_string();
 
     let (synced_uids, cancelled) = run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut conn = db::open_db()?;
+        let tx = conn.transaction()?;
         // 已同步到日历的作业（ICS UID = job id），撤销后需删除远端事件
-        let mut stmt = conn.prepare(
+        let mut stmt = tx.prepare(
             "SELECT id FROM reminder_jobs
-             WHERE entity_type=?1 AND entity_id=?2 AND executor='calendar' AND status='synced'",
+             WHERE entity_type=?1 AND entity_id=?2 AND executor='calendar' AND status IN ('pending','synced','delivery_unknown','sync_failed')",
         )?;
         let uids: Vec<String> = stmt
             .query_map(params![et, eid], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let n = conn.execute(
-            "UPDATE reminder_jobs SET status='cancelled'
+        drop(stmt);
+        let n = tx.execute(
+            "UPDATE reminder_jobs SET status='cancelled',calendar_event_id=CASE WHEN executor='calendar' THEN id ELSE calendar_event_id END,last_error=NULL,updated_at=datetime('now','localtime')
              WHERE entity_type=?1 AND entity_id=?2
-               AND status IN ('pending','synced','delivery_unknown')",
+               AND status IN ('pending','synced','delivery_unknown','sync_failed')",
             params![et, eid],
         )?;
+        tx.commit()?;
         Ok((uids, n))
     })
     .await?;
 
-    for uid in synced_uids {
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = delete_calendar_event_by_uid(&uid).await {
-                log::error!("[日历同步] 撤销作业时删除日历事件 {} 失败: {}", uid, e);
-            }
-        });
-    }
+    for uid in synced_uids { finish_calendar_deletion(&uid).await.map_err(|error|error.to_string())?; }
 
     Ok(cancelled)
 }
