@@ -353,14 +353,21 @@ pub async fn update_knowledge(id: String, data: serde_json::Value) -> Result<(),
             validate_parent(&tx, &id, parent)?;
         }
 
-        let mut sql = String::from("UPDATE knowledge_items SET updated_at = datetime('now','localtime')");
+        let mut sql =
+            String::from("UPDATE knowledge_items SET updated_at = datetime('now','localtime')");
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         let fields = [
-            ("title", "title"), ("category", "category"), ("content", "content"),
-            ("tags", "tags"), ("lawName", "law_name"), ("articleNo", "article_no"),
-            ("effectiveDate", "effective_date"), ("status", "status"),
-            ("linkedCaseId", "linked_case_id"), ("parentId", "parent_id"),
+            ("title", "title"),
+            ("category", "category"),
+            ("content", "content"),
+            ("tags", "tags"),
+            ("lawName", "law_name"),
+            ("articleNo", "article_no"),
+            ("effectiveDate", "effective_date"),
+            ("status", "status"),
+            ("linkedCaseId", "linked_case_id"),
+            ("parentId", "parent_id"),
         ];
 
         let mut idx = 1;
@@ -379,7 +386,8 @@ pub async fn update_knowledge(id: String, data: serde_json::Value) -> Result<(),
         sql.push_str(&format!(" WHERE id = ?{}", idx));
         params.push(Box::new(id.clone()));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         tx.execute(&sql, param_refs.as_slice())?;
 
         // Wiki 双链权威同步：任何写入路径（笔记本/MCP/AI）都保持一致
@@ -687,9 +695,7 @@ fn export_knowledge_markdown_inner(
     Ok(KnowledgeExportDto {
         output_path: path.to_string_lossy().into_owned(),
         file_size: metadata.len(),
-        exported_at: chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string(),
+        exported_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     })
 }
 
@@ -715,11 +721,13 @@ fn restore_version_inner(
     version_id: &str,
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    let historical: String = tx.query_row(
-        "SELECT content FROM knowledge_versions WHERE id=?1 AND item_id=?2",
-        rusqlite::params![version_id, item_id],
-        |row| row.get(0),
-    ).map_err(|_| anyhow::anyhow!("历史版本不存在或不属于该笔记"))?;
+    let historical: String = tx
+        .query_row(
+            "SELECT content FROM knowledge_versions WHERE id=?1 AND item_id=?2",
+            rusqlite::params![version_id, item_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| anyhow::anyhow!("历史版本不存在或不属于该笔记"))?;
     let current: String = tx.query_row(
         "SELECT content FROM knowledge_items WHERE id=?1",
         [item_id],
@@ -744,7 +752,8 @@ pub async fn restore_knowledge_version(item_id: String, version_id: String) -> R
     run_blocking(move || {
         let mut conn = db::open_db()?;
         restore_version_inner(&mut conn, &item_id, &version_id)
-    }).await
+    })
+    .await
 }
 
 /// 删除笔记：连带清理 links 孤儿行，并把子笔记重挂到被删笔记的上级（Trilium 式提升）。
@@ -753,11 +762,13 @@ pub async fn delete_knowledge(id: String) -> Result<(), String> {
     run_blocking(move || {
         let mut conn = db::open_db()?;
         let tx = conn.transaction()?;
-        let parent: Option<String> = tx.query_row(
-            "SELECT parent_id FROM knowledge_items WHERE id = ?1",
-            [&id],
-            |r| r.get(0),
-        ).map_err(|_| anyhow::anyhow!("知识条目不存在: {id}"))?;
+        let parent: Option<String> = tx
+            .query_row(
+                "SELECT parent_id FROM knowledge_items WHERE id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .map_err(|_| anyhow::anyhow!("知识条目不存在: {id}"))?;
         // 子笔记重挂到祖父级（或回到根），避免 parent_id 悬空
         tx.execute(
             "UPDATE knowledge_items SET parent_id = ?2 WHERE parent_id = ?1",
@@ -780,26 +791,79 @@ pub async fn delete_knowledge(id: String) -> Result<(), String> {
 pub async fn search_knowledge(query: String) -> Result<Vec<SearchKnowledgeDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
+        search_knowledge_inner(&conn, &query)
+    })
+    .await
+}
+
+fn safe_fts_phrase(query: &str) -> String {
+    let normalized = query
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('"', "\"\"");
+    format!("\"{}\"", normalized)
+}
+
+fn read_search_knowledge_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchKnowledgeDto> {
+    Ok(SearchKnowledgeDto {
+        id: row.get::<_, String>("id")?,
+        title: row.get::<_, String>("title")?,
+        category: row.get::<_, String>("category")?,
+        content: row.get::<_, String>("content")?,
+        tags: row.get::<_, Option<String>>("tags")?,
+        law_name: row.get::<_, Option<String>>("law_name")?,
+        article_no: row.get::<_, Option<String>>("article_no")?,
+    })
+}
+
+fn search_knowledge_inner(
+    conn: &rusqlite::Connection,
+    query: &str,
+) -> anyhow::Result<Vec<SearchKnowledgeDto>> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut items: Vec<SearchKnowledgeDto> = {
         let mut stmt = conn.prepare(
             "SELECT ki.* FROM knowledge_fts f JOIN knowledge_items ki ON ki.rowid = f.rowid
              WHERE knowledge_fts MATCH ?1 ORDER BY rank LIMIT 50",
         )?;
-        let items: Vec<SearchKnowledgeDto> = stmt
-            .query_map(rusqlite::params![query], |row| {
-                Ok(SearchKnowledgeDto {
-                    id: row.get::<_, String>("id")?,
-                    title: row.get::<_, String>("title")?,
-                    category: row.get::<_, String>("category")?,
-                    content: row.get::<_, String>("content")?,
-                    tags: row.get::<_, Option<String>>("tags")?,
-                    law_name: row.get::<_, Option<String>>("law_name")?,
-                    article_no: row.get::<_, Option<String>>("article_no")?,
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(items)
-    })
-    .await
+        let fts_query = safe_fts_phrase(query);
+        let rows = stmt.query_map(rusqlite::params![fts_query], read_search_knowledge_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+
+    if items.len() >= 50 {
+        return Ok(items);
+    }
+
+    let mut seen: std::collections::HashSet<String> =
+        items.iter().map(|item| item.id.clone()).collect();
+    let like_query = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+    let mut stmt = conn.prepare(
+        "SELECT * FROM knowledge_items
+         WHERE title LIKE ?1 ESCAPE '\\'
+            OR content LIKE ?1 ESCAPE '\\'
+            OR COALESCE(tags, '') LIKE ?1 ESCAPE '\\'
+            OR COALESCE(law_name, '') LIKE ?1 ESCAPE '\\'
+            OR COALESCE(article_no, '') LIKE ?1 ESCAPE '\\'
+         ORDER BY updated_at DESC LIMIT 50",
+    )?;
+    let fallback_rows = stmt.query_map(rusqlite::params![like_query], read_search_knowledge_row)?;
+    for row in fallback_rows {
+        let item = row?;
+        if seen.insert(item.id.clone()) {
+            items.push(item);
+            if items.len() >= 50 {
+                break;
+            }
+        }
+    }
+
+    Ok(items)
 }
 
 #[tauri::command]
@@ -1436,6 +1500,31 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn search_knowledge_falls_back_for_chinese_phrase() {
+        let conn = test_conn();
+        insert_note(
+            &conn,
+            "k1",
+            "并行程序备忘",
+            "第三页记载行政裁决与民事侵权事实并行处理。",
+        );
+
+        let results = search_knowledge_inner(&conn, "行政裁决").unwrap();
+        assert!(results.iter().any(|item| item.id == "k1"));
+    }
+
+    #[test]
+    fn search_knowledge_treats_wildcards_and_backslashes_literally() {
+        let conn=test_conn();
+        insert_note(&conn,"literal","Literal",r"C:\evidence 50% a_b");
+        insert_note(&conn,"other","Other","C:evidence 500 aXb");
+        for query in [r"C:\evidence","50%","a_b"] {
+            let results=search_knowledge_inner(&conn,query).unwrap();
+            assert!(results.iter().any(|item|item.id=="literal"));
+        }
+    }
+
     // ── 层级校验 ─────────────────────────────────────────
 
     #[test]
@@ -1444,13 +1533,24 @@ mod tests {
         insert_note(&conn, "a", "甲", "");
         insert_note(&conn, "b", "乙", "");
         insert_note(&conn, "c", "丙", "");
-        conn.execute("UPDATE knowledge_items SET parent_id='a' WHERE id='b'", []).unwrap();
-        conn.execute("UPDATE knowledge_items SET parent_id='b' WHERE id='c'", []).unwrap();
+        conn.execute("UPDATE knowledge_items SET parent_id='a' WHERE id='b'", [])
+            .unwrap();
+        conn.execute("UPDATE knowledge_items SET parent_id='b' WHERE id='c'", [])
+            .unwrap();
 
         assert!(validate_parent(&conn, "a", "a").is_err(), "自己不能作上级");
-        assert!(validate_parent(&conn, "a", "ghost").is_err(), "不存在的上级应拒绝");
-        assert!(validate_parent(&conn, "a", "c").is_err(), "a→b→c 链上 a 以 c 为上级会成环");
-        assert!(validate_parent(&conn, "c", "a").is_ok(), "c 以 a 为上级（平移）不成环");
+        assert!(
+            validate_parent(&conn, "a", "ghost").is_err(),
+            "不存在的上级应拒绝"
+        );
+        assert!(
+            validate_parent(&conn, "a", "c").is_err(),
+            "a→b→c 链上 a 以 c 为上级会成环"
+        );
+        assert!(
+            validate_parent(&conn, "c", "a").is_ok(),
+            "c 以 a 为上级（平移）不成环"
+        );
     }
 
     // ── 编辑会话快照窗口 ─────────────────────────────────
@@ -1461,14 +1561,32 @@ mod tests {
         insert_note(&conn, "n", "笔记", "v1");
 
         maybe_snapshot_edit(&conn, "n", "v1").unwrap(); // 无变化
-        let c: i64 = conn.query_row("SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n'", [], |r| r.get(0)).unwrap();
+        let c: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(c, 0, "内容未变不应产生快照");
 
         maybe_snapshot_edit(&conn, "n", "v2").unwrap();
         maybe_snapshot_edit(&conn, "n", "v3").unwrap(); // 同一会话窗口内
-        let c: i64 = conn.query_row("SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n'", [], |r| r.get(0)).unwrap();
+        let c: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_versions WHERE item_id='n'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(c, 1, "5 分钟编辑会话窗口内只保留一个会话前快照");
-        let reason: String = conn.query_row("SELECT change_reason FROM knowledge_versions WHERE item_id='n'", [], |r| r.get(0)).unwrap();
+        let reason: String = conn
+            .query_row(
+                "SELECT change_reason FROM knowledge_versions WHERE item_id='n'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(reason, "edit_session");
     }
 
@@ -1519,12 +1637,18 @@ mod tests {
         // 大小写不敏感匹配；含方括号标题不可解析（与 Obsidian 一致）
         sync_wiki_links(&conn, "a", "参见 [[乙笔记]] 与 [[[卷宗] x.pdf]]").unwrap();
         let links = wiki_links(&conn, "a");
-        assert_eq!(links.len(), 3, "应新增 1 条 wiki 链，保留 manual 与 structure 链: {links:?}");
+        assert_eq!(
+            links.len(),
+            3,
+            "应新增 1 条 wiki 链，保留 manual 与 structure 链: {links:?}"
+        );
         assert!(links.iter().any(|(_, an)| an == "wiki:乙笔记"));
 
         // 自身链接排除
         sync_wiki_links(&conn, "a", "[[甲笔记]]").unwrap();
-        assert!(wiki_links(&conn, "a").iter().all(|(_, an)| an != "wiki:甲笔记"));
+        assert!(wiki_links(&conn, "a")
+            .iter()
+            .all(|(_, an)| an != "wiki:甲笔记"));
 
         // 正文移除后 wiki 链回收，其他链不受影响
         sync_wiki_links(&conn, "a", "没有链接了").unwrap();
@@ -1542,18 +1666,29 @@ mod tests {
         insert_note(&conn, "b", "乙笔记", "");
         sync_wiki_links(&conn, "a", "新正文 [[乙笔记]]").unwrap();
         conn.execute(
-            "UPDATE knowledge_items SET content='新正文 [[乙笔记]]' WHERE id='a'", [],
-        ).unwrap();
+            "UPDATE knowledge_items SET content='新正文 [[乙笔记]]' WHERE id='a'",
+            [],
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO knowledge_versions (id, item_id, content, change_reason) VALUES ('v-old', 'a', '旧正文', 'edit_session')",
             [],
         ).unwrap();
 
         // 归属校验
-        assert!(restore_version_inner(&mut conn, "b", "v-old").is_err(), "跨笔记恢复应拒绝");
+        assert!(
+            restore_version_inner(&mut conn, "b", "v-old").is_err(),
+            "跨笔记恢复应拒绝"
+        );
 
         restore_version_inner(&mut conn, "a", "v-old").unwrap();
-        let content: String = conn.query_row("SELECT content FROM knowledge_items WHERE id='a'", [], |r| r.get(0)).unwrap();
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM knowledge_items WHERE id='a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(content, "旧正文");
         let before_restore: i64 = conn.query_row(
             "SELECT COUNT(*) FROM knowledge_versions WHERE item_id='a' AND change_reason='before_restore'",
@@ -1561,7 +1696,10 @@ mod tests {
         ).unwrap();
         assert_eq!(before_restore, 1, "恢复前应留存当前正文快照");
         // 恢复后正文不再有 [[乙笔记]]，wiki 链应被回收
-        assert!(wiki_links(&conn, "a").is_empty(), "恢复后 Wiki 链应与正文一致");
+        assert!(
+            wiki_links(&conn, "a").is_empty(),
+            "恢复后 Wiki 链应与正文一致"
+        );
     }
 
     // ── PageIndex 沉淀 ───────────────────────────────────
@@ -1708,16 +1846,18 @@ mod tests {
     #[test]
     fn test_export_knowledge_markdown_uses_saved_content_and_validates_extension() {
         let conn = test_conn();
-        insert_note(&conn, "note-export", "导出测试", "# 导出测试\n\n中文正文 [[关联笔记]]");
+        insert_note(
+            &conn,
+            "note-export",
+            "导出测试",
+            "# 导出测试\n\n中文正文 [[关联笔记]]",
+        );
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("导出测试.md");
 
-        let result = export_knowledge_markdown_inner(
-            &conn,
-            "note-export",
-            output.to_str().unwrap(),
-        )
-        .unwrap();
+        let result =
+            export_knowledge_markdown_inner(&conn, "note-export", output.to_str().unwrap())
+                .unwrap();
 
         assert!(result.file_size > 0);
         let exported = std::fs::read_to_string(&output).unwrap();
