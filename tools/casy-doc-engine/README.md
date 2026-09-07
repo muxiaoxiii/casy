@@ -1,55 +1,66 @@
 # casy-doc-engine
 
-Casy 的独立本地 Rust 文档引擎。PP-OCRv5 mobile 识别坐标和全文，PaddleOCR-VL 0.9B 生成页面文本，harumi 写入不可见文字层。也可选择 Qwen 0.8B 系 OvisOCR2。原文件始终只读；模型推理没有 Python 服务，也不调用 Tesseract。坐标模型使用 ONNX Runtime，页面模型使用原生 Candle。
+Casy 的独立本地 Rust 文档引擎。默认使用非 mobile 的 PP-OCRv6 medium 检测、识别 ONNX 模型。
+VL 路线暂停：不再依赖 Candle / oar-ocr-vl，不再默认下载 PaddleOCR-VL 或 OvisOCR2。
+既有模型目录不会删除。推理没有 Python 服务，也不上传案件资料。
 
-模型版构建：
-
-```bash
-cargo build --release --features models
-# Apple Silicon: cargo build --release --features metal
-```
-
-运行前配置：
-
-- `CASY_DOC_ENGINE`：该二进制路径（由主程序读取）
-- `CASY_PPOCR_MODEL_DIR`：包含 `det.onnx`、`rec.onnx`、`dict.txt`
-- `CASY_PADDLEOCR_VL_MODEL_DIR`：PaddleOCR-VL 本地模型目录（优先）
-- `CASY_OVISOCR2_MODEL_DIR`：可选的 OvisOCR2 模型目录；仅在未配置 PaddleOCR-VL 时使用
-- `CASY_OCR_FONT`：覆盖目标语言字形的 TTF/OTF，例如 Noto Sans CJK
-- `CASY_OCR_DEVICE`：`cpu`、`metal`、`cuda` 或 `cuda:N`
-
-`probe` 只做依赖探测；`process` 从 stdin 接受 JSON 请求、向 stdout 返回 JSON 结果，诊断写 stderr。
-
-下载固定版本模型并逐文件校验哈希，模型保存在仓库外：
+## 构建和安装
 
 ```sh
-node tools/casy-doc-engine/install-models.mjs /path/to/casy-models paddle
-# 第三个参数也可使用 ovis 或 all。
+cargo build --manifest-path tools/casy-doc-engine/Cargo.toml --release --features models
+node tools/casy-doc-engine/install-models.mjs /absolute/model-directory
+# 只查看下载预算，不访问网络：
+node tools/casy-doc-engine/install-models.mjs /absolute/model-directory --dry-run
 ```
 
-下载完成后设置 `CASY_PPOCR_MODEL_DIR=/path/to/casy-models/ppocr` 和
-`CASY_PADDLEOCR_VL_MODEL_DIR=/path/to/casy-models/paddleocr-vl`，由相同环境启动 Casy。
-Apple Silicon 推荐构建 metal 并设置 `CASY_OCR_DEVICE=metal`。未配置设备时使用 CPU。
-模型安装器需要 Node.js；实际推理进程使用 Rust。PDF 渲染仍需 Poppler 的 pdftoppm。
+模型固定到 Paddle 官方仓库版本，逐文件校验哈希和长度，共 138,739,282 字节。
+配置中的字符字典通过 YAML 解析器读取，避免把语言字典与识别权重混用。
+默认模型覆盖中英德法日等语言；本机合成测试已检查混排重音和日语竖排。
+单个测试不能代表所有字体、低清扫描件和复杂版面的准确率。
 
-PDF 和单帧常见图片统一进入持久队列。多页 TIFF、动画 GIF/WebP 明确拒绝，需先转为 PDF，
-避免只识别第一帧。每次只渲染和识别一页：坐标图像最长 2400px，生成模型输入最长 1280px，
-ONNX 共用两个计算线程且禁用空闲自旋。只保留页面文字和坐标，不累计 RGB 图像。
-已有可提取文字、且没有大面积扫描图的页面直接使用原生文字，不启动模型，也不重复添加文字层。
-对需要 OCR 的页面，使用 Rust pdf-extract 读取现有文字层，避免再次写入相同文字。
-这些限制不等于任意卷宗的识别质量保证，细小文字和复杂表格需另行验收。
+从相同环境启动 Casy：
 
-主程序每秒同步页进度，可取消排队或运行中任务。单页超过 15 分钟未推进即失败；
-模型输出达到 token 上限不会作为完整结果保存。重试生成新任务 ID，旧进程不能覆盖新任务。
-完成时核对原文件 SHA-256、产物路径、页码、坐标以及 JSON/Markdown 一致性，再回填全文、
-应用自动归类规则并建立页级索引。每个任务的产物单独存放。
+- `CASY_DOC_ENGINE`：构建出的可执行文件。
+- `CASY_PPOCR_MODEL_DIR`：安装目录下的 `ppocrv6-medium`。
+- `CASY_OCR_FONT`：覆盖所需语言的 TTF/OTF/TTC。测试使用 macOS Arial Unicode；
+  该系统字体不随软件分发，产品打包应配套有授权的多语言字体。
+- PDF 渲染依赖 Poppler 的 `pdftoppm`。模型安装脚本需要 Node.js，实际推理不需要 Node.js。
 
-本地模型验收（仅合成中文扫描件，不访问网络）：
+其他兼容 ONNX 模型可以提供 `det.onnx`、`rec.onnx` 和 `dict.txt`，或官方 `rec.yml`。
+新模型必须单独核对预处理、字典、精度、语言及许可，文件格式兼容不等于质量验证通过。
+RapidOCR 的 ONNX 部署和可切换模型方案是选型参考；当前执行器仍使用 Rust oar-ocr，
+没有把 RapidOCR Python 环境装入 Casy。PP-DocLayout / PP-Structure 的版面和表格管线尚未接入。
+
+## 文档产物
+
+PDF 及单帧图片都以可见渲染结果为准，即使原 PDF 有文字层也会视觉识别。
+派生可搜索 PDF 从页面像素重建，并只加入新识别文字，防止伪造隐藏文字继续残留。
+原 PDF 保持不变；派生件是 2400px 上限的栅格副本，原件的矢量精度、表单、附件和签名不迁移到派生件。
+当前没有未经验证的“有文字即跳过 OCR”捷径，也不额外运行模型来判断是否属于复杂版面。
+
+每项任务输出：
+
+- `source.searchable.pdf`：派生的可搜索 PDF。
+- `source.document.json`：逐页文字、区域、尺寸、置信度。
+- `source.md`：同一识别结果的 Markdown 备份，保留页标记。
+- `source.map.json`：原件/Markdown/连续文字哈希、UTF-8 字节范围、页码与区域坐标。
+  文本不一致时只保留页级映射，不推测精确坐标。
+
+主程序校验上述映射、源文件哈希和落盘结果后入库。卷宗检索可跨相邻页和行末连字符匹配，
+保留原文及两页的来源区域。对照阅读通过文件 ID、任务 ID、页码读取原页面，
+支持文字/原页联动、翻页、缩放。原文件变更后拒绝旧位置。
+Word、Markdown 等文字文档保留段落定位，不虚构 PDF 页码和坐标。
+
+## 本地验证
 
 ```sh
-CASY_OCR_QA_DIR=/path/to/private-qa cargo test --manifest-path tools/casy-doc-engine/Cargo.toml \
-  --release --features metal real_chinese_scanned_pdf -- --ignored --nocapture
+cargo test --manifest-path tools/casy-doc-engine/Cargo.toml --features models
+# 设置上述模型/字体变量及独立产物目录：
+CASY_OCR_QA_DIR=/absolute/private-qa cargo test \
+  --manifest-path tools/casy-doc-engine/Cargo.toml --features models \
+  real_multilingual_and_forged_text_pdf -- --ignored --nocapture
 ```
 
-其余 CASY_* 模型及字体环境变量也需设置。测试生成双页扫描 PDF，检查第三人、金额、日期、
-全文和可搜索层，并保留独立产物，便于人工核对。
+详见 `docs/audits/casy-ocr-source-binding-2026-09-07.md`。
+仍需验证密集双栏、复杂表格、跨页表格及重复页眉页脚，并将模型安装与字体选择产品化。
+模型约 139 MB；完整安装包是否达到 200 MB 尚未实测。

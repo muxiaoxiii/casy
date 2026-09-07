@@ -18,9 +18,7 @@ const sourceSha256 = await hash(sourcePath)
 const request = {
   jobId: 'benchmark', sourcePath, sourceSha256, outputDir,
   coordinateModelDir: process.env.CASY_PPOCR_MODEL_DIR,
-  paddleModelDir: process.env.CASY_PADDLEOCR_VL_MODEL_DIR,
-  ovisModelDir: process.env.CASY_OVISOCR2_MODEL_DIR,
-  cjkFontPath: process.env.CASY_OCR_FONT, device: process.env.CASY_OCR_DEVICE || 'cpu',
+  cjkFontPath: process.env.CASY_OCR_FONT,
 }
 const start = Date.now()
 const child = spawn('/usr/bin/time', ['-l', process.env.CASY_DOC_ENGINE, 'process'], {

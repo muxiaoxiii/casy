@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+mod source_map;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,10 +28,7 @@ struct ProcessRequest {
     source_sha256: String,
     output_dir: String,
     coordinate_model_dir: Option<String>,
-    ovis_model_dir: Option<String>,
-    paddle_model_dir: Option<String>,
     cjk_font_path: Option<String>,
-    device: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +62,7 @@ struct ProcessResult {
     searchable_pdf_path: String,
     page_ir_path: String,
     markdown_path: String,
+    source_map_path: String,
     pages: Vec<Page>,
 }
 
@@ -98,21 +97,12 @@ fn sha256_file(path: &Path) -> Result<String> {
 fn probe() -> EngineStatus {
     let renderer = command_exists("pdftoppm");
     let coord = env_path("CASY_PPOCR_MODEL_DIR").is_some_and(|dir| {
-        ["det.onnx", "rec.onnx", "dict.txt"]
+        ["det.onnx", "rec.onnx"]
             .iter()
             .all(|name| dir.join(name).is_file())
+            && (dir.join("dict.txt").is_file() || dir.join("rec.yml").is_file())
     });
     let ovis = env_path("CASY_OVISOCR2_MODEL_DIR").is_some_and(|dir| {
-        [
-            "config.json",
-            "preprocessor_config.json",
-            "tokenizer.json",
-            "model.safetensors",
-        ]
-        .iter()
-        .all(|name| dir.join(name).is_file())
-    });
-    let paddle = env_path("CASY_PADDLEOCR_VL_MODEL_DIR").is_some_and(|dir| {
         [
             "config.json",
             "preprocessor_config.json",
@@ -133,14 +123,11 @@ fn probe() -> EngineStatus {
     if !coord {
         missing.push("CASY_PPOCR_MODEL_DIR".into())
     }
-    if !ovis && !paddle {
-        missing.push("CASY_PADDLEOCR_VL_MODEL_DIR / CASY_OVISOCR2_MODEL_DIR".into())
-    }
     if !font {
         missing.push("CASY_OCR_FONT".into())
     }
     EngineStatus {
-        available: cfg!(feature = "models") && renderer && coord && (ovis || paddle) && font,
+        available: cfg!(feature = "models") && renderer && coord && font,
         executable: std::env::current_exe()
             .ok()
             .map(|p| p.display().to_string()),
@@ -244,113 +231,24 @@ fn raster_pdf(source: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-fn native_page(doc: &mut Document, page_number: u32) -> Result<Option<Page>> {
-    let text = match doc.extract_text(page_number) {
-        Ok(text) => text,
-        Err(_) => return Ok(None),
-    };
-    let meaningful = text.chars().filter(|c| !c.is_whitespace()).count();
-    if meaningful < 100 || text.contains('\u{fffd}') || text.contains('\0') {
-        return Ok(None);
-    }
-    let (width, height) = doc.page(page_number)?.size()?;
-    let images = match doc.page_image_bboxes(page_number) {
-        Ok(images) => images,
-        Err(_) => return Ok(None),
-    };
-    // A substantial embedded image may contain scanned evidence alongside
-    // native headers/footers. Keep that page on the OCR path.
-    if images
-        .iter()
-        .any(|bbox| bbox[2].abs() * bbox[3].abs() > width * height * 0.2)
-    {
-        return Ok(None);
-    }
-    let fragments = match doc.extract_text_runs(page_number) {
-        Ok(value) => value,
-        Err(_) => return Ok(None),
-    };
-    let regions = fragments
-        .into_iter()
-        .filter(|f| !f.text.trim().is_empty())
-        .map(|f| Region {
-            text: f.text,
-            confidence: None,
-            bbox: [
-                f.x.clamp(0.0, width),
-                (height - f.y - f.height).clamp(0.0, height),
-                (f.x + f.width.max(0.0)).clamp(0.0, width),
-                (height - f.y).clamp(0.0, height),
-            ],
-        })
-        .collect();
-    Ok(Some(Page {
-        page_number,
-        width: Some(width),
-        height: Some(height),
-        plain_text: text.clone(),
-        markdown: text,
-        regions,
-        confidence: None,
-        native_text: true,
-    }))
-}
-
 #[cfg(feature = "models")]
-enum MarkdownRecognizer {
-    Ovis(oar_ocr_vl::OvisOcr2),
-    Paddle(oar_ocr_vl::PaddleOcrVl),
-}
-
-#[cfg(feature = "models")]
-impl MarkdownRecognizer {
-    fn load(request: &ProcessRequest) -> Result<Self> {
-        let device = oar_ocr_vl::utils::parse_device(&request.device)?;
-        if let Some(dir) = &request.paddle_model_dir {
-            Ok(Self::Paddle(oar_ocr_vl::PaddleOcrVl::from_dir(
-                dir, device,
-            )?))
-        } else {
-            let dir = request
-                .ovis_model_dir
-                .as_deref()
-                .ok_or_else(|| anyhow!("MODEL_MISSING: 页面识别模型"))?;
-            Ok(Self::Ovis(oar_ocr_vl::OvisOcr2::from_dir(dir, device)?))
-        }
-    }
-
-    fn parse(&self, image: &image::RgbImage, page_number: u32) -> Result<String> {
-        use oar_ocr_vl::PaddleOcrVlTask;
-        const MAX_TOKENS: usize = 16384;
-        // Coordinates and searchable text keep the 2400px raster; bound the
-        // generative model's visual tokens independently of source resolution.
-        let scaled = image::DynamicImage::ImageRgb8(image.clone())
-            .resize(1280, 1280, image::imageops::FilterType::Lanczos3)
-            .to_rgb8();
-        let image = &scaled;
-        let tokens = match self {
-            Self::Ovis(model) => model
-                .generate_tokens(std::slice::from_ref(image), MAX_TOKENS)?
-                .pop()
-                .ok_or_else(|| anyhow!("EMPTY_MODEL_RESULT: 第 {page_number} 页"))??,
-            Self::Paddle(model) => model
-                .generate_tokens(
-                    std::slice::from_ref(image),
-                    &[PaddleOcrVlTask::Ocr],
-                    MAX_TOKENS,
-                )?
-                .pop()
-                .ok_or_else(|| anyhow!("EMPTY_MODEL_RESULT: 第 {page_number} 页"))?,
-        };
-        if tokens.len() >= MAX_TOKENS {
-            return Err(anyhow!(
-                "PAGE_OUTPUT_LIMIT: 第 {page_number} 页达到输出上限，未作为完整结果保存"
-            ));
-        }
-        Ok(match self {
-            Self::Ovis(model) => model.decode_tokens(&tokens)?,
-            Self::Paddle(model) => model.decode_tokens(&tokens, PaddleOcrVlTask::Ocr)?.1,
-        })
+fn model_dictionary(dir: &Path) -> Result<String> {
+    if dir.join("rec.yml").is_file() {
+        let config: serde_yaml_ng::Value =
+            serde_yaml_ng::from_slice(&std::fs::read(dir.join("rec.yml"))?)?;
+        let characters = config["PostProcess"]["character_dict"]
+            .as_sequence()
+            .ok_or_else(|| anyhow!("MODEL_CONFIG_INVALID: character_dict"))?;
+        let characters = characters
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .ok_or_else(|| anyhow!("MODEL_CONFIG_INVALID: dictionary entry"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(characters.join("\n") + "\n")
+    } else {
+        Ok(std::fs::read_to_string(dir.join("dict.txt"))?)
     }
 }
 
@@ -363,16 +261,10 @@ fn recognize(
 ) -> Result<Vec<Page>> {
     use oar_ocr::prelude::*;
     let mut coordinate = None;
-    let mut recognizer = None;
-    let mut document = Document::from_file(source)?;
     let mut pages = Vec::new();
     // Keep only one rendered page and its model inputs alive at a time.
     for page_number in 1..=total {
-        if let Some(page) = native_page(&mut document, page_number)? {
-            pages.push(page);
-            write_progress(request, page_number, total)?;
-            continue;
-        }
+        // The visible raster is authoritative, including PDFs with deceptive text layers.
         if coordinate.is_none() {
             let coord_dir = Path::new(
                 request
@@ -383,7 +275,7 @@ fn recognize(
             let det = coord_dir.join("det.onnx");
             let rec = coord_dir.join("rec.onnx");
             let dict = coord_dir.join("dict.txt");
-            for path in [&det, &rec, &dict] {
+            for path in [&det, &rec] {
                 if !path.is_file() {
                     return Err(anyhow!("MODEL_MISSING: {}", path.display()));
                 }
@@ -395,10 +287,11 @@ fn recognize(
                 .commit()?;
             coordinate = Some(
                 OAROCRBuilder::new(&det, &rec, &dict)
+                    .character_dict_content(model_dictionary(coord_dir)?)
                     .return_word_box(true)
+                    .region_batch_size(6)
                     .build()?,
             );
-            recognizer = Some(MarkdownRecognizer::load(request)?);
         }
         let path = render_page(source, temp, page_number)?;
         let image = image::open(&path)?.to_rgb8();
@@ -406,7 +299,6 @@ fn recognize(
         let ocr = coordinate_results
             .pop()
             .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页"))?;
-        let markdown = recognizer.as_ref().unwrap().parse(&image, page_number)?;
         let mut regions = Vec::new();
         let mut confidence_sum = 0.0f32;
         for region in ocr.text_regions {
@@ -444,8 +336,8 @@ fn recognize(
             page_number,
             width: Some(image.width() as f32),
             height: Some(image.height() as f32),
+            markdown: plain_text.clone(),
             plain_text,
-            markdown,
             regions,
             confidence,
             native_text: false,
@@ -458,52 +350,39 @@ fn recognize(
 
 #[cfg(not(feature = "models"))]
 fn recognize(
-    request: &ProcessRequest,
-    source: &Path,
+    _request: &ProcessRequest,
+    _source: &Path,
     _temp: &Path,
-    total: u32,
+    _total: u32,
 ) -> Result<Vec<Page>> {
-    let mut document = Document::from_file(source)?;
-    let mut pages = Vec::new();
-    for number in 1..=total {
-        pages.push(native_page(&mut document, number)?.ok_or_else(|| anyhow!(
-            "MODEL_RUNTIME_MISSING: 第 {number} 页需要 OCR，请用 --features models（Apple Silicon 可用 metal）构建文档引擎"
-        ))?);
-        write_progress(request, number, total)?;
-    }
-    Ok(pages)
+    Err(anyhow!(
+        "MODEL_RUNTIME_MISSING: 请用 --features models 构建文档引擎；未验证的 PDF 文本层不能代替 OCR"
+    ))
 }
 
 fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Page]) -> Result<()> {
-    // The fallback extractor also reads text inside PDF Form XObjects.
-    let existing_pages = pdf_extract::extract_text_by_pages(source).unwrap_or_default();
-    let mut doc = Document::from_file(source)?;
+    // Rebuild only the derived PDF from visible pixels. Keeping the old hidden
+    // layer would preserve forged text in external viewers even after correct OCR.
+    let mut original = Document::from_file(source)?;
+    let mut doc = Document::new(original.page(1)?.size()?)?;
+    let temp = tempfile::tempdir()?;
     let font = doc.embed_font(&std::fs::read(font_path)?)?;
     for page in pages {
-        if page.native_text {
-            continue;
+        let (pdf_w, pdf_h) = original.page(page.page_number)?.size()?;
+        if page.page_number > 1 {
+            doc.insert_blank_page(page.page_number - 1, (pdf_w, pdf_h))?;
         }
+        let raster = render_page(source, temp.path(), page.page_number)?;
+        doc.page(page.page_number)?
+            .add_image(&std::fs::read(raster)?, [0.0, 0.0, pdf_w, pdf_h])?;
         let image_w = page.width.unwrap_or(1.0).max(1.0);
         let image_h = page.height.unwrap_or(1.0).max(1.0);
-        let (pdf_w, pdf_h) = doc.page(page.page_number)?.size()?;
         let sx = pdf_w / image_w;
         let sy = pdf_h / image_h;
-        let existing = existing_pages
-            .get(page.page_number as usize - 1)
-            .map(|text| {
-                text.chars()
-                    .filter(|c| !c.is_whitespace())
-                    .collect::<String>()
-            })
-            .unwrap_or_default();
         let runs: Vec<_> = page
             .regions
             .iter()
             .filter(|r| !r.text.trim().is_empty() && r.confidence.unwrap_or(1.0) >= 0.45)
-            .filter(|r| {
-                let text: String = r.text.chars().filter(|c| !c.is_whitespace()).collect();
-                !existing.contains(&text)
-            })
             .map(|r| TextRun {
                 text: r.text.clone(),
                 font,
@@ -548,52 +427,45 @@ fn process(request: ProcessRequest) -> Result<ProcessResult> {
     let pdf = output_dir.join("source.searchable.pdf");
     let ir = output_dir.join("source.document.json");
     let md = output_dir.join("source.md");
+    let map_path = output_dir.join("source.map.json");
     let font = request
         .cjk_font_path
         .as_deref()
         .ok_or_else(|| anyhow!("FONT_MISSING: CASY_OCR_FONT 未配置"))?;
     add_search_layer(pdf_source, &pdf, Path::new(font), &pages)?;
     std::fs::write(&ir, serde_json::to_vec_pretty(&pages)?)?;
-    std::fs::write(
-        &md,
-        pages
-            .iter()
-            .map(|p| format!("<!-- page {} -->\n{}", p.page_number, p.markdown))
-            .collect::<Vec<_>>()
-            .join("\n\n---\n\n"),
-    )?;
+    let (markdown, source_map) = source_map::build(&pages, &before);
+    std::fs::write(&md, markdown)?;
+    std::fs::write(&map_path, serde_json::to_vec_pretty(&source_map)?)?;
     let after = sha256_file(source)?;
     if after != before {
         return Err(anyhow!("SOURCE_CHANGED: 处理过程修改了原文件"));
     }
-    let native_only = pages.iter().all(|page| page.native_text);
-    let model_version = if native_only {
-        None
+    let dir = Path::new(
+        request
+            .coordinate_model_dir
+            .as_deref()
+            .ok_or_else(|| anyhow!("MODEL_MISSING"))?,
+    );
+    let dictionary = if dir.join("rec.yml").is_file() {
+        "rec.yml"
     } else {
-        let dir = request
-            .paddle_model_dir
-            .as_ref()
-            .or(request.ovis_model_dir.as_ref())
-            .ok_or_else(|| anyhow!("MODEL_MISSING: 页面识别模型"))?;
-        Some(format!(
-            "weights-sha256:{}",
-            sha256_file(&Path::new(dir).join("model.safetensors"))?
-        ))
+        "dict.txt"
     };
+    let model_version = Some(format!(
+        "det:{};rec:{};dictionary:{}",
+        sha256_file(&dir.join("det.onnx"))?,
+        sha256_file(&dir.join("rec.onnx"))?,
+        sha256_file(&dir.join(dictionary))?
+    ));
     Ok(ProcessResult {
         source_sha256: after,
-        engine: if native_only {
-            "harumi-native"
-        } else if request.paddle_model_dir.is_some() {
-            "oar-ppocrv5+paddleocr-vl"
-        } else {
-            "oar-ppocrv5+ovisocr2"
-        }
-        .into(),
+        engine: "paddle-onnx-visual".into(),
         model_version,
         searchable_pdf_path: pdf.display().to_string(),
         page_ir_path: ir.display().to_string(),
         markdown_path: md.display().to_string(),
+        source_map_path: map_path.display().to_string(),
         pages,
     })
 }
@@ -625,70 +497,74 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_text_is_reused_and_large_scanned_regions_are_not_skipped() {
+    fn derived_pdf_discards_forged_hidden_text() {
+        if !command_exists("pdftoppm") {
+            return;
+        }
         let font = Path::new("/System/Library/Fonts/Supplemental/Arial.ttf");
         if !font.is_file() {
             return;
         }
         let temp = tempfile::tempdir().unwrap();
-        let source = temp.path().join("digital.pdf");
-        let mut document = Document::new((595.0, 842.0)).unwrap();
-        let font_id = document.embed_font(&std::fs::read(font).unwrap()).unwrap();
-        for row in 0..6 {
-            document
-                .page(1)
-                .unwrap()
-                .add_text(
-                    "Original evidence and contract information",
-                    font_id,
-                    [30.0, 700.0 - row as f32 * 30.0],
-                    12.0,
-                    [0.0; 3],
-                )
-                .unwrap();
-        }
-        document.save(&source).unwrap();
-        let mut reloaded = Document::from_file(&source).unwrap();
-        let mut page = native_page(&mut reloaded, 1).unwrap().unwrap();
-        assert!(page.native_text);
-        let before = reloaded.extract_text(1).unwrap();
-        let searchable = temp.path().join("searchable.pdf");
-        add_search_layer(&source, &searchable, font, &[page.clone()]).unwrap();
-        assert_eq!(
-            Document::from_file(&searchable)
-                .unwrap()
-                .extract_text(1)
-                .unwrap(),
-            before
-        );
-        page.native_text = false;
-        add_search_layer(&source, &searchable, font, &[page]).unwrap();
-        assert_eq!(
-            Document::from_file(&searchable)
-                .unwrap()
-                .extract_text(1)
-                .unwrap(),
-            before
-        );
-        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
-            100,
-            100,
-            image::Rgb([255; 3]),
-        ));
-        let mut png = std::io::Cursor::new(Vec::new());
-        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
-        let mut document = Document::from_file(&source).unwrap();
-        document
-            .page(1)
+        let source = temp.path().join("forged.pdf");
+        let output = temp.path().join("derived.pdf");
+        let mut doc = Document::new((400.0, 400.0)).unwrap();
+        let f = doc.embed_font(&std::fs::read(font).unwrap()).unwrap();
+        doc.page(1)
             .unwrap()
-            .add_image(png.get_ref(), [0.0, 0.0, 595.0, 500.0])
+            .add_text("Actual amount 128000", f, [30.0, 300.0], 16.0, [0.0; 3])
             .unwrap();
-        document.save(&source).unwrap();
+        doc.page(1)
+            .unwrap()
+            .add_invisible_text_runs(&[TextRun {
+                text: "FORGED amount 999999".into(),
+                font: f,
+                x: 30.0,
+                y: 250.0,
+                font_size: 16.0,
+                color: Color::Rgb([0.0; 3]),
+                render_mode: 3,
+            }])
+            .unwrap();
+        doc.save(&source).unwrap();
+        let before = sha256_file(&source).unwrap();
         assert!(
-            native_page(&mut Document::from_file(source).unwrap(), 1)
+            pdf_extract::extract_text(&source)
                 .unwrap()
-                .is_none()
+                .contains("999999")
         );
+        let page = Page {
+            page_number: 1,
+            width: Some(400.0),
+            height: Some(400.0),
+            plain_text: "Actual amount 128000".into(),
+            markdown: "Actual amount 128000".into(),
+            regions: vec![Region {
+                text: "Actual amount 128000".into(),
+                bbox: [30.0, 84.0, 230.0, 100.0],
+                confidence: Some(0.99),
+            }],
+            confidence: Some(0.99),
+            native_text: false,
+        };
+        add_search_layer(&source, &output, font, &[page]).unwrap();
+        let extracted = pdf_extract::extract_text(&output).unwrap();
+        assert!(extracted.contains("128000"));
+        assert!(!extracted.contains("999999"));
+        assert_eq!(before, sha256_file(&source).unwrap());
+        let original_render = render_page(&source, temp.path(), 1).unwrap();
+        let original_pixels = image::open(original_render).unwrap().to_rgb8();
+        let derived_render = render_page(&output, temp.path(), 1).unwrap();
+        let derived_pixels = image::open(derived_render).unwrap().to_rgb8();
+        assert_eq!(original_pixels.dimensions(), derived_pixels.dimensions());
+        let mean_error: f64 = original_pixels
+            .as_raw()
+            .iter()
+            .zip(derived_pixels.as_raw())
+            .map(|(a, b)| (*a as f64 - *b as f64).abs())
+            .sum::<f64>()
+            / original_pixels.as_raw().len() as f64;
+        assert!(mean_error < 2.0, "visible page changed: {mean_error}");
     }
 
     #[test]
@@ -803,10 +679,7 @@ mod tests {
             source_sha256: hash.clone(),
             output_dir: root.join("result").display().to_string(),
             coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
-            ovis_model_dir: std::env::var("CASY_OVISOCR2_MODEL_DIR").ok(),
-            paddle_model_dir: std::env::var("CASY_PADDLEOCR_VL_MODEL_DIR").ok(),
             cjk_font_path: Some(font_path),
-            device: std::env::var("CASY_OCR_DEVICE").unwrap_or("cpu".into()),
         })
         .unwrap();
         std::fs::write(
@@ -891,5 +764,131 @@ mod tests {
                 .unwrap()
                 .contains("Searchable evidence")
         );
+    }
+
+    #[cfg(feature = "models")]
+    #[test]
+    #[ignore = "requires local medium models and a multilingual font"]
+    fn real_multilingual_and_forged_text_pdf() {
+        let root = PathBuf::from(std::env::var("CASY_OCR_QA_DIR").unwrap()).join("multilingual");
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("mixed-original.pdf");
+        let font_path = std::env::var("CASY_OCR_FONT").unwrap();
+        let mut doc = Document::new((595.0, 842.0)).unwrap();
+        doc.insert_blank_page(1, (595.0, 842.0)).unwrap();
+        let font = doc.embed_font(&std::fs::read(&font_path).unwrap()).unwrap();
+        let latin_font = doc
+            .embed_font(&std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf").unwrap())
+            .unwrap();
+        for (index, text) in [
+            "第三人赔偿金额为128000元",
+            "Evidence of contractual liability",
+            "Prüfung des Schadensersatzes",
+            "Réparation du préjudice français",
+            "損害賠償請求と契約書",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let chosen = if (1..=3).contains(&index) {
+                latin_font
+            } else {
+                font
+            };
+            doc.page(1)
+                .unwrap()
+                .add_text(
+                    text,
+                    chosen,
+                    [40.0, 760.0 - index as f32 * 65.0],
+                    20.0,
+                    [0.0; 3],
+                )
+                .unwrap();
+        }
+        doc.page(1)
+            .unwrap()
+            .add_invisible_text_runs(&[TextRun {
+                text: "FORGED SECRET 999999".into(),
+                font: latin_font,
+                x: 40.0,
+                y: 400.0,
+                font_size: 16.0,
+                color: Color::Rgb([0.0; 3]),
+                render_mode: 3,
+            }])
+            .unwrap();
+        doc.page(1)
+            .unwrap()
+            .add_text("Schadens-", latin_font, [40.0, 60.0], 20.0, [0.0; 3])
+            .unwrap();
+        doc.page(2)
+            .unwrap()
+            .add_text(
+                "ersatz und Beweis",
+                latin_font,
+                [40.0, 760.0],
+                20.0,
+                [0.0; 3],
+            )
+            .unwrap();
+        for (row, c) in "損害賠償請求".chars().enumerate() {
+            doc.page(2)
+                .unwrap()
+                .add_text(
+                    &c.to_string(),
+                    font,
+                    [420.0, 650.0 - row as f32 * 30.0],
+                    22.0,
+                    [0.0; 3],
+                )
+                .unwrap();
+        }
+        doc.save(&source).unwrap();
+        let before = sha256_file(&source).unwrap();
+        let result = process(ProcessRequest {
+            job_id: "multilingual".into(),
+            source_path: source.display().to_string(),
+            source_sha256: before.clone(),
+            output_dir: root.join("result").display().to_string(),
+            coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
+            cjk_font_path: Some(font_path),
+        })
+        .unwrap();
+        std::fs::write(
+            root.join("result.json"),
+            serde_json::to_vec_pretty(&result).unwrap(),
+        )
+        .unwrap();
+        for expected in [
+            "第三人",
+            "128000",
+            "Evidence",
+            "Prüfung",
+            "Schadensersatzes",
+            "Réparation",
+            "préjudice",
+            "français",
+            "損害賠償",
+        ] {
+            assert!(
+                result.pages[0].plain_text.contains(expected),
+                "missing {expected}: {}",
+                result.pages[0].plain_text
+            );
+        }
+        let compact: String = result.pages[1]
+            .plain_text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert!(
+            compact.contains("損害賠償請求"),
+            "vertical Japanese: {compact}"
+        );
+        assert!(!result.pages.iter().any(|p| p.plain_text.contains("999999")));
+        let extracted = pdf_extract::extract_text(&result.searchable_pdf_path).unwrap();
+        assert!(!extracted.contains("999999"));
+        assert_eq!(before, sha256_file(&source).unwrap());
     }
 }
