@@ -175,7 +175,12 @@ pub fn start_background_worker(_app: AppHandle) {
         loop {
             match crate::db::knowledge_index::process_next().await {
                 Ok(true) => {}
-                Ok(false) => tokio::time::sleep(Duration::from_secs(3)).await,
+                Ok(false) => {
+                    if let Ok(Err(error)) = tokio::task::spawn_blocking(crate::db::vector_index::prepare).await {
+                        log::warn!("Vector cache synchronization failed: {error}");
+                    }
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
                 Err(error) => {
                     error!("knowledge index worker failed: {}", error);
                     tokio::time::sleep(Duration::from_secs(10)).await;

@@ -86,6 +86,9 @@ jieba-rs = "0.8"
 
 tempfile = "3"
 same-file = "1"
+zvec-rust = { version = "=0.7.0", default-features = false }
+zvec-rust-sys = "=0.7.0"
+half = "2"
 
 [features]
 default = ["custom-protocol"]

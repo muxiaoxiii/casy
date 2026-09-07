@@ -12,8 +12,11 @@ async fn reviewed_capture_is_atomic_retryable_and_preserves_sources() {
     std::env::set_var("CASY_TEST_DATA_DIR", profile.path());
     db::enable_test_mode();
     let conn = db::open_db().unwrap();
-    db::init_db(&conn).unwrap();
-    conn.execute_batch("DROP TABLE workspace_file_state; DROP TABLE inbox_action_results; PRAGMA user_version=30; INSERT INTO inbox_items(id,source_type,title,status) VALUES('upgrade-source','note','升级前原文','pending');").unwrap();
+    for (version, sql) in db::schema::MIGRATIONS.iter().take_while(|(version,_)|version.parse::<i64>().unwrap()<=30) {
+        conn.execute_batch(sql).unwrap();
+        conn.pragma_update(None,"user_version",version.parse::<i64>().unwrap()).unwrap();
+    }
+    conn.execute_batch("INSERT INTO inbox_items(id,source_type,title,status) VALUES('upgrade-source','note','升级前原文','pending');").unwrap();
     db::init_db(&conn).unwrap();
     assert_eq!(conn.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),db::schema::CURRENT_SCHEMA_VERSION);
     assert_eq!(conn.query_row("SELECT title FROM inbox_items WHERE id='upgrade-source'",[],|r|r.get::<_,String>(0)).unwrap(),"升级前原文");

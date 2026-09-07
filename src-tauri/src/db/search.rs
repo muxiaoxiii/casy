@@ -1,6 +1,6 @@
 //! Keyword and versioned chunk-vector retrieval, combined with reciprocal rank fusion.
 use crate::ai::{
-    embeddings::{stored_cosine, EmbeddingPlan},
+    embeddings::EmbeddingPlan,
     retrieval::query_terms,
 };
 use anyhow::{bail, Result};
@@ -82,29 +82,7 @@ pub fn semantic_search(
     fingerprint: &str,
     limit: usize,
 ) -> Result<Vec<(String, f64, String)>> {
-    let mut stmt = conn.prepare("SELECT j.item_id,c.embedding,c.content FROM knowledge_index_chunks c
-        JOIN knowledge_index_jobs j ON j.id=c.job_id JOIN knowledge_items k ON k.id=j.item_id
-        WHERE j.status='completed' AND j.config_hash=?1 AND j.dimension=?2 AND COALESCE(k.status,'current')='current'")?;
-    let mut rows = stmt.query(params![fingerprint, query.len()])?;
-    let mut best: HashMap<String, (f64, String)> = HashMap::new();
-    while let Some(row) = rows.next()? {
-        let bytes: Vec<u8> = row.get(1)?;
-        let score = stored_cosine(query, &bytes);
-        if score <= 0.1 {
-            continue;
-        }
-        let id: String = row.get(0)?;
-        if best.get(&id).is_none_or(|(previous, _)| score > *previous) {
-            best.insert(id, (score, row.get(2)?));
-        }
-    }
-    let mut scored: Vec<_> = best
-        .into_iter()
-        .map(|(id, (score, content))| (id, score, content))
-        .collect();
-    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    scored.truncate(limit.min(100));
-    Ok(scored)
+    super::vector_index::search(conn, query, fingerprint, limit)
 }
 
 fn excerpt(text: &str, query: &str) -> String {

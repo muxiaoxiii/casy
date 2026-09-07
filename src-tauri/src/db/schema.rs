@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 32;
+pub const CURRENT_SCHEMA_VERSION: i64 = 33;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -705,7 +705,47 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("30", MIGRATION_V30_SQL),
     ("31", MIGRATION_V31_SQL),
     ("32", MIGRATION_V32_SQL),
+    ("33", MIGRATION_V33_SQL),
 ];
+
+const MIGRATION_V33_SQL: &str = r#"
+CREATE TABLE knowledge_ann_state (id INTEGER PRIMARY KEY CHECK(id=1), revision TEXT NOT NULL);
+INSERT INTO knowledge_ann_state VALUES(1, lower(hex(randomblob(16))));
+CREATE TABLE knowledge_ann_jobs (
+    job_id TEXT PRIMARY KEY REFERENCES knowledge_index_jobs(id) ON DELETE CASCADE,
+    revision TEXT NOT NULL
+);
+INSERT INTO knowledge_ann_jobs SELECT id, lower(hex(randomblob(16))) FROM knowledge_index_jobs;
+CREATE TRIGGER knowledge_ann_job_insert AFTER INSERT ON knowledge_index_jobs BEGIN
+    INSERT OR REPLACE INTO knowledge_ann_jobs VALUES(NEW.id, lower(hex(randomblob(16))));
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_job_update AFTER UPDATE ON knowledge_index_jobs BEGIN
+    INSERT OR REPLACE INTO knowledge_ann_jobs VALUES(NEW.id, lower(hex(randomblob(16))));
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_job_delete AFTER DELETE ON knowledge_index_jobs BEGIN
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_chunk_insert AFTER INSERT ON knowledge_index_chunks BEGIN
+    INSERT OR REPLACE INTO knowledge_ann_jobs VALUES(NEW.job_id, lower(hex(randomblob(16))));
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_chunk_update AFTER UPDATE ON knowledge_index_chunks BEGIN
+    UPDATE knowledge_ann_jobs SET revision=lower(hex(randomblob(16))) WHERE job_id IN (OLD.job_id,NEW.job_id);
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_chunk_delete AFTER DELETE ON knowledge_index_chunks BEGIN
+    UPDATE knowledge_ann_jobs SET revision=lower(hex(randomblob(16))) WHERE job_id=OLD.job_id;
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_item_status AFTER UPDATE OF status ON knowledge_items BEGIN
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+CREATE TRIGGER knowledge_ann_item_delete AFTER DELETE ON knowledge_items BEGIN
+    UPDATE knowledge_ann_state SET revision=lower(hex(randomblob(16)));
+END;
+"#;
 
 const MIGRATION_V32_SQL: &str = r#"
 CREATE TABLE workspace_file_state (

@@ -3,7 +3,7 @@
     "beforeBuildCommand": "npm run runtime:prepare && npm run build"
   },
   "bundle": {
-    "macOS": { "signingIdentity": "-" },
+    "macOS": { "signingIdentity": "-", "minimumSystemVersion": "26.0" },
     "resources": { "runtime/": "runtime/" }
   }
 }

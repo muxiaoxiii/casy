@@ -1,0 +1,3 @@
+[env]
+ZVEC_LIB_DIR = { value = "src-tauri/runtime/zvec", relative = true }
+ZVEC_AUTO_BUILD = "0"

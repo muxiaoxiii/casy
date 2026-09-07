@@ -183,7 +183,7 @@ fn collect_roots(conn: &Connection) -> Result<Vec<PathBuf>> {
     for item in fs::read_dir(&data)? {
         let item = item?;
         let name = item.file_name();
-        if ["backups", "bin", "models", "logs"]
+        if ["backups", "bin", "models", "logs", "indexes"]
             .iter()
             .any(|s| name == *s)
             || name.to_string_lossy().starts_with('.')

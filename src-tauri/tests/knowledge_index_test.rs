@@ -217,10 +217,11 @@ async fn embedding_protocols_preserve_model_credentials_and_input_order() {
 #[test]
 fn migration_backfills_cjk_search_and_invalidates_only_changed_vectors() {
     let conn = Connection::open_in_memory().unwrap();
-    db::schema::run_migrations(&conn, 0).unwrap();
-    // Recreate the v27 boundary with a pre-existing note, then use the normal upgrader.
-    conn.execute_batch("DROP TABLE workspace_file_state; DROP TABLE inbox_action_results;").unwrap();
-    conn.execute_batch("DROP TRIGGER trg_files_remove; DROP INDEX idx_files_live; ALTER TABLE case_files DROP COLUMN deleted_at; DROP TRIGGER trg_knowledge_vector_invalidate; DROP TRIGGER trg_knowledge_trigram_insert; DROP TRIGGER trg_knowledge_trigram_delete; DROP TRIGGER trg_knowledge_trigram_update; DROP TABLE knowledge_trigram; DROP TABLE knowledge_index_chunks; DROP TABLE knowledge_index_jobs; PRAGMA user_version=27;").unwrap();
+    // Build the historical schema rather than relabelling a newer database as v27.
+    for (version, sql) in db::schema::MIGRATIONS.iter().take_while(|(version,_)|version.parse::<i64>().unwrap()<=27) {
+        conn.execute_batch(sql).unwrap();
+        conn.pragma_update(None,"user_version",version.parse::<i64>().unwrap()).unwrap();
+    }
     conn.execute("INSERT INTO knowledge_items(id,title,content,category) VALUES('note','侵权研究','依法确认第三人的损害赔偿金额与诉讼费用','reference')", []).unwrap();
     db::schema::run_migrations(&conn, 27).unwrap();
     assert_eq!(
@@ -298,7 +299,7 @@ async fn durable_index_handles_full_text_retry_cancel_edits_and_model_changes() 
         .any(|(_, body)| body["input"].to_string().contains("125000.25")));
     drop(seen);
     let found = search::search("损失数额", 10, true).await.unwrap();
-    assert_eq!(found.semantic_status, "ready");
+    assert_eq!(found.semantic_status, "ready", "{:?}", found.warning);
     assert!(found.results[0].content.contains("125000.25"));
     assert_eq!(found.results[0].source, "semantic");
     server.mode.store(1, Ordering::SeqCst);

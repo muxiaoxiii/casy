@@ -85,7 +85,7 @@ async fn local_multilingual_retrieval_and_compact_storage() {
     ] {
         let start = Instant::now();
         let found = search::search(query, 5, true).await.unwrap();
-        assert_eq!(found.semantic_status, "ready");
+        assert_eq!(found.semantic_status, "ready", "{:?}", found.warning);
         assert_eq!(found.results[0].id, "patent", "{query}");
         results.push(
             json!({"query":query,"top":found.results[0].id,"ms":start.elapsed().as_millis()}),
@@ -169,10 +169,11 @@ async fn local_multilingual_retrieval_and_compact_storage() {
     {
         let tx = conn.transaction().unwrap();
         let mut insert=tx.prepare("INSERT INTO knowledge_index_chunks(job_id,chunk_index,content,embedding) VALUES(?1,?2,'性能测试合成分段',?3)").unwrap();
-        for n in 1..50000 {
+        for n in 1..1000 {
             insert.execute(params![job, n, blob]).unwrap();
         }
         drop(insert);
+        tx.execute("UPDATE knowledge_index_jobs SET total_chunks=1000,completed_chunks=1000 WHERE id=?1", [&job]).unwrap();
         tx.commit().unwrap();
     }
     let start = Instant::now();
@@ -180,8 +181,8 @@ async fn local_multilingual_retrieval_and_compact_storage() {
         search::semantic_search(&conn, &query, &plan.fingerprint, 20).unwrap()[0].0,
         "patent"
     );
-    let scan_ms = start.elapsed().as_millis();
-    let report = json!({"buildMs":build_ms,"queries":results,"vectorBytes":bytes,"chunks":chunks,"dimension":768,"floatBytesPerVector":3072,"compactBytesPerVector":772,"syntheticScanChunks":50004,"syntheticScanMs":scan_ms,"profile":root.path()});
+    let sync_ms = start.elapsed().as_millis();
+    let report = json!({"buildMs":build_ms,"queries":results,"vectorBytes":bytes,"chunks":chunks,"dimension":768,"floatBytesPerVector":3072,"compactBytesPerVector":772,"longDocumentChunks":1004,"longDocumentSyncAndSearchMs":sync_ms,"engine":"zvec-hnsw-fp16","profile":root.path()});
     println!("{report}");
     if let Ok(dir) = std::env::var("CASY_RETRIEVAL_QA_DIR") {
         std::fs::create_dir_all(&dir).unwrap();

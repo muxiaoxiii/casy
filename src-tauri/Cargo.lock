@@ -796,6 +796,7 @@ dependencies = [
  "docx-rs",
  "futures-util",
  "getrandom 0.2.17",
+ "half",
  "hex",
  "jieba-rs",
  "keyring",
@@ -836,6 +837,8 @@ dependencies = [
  "trash",
  "uuid",
  "zip 0.6.6",
+ "zvec-rust",
+ "zvec-rust-sys",
 ]
 
 [[package]]
@@ -8964,3 +8967,18 @@ dependencies = [
  "syn 3.0.4",
  "winnow 1.0.4",
 ]
+
+[[package]]
+name = "zvec-rust"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09da6c0c29360b764d54f8d4107174f1fb60921d25387fd433f263ec4bf19e5a"
+dependencies = [
+ "zvec-rust-sys",
+]
+
+[[package]]
+name = "zvec-rust-sys"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1ea26d758a283798af569947fe9e3fb29e10cbffc5b09f50ef626cedfc4e013"

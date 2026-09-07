@@ -3,6 +3,7 @@ pub mod intake;
 pub mod knowledge_index;
 pub mod schema;
 pub mod search;
+pub mod vector_index;
 
 use anyhow::Result;
 use rusqlite::Connection;

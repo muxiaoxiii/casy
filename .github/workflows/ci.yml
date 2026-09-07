@@ -99,6 +99,10 @@ jobs:
         run: |
           # 修 STATUS_ENTRYPOINT_NOT_FOUND：剔除 PATH 上 Perl/OpenSSL 冲突运行时 DLL
           $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch 'Strawberry|OpenSSL' }) -join ';'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node ../scripts/prepare-zvec.mjs
       - run: cargo test
         env:
           CASY_TEST_DATA_DIR: ${{ runner.temp }}/casy-ci-tests
