@@ -13,6 +13,7 @@ pub mod decisions;
 pub mod demo;
 pub mod docs;
 pub mod document_intelligence;
+pub mod conversion;
 pub mod drafts;
 pub mod feishu_snapshot;
 pub mod files;
@@ -342,6 +343,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         docs::render_docsy_template,
         docs::export_docx,
         docs::export_edited_docx,
+        conversion::convert_file_to_markdown,
         // 邮件监听命令
         crate::email::configure_imap,
         crate::email::start_email_monitor,

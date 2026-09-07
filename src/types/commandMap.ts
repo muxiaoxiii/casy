@@ -182,6 +182,7 @@ export interface CaseDirEntry {
 }
 
 export type CommandMap = {
+  convert_file_to_markdown: Cmd<{ sourcePath: string; outputDir: string }, { outputPath: string; pages: number; bytes: number }>
   // ── 卷宗管理（index-v2 精装版 · 本地文件夹同步）──
   list_case_dirs: Cmd<{ caseId: string }, CaseDirEntry[]>
   create_case_subdir: Cmd<{ caseId: string; parentRel: string | null; name: string }, string>

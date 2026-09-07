@@ -807,6 +807,7 @@ dependencies = [
  "notify",
  "pdf-extract",
  "pulldown-cmark",
+ "quick-xml 0.41.0",
  "regex",
  "reqwest 0.12.28",
  "rusqlite",

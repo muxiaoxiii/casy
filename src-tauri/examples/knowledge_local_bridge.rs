@@ -20,11 +20,13 @@ async fn main() -> Result<()> {
     let mut conn = db::open_db()?;
     db::init_db(&conn)?;
     if let Some(plan) = embeddings::EmbeddingPlan::load(&conn)? {
-        if !plan.api_url.starts_with("http://127.0.0.1:") {
+        if plan.mode != "local" && !plan.api_url.starts_with("http://127.0.0.1:") {
             bail!("Expected loopback embedding server");
         }
     }
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
+        "convert_file_to_markdown" => casy_lib::commands::conversion::convert_file_to_markdown(args["sourcePath"].as_str().unwrap_or("").into(),args["outputDir"].as_str().unwrap_or("").into()).await,
+        "export_edited_docx" => casy_lib::commands::docs::export_edited_docx(args["document"].clone(),args["title"].as_str().unwrap_or("导出").into(),args["outputPath"].as_str().map(str::to_string)).await.map(|v|json!(v)),
         "qa_seed_workspace" => {
             conn.execute("INSERT INTO cases(id,case_name,client_name,case_no) VALUES('workspace-case','本地同步验收案','本地客户','2026-QA')",[])?;
             let dirs=casy_lib::commands::files::list_case_dirs("workspace-case".into()).await.map_err(anyhow::Error::msg)?;

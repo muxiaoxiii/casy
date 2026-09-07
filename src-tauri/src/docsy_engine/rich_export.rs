@@ -3,7 +3,7 @@ use anyhow::{bail, Context, Result};
 use base64::Engine;
 use docx_rs::{
     BreakType, Docx, Hyperlink, HyperlinkType, Paragraph, Pic, Run, RunFonts, Table,
-    TableCell, TableRow,
+    TableCell, TableRow, VMergeType, WidthType,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -101,8 +101,14 @@ pub fn export_rich_docx(
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent).context("无法创建 DOCX 导出目录")?;
     }
-    let file = fs::File::create(&output).context("无法创建 DOCX 文件")?;
-    docx.build().pack(file).context("DOCX 打包失败")?;
+    let mut header_counts = Vec::new();
+    collect_table_headers(&root, &mut header_counts);
+    let staged = tempfile::NamedTempFile::new_in(output.parent().context("导出目录无效")?)?;
+    docx.build().pack(staged.reopen()?).context("DOCX 打包失败")?;
+    let ready = tempfile::NamedTempFile::new_in(output.parent().unwrap())?;
+    apply_table_headers(staged.reopen()?, ready.reopen()?, &header_counts)?;
+    ready.as_file().sync_all()?;
+    ready.persist(&output).context("无法保存 DOCX 文件")?;
     let metadata = fs::metadata(&output).context("无法读取导出文件信息")?;
 
     Ok(ExportResult {
@@ -132,11 +138,11 @@ fn convert_block(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Re
         "blockquote" => {
             let mut blocks = Vec::new();
             for child in &node.content {
-                match child.node_type.as_str() {
-                    "paragraph" | "heading" => blocks.push(RichBlock::Paragraph(
-                        paragraph_from_node(child, "│ ", false, None, references)?,
-                    )),
-                    other => bail!("引用块内暂不支持节点 {other}"),
+                for block in convert_block(child, references)? {
+                    blocks.push(match block {
+                        RichBlock::Paragraph(p) => RichBlock::Paragraph(p.indent(Some(360), None, None, None)),
+                        table => table,
+                    });
                 }
             }
             Ok(blocks)
@@ -225,17 +231,39 @@ fn convert_list(
 
 fn convert_table(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Result<Table> {
     let mut rows = Vec::new();
+    // ProseMirror omits cells covered by a rowspan; Word needs explicit continuation cells.
+    let mut spans: Vec<(usize, usize, usize)> = Vec::new(); // column, width, remaining rows
+    let mut columns = None;
     for row in &node.content {
         if row.node_type != "tableRow" {
             bail!("表格包含不支持的节点 {}", row.node_type);
         }
         let mut cells = Vec::new();
+        let mut column = 0;
+        let mut next_spans = Vec::new();
         for cell in &row.content {
+            while let Some(&(_, width, remaining)) = spans.iter().find(|(start, _, _)| *start == column) {
+                cells.push(TableCell::new().grid_span(width).vertical_merge(VMergeType::Continue).add_paragraph(Paragraph::new()));
+                if remaining > 1 { next_spans.push((column, width, remaining - 1)); }
+                column += width;
+            }
             if cell.node_type != "tableCell" && cell.node_type != "tableHeader" {
                 bail!("表格行包含不支持的节点 {}", cell.node_type);
             }
             let is_header = cell.node_type == "tableHeader";
             let mut target = TableCell::new();
+            let colspan = attr_u64(cell, "colspan").unwrap_or(1) as usize;
+            let rowspan = attr_u64(cell, "rowspan").unwrap_or(1) as usize;
+            if !(1..=64).contains(&colspan) || rowspan == 0 || rowspan > node.content.len() - rows.len() {
+                bail!("表格合并单元格范围无效");
+            }
+            if spans.iter().any(|(start, _, _)| *start >= column && *start < column + colspan) { bail!("表格合并单元格相互重叠"); }
+            if colspan > 1 { target = target.grid_span(colspan); }
+            if rowspan > 1 {
+                target = target.vertical_merge(VMergeType::Restart);
+                next_spans.push((column, colspan, rowspan - 1));
+            }
+            column += colspan;
             if cell.content.is_empty() {
                 target = target.add_paragraph(Paragraph::new());
             }
@@ -269,9 +297,71 @@ fn convert_table(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Re
             }
             cells.push(target);
         }
-        rows.push(TableRow::new(cells).cant_split());
+        while let Some(&(_, width, remaining)) = spans.iter().find(|(start, _, _)| *start == column) {
+            cells.push(TableCell::new().grid_span(width).vertical_merge(VMergeType::Continue).add_paragraph(Paragraph::new()));
+            if remaining > 1 { next_spans.push((column, width, remaining - 1)); }
+            column += width;
+        }
+        if column == 0 || column > 64 || columns.is_some_and(|n| n != column) { bail!("表格列数不一致或超过 64 列"); }
+        columns = Some(column);
+        spans = next_spans;
+        // Body rows may cross pages, including a cell taller than a full page.
+        rows.push(TableRow::new(cells));
     }
-    Ok(Table::new(rows))
+    Ok(Table::new(rows).width(5000, WidthType::Pct))
+}
+
+fn collect_table_headers(node: &RichNode, counts: &mut Vec<usize>) {
+    if node.node_type == "table" {
+        counts.push(node.content.iter().take_while(|row| !row.content.is_empty() && row.content.iter().all(|cell| cell.node_type == "tableHeader")).count());
+    }
+    for child in &node.content { collect_table_headers(child, counts); }
+}
+
+// docx-rs has no repeated-header API. Add OOXML tblHeader through a structured XML stream.
+fn header_xml(xml: &[u8], counts: &[usize]) -> Result<Vec<u8>> {
+    use quick_xml::{events::{BytesStart, Event}, Reader, Writer};
+    let mut reader = Reader::from_reader(xml);
+    let mut writer = Writer::new(Vec::new());
+    let mut table = 0;
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    loop {
+        let event = reader.read_event()?;
+        match &event {
+            Event::Eof => break,
+            Event::Start(e) if e.name().as_ref() == b"w:tbl" => {
+                stack.push((*counts.get(table).context("表格导出结构不一致")?, 0)); table += 1;
+            }
+            Event::Start(e) if e.name().as_ref() == b"w:tr" => { if let Some((_, row)) = stack.last_mut() { *row += 1; } }
+            Event::End(e) if e.name().as_ref() == b"w:tbl" => { stack.pop(); }
+            Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"w:trPr" && stack.last().is_some_and(|(count,row)| *row <= *count) => {
+                writer.write_event(Event::Start(e.to_owned()))?;
+                writer.write_event(Event::Empty(BytesStart::new("w:tblHeader")))?;
+                if matches!(event, Event::Empty(_)) { writer.write_event(Event::End(e.to_end()))?; }
+                continue;
+            }
+            _ => {}
+        }
+        writer.write_event(event)?;
+    }
+    if table != counts.len() { bail!("表格导出结构不一致"); }
+    Ok(writer.into_inner())
+}
+
+fn apply_table_headers(input: fs::File, output: fs::File, counts: &[usize]) -> Result<()> {
+    use std::io::{Read, Write};
+    let mut archive = zip::ZipArchive::new(input)?;
+    let mut writer = zip::ZipWriter::new(output);
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes)?;
+        if entry.name() == "word/document.xml" { bytes = header_xml(&bytes, counts)?; }
+        writer.start_file(entry.name(), zip::write::FileOptions::default().compression_method(entry.compression()))?;
+        writer.write_all(&bytes)?;
+    }
+    writer.finish()?;
+    Ok(())
 }
 
 fn paragraph_from_node(
@@ -561,5 +651,38 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("unsupportedWidget"));
+    }
+
+    #[test]
+    fn long_tables_repeat_headers_allow_page_splits_and_preserve_merges() {
+        let paragraph = |text: &str| serde_json::json!({"type":"paragraph","content":[{"type":"text","text":text}]});
+        let cell = |kind: &str, text: &str, attrs: Value| serde_json::json!({"type":kind,"attrs":attrs,"content":[paragraph(text)]});
+        let mut rows = vec![
+            serde_json::json!({"type":"tableRow","content":[cell("tableHeader","证据目录",serde_json::json!({"colspan":2}))]}),
+            serde_json::json!({"type":"tableRow","content":[cell("tableHeader","编号",serde_json::json!({})),cell("tableHeader","内容",serde_json::json!({}))]}),
+            serde_json::json!({"type":"tableRow","content":[cell("tableCell","合并来源",serde_json::json!({"rowspan":2})),cell("tableCell","第一页",serde_json::json!({}))]}),
+            serde_json::json!({"type":"tableRow","content":[cell("tableCell","后续页",serde_json::json!({}))]}),
+        ];
+        for index in 0..80 {
+            rows.push(serde_json::json!({"type":"tableRow","content":[cell("tableCell",&index.to_string(),serde_json::json!({})),cell("tableCell",&"跨页长单元格内容。".repeat(if index==79 {1000} else {10}),serde_json::json!({}))]}));
+        }
+        let root = serde_json::json!({"type":"doc","content":[{"type":"table","content":rows},{"type":"blockquote","content":[{"type":"blockquote","content":[paragraph("第二层引用来源")]}]}]});
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("table.docx");
+        export_rich_docx(root, "跨页表格", Some(path.to_str().unwrap())).unwrap();
+        let mut archive = ZipArchive::new(fs::File::open(&path).unwrap()).unwrap();
+        let mut xml = String::new();
+        archive.by_name("word/document.xml").unwrap().read_to_string(&mut xml).unwrap();
+        assert_eq!(xml.matches("w:tblHeader").count(), 2);
+        assert!(!xml.contains("w:cantSplit"));
+        assert!(xml.contains("w:gridSpan w:val=\"2\""));
+        assert!(xml.contains("w:vMerge w:val=\"restart\""));
+        assert!(xml.contains("w:vMerge w:val=\"continue\""));
+        assert!(xml.contains("第二层引用来源"));
+        assert_eq!(xml.matches("跨页长单元格内容。").count(), 1790);
+        if let Ok(directory) = std::env::var("CASY_EXPORT_QA_DIR") {
+            fs::create_dir_all(&directory).unwrap();
+            fs::copy(path, std::path::Path::new(&directory).join("cross-page-table.docx")).unwrap();
+        }
     }
 }

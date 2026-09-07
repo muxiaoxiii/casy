@@ -79,6 +79,7 @@ specta = { version = "1.0.5", features = ["export"] }
 pdf-extract = "0.12.0"
 lopdf = "0.36.0"
 docx-rs = "0.4.22"
+quick-xml = "0.41"
 anydoc = "=0.1.8"
 pulldown-cmark = "0.13"
 jieba-rs = "0.8"

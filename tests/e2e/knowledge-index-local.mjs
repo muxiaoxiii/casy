@@ -56,7 +56,8 @@ try {
   await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
-    const native = new Set(['get_ai_profiles', 'save_ai_profiles', 'test_embedding_connection', 'embed_knowledge', 'embed_all_knowledge', 'get_knowledge_index_status', 'cancel_knowledge_index_job', 'search_knowledge_index', 'list_knowledge', 'get_knowledge_with_blocks'])
+    const native = new Set(['get_ai_profiles', 'save_ai_profiles', 'test_embedding_connection', 'embed_knowledge', 'embed_all_knowledge', 'get_knowledge_index_status', 'cancel_knowledge_index_job', 'search_knowledge_index', 'list_knowledge', 'get_knowledge_with_blocks', 'recover_editor_drafts', 'get_workspace_sync_status'])
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }
     // Settings mounts its other tabs too; keep those unrelated services inert.
     const inactive = {
       get_holidays_summary: { holidaysCount: 0, workdaysCount: 0, yearRange: null },
@@ -87,8 +88,10 @@ try {
   await drawer.getByRole('button', { name: '向量接口', exact: true }).click()
   const settings = page.locator('.ai-settings')
   await settings.locator('.el-switch').click()
+  await settings.locator('.el-form-item').filter({ hasText: '向量模型来源' }).locator('.el-select').click()
+  await page.getByRole('option', { name: '本地验收接口', exact: true }).click()
   await settings.getByLabel('向量模型 ID', { exact: true }).fill('custom-vector-v1')
-  await settings.getByRole('button', { name: '保存并测试向量接口' }).click()
+  await settings.getByRole('button', { name: '保存并测试向量模型' }).click()
   await settings.getByText('custom-vector-v1：2 维，连接成功', { exact: true }).waitFor()
   assert.equal(requests.length, 1)
   assert(requests[0].authorized)
@@ -144,6 +147,7 @@ try {
   await drawer.waitFor({ state: 'hidden' })
   assert.equal(await page.locator('.title-editor').inputValue(), '第三人赔偿研究')
   // The entry point must remain reachable after closing the drawer on a narrow screen.
+  await page.getByRole('navigation', { name: '笔记视图' }).getByRole('button', { name: '笔记', exact: true }).click()
   await page.getByRole('button', { name: '知识库检索', exact: true }).click()
   await drawer.getByRole('tab', { name: '索引任务' }).click()
   await drawer.getByRole('button', { name: '重建索引' }).click()

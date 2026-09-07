@@ -12,6 +12,7 @@ import OnboardingWizard from './shared/components/OnboardingWizard.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
 import NotificationBell from './modules/notifications/components/NotificationBell.vue'
 import UnifiedCaptureDialog from './shared/components/UnifiedCaptureDialog.vue'
+import FileConversionDialog from './shared/components/FileConversionDialog.vue'
 import { registerShortcut } from './shared/keyboard'
 import { useProfileStore } from './stores/profile'
 import { useSettingsStore } from './stores/settings'
@@ -37,6 +38,7 @@ import {
   Cpu,
   User,
   Sunny,
+  Switch,
 } from '@element-plus/icons-vue'
 
 import { useI18n } from 'vue-i18n'
@@ -154,6 +156,7 @@ function isNavActive(item) {
 // 统一捕获
 // ============================================================
 const showUnifiedCapture = ref(false)
+const showConversion = ref(false)
 const captureInitialAction = ref('auto')
 
 function openUnifiedCapture(action = 'auto') {
@@ -165,10 +168,6 @@ function openUnifiedCapture(action = 'auto') {
   }
   captureInitialAction.value = mapping[action] || action || 'auto'
   showUnifiedCapture.value = true
-}
-
-function openCreateTask() {
-  openUnifiedCapture('create_task')
 }
 
 // ============================================================
@@ -362,10 +361,9 @@ function onMenuSelect(name) {
             <span class="preview-text">Mock 预览</span>
           </div>
 
-          <!-- 快捷新建任务 -->
-          <button class="btn-secondary" title="新建任务" aria-label="新建任务" @click="openCreateTask">
-            <el-icon :size="15"><Finished /></el-icon>
-            <span>新建任务</span>
+          <button class="btn-secondary" title="文件转换" aria-label="文件转换" @click="showConversion = true">
+            <el-icon :size="15"><Switch /></el-icon>
+            <span class="conversion-label">文件转换</span>
           </button>
 
           <!-- 快速统一捕获 -->
@@ -391,6 +389,7 @@ function onMenuSelect(name) {
   <OverdueMorningBrief />
   <OnboardingWizard v-model="showOnboarding" @dismiss="onOnboardingDismiss" />
   <UnifiedCaptureDialog v-model="showUnifiedCapture" :initial-action="captureInitialAction" />
+  <FileConversionDialog v-model="showConversion" />
   <GlobalSearch v-model="showGlobalSearch" />
   </el-config-provider>
 </template>
@@ -914,7 +913,9 @@ function onMenuSelect(name) {
   .topbar { height: 56px; padding: 0 12px; }
   .topbar-left { gap: 8px; }
   .search-trigger { flex: 0 0 34px; width: 34px; padding: 0; justify-content: center; }
-  .search-placeholder, .topbar .btn-secondary { display: none; }
+  .search-placeholder, .conversion-label { display: none; }
+  .topbar .btn-secondary { width: 34px; padding: 0; justify-content: center; flex: 0 0 34px; }
+  .browser-preview-pill { display: none; }
   .btn-primary { padding: 0 10px; }
   .browser-preview-pill { padding: 3px 6px; font-size: 10px; }
 }
