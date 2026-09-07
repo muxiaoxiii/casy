@@ -5,6 +5,10 @@ import { fileURLToPath, URL } from 'node:url'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    // Interpret locale messages as ASTs so packaged Tauri works with its strict CSP.
+    __INTLIFY_JIT_COMPILATION__: true,
+  },
   build: {
     // 交由 Rolldown 按动态 import 边界拆包。强制把 Element Plus 拆成多个共享块
     // 会破坏部分循环依赖，曾导致打包应用启动时 Qe 未定义、整个界面空白。
