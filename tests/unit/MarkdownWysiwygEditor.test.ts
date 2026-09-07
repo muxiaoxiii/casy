@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import MarkdownWysiwygEditor from '../../src/modules/knowledge/components/MarkdownWysiwygEditor.vue'
 
 let wrapper: VueWrapper | null = null
+beforeEach(() => setActivePinia(createPinia()))
 
 afterEach(() => {
   wrapper?.unmount()

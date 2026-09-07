@@ -47,7 +47,7 @@ page.on('console', message => { if (message.type() === 'error' || message.text()
 await page.exposeFunction('__casyFiles', call)
 try {
   await page.goto(process.env.CASY_QA_URL || 'http://127.0.0.1:1422/')
-  await page.getByRole('button', { name: '稍后再填' }).click()
+  await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async caseId => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const native = new Set(['get_case', 'list_case_files', 'list_removed_case_files', 'list_case_dirs', 'list_case_document_jobs',

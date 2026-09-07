@@ -46,7 +46,7 @@ try {
   const url = new URL(process.env.CASY_QA_URL || 'http://127.0.0.1:1422/')
   url.hash = '/cases'
   await page.goto(url.href)
-  await page.getByRole('button', { name: '稍后再填' }).click()
+  await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const native = new Set(['get_monthly_task_trend','get_track_distribution','get_upcoming_hearings','get_today_kpis','case_stats','list_cases','get_case','list_case_hearings','get_case_timeline','get_relations','list_case_persons','list_tasks','create_task','update_task','toggle_task','restore_task','get_calendar_events','get_deadline_warnings','get_holiday_calendar'])

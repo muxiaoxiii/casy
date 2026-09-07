@@ -26,6 +26,8 @@ import TextAlign from '@tiptap/extension-text-align'
 import { ElMessageBox } from 'element-plus'
 import { mdToHtml, htmlToMd } from '../../../shared/markdown/mdBridge'
 import WikiLinkSuggestion from '../../docs/extensions/WikiLinkSuggestion'
+import QuoteSourceMenu from '../../../shared/components/QuoteSourceMenu.vue'
+import { RefreshLeft, RefreshRight, Link, Connection, Grid, List, Finished, Minus, EditPen } from '@element-plus/icons-vue'
 
 interface NoteTitleItem {
   id?: string
@@ -403,27 +405,27 @@ defineExpose({
       <button type="button" :class="{ active: editor.isActive('italic') }" title="斜体 (Cmd/Ctrl+I)" @click="cmd(c => c.toggleItalic())"><i>I</i></button>
       <button type="button" :class="{ active: editor.isActive('underline') }" title="下划线 (Cmd/Ctrl+U)" @click="cmd(c => c.toggleUnderline())"><u>U</u></button>
       <button type="button" :class="{ active: editor.isActive('strike') }" title="删除线" @click="cmd(c => c.toggleStrike())"><s>S</s></button>
-      <button type="button" :class="{ active: editor.isActive('highlight') }" title="高亮" @click="cmd(c => c.toggleHighlight())">高亮</button>
-      <button type="button" :class="{ active: editor.isActive('code') }" title="行内代码" @click="cmd(c => c.toggleCode())"><code>码</code></button>
+      <button type="button" :class="{ active: editor.isActive('highlight') }" title="高亮" aria-label="高亮" @click="cmd(c => c.toggleHighlight())"><EditPen /></button>
+      <button type="button" :class="{ active: editor.isActive('code') }" title="行内代码" aria-label="行内代码" @click="cmd(c => c.toggleCode())"><code>&lt;&gt;</code></button>
       <span class="tb-sep" />
       <button type="button" :class="{ active: editor.isActive({ textAlign: 'left' }) }" title="左对齐" @click="setTextAlign('left')">左</button>
       <button type="button" :class="{ active: editor.isActive({ textAlign: 'center' }) }" title="居中" @click="setTextAlign('center')">中</button>
       <button type="button" :class="{ active: editor.isActive({ textAlign: 'right' }) }" title="右对齐" @click="setTextAlign('right')">右</button>
       <span class="tb-sep" />
-      <button type="button" :class="{ active: editor.isActive('blockquote') }" title="引用" @click="cmd(c => c.toggleBlockquote())">引用</button>
-      <button type="button" :class="{ active: editor.isActive('codeBlock') }" title="代码块" @click="cmd(c => c.toggleCodeBlock())">代码块</button>
-      <button type="button" title="分隔线" @click="cmd(c => c.setHorizontalRule())">分隔线</button>
+      <QuoteSourceMenu :editor="editor" />
+      <button type="button" :class="{ active: editor.isActive('codeBlock') }" title="代码块" aria-label="代码块" @click="cmd(c => c.toggleCodeBlock())"><code>{ }</code></button>
+      <button type="button" title="分隔线" aria-label="分隔线" @click="cmd(c => c.setHorizontalRule())"><Minus /></button>
       <span class="tb-sep" />
-      <button type="button" :class="{ active: editor.isActive('bulletList') }" title="无序列表" @click="cmd(c => c.toggleBulletList())">列表</button>
-      <button type="button" :class="{ active: editor.isActive('orderedList') }" title="有序列表" @click="cmd(c => c.toggleOrderedList())">编号</button>
-      <button type="button" :class="{ active: editor.isActive('taskList') }" title="任务列表" @click="cmd(c => c.toggleTaskList())">待办</button>
-      <button type="button" title="插入表格" @click="insertTable">表格</button>
+      <button type="button" :class="{ active: editor.isActive('bulletList') }" title="无序列表" aria-label="无序列表" @click="cmd(c => c.toggleBulletList())"><List /></button>
+      <button type="button" :class="{ active: editor.isActive('orderedList') }" title="有序列表" aria-label="有序列表" @click="cmd(c => c.toggleOrderedList())">1.</button>
+      <button type="button" :class="{ active: editor.isActive('taskList') }" title="任务列表" aria-label="任务列表" @click="cmd(c => c.toggleTaskList())"><Finished /></button>
+      <button type="button" title="插入表格" aria-label="插入表格" @click="insertTable"><Grid /></button>
       <span class="tb-sep" />
-      <button type="button" :class="{ active: editor.isActive('link') }" title="插入/移除链接" @click="setLink">链接</button>
-      <button type="button" title="插入知识双向链接（输入 [[ 也可触发）" @click="insertWikiLinkTrigger">双链</button>
+      <button type="button" :class="{ active: editor.isActive('link') }" title="插入/移除链接" aria-label="插入/移除链接" @click="setLink"><Link /></button>
+      <button type="button" title="插入知识双向链接" aria-label="插入知识双向链接" @click="insertWikiLinkTrigger"><Connection /></button>
       <span class="tb-sep" />
-      <button type="button" title="撤销 (Cmd/Ctrl+Z)" :disabled="!editor.can().undo()" @click="cmd(c => c.undo())">撤销</button>
-      <button type="button" title="重做 (Cmd/Ctrl+Shift+Z)" :disabled="!editor.can().redo()" @click="cmd(c => c.redo())">重做</button>
+      <button type="button" title="撤销" aria-label="撤销" :disabled="!editor.can().undo()" @click="cmd(c => c.undo())"><RefreshLeft /></button>
+      <button type="button" title="重做" aria-label="重做" :disabled="!editor.can().redo()" @click="cmd(c => c.redo())"><RefreshRight /></button>
     </div>
     <div v-if="!compact && editor?.isActive('table')" class="md-table-toolbar">
       <span>表格</span>
@@ -480,6 +482,10 @@ defineExpose({
 .md-wysiwyg-toolbar::-webkit-scrollbar { display: none; }
 
 .md-wysiwyg-toolbar button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
   flex-shrink: 0;
   white-space: nowrap;
   border: 0;
@@ -491,6 +497,7 @@ defineExpose({
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-out, ease-out);
 }
+.md-wysiwyg-toolbar button svg { width:16px;height:16px }
 
 .md-wysiwyg-toolbar button:hover:not(:disabled) {
   background: var(--c-bg-hover);

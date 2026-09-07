@@ -38,7 +38,7 @@ page.on('pageerror',e=>errors.push(e.message))
 await page.exposeFunction('__documentSourceCall',call)
 try {
   await page.goto(process.env.CASY_QA_URL||'http://127.0.0.1:1424/')
-  await page.getByRole('button',{name:'稍后再填'}).click()
+  await page.getByRole('button',{name:'暂时跳过'}).click()
   await page.evaluate(async()=>{
     const {tryMockCommand}=await import('/src/core/mockData.ts')
     const commands=new Set(['get_case','list_case_files','list_removed_case_files','list_case_dirs','list_case_document_jobs',

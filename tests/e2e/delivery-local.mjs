@@ -36,7 +36,7 @@ await page.exposeFunction('__deliveryCall',(command,args)=>{
 })
 try {
   await page.goto(process.env.CASY_QA_URL||'http://127.0.0.1:1424/')
-  await page.getByRole('button',{name:'稍后再填'}).click()
+  await page.getByRole('button',{name:'暂时跳过'}).click()
   await page.evaluate(async archive=>{
     const {tryMockCommand}=await import('/src/core/mockData.ts')
     const native=new Set(['list_backups','export_full_backup','import_full_backup','list_drafts','get_draft','create_draft','update_draft','save_editor_recovery','recover_editor_drafts'])

@@ -1,0 +1,23 @@
+/* Adapted from the user's Word Legal / Patent MarkText theme. */
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) { --quote-ink:#986b68;--quote-fill:rgba(152,107,104,.115);font-family:'Times New Roman','Songti SC',SimSun,serif;font-size:16px;line-height:1.72;letter-spacing:0;color:#252525;background:#fff;overflow-wrap:anywhere }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) :is(h1,h2,h3,h4) { color:#252525;line-height:1.4;letter-spacing:0 }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) h1 { font-size:1.75em;border-bottom:1px solid #ccc;padding-bottom:.35em }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) h2 { font-size:1.42em }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) h3 { font-size:1.2em }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) blockquote { color:inherit;font-style:normal;border:0;border-left:2px solid var(--quote-ink);border-radius:0;margin:12px 0;padding:8px 14px;background:var(--quote-fill) }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) blockquote:has(blockquote) { --quote-ink:#69816f;--quote-fill:rgba(105,129,111,.115) }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) blockquote:has(blockquote blockquote) { --quote-ink:#627c94;--quote-fill:rgba(98,124,148,.115) }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) blockquote:has(blockquote blockquote blockquote) { --quote-ink:#9a8557;--quote-fill:rgba(154,133,87,.12) }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) blockquote blockquote { margin:0;padding:0;border:0;background:transparent }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) blockquote p:last-child { margin-bottom:0 }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) :is(th,td) { border:1px solid #ccc;color:#252525 }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) th { background:#eee }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) :is(pre,code) { background:#f2f2f2;color:#333 }
+html[data-document-theme="legal"] :is(.md-wysiwyg-body .tiptap, .editor-content-area .tiptap, .markdown-preview, .source-markdown-preview) a { color:#496a85 }
+.legal-quote-toolbar { display:flex;justify-content:flex-end;border-bottom:1px solid var(--c-border);padding:4px 12px }
+.quote-source-settings { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:420px }
+.notebook-shell .child-button { width:30px;height:30px;padding:0;flex-shrink:0;justify-content:center }
+.notebook-shell .case-scope { width:calc(100% - 24px);margin:0 12px 8px }
+.continuations { display:flex;flex-wrap:wrap;gap:8px;padding:8px 20px;max-height:100px;overflow:auto }
+.source-group-title { padding:10px 12px 4px;font-size:11px;color:var(--c-text-secondary);font-weight:600 }
+@media(min-width:901px) { .notebook-shell.source-open { grid-template-columns:300px minmax(0,1fr) } }

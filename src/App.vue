@@ -18,6 +18,7 @@ import { useSettingsStore } from './stores/settings'
 import { useAiSettingsStore } from './stores/aiSettings'
 import { applyThemePreference, disposeThemeListener } from './shared/theme'
 import { isTauriRuntime } from './core/mockData'
+import './shared/markdown/legal-document.css'
 import {
   DataBoard,
   Briefcase,
@@ -45,6 +46,9 @@ import en from 'element-plus/es/locale/lang/en'
 const router = useRouter()
 const route = useRoute()
 const settingsStore = useSettingsStore()
+watch(() => settingsStore.document_theme, value => {
+  document.documentElement.dataset.documentTheme = value === 'standard' ? 'standard' : 'legal'
+}, { immediate: true })
 const aiSettings = useAiSettingsStore()
 const { locale } = useI18n()
 const componentLocale = computed(() => locale.value === 'en-US' ? en : zhCn)

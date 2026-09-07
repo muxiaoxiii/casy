@@ -14,6 +14,7 @@ import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import FilePreviewPanel from './FilePreviewPanel.vue'
 import RenameWorkbench from './RenameWorkbench.vue'
+import { safeListen } from '../../../core/tauriEvents'
 
 const props = defineProps<{ caseId: string; caseNo?: string }>()
 
@@ -23,6 +24,14 @@ const selectedRel = ref('') // 当前选中子目录相对名；'' = 根/全部
 const loading = ref(false)
 const dragging = ref(false)
 let unlistenDrop: (() => void) | null = null
+let unlistenWorkspace: (() => void) | null = null
+let disposed = false
+onMounted(async () => {
+  const stop = await safeListen('workspace:updated', () => { if (!loading.value) void load() })
+  if (disposed) stop()
+  else unlistenWorkspace = stop
+})
+onUnmounted(() => { disposed = true; unlistenWorkspace?.() })
 
 const rootName = computed(() => props.caseNo || '案件卷宗')
 const selectedDir = computed(() => dirs.value.find(d => d.relPath === selectedRel.value) || null)

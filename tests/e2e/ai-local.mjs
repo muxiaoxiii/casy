@@ -59,7 +59,7 @@ async function waitForUsagePopover() {
 }
 try {
   await page.goto(process.env.CASY_QA_URL || 'http://127.0.0.1:1421/')
-  await page.getByRole('button', { name: '稍后再填' }).click()
+  await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const commands = new Set(['get_ai_profiles', 'save_ai_profiles', 'test_ai_profile', 'ai_chat', 'get_ai_config', 'get_ai_usage'])

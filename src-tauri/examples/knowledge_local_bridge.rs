@@ -25,6 +25,28 @@ async fn main() -> Result<()> {
         }
     }
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
+        "qa_seed_workspace" => {
+            conn.execute("INSERT INTO cases(id,case_name,client_name,case_no) VALUES('workspace-case','本地同步验收案','本地客户','2026-QA')",[])?;
+            let dirs=casy_lib::commands::files::list_case_dirs("workspace-case".into()).await.map_err(anyhow::Error::msg)?;
+            let root=std::path::PathBuf::from(&dirs[0].absolute_path);
+            let path=root.join("证据材料.md");
+            std::fs::write(&path,"# 多语种证据\n\nPrüfung français 日本語\n\n> 来源一\n\n>> 来源二\n\n>>> 来源三\n\n>>>> 来源四\n")?;
+            conn.execute("INSERT INTO settings(key,value) VALUES('workspace_sync',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[json!({"register":true,"ocr":true,"knowledge":true}).to_string()])?;
+            let mut sync=casy_lib::workspace_sync::Reconciler::default();sync.tick()?;sync.tick()?;
+            casy_lib::background_jobs::process_next_document_job().await?;sync.tick()?;
+            Ok(json!({"caseId":"workspace-case","path":path}))
+        }
+        "qa_sync_workspace" => {
+            let mut sync=casy_lib::workspace_sync::Reconciler::default();sync.tick()?;sync.tick()?;
+            casy_lib::background_jobs::process_next_document_job().await?;sync.tick()?;
+            Ok(json!(true))
+        }
+        "list_workspace_sources" => casy_lib::workspace_sync::list_workspace_sources(serde_json::from_value(args["caseIds"].clone())?).await.map(|v|json!(v)),
+        "get_workspace_document" => casy_lib::workspace_sync::get_workspace_document(args["fileId"].as_str().unwrap_or("").into()).await,
+        "get_workspace_sync_status" => casy_lib::workspace_sync::get_workspace_sync_status().await,
+        "import_pageindex_to_knowledge" => knowledge::import_pageindex_to_knowledge(args["fileId"].as_str().unwrap_or("").into()).await.map(|v|json!(v)),
+        "save_settings" => casy_lib::commands::settings::save_settings(serde_json::from_value(args["settings"].clone())?).await.map(|v|json!(v)),
+        "get_settings" => casy_lib::commands::settings::get_settings().await.map(|v|json!(v)),
         "save_editor_recovery" => casy_lib::commands::editor_recovery::save_editor_recovery(args["sessionId"].as_str().unwrap_or("").into(), args.get("draft").filter(|v| !v.is_null()).cloned()).await.map(|v|json!(v)),
         "recover_editor_drafts" => casy_lib::commands::editor_recovery::recover_editor_drafts().await.map(|v|json!(v)),
         "qa_seed_editing" => {

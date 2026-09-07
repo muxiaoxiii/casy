@@ -6,6 +6,9 @@ import { casyContext } from '../core/plugin/context'
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     theme: 'system',
+    document_theme: 'legal',
+    quote_sources: ['来源 1', '来源 2', '来源 3', '来源 4'],
+    workspace_sync: { register: false, ocr: false, knowledge: false, embeddings: false, name: false, content_name: false },
     language: 'zh-CN',
     caseFolderBase: '',
     ai_mode: 'none',
@@ -39,8 +42,10 @@ export const useSettingsStore = defineStore('settings', {
       const result = await casyContext.settings.get()
       if (result.ok && result.data) {
         // 防止历史脏数据里的 loading 等键覆盖本地状态
-        const { loading: _ignored, ...settings } = result.data
+        const { loading: _ignored, workspace_sync, quote_sources, ...settings } = result.data
         Object.assign(this, settings)
+        if (workspace_sync && typeof workspace_sync === 'object' && !Array.isArray(workspace_sync)) Object.assign(this.workspace_sync, workspace_sync)
+        if (Array.isArray(quote_sources) && quote_sources.length === 4 && quote_sources.every(v => typeof v === 'string')) this.quote_sources = quote_sources as string[]
       }
       this.loading = false
     },

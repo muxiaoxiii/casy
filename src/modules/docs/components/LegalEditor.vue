@@ -1,5 +1,6 @@
 <template>
   <div class="notion-legal-editor-shell" ref="editorContainer">
+    <div v-if="editor" class="legal-quote-toolbar"><el-button :icon="RefreshLeft" text title="撤销" aria-label="撤销" :disabled="!editor.can().undo()" @click="editor.chain().focus().undo().run()" /><el-button :icon="RefreshRight" text title="重做" aria-label="重做" :disabled="!editor.can().redo()" @click="editor.chain().focus().redo().run()" /><QuoteSourceMenu :editor="editor" /></div>
     <!-- 左侧悬浮块手柄 (Block Gutter Handle) -->
     <BlockActionHandle
       :editor="editor"
@@ -241,6 +242,7 @@
 </template>
 
 <script setup>
+import QuoteSourceMenu from '../../../shared/components/QuoteSourceMenu.vue'
 import { ref, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
@@ -260,7 +262,7 @@ import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import {
   Collection, Opportunity, Memo, Reading, QuestionFilled,
-  Medal, Document, MagicStick, Briefcase
+  Medal, Document, MagicStick, Briefcase, RefreshLeft, RefreshRight
 } from '@element-plus/icons-vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import BlockActionHandle from './BlockActionHandle.vue'

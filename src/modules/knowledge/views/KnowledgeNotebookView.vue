@@ -17,12 +17,54 @@ import KnowledgeImportPanel from '../components/KnowledgeImportPanel.vue'
 import KnowledgeSearchPanel from '../components/KnowledgeSearchPanel.vue'
 import { useNotebookSave } from '../composables/useNotebookSave'
 import { tauriCallSafe } from '../../../core/tauriBridge'
+import { safeListen } from '../../../core/tauriEvents'
+import WorkspaceDocumentPreview from '../components/WorkspaceDocumentPreview.vue'
 
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
 const notes = ref([])
 const cases = ref([])
+const selectedCaseIds = ref([])
+const sources = ref([])
+const selectedSource = ref(null)
+const sourceError = ref('')
+let sourceRevision = 0
+let sourceTimer
+let stopWorkspaceListener
+async function loadSources() {
+  const request = ++sourceRevision
+  if (!selectedCaseIds.value.length) { sources.value = []; selectedSource.value = null; return }
+  const result = await tauriCallSafe('list_workspace_sources', { caseIds: selectedCaseIds.value })
+  if (unmounted || request !== sourceRevision) return
+  sourceError.value = result.ok ? '' : result.error || '读取案卷失败'
+  if (result.ok) {
+    sources.value = result.data || []
+    if (selectedSource.value) selectedSource.value = sources.value.find(s => s.fileId === selectedSource.value.fileId) || null
+  }
+}
+async function changeCaseScope(ids) {
+  if (!(await flushSave())) return
+  selectedCaseIds.value = ids
+  await loadSources()
+  if (sources.value.length) await selectSource(sources.value[0])
+}
+async function selectSource(source) {
+  if (documentBusy.value) return
+  const request = ++selectionRevision
+  if (!(await flushSave()) || request !== selectionRevision) return
+  selectedSource.value = source
+  mobilePane.value = 'editor'
+}
+async function openSourceNote(id) { selectedSource.value = null; await loadAll(id) }
+const visibleSources = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return sources.value.filter(s => !q || s.fileName.toLowerCase().includes(q))
+})
+async function refreshNoteList() {
+  const result = await casyContext.knowledge.list({})
+  if (!unmounted && !dirty.value && !saving.value && result.ok) notes.value = normalizeList(result.data)
+}
 const selectedId = ref('')
 const search = ref('')
 const category = ref('all')
@@ -94,6 +136,7 @@ const filteredNotes = computed(() => {
   const q = search.value.trim().toLowerCase()
   return notes.value.filter((note) => {
     if (note.blockType === 'block') return false
+    if (selectedCaseIds.value.length && !selectedCaseIds.value.includes(note.linkedCaseId)) return false
     if (category.value !== 'all' && note.category !== category.value) return false
     if (!q) return true
     return [note.title, note.content, note.tags].some((v) => String(v || '').toLowerCase().includes(q))
@@ -131,7 +174,7 @@ const counts = computed(() => {
   return result
 })
 
-const selectedNote = computed(() => notes.value.find(n => n.id === selectedId.value) || null)
+const selectedNote = computed(() => notes.value.find(n => n.id === selectedId.value && (!selectedCaseIds.value.length || selectedCaseIds.value.includes(n.linkedCaseId))) || null)
 const selectedCaseName = computed(() => {
   const found = cases.value.find(c => c.id === draft.value.linkedCaseId)
   return found?.caseName || found?.displayName || found?.caseNo || ''
@@ -261,7 +304,7 @@ async function loadAll(preferredId = '') {
   loading.value = true
   const [noteRes, caseRes] = await Promise.all([
     casyContext.knowledge.list({}),
-    casyContext.cases.list({}),
+    loadCaseOptions(),
   ])
   if (request !== loadRevision) return
   loading.value = false
@@ -273,10 +316,22 @@ async function loadAll(preferredId = '') {
   if (nextId) await selectNote(notes.value.find(n => n.id === nextId))
 }
 
+async function loadCaseOptions() {
+  const items = []
+  for (let page = 1; !unmounted; page++) {
+    const result = await casyContext.cases.list({ page, perPage: 200 })
+    if (!result.ok) return result
+    const batch = normalizeList(result.data)
+    items.push(...batch)
+    if (!batch.length || items.length >= (result.data?.total ?? items.length)) return { ok: true, data: items }
+  }
+  return { ok: true, data: items }
+}
+
 async function selectNote(note) {
   if (!note) return
   if (documentBusy.value) return
-  if (selectedId.value === note.id) { mobilePane.value = 'editor'; return }
+  if (selectedId.value === note.id) { selectedSource.value = null; mobilePane.value = 'editor'; return }
   const request = ++selectionRevision
   if (!(await flushSave())) return
   if (request !== selectionRevision) return
@@ -290,6 +345,7 @@ async function selectNote(note) {
     if (index < 0) notes.value.unshift(current)
     else notes.value[index] = current
     selectedId.value = current.id
+    selectedSource.value = null
     persistence.hydrate({
       id: current.id,
       title: current.title || '',
@@ -401,6 +457,10 @@ function beforeUnload(event) {
 }
 
 onMounted(async () => {
+  sourceTimer = setInterval(loadSources, 10000)
+  const stop = await safeListen('workspace:updated', () => { void loadSources(); if (!dirty.value && !documentBusy.value) void refreshNoteList() })
+  if (unmounted) stop?.()
+  else stopWorkspaceListener = stop
   window.addEventListener('beforeunload', beforeUnload)
   try {
     if (window.__TAURI_INTERNALS__?.metadata?.currentWindow) {
@@ -436,6 +496,9 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => {
+  clearInterval(sourceTimer)
+  stopWorkspaceListener?.()
+  ++sourceRevision
   unmounted = true
   ++loadRevision
   ++selectionRevision
@@ -455,11 +518,11 @@ async function openSearchHit(id) {
 </script>
 
 <template>
-  <div class="notebook-shell" :class="`mobile-${mobilePane}`">
+  <div class="notebook-shell" :class="[`mobile-${mobilePane}`, { 'source-open': !!selectedSource }]">
     <nav class="mobile-notebook-nav" aria-label="笔记视图">
       <button :class="{ active: mobilePane === 'notes' }" @click="mobilePane = 'notes'">笔记</button>
-      <button :disabled="!selectedNote" :class="{ active: mobilePane === 'editor' }" @click="mobilePane = 'editor'">正文</button>
-      <button :disabled="!selectedNote" :class="{ active: mobilePane === 'info' }" @click="mobilePane = 'info'">关联与历史</button>
+      <button :disabled="!selectedNote && !selectedSource" :class="{ active: mobilePane === 'editor' }" @click="mobilePane = 'editor'">正文</button>
+      <button v-if="!selectedSource" :disabled="!selectedNote" :class="{ active: mobilePane === 'info' }" @click="mobilePane = 'info'">关联与历史</button>
     </nav>
     <section class="note-list-panel">
       <div class="vault-head">
@@ -469,21 +532,26 @@ async function openSearchHit(id) {
       </div>
       <div class="list-head">
         <h2>{{ categories.find(c => c.value === category)?.label }}</h2>
-        <span>{{ visibleNotes.length }} 篇</span>
+        <span>{{ visibleNotes.length + visibleSources.length }} 项</span>
       </div>
       <div class="search-box"><Search /><input v-model="search" placeholder="搜索标题、正文或标签" /></div>
+      <el-select class="case-scope" :model-value="selectedCaseIds" multiple filterable clearable collapse-tags placeholder="筛选案件" aria-label="筛选案件" @change="changeCaseScope"><el-option v-for="c in cases" :key="c.id" :value="c.id" :label="c.caseName || c.caseNo" /></el-select>
       <div class="category-strip">
         <button v-for="item in categories" :key="item.value" :class="{ active: category === item.value }" @click="category = item.value">
           <span class="category-dot" :style="{ background: item.color }" />{{ item.label }}<b>{{ counts[item.value] || 0 }}</b>
         </button>
       </div>
       <div class="note-scroll" v-loading="loading">
-        <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)">
+        <el-alert v-if="sourceError" :title="sourceError" type="error" :closable="false" />
+        <div v-if="visibleSources.length" class="source-group-title">案卷正文</div>
+        <button v-for="source in visibleSources" :key="source.fileId" class="note-card" :class="{ active: selectedSource?.fileId === source.fileId }" @click="selectSource(source)"><div class="note-card-top"><strong>{{ source.fileName }}</strong><span class="note-category">案卷</span></div><p>{{ source.missing ? '原件缺失' : source.status === 'completed' ? 'Markdown' : source.status === 'running' ? '正文提取中' : source.status === 'queued' ? '等待提取正文' : source.status === 'failed' ? '提取失败' : '待提取正文' }}</p></button>
+        <div v-if="visibleSources.length && visibleNotes.length" class="source-group-title">知识笔记与快照</div>
+        <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: !selectedSource && note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)">
           <div class="note-card-top"><strong>{{ note.title || '无标题笔记' }}</strong><span class="note-category">{{ categories.find(c => c.value === note.category)?.label || '其他' }}</span></div>
           <p>{{ noteSummary(note) }}</p>
           <div class="note-meta"><span><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span></div>
         </button>
-        <div v-if="!loading && !filteredNotes.length" class="empty-notes"><Document /><p>这里还没有笔记</p><button @click="createNote">写第一篇</button></div>
+        <div v-if="!loading && !filteredNotes.length && !visibleSources.length" class="empty-notes"><Document /><p>这里还没有笔记</p><button @click="createNote">写第一篇</button></div>
       </div>
       <div class="list-utilities">
         <button @click="router.push({ name: 'knowledge-graph' })"><Link />知识图谱</button>
@@ -496,7 +564,8 @@ async function openSearchHit(id) {
     </el-drawer>
 
     <main class="editor-panel" :inert="documentBusy">
-      <template v-if="selectedNote">
+      <WorkspaceDocumentPreview v-if="selectedSource" :key="selectedSource.fileId" :source="selectedSource" @refreshed="loadSources" @note="openSourceNote" />
+      <template v-else-if="selectedNote">
         <header class="editor-toolbar">
           <div class="save-state" role="status"><span :class="{ dirty }" />{{ saving ? '保存中…' : saveError ? '保存失败' : dirty ? '等待自动保存' : '已保存' }}</div>
           <div class="mode-switch"><button title="富文本" :class="{ active: mode === 'rich' }" @click="changeMode('rich')"><MagicStick /> 富文本</button><button title="源码" :class="{ active: mode === 'edit' }" @click="changeMode('edit')"><EditPen /> 源码</button><button title="分栏" :class="{ active: mode === 'split' }" @click="changeMode('split')"><Tickets /> 分栏</button><button title="预览" :class="{ active: mode === 'preview' }" @click="changeMode('preview')"><View /> 预览</button></div>
@@ -510,7 +579,7 @@ async function openSearchHit(id) {
             </template>
           </el-dropdown>
           <button class="save-button" @click="saveNow(false)">保存</button>
-          <button class="child-button" title="在当前笔记下新建子笔记" @click="createChildNote"><Plus /> 子笔记</button>
+          <button class="child-button" title="在当前笔记下新建子笔记" aria-label="新建子笔记" @click="createChildNote"><Plus /></button>
           <button class="delete-button" title="删除笔记" @click="deleteNote"><Delete /></button>
         </header>
         <section class="editor-document">
@@ -534,7 +603,7 @@ async function openSearchHit(id) {
       </template>
       <div v-else class="editor-empty"><Collection /><h3>选择或新建一篇笔记</h3><p>在这里用 Markdown 记录研究、方法、经验和案件思路。</p><button @click="createNote"><Plus /> 新建笔记</button></div>
     </main>
-    <aside class="knowledge-info-rail">
+    <aside v-if="!selectedSource" class="knowledge-info-rail">
       <div class="info-tabs">
         <button :class="{active:infoTab==='relations'}" @click="infoTab='relations'"><Connection /> 双链</button>
         <button :class="{active:infoTab==='outline'}" @click="infoTab='outline'"><List /> 目录</button>

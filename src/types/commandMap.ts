@@ -191,6 +191,9 @@ export type CommandMap = {
   >
   scan_unregistered_files: Cmd<{ caseId: string }, Array<{ fileName: string; path: string; sizeBytes: number }>>
   register_existing_files: Cmd<{ caseId: string; paths: string[] }, number>
+  get_workspace_sync_status: Cmd<{}, { checkedAt: string; registered: number; queued: number; mirrored: number; renamed: number; missing: number; errors: string[] }>
+  list_workspace_sources: Cmd<{ caseIds: string[] }, { fileId: string; caseId: string; fileName: string; filePath: string; jobId: string | null; status: string | null; totalPages: number | null; error: string | null; missing: boolean }[]>
+  get_workspace_document: Cmd<{ fileId: string }, { jobId: string; markdown: string; filePath: string; continuations: { fromPage: number; toPage: number; locations: import('./documentRetrieval').SourceLocation[] }[] }>
   reveal_path: Cmd<{ path: string }, null>
   open_file_with_default: Cmd<{ path: string }, null>
   apply_case_file_renames: Cmd<

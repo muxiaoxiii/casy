@@ -66,7 +66,7 @@ const done = () => dialog.getByRole('heading', { name: '处理完成', exact: tr
 try {
   const url = new URL(process.env.CASY_QA_URL || 'http://127.0.0.1:1422/'); url.hash = '/cases'
   await page.goto(url.href)
-  await page.getByRole('button', { name: '稍后再填' }).click()
+  await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const native = new Set(['add_inbox_item','list_inbox_items','quick_judge_inbox_item','confirm_inbox_action','list_cases','get_case','list_tasks'])

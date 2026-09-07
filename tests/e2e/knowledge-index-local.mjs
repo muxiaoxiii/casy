@@ -53,7 +53,7 @@ try {
   page.on('console', message => { if (message.type() === 'error' || message.text().startsWith('[Vue warn]')) errors.push(message.text()) })
   await page.exposeFunction('__casyKnowledge', call)
   await page.goto(process.env.CASY_QA_URL || 'http://127.0.0.1:1422/')
-  await page.getByRole('button', { name: '稍后再填' }).click()
+  await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
     const native = new Set(['get_ai_profiles', 'save_ai_profiles', 'test_embedding_connection', 'embed_knowledge', 'embed_all_knowledge', 'get_knowledge_index_status', 'cancel_knowledge_index_job', 'search_knowledge_index', 'list_knowledge', 'get_knowledge_with_blocks'])

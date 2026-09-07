@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
 import { Setting, Calendar, Upload, Refresh } from '@element-plus/icons-vue'
 import { THEME_OPTIONS, applyThemePreference } from '../../../shared/theme'
+import WorkspaceSyncSettings from './WorkspaceSyncSettings.vue'
 
 const settingsStore = useSettingsStore()
 
@@ -55,12 +56,9 @@ async function saveGeneralSettings() {
   }
 }
 
-async function selectCaseFolder() {
-  const { open } = await import('@tauri-apps/plugin-dialog')
-  const selected = await open({ directory: true })
-  if (selected) {
-    settingsStore.caseFolderBase = selected
-  }
+async function openCaseFolder() {
+  const result = await casyContext.files.openDefault(settingsStore.caseFolderBase)
+  if (!result.ok) ElMessage.error(result.error || '打开目录失败')
 }
 
 function handleThemeChange(theme) {
@@ -86,7 +84,7 @@ onMounted(() => {
         <el-form-item label="案件文件夹路径">
           <div class="folder-input">
             <el-input v-model="settingsStore.caseFolderBase" placeholder="默认: ~/Documents/Casy/cases" readonly />
-            <el-button @click="selectCaseFolder">选择</el-button>
+            <el-button :disabled="!settingsStore.caseFolderBase" @click="openCaseFolder">打开</el-button>
           </div>
           <span class="field-hint">案件文件将存储在此目录下</span>
         </el-form-item>
@@ -120,6 +118,13 @@ onMounted(() => {
           </div>
         </el-form-item>
 
+        <el-form-item label="文档主题">
+          <el-radio-group v-model="settingsStore.document_theme"><el-radio-button value="legal">法律 / 专利</el-radio-button><el-radio-button value="standard">标准</el-radio-button></el-radio-group>
+        </el-form-item>
+        <el-form-item label="引用来源">
+          <div class="quote-source-settings"><el-input v-for="(_, index) in settingsStore.quote_sources" :key="index" v-model="settingsStore.quote_sources[index]" :aria-label="`第 ${index + 1} 层引用来源`" :placeholder="`来源 ${index + 1}`" maxlength="24" /></div>
+        </el-form-item>
+
         <el-form-item label="语言">
           <el-select v-model="settingsStore.language">
             <el-option label="简体中文" value="zh-CN" />
@@ -127,6 +132,7 @@ onMounted(() => {
           </el-select>
         </el-form-item>
 
+        <WorkspaceSyncSettings />
         <el-form-item>
           <el-button type="primary" :loading="generalSaving" @click="saveGeneralSettings">保存设置</el-button>
         </el-form-item>
