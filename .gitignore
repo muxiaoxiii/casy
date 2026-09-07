@@ -50,3 +50,4 @@ baoyu-design/
 
 # 工具链构建产物
 tools/**/target/
+src-tauri/runtime/

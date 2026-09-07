@@ -16,8 +16,10 @@ const assets = [
   ['ppocrv6-medium/rec.onnx', rec + 'inference.onnx', 'sha256', '9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba', 76554979],
   ['ppocrv6-medium/det.yml', det + 'inference.yml', 'sha1', '1c5c05809877e4c7385f899019fff0ac9017ca80', 886],
   ['ppocrv6-medium/rec.yml', rec + 'inference.yml', 'sha1', 'c53a96fcd315a86cb4748d2746f3d90941e1c6d8', 150580],
+  ['layout/pp-doclayout_plus-l.onnx', 'https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/feb74619326f634e0e883218598096a3733ad9f7/inference.onnx', 'sha256', '77afb2caa74dd13240d087d2eced91d7fcd2caebd16006a0a66162fc8707ff0e', 129736329],
+  ['layout/inference.yml', 'https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/feb74619326f634e0e883218598096a3733ad9f7/inference.yml', 'sha1', '9a236587eae068a1e7906fd158f712dc41400563', 1838],
 ]
-console.log('PP-OCRv6 medium: ' + assets.reduce((sum, asset) => sum + asset[4], 0) + ' bytes. License: Apache-2.0.')
+console.log('PP-OCRv6 medium + PP-DocLayout_plus-L: ' + assets.reduce((sum, asset) => sum + asset[4], 0) + ' bytes. License: Apache-2.0.')
 if (selected === '--dry-run') process.exit(0)
 
 async function verified(path, algorithm, expected, size) {

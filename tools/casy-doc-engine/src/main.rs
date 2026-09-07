@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 mod source_map;
+#[cfg(feature = "models")]
+mod layout;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +69,7 @@ struct ProcessResult {
 }
 
 fn command_exists(name: &str) -> bool {
-    std::process::Command::new(name)
+    std::process::Command::new(if name == "pdftoppm" { renderer_path() } else { PathBuf::from(name) })
         .arg("-v")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -79,7 +81,23 @@ fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .map(PathBuf::from)
         .filter(|p| p.exists())
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let root = exe.parent()?.parent()?;
+            let relative = match name {
+                "CASY_PPOCR_MODEL_DIR" => "models/ppocrv6-medium",
+                "CASY_OCR_FONT" => "fonts/NotoSansCJK-Regular.ttf",
+                "CASY_LAYOUT_MODEL" => "models/layout/pp-doclayout_plus-l.onnx",
+                "FONTCONFIG_FILE" => "fonts/fonts.conf",
+                "CASY_PDFTOPPM" => if cfg!(windows) { "bin/pdftoppm.exe" } else { "bin/pdftoppm" },
+                _ => return None,
+            };
+            let path = root.join(relative);
+            path.exists().then_some(path)
+        })
 }
+
+fn renderer_path() -> PathBuf { env_path("CASY_PDFTOPPM").unwrap_or_else(|| PathBuf::from("pdftoppm")) }
 fn sha256_file(path: &Path) -> Result<String> {
     let mut f = std::fs::File::open(path)?;
     let mut h = Sha256::new();
@@ -143,7 +161,9 @@ fn probe() -> EngineStatus {
 
 fn render_page(source: &Path, temp: &Path, page_number: u32) -> Result<PathBuf> {
     let prefix = temp.join("page");
-    let output = std::process::Command::new("pdftoppm")
+    let mut command = std::process::Command::new(renderer_path());
+    if let Some(config) = env_path("FONTCONFIG_FILE") { command.env("FONTCONFIG_FILE",config); }
+    let output = command
         .args([
             "-f",
             &page_number.to_string(),
@@ -261,6 +281,7 @@ fn recognize(
 ) -> Result<Vec<Page>> {
     use oar_ocr::prelude::*;
     let mut coordinate = None;
+    let mut layout_predictor = None;
     let mut pages = Vec::new();
     // Keep only one rendered page and its model inputs alive at a time.
     for page_number in 1..=total {
@@ -292,6 +313,15 @@ fn recognize(
                     .region_batch_size(6)
                     .build()?,
             );
+            let layout_path = env_path("CASY_LAYOUT_MODEL").or_else(|| {
+                let candidate = coord_dir.parent()?.join("layout/pp-doclayout_plus-l.onnx");
+                candidate.is_file().then_some(candidate)
+            });
+            if let Some(path) = layout_path {
+                layout_predictor = Some(oar_ocr::predictors::LayoutDetectionPredictor::builder()
+                    .model_name("pp_doclayout_plus_l")
+                    .build(path)?);
+            }
         }
         let path = render_page(source, temp, page_number)?;
         let image = image::open(&path)?.to_rgb8();
@@ -324,6 +354,14 @@ fn recognize(
                     bbox,
                     confidence: Some(confidence),
                 })
+            }
+        }
+        if let Some(predictor) = &layout_predictor {
+            let output = predictor.predict(vec![image.clone()])?;
+            if let Some(elements) = output.elements.first() {
+                layout::order_regions(&mut regions, elements, image.width() as f32, image.height() as f32);
+                let blocks: Vec<_> = elements.iter().map(|e| serde_json::json!({"kind":e.element_type,"confidence":e.score,"bbox":[e.bbox.x_min(),e.bbox.y_min(),e.bbox.x_max(),e.bbox.y_max()]})).collect();
+                std::fs::write(Path::new(&request.output_dir).join(format!("page-{page_number}.layout.json")), serde_json::to_vec_pretty(&blocks)?)?;
             }
         }
         let plain_text = regions
@@ -399,7 +437,13 @@ fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Pag
     Ok(())
 }
 
-fn process(request: ProcessRequest) -> Result<ProcessResult> {
+fn process(mut request: ProcessRequest) -> Result<ProcessResult> {
+    process_pages(&mut request, None)
+}
+
+fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> Result<ProcessResult> {
+    if request.coordinate_model_dir.is_none() { request.coordinate_model_dir = env_path("CASY_PPOCR_MODEL_DIR").map(|p|p.to_string_lossy().into_owned()); }
+    if request.cjk_font_path.is_none() { request.cjk_font_path = env_path("CASY_OCR_FONT").map(|p|p.to_string_lossy().into_owned()); }
     let source = Path::new(&request.source_path);
     let before = sha256_file(source)?;
     if before != request.source_sha256 {
@@ -423,7 +467,11 @@ fn process(request: ProcessRequest) -> Result<ProcessResult> {
         return Err(anyhow!("EMPTY_DOCUMENT: 文档没有页面"));
     }
     write_progress(&request, 0, total)?;
-    let pages = recognize(&request, pdf_source, temp.path(), total)?;
+    let is_correction = corrected.is_some();
+    let pages = if let Some(pages) = corrected {
+        anyhow::ensure!(pages.len() == total as usize && pages.iter().enumerate().all(|(i,p)|p.page_number as usize == i+1), "CORRECTION_PAGES_INVALID");
+        pages
+    } else { recognize(request, pdf_source, temp.path(), total)? };
     let pdf = output_dir.join("source.searchable.pdf");
     let ir = output_dir.join("source.document.json");
     let md = output_dir.join("source.md");
@@ -452,15 +500,20 @@ fn process(request: ProcessRequest) -> Result<ProcessResult> {
     } else {
         "dict.txt"
     };
+    let layout_path = env_path("CASY_LAYOUT_MODEL").or_else(|| {
+        let candidate=dir.parent()?.join("layout/pp-doclayout_plus-l.onnx");
+        candidate.is_file().then_some(candidate)
+    });
     let model_version = Some(format!(
-        "det:{};rec:{};dictionary:{}",
+        "det:{};rec:{};dictionary:{};layout:{}",
         sha256_file(&dir.join("det.onnx"))?,
         sha256_file(&dir.join("rec.onnx"))?,
-        sha256_file(&dir.join(dictionary))?
+        sha256_file(&dir.join(dictionary))?,
+        layout_path.as_deref().map(sha256_file).transpose()?.unwrap_or_else(||"none".into())
     ));
     Ok(ProcessResult {
         source_sha256: after,
-        engine: "paddle-onnx-visual".into(),
+        engine: if is_correction { "paddle-onnx-corrected" } else { "paddle-onnx-visual" }.into(),
         model_version,
         searchable_pdf_path: pdf.display().to_string(),
         page_ir_path: ir.display().to_string(),
@@ -480,6 +533,15 @@ fn run() -> Result<()> {
             let request: ProcessRequest = serde_json::from_slice(&input)?;
             let _ = &request.job_id;
             println!("{}", serde_json::to_string(&process(request)?)?)
+        }
+        "revise" => {
+            #[derive(Deserialize)]
+            struct Revision { request: ProcessRequest, pages: Vec<Page> }
+            let mut input = Vec::new();
+            std::io::stdin().take(128 * 1024 * 1024 + 1).read_to_end(&mut input)?;
+            anyhow::ensure!(input.len() <= 128 * 1024 * 1024, "CORRECTION_TOO_LARGE");
+            let mut revision: Revision = serde_json::from_slice(&input)?;
+            println!("{}", serde_json::to_string(&process_pages(&mut revision.request, Some(revision.pages))?)?);
         }
         _ => return Err(anyhow!("usage: casy-doc-engine <probe|process>")),
     }

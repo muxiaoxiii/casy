@@ -1,0 +1,8 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run runtime:prepare && npm run build"
+  },
+  "bundle": {
+    "resources": { "runtime/": "runtime/" }
+  }
+}
