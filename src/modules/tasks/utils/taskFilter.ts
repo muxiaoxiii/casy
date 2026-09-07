@@ -148,7 +148,7 @@ export function applyTaskCardFilters(list: Task[], opts: TaskCardFilterOpts = {}
   if (opts.metric === 'dueToday') {
     result = result.filter(t => !t.completed && (t.dueDate === opts.todayStr || t.deadline === opts.todayStr))
   } else if (opts.metric === 'waitingOverdue') {
-    result = result.filter(t => !t.completed && t.taskType === 'waiting' && t.followUpDate && t.followUpDate < (opts.todayStr || ''))
+    result = result.filter(t => !t.completed && (t.taskType === 'waiting' || !!t.waitingFor) && t.followUpDate && t.followUpDate < (opts.todayStr || ''))
   }
 
   // 关键字搜索：名称/备注/案件名任一命中

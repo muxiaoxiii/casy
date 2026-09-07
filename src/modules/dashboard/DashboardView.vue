@@ -1,258 +1,179 @@
-<script setup>
-/**
- * Dashboard —— 数据可视化仪表盘（B4 · 对标 index-v2 dashboard 设计）
- *
- * 四图布局：月度任务趋势(面积线) · 案件状态(环图) · 轨道分布(横条) · 近期庭审(甘特)
- * 数据全部来自后端聚合命令（dashboard 服务），零前端拉全量。
- */
-import { ref, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { TrendCharts, PieChart, Histogram, Calendar, MagicStick } from '@element-plus/icons-vue'
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { Refresh, ArrowRight, TrendCharts, PieChart, Histogram, Calendar } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../core/plugin/context'
+import type { MonthTrendPoint, NameCount, TodayKpis, UpcomingHearing } from '../../types/bindings'
 import AreaLineChart from '../../shared/charts/AreaLineChart.vue'
 import DonutChart from '../../shared/charts/DonutChart.vue'
 import HBarChart from '../../shared/charts/HBarChart.vue'
 import GanttTimeline from '../../shared/charts/GanttTimeline.vue'
 
 const router = useRouter()
-const trend = ref([])
-const statusDist = ref([])
-const trackDist = ref([])
-const hearings = ref([])
-const kpis = ref({ today_events: 0, due_today: 0, waiting_overdue: 0, review_due: 0 })
-const aiInsight = ref('')
-const loading = ref(true)
-
-// 状态 → 语义色（Slate）
-const STATUS_COLORS = {
-  active: '#3E5C9A',
-  paused: '#B0823A',
-  done: '#4C8067',
-  archived: '#9BA2AF',
+const trend = ref<MonthTrendPoint[]>([])
+const statusDist = ref<NameCount[]>([])
+const trackDist = ref<NameCount[]>([])
+const hearings = ref<UpcomingHearing[]>([])
+const kpis = ref<TodayKpis | null>(null)
+const loading = ref(false)
+const months = ref(6)
+const updatedAt = ref('')
+const errors = ref<Record<string, string>>({})
+const now = ref(new Date())
+let refreshQueued = false
+let active = true
+let dayTimer: ReturnType<typeof setInterval>
+const unlisteners: Array<() => void> = []
+const statusLabels: Record<string, string> = { active: '在办案件', done: '已结案件' }
+const statusColors: Record<string, string> = { active: 'var(--c-primary)', paused: 'var(--c-warning)', done: 'var(--c-success)', archived: 'var(--c-text-secondary)' }
+const tracks: Record<string, { label: string; color: string }> = {
+  patent_invalidation: { label: '专利无效', color: 'var(--c-info)' },
+  civil_tort: { label: '民事诉讼', color: 'var(--c-primary)' },
+  admin_litigation: { label: '行政诉讼', color: 'var(--c-warning)' },
+  arbitration: { label: '仲裁', color: 'var(--c-success)' },
 }
-const STATUS_LABELS = {
-  active: '进行中',
-  paused: '暂停',
-  done: '已完成',
-  archived: '已归档',
-}
+const statusDonutData = computed(() => statusDist.value.map(d => ({
+  ...d, key: d.label, label: statusLabels[d.label] || d.label,
+  color: statusColors[d.label] || 'var(--c-text-secondary)',
+})))
+const trackData = computed(() => trackDist.value.map(d => ({
+  ...d, key: d.label, label: tracks[d.label]?.label || d.label, color: tracks[d.label]?.color || 'var(--c-info)',
+})))
+const metrics = computed(() => [
+  { key: 'todayEvents', label: '今日庭审', value: kpis.value?.todayEvents, color: 'var(--c-primary)', target: { name: 'calendar', query: { view: 'day' } } },
+  { key: 'dueToday', label: '今日到期', value: kpis.value?.dueToday, color: 'var(--c-text)', target: { name: 'tasks', query: { tab: 'all', metric: 'dueToday' } } },
+  { key: 'waitingOverdue', label: '等待超时', value: kpis.value?.waitingOverdue, color: 'var(--c-warning)', target: { name: 'tasks', query: { tab: 'waiting', metric: 'waitingOverdue' } } },
+  { key: 'reviewDue', label: '需回顾', value: kpis.value?.reviewDue, color: 'var(--c-danger)', target: { name: 'tasks', query: { tab: 'review' } } },
+])
 
-const statusDonutData = computed(() =>
-  statusDist.value.map(d => ({
-    label: STATUS_LABELS[d.label] || d.label,
-    value: d.value,
-    color: STATUS_COLORS[d.label] || '#9BA2AF',
-  })),
-)
-
-function onStatusSelect(d) {
-  const map = { active: '/projects', paused: '/projects', done: '/projects', archived: '/projects' }
-  void map
-  router.push('/projects')
-}
-
-const trackColor = label =>
-  label.includes('无效') ? '#6C6A9C' : label.includes('行政') ? '#B0823A' : '#3E5C9A'
-
-async function load() {
-  loading.value = true
+// Settle sections independently so one unavailable service cannot erase other results.
+async function loadPart<T>(key: string, request: () => Promise<{ ok: boolean; data?: T; error?: string }>, assign: (data: T) => void) {
   try {
-    const [t, s, tr, h, k, aiRes] = await Promise.all([
-      casyContext.dashboard.monthlyTaskTrend(6),
-      casyContext.dashboard.projectStatusDistribution(),
-      casyContext.dashboard.trackDistribution(),
-      casyContext.dashboard.upcomingHearings(30),
-      casyContext.dashboard.todayKpis(),
-      casyContext.ai.askAi('请根据当前的日期，给律师一句简短的早安问候和一天工作重点的建议（不超过50字）。')
-    ])
-    if (t.ok) trend.value = t.data || []
-    if (s.ok) statusDist.value = s.data || []
-    if (tr.ok) trackDist.value = tr.data || []
-    if (h.ok) hearings.value = h.data || []
-    if (k.ok && k.data) kpis.value = k.data
-    if (aiRes.ok && aiRes.text) aiInsight.value = aiRes.text
-    if (!t.ok && !s.ok && !tr.ok && !h.ok) ElMessage.error(t.error || '仪表盘数据加载失败')
+    const result = await request()
+    if (!result.ok || result.data == null) throw new Error(result.error || '数据暂不可用')
+    assign(result.data)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '仪表盘数据加载失败')
-  } finally {
-    loading.value = false
+    errors.value[key] = error instanceof Error ? error.message : '加载失败'
   }
 }
-
+async function load() {
+  if (!active) return
+  if (loading.value) { refreshQueued = true; return }
+  loading.value = true
+  errors.value = {}
+  kpis.value = null
+  trend.value = []; statusDist.value = []; trackDist.value = []; hearings.value = []
+  await Promise.all([
+    loadPart('trend', () => casyContext.dashboard.monthlyTaskTrend(months.value), data => { trend.value = data }),
+    loadPart('status', () => casyContext.cases.stats(), data => { statusDist.value = [{ label: 'active', value: data.active }, { label: 'done', value: data.closed }] }),
+    loadPart('track', () => casyContext.dashboard.trackDistribution(), data => { trackDist.value = data }),
+    loadPart('hearings', () => casyContext.dashboard.upcomingHearings(30), data => { hearings.value = data }),
+    loadPart('kpis', () => casyContext.dashboard.todayKpis(), data => { kpis.value = data }),
+  ])
+  updatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  loading.value = false
+  if (refreshQueued) { refreshQueued = false; await load() }
+}
 onMounted(() => {
-  load()
+  void load()
+  for (const event of ['inbox:confirmed', 'case:created', 'case:updated', 'case:deleted', 'case:imported', 'task:created', 'task:completed']) {
+    unlisteners.push(casyContext.on(event, () => { void load() }))
+  }
+  dayTimer = setInterval(() => {
+    const date = new Date()
+    if (date.toDateString() !== now.value.toDateString()) void load()
+    now.value = date
+  }, 60_000)
 })
+onUnmounted(() => { active = false; clearInterval(dayTimer); unlisteners.forEach(off => off()) })
 </script>
 
 <template>
-  <div class="dash-page" v-loading="loading">
-    <div class="dash-header">
-      <h2 class="page-title">数据看板</h2>
-      <div v-if="aiInsight" class="ai-insight-banner">
-        <el-icon><MagicStick /></el-icon>
-        <span class="ai-text">{{ aiInsight }}</span>
+  <div class="dash-page" :aria-busy="loading">
+    <header class="dash-header">
+      <div><h1>数据看板</h1><p>{{ now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }) }}</p></div>
+      <div class="dash-actions">
+        <span v-if="updatedAt && !loading" class="updated-at" role="status">{{ Object.keys(errors).length ? '部分数据未更新' : `更新于 ${updatedAt}` }}</span>
+        <el-button :icon="Refresh" :loading="loading" aria-label="刷新看板" title="刷新看板" @click="load" circle />
       </div>
-    </div>
-
-    <!-- KPI 行（点击下钻） -->
+    </header>
+    <div v-if="errors.kpis" class="data-error" role="alert">今日指标加载失败 <el-button text @click="load">重试</el-button></div>
     <div class="kpi-row">
-      <div class="kpi-card" @click="$router.push('/calendar')">
-        <span class="kv" :style="{ color: 'var(--c-primary)' }">{{ kpis.today_events }}</span>
-        <span class="kk">今日日程</span>
-      </div>
-      <div class="kpi-card" @click="$router.push({ name: 'tasks', query: { tab: 'today' } })">
-        <span class="kv">{{ kpis.due_today }}</span>
-        <span class="kk">今日到期</span>
-      </div>
-      <div class="kpi-card" @click="$router.push({ name: 'tasks', query: { tab: 'waiting' } })">
-        <span class="kv" :style="{ color: kpis.waiting_overdue > 0 ? 'var(--c-warning)' : undefined }">{{ kpis.waiting_overdue }}</span>
-        <span class="kk">等待超时</span>
-      </div>
-      <div class="kpi-card" @click="$router.push({ name: 'tasks', query: { tab: 'review' } })">
-        <span class="kv" :style="{ color: kpis.review_due > 0 ? 'var(--c-danger)' : undefined }">{{ kpis.review_due }}</span>
-        <span class="kk">需回顾</span>
-      </div>
+      <button v-for="metric in metrics" :key="metric.key" type="button" class="kpi-card" :disabled="metric.value == null" @click="router.push(metric.target)">
+        <span class="kk">{{ metric.label }}<el-icon><ArrowRight /></el-icon></span>
+        <span class="kv" :style="{ color: metric.color }">{{ metric.value ?? '待加载' }}<small v-if="metric.value != null">项</small></span>
+      </button>
     </div>
-
-    <div class="charts-row">
-      <div class="card">
-        <div class="card-title"><el-icon :size="15"><TrendCharts /></el-icon> 月度任务趋势</div>
-        <AreaLineChart v-if="trend.length" :data="trend" />
-        <div v-else class="card-empty">近 6 个月暂无数据</div>
-      </div>
-      <div class="card">
-        <div class="card-title"><el-icon :size="15"><PieChart /></el-icon> 非案件项目状态</div>
-        <DonutChart
-          v-if="statusDonutData.length"
-          :data="statusDonutData"
-          :size="170"
-          center-sub="非案件项目"
-          @select="onStatusSelect"
-        />
-        <div v-else class="card-empty">暂无非案件项目</div>
-      </div>
-    </div>
-
-    <div class="charts-row two">
-      <div class="card">
-        <div class="card-title"><el-icon :size="15"><Histogram /></el-icon> 案件轨道分布</div>
-        <HBarChart
-          :data="trackDist.map(d => ({
-            label: d.label,
-            value: d.value,
-            color: trackColor(d.label),
-          }))"
-          @select="() => $router.push({ name: 'cases-kanban' })"
-        />
-      </div>
-      <div class="card">
-        <div class="card-title"><el-icon :size="15"><Calendar /></el-icon> 近期庭审 · 30 天</div>
-        <GanttTimeline v-if="hearings.length" :items="hearings" :window-days="30" />
-        <div v-else class="card-empty">未来 30 天没有庭审安排</div>
-      </div>
+    <div class="charts-grid">
+      <section class="chart-section">
+        <header class="section-header"><h2><el-icon><TrendCharts /></el-icon>月度任务趋势</h2>
+          <el-radio-group v-model="months" size="small" :disabled="loading" aria-label="统计周期" @change="load">
+            <el-radio-button :value="6">6 个月</el-radio-button><el-radio-button :value="12">12 个月</el-radio-button>
+          </el-radio-group>
+        </header>
+        <el-skeleton v-if="loading" :rows="4" animated />
+        <div v-else-if="errors.trend" class="data-error" role="alert">任务趋势加载失败 <el-button text @click="load">重试</el-button></div>
+        <AreaLineChart v-else-if="trend.length" :data="trend" :height="210" />
+        <div v-else class="chart-empty">近 {{ months }} 个月暂无任务记录</div>
+      </section>
+      <section class="chart-section">
+        <header class="section-header"><h2><el-icon><PieChart /></el-icon>案件状态</h2><el-button text @click="router.push('/cases')">全部案件<el-icon><ArrowRight /></el-icon></el-button></header>
+        <el-skeleton v-if="loading" :rows="4" animated />
+        <div v-else-if="errors.status" class="data-error" role="alert">案件统计加载失败 <el-button text @click="load">重试</el-button></div>
+        <DonutChart v-else-if="statusDonutData.some(d => d.value > 0)" :data="statusDonutData" :size="170" center-sub="案件总数" :interactive="false" />
+        <div v-else class="chart-empty">暂无案件</div>
+      </section>
+      <section class="chart-section">
+        <header class="section-header"><h2><el-icon><Histogram /></el-icon>案件轨道分布</h2><span v-if="!loading && !errors.track" class="section-meta">{{ trackDist.reduce((sum, d) => sum + d.value, 0) }} 件</span></header>
+        <el-skeleton v-if="loading" :rows="3" animated />
+        <div v-else-if="errors.track" class="data-error" role="alert">案件统计加载失败 <el-button text @click="load">重试</el-button></div>
+        <HBarChart v-else :data="trackData" @select="item => router.push({ name: 'cases', query: { track: item.key } })" />
+      </section>
+      <section class="chart-section">
+        <header class="section-header"><h2><el-icon><Calendar /></el-icon>近期庭审</h2><span class="section-meta">未来 30 天<span v-if="!loading && !errors.hearings"> · {{ hearings.length }} 场</span></span></header>
+        <el-skeleton v-if="loading" :rows="3" animated />
+        <div v-else-if="errors.hearings" class="data-error" role="alert">庭审排期加载失败 <el-button text @click="load">重试</el-button></div>
+        <GanttTimeline v-else-if="hearings.length" :items="hearings" :window-days="30" @select="item => router.push(item.caseId ? { name: 'case-detail', params: { id: item.caseId } } : { name: 'calendar' })" />
+        <div v-else class="chart-empty">未来 30 天暂无庭审安排</div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.dash-page {
-  padding: 20px 24px;
-  max-width: 1100px;
-  margin: 0 auto;
-}
-.dash-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 18px;
-}
-.page-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--c-text);
-}
-.ai-insight-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--c-primary-light);
-  border: 1px solid var(--c-primary-soft);
-  border-radius: 8px;
-  color: var(--c-primary);
-  font-size: 13px;
-  font-weight: 500;
-  max-width: 500px;
-}
-.ai-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.kpi-card {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  padding: 14px 16px;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  cursor: pointer;
-  transition:
-    transform var(--motion-fast) var(--ease-out),
-    box-shadow var(--motion-fast) var(--ease-out);
-}
-.kpi-card:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-.kv { font-size: 26px; font-weight: 700; color: var(--c-text); }
-.kk { font-size: 12px; color: var(--c-text-secondary); }
-
-.charts-row {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.charts-row.two {
-  grid-template-columns: 1fr 1.3fr;
-}
-@media (max-width: 980px) {
-  .charts-row,
-  .charts-row.two {
-    grid-template-columns: 1fr;
-  }
-}
-.card {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  padding: 14px 16px;
-  min-width: 0;
-}
-.card-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--c-text);
-  margin-bottom: 12px;
-}
-.card-title .el-icon { color: var(--c-text-secondary); }
-.card-empty {
-  padding: 26px 10px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--c-text-secondary);
+.dash-page { padding: 28px 32px 48px; max-width: 1320px; margin: 0 auto; }
+.dash-header, .dash-actions, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dash-header { margin-bottom: 24px; }
+.dash-header h1 { font-size: 24px; line-height: 1.4; margin: 0; color: var(--c-text-heading); }
+.dash-header p, .updated-at, .section-meta { font-size: 12px; color: var(--c-text-secondary); }
+.dash-header p { margin-top: 4px; }
+.kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--c-border); margin-bottom: 12px; }
+.kpi-card { border: 0; border-right: 1px solid var(--c-border); background: transparent; text-align: left; font: inherit; padding: 20px; min-width: 0; cursor: pointer; transition: background var(--motion-base); }
+.kpi-card:first-child { padding-left: 0; }
+.kpi-card:last-child { border-right: 0; }
+.kpi-card:hover:not(:disabled) { background: var(--c-bg-hover); }
+.kpi-card:disabled { cursor: default; }
+.kk { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; color: var(--c-text-secondary); }
+.kk .el-icon { opacity: .5; }
+.kv { display: block; font-size: 32px; line-height: 1.2; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 12px; }
+.kpi-card:disabled .kv { font-size: 16px; }
+.kv small { font-size: 12px; font-weight: 400; margin-left: 8px; color: var(--c-text-secondary); }
+.charts-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); column-gap: 32px; }
+.chart-section { min-width: 0; padding: 24px 0; border-bottom: 1px solid var(--c-border); min-height: 230px; }
+.section-header { min-height: 32px; margin-bottom: 20px; flex-wrap: wrap; }
+.section-header h2 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 0; }
+.section-header h2 .el-icon { color: var(--c-text-secondary); }
+.chart-empty, .data-error { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 160px; font-size: 13px; color: var(--c-text-secondary); }
+.data-error { color: var(--c-danger); }
+.dash-page > .data-error { min-height: 40px; justify-content: flex-start; }
+@media (max-width: 1100px) { .charts-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .dash-page { padding: 20px 16px 32px; }
+  .dash-header h1 { font-size: 22px; }
+  .updated-at { display: none; }
+  .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-card, .kpi-card:first-child { padding: 16px 12px; }
+  .kpi-card:nth-child(2) { border-right: 0; }
+  .kpi-card:nth-child(-n+2) { border-bottom: 1px solid var(--c-border); }
 }
 </style>

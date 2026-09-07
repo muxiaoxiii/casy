@@ -103,7 +103,6 @@ import type {
 } from './bindings'
 import type { InboxStatus } from './index'
 import type {
-  CalendarEvent as BusinessCalendarEvent,
   Case as BusinessCase,
   CaseListResponse,
   DashboardStats as BusinessDashboardStats,
@@ -467,7 +466,7 @@ export type CommandMap = {
   parse_holiday_notice: Cmd<{ content: string }, HolidayNotice>
 
   // ── 日历域 ──
-  get_calendar_events: Cmd<{ year: number; month: number }, BusinessCalendarEvent[]>
+  get_calendar_events: Cmd<{ year: number; month: number }, CalendarEvent[]>
   list_calendar_events: Cmd<{ startDate: string; endDate: string }, CalendarEventRow[]>
   create_calendar_event: Cmd<{ data: Record<string, unknown> }, CalendarEventRow>
   update_calendar_event: Cmd<{ id: string; data: Record<string, unknown> }, void>

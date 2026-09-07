@@ -21,7 +21,7 @@ const PAD_B = 22
 
 const hoverIdx = ref<number | null>(null)
 
-const maxV = computed(() => Math.max(1, ...props.data.map(d => Math.max(d.created, d.completed))))
+const maxV = computed(() => Math.max(2, Math.ceil(Math.max(0, ...props.data.map(d => Math.max(d.created, d.completed))) / 2) * 2))
 const innerW = computed(() => W - PAD_L - PAD_R)
 const innerH = computed(() => props.height - PAD_T - PAD_B)
 
@@ -56,7 +56,7 @@ function shortMonth(m: string): string {
 
 function onMove(e: MouseEvent) {
   const rect = (e.currentTarget as SVGElement).getBoundingClientRect()
-  const rel = ((e.clientX - rect.left) - PAD_L) / innerW.value
+  const rel = ((e.clientX - rect.left) * W / rect.width - PAD_L) / innerW.value
   const n = props.data.length
   if (n === 0) return
   hoverIdx.value = Math.min(n - 1, Math.max(0, Math.round(rel * (n - 1))))
@@ -65,13 +65,14 @@ function onMove(e: MouseEvent) {
 
 <template>
   <div class="trend-wrap">
-    <svg :width="W" :height="height" @mousemove="onMove" @mouseleave="hoverIdx = null">
+    <svg :viewBox="`0 0 ${W} ${height}`" role="img" aria-label="月度任务新建与完成趋势" @mousemove="onMove" @mouseleave="hoverIdx = null">
+      <title>月度任务趋势</title>
       <!-- 横网格 -->
       <g v-for="gv in [0, 0.5, 1]" :key="gv">
         <line
           :x1="PAD_L" :x2="W - PAD_R"
           :y1="PAD_T + innerH * (1 - gv)" :y2="PAD_T + innerH * (1 - gv)"
-          stroke="#EEF0F3" stroke-width="1"
+          stroke="var(--c-border-light)" stroke-width="1"
         />
         <text :x="PAD_L - 6" :y="PAD_T + innerH * (1 - gv) + 3" text-anchor="end" class="tick">
           {{ Math.round(maxV * gv) }}
@@ -97,14 +98,14 @@ function onMove(e: MouseEvent) {
           stroke="var(--c-border-strong, #CCD0D8)" stroke-width="1" stroke-dasharray="3 3"
         />
         <rect
-          :x="Math.min(xAt(hoverIdx) + 6, W - 118)" y="PAD_T"
+          :x="Math.min(xAt(hoverIdx) + 6, W - 118)" :y="PAD_T"
           width="112" height="34" rx="5"
-          fill="#fff" stroke="#E4E7EB"
+          fill="var(--c-bg-elevated)" stroke="var(--c-border)"
         />
-        <text class="tip-title" :x="Math.min(xAt(hoverIdx) + 6, W - 118) + 8" y="PAD_T + 14">
+        <text class="tip-title" :x="Math.min(xAt(hoverIdx) + 6, W - 118) + 8" :y="PAD_T + 14">
           {{ data[hoverIdx].month }}
         </text>
-        <text class="tip-line c-new" :x="Math.min(xAt(hoverIdx) + 6, W - 118) + 8" y="PAD_T + 28">
+        <text class="tip-line c-new" :x="Math.min(xAt(hoverIdx) + 6, W - 118) + 8" :y="PAD_T + 28">
           新建 {{ data[hoverIdx].created }} · 完成 {{ data[hoverIdx].completed }}
         </text>
       </g>
@@ -117,11 +118,25 @@ function onMove(e: MouseEvent) {
       <span><i class="dot primary" />新建</span>
       <span><i class="dot success" />完成</span>
     </div>
+    <details class="chart-data">
+      <summary>数据明细</summary>
+      <table>
+        <caption class="sr-only">月度任务趋势明细</caption>
+        <thead><tr><th scope="col">月份</th><th scope="col">新建</th><th scope="col">完成</th></tr></thead>
+        <tbody><tr v-for="d in data" :key="d.month"><th scope="row">{{ d.month }}</th><td>{{ d.created }}</td><td>{{ d.completed }}</td></tr></tbody>
+      </table>
+    </details>
   </div>
 </template>
 
 <style scoped>
 .trend-wrap { position: relative; }
+.trend-wrap svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart-data { margin-top: 12px; color: var(--c-text-secondary); font-size: 12px; }
+.chart-data summary { cursor: pointer; width: fit-content; }
+.chart-data table { width: 100%; margin-top: 8px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.chart-data th, .chart-data td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--c-border-light); }
+.chart-data th:first-child { text-align: left; }
 .tick {
   font-size: 9.5px;
   fill: var(--c-text-secondary);

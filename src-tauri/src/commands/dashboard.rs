@@ -36,14 +36,14 @@ pub async fn get_project_status_distribution() -> Result<Vec<NameCount>, String>
     .await
 }
 
-/// 案件轨道分布（无效/行政/民事…，来自 case_legal_details）
+/// 案件轨道分布，与案件列表使用同一事实表。
 #[tauri::command]
 pub async fn get_track_distribution() -> Result<Vec<NameCount>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
-            "SELECT COALESCE(track,'未分类') AS t, COUNT(*)
-             FROM case_legal_details GROUP BY t ORDER BY COUNT(*) DESC",
+            "SELECT COALESCE(NULLIF(track,''),'未分类') AS t, COUNT(*)
+             FROM cases GROUP BY t ORDER BY COUNT(*) DESC, t",
         )?;
         let rows = stmt
             .query_map([], |r| {
@@ -66,7 +66,7 @@ pub struct MonthTrendPoint {
     pub completed: i64,
 }
 
-/// 月度任务趋势：近 N 个月创建量 vs 完成量
+/// 月度任务趋势：未删除任务的创建量及当前已完成任务的最后完成月份。
 /// 审计 P2 修正：按真实日历月回推（原 30 天步进在月末会重复/跳月）
 #[tauri::command]
 pub async fn get_monthly_task_trend(months: Option<i32>) -> Result<Vec<MonthTrendPoint>, String> {
@@ -98,8 +98,12 @@ pub async fn get_monthly_task_trend(months: Option<i32>) -> Result<Vec<MonthTren
                 |r| r.get(0),
             )?;
             let completed: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM task_events
-                 WHERE event_type = 'completed' AND substr(occurred_at,1,7) = ?1",
+                "SELECT COUNT(*) FROM (
+                   SELECT e.task_id, MAX(e.occurred_at) AS completed_at
+                   FROM task_events e JOIN tasks t ON t.id=e.task_id
+                   WHERE e.event_type='completed' AND t.completed=1 AND t.deleted_at IS NULL
+                   GROUP BY e.task_id
+                 ) WHERE substr(completed_at,1,7)=?1",
                 rusqlite::params![key],
                 |r| r.get(0),
             )?;
@@ -134,15 +138,16 @@ pub async fn get_upcoming_hearings(days: Option<i32>) -> Result<Vec<UpcomingHear
         let today = chrono::Local::now().date_naive();
         let end = today + Duration::days(n as i64);
         let mut stmt = conn.prepare(
-            "SELECT h.id, h.hearing_date, COALESCE(h.hearing_name,'庭审'), c.id, c.case_name
+            "SELECT h.id, h.hearing_date, COALESCE(NULLIF(h.hearing_name,''),'庭审'), c.id, c.case_name
              FROM hearings h JOIN cases c ON c.id = h.case_id
-             WHERE h.hearing_date BETWEEN ?1 AND ?2
-             ORDER BY h.hearing_date ASC LIMIT 50",
+             WHERE substr(h.hearing_date,1,10) BETWEEN ?1 AND ?2 AND COALESCE(h.actual_status,'未开') != '已开'
+             ORDER BY h.hearing_date ASC, h.id",
         )?;
         let rows = stmt
             .query_map(rusqlite::params![today.to_string(), end.to_string()], |r| {
                 let date: String = r.get(1)?;
-                let d = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").unwrap_or(today);
+                let d = chrono::NaiveDate::parse_from_str(date.get(..10).unwrap_or(""), "%Y-%m-%d")
+                    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
                 Ok(UpcomingHearing {
                     id: r.get(0)?,
                     title: r.get(2)?,
@@ -174,7 +179,7 @@ pub async fn get_today_kpis() -> Result<TodayKpis, String> {
         let conn = db::open_db()?;
         let today = chrono::Local::now().date_naive().to_string();
         let today_events: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM hearings WHERE hearing_date = ?1",
+            "SELECT COUNT(*) FROM hearings WHERE substr(hearing_date,1,10) = ?1",
             rusqlite::params![today],
             |r| r.get(0),
         )?;
@@ -186,15 +191,15 @@ pub async fn get_today_kpis() -> Result<TodayKpis, String> {
         )?;
         let waiting_overdue: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks
-             WHERE completed = 0 AND task_type = 'waiting'
-               AND follow_up_date IS NOT NULL AND follow_up_date < ?1
+             WHERE completed = 0 AND (task_type = 'waiting' OR COALESCE(waiting_for,'') != '')
+               AND NULLIF(follow_up_date,'') IS NOT NULL AND follow_up_date < ?1
                AND deleted_at IS NULL",
             rusqlite::params![today],
             |r| r.get(0),
         )?;
         let review_due: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks
-             WHERE completed = 0 AND next_review_date IS NOT NULL AND next_review_date <= ?1
+             WHERE completed = 0 AND NULLIF(next_review_date,'') IS NOT NULL AND next_review_date <= ?1
                AND deleted_at IS NULL",
             rusqlite::params![today],
             |r| r.get(0),

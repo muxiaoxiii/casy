@@ -358,8 +358,12 @@ export interface CalendarEvent {
   id: string
   title: string
   date: string
-  type: 'hearing' | 'deadline' | 'task' | 'other'
+  type: string
   caseId: string | null
+  caseName?: string
+  startTime?: string | null
+  endTime?: string | null
+  allDay?: boolean | null
   color: string
 }
 

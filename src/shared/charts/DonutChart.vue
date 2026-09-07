@@ -5,7 +5,7 @@
  * - 分段悬停外扩 + 中心总数标签
  * - 点击分段触发下钻（可选）
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 export interface DonutDatum {
   label: string
@@ -20,14 +20,14 @@ const props = withDefaults(
     innerRatio?: number
     centerLabel?: string
     centerSub?: string
+    interactive?: boolean
   }>(),
-  { size: 200, innerRatio: 0.62, centerLabel: '', centerSub: '' },
+  { size: 200, innerRatio: 0.62, centerLabel: '', centerSub: '', interactive: true },
 )
 
 const emit = defineEmits<{ (e: 'select', d: DonutDatum): void }>()
 
 const hover = ref<number | null>(null)
-import { ref } from 'vue'
 
 const radius = computed(() => props.size / 2)
 const innerR = computed(() => radius.value * props.innerRatio)
@@ -43,9 +43,9 @@ const arcs = computed<Arc[]>(() => {
   const total = props.data.reduce((s, d) => s + d.value, 0)
   if (!total) return []
   let acc = -Math.PI / 2 // 从正上方开始
-  const pad = 0.02
-  return props.data.map(datum => {
+  return props.data.filter(datum => datum.value > 0).map(datum => {
     const frac = datum.value / total
+    const pad = Math.min(0.02, frac * Math.PI * 2 * 0.15)
     const a0 = acc + pad / 2
     const a1 = acc + frac * Math.PI * 2 - pad / 2
     acc += frac * Math.PI * 2
@@ -64,19 +64,6 @@ const arcs = computed<Arc[]>(() => {
 
 const totalValue = computed(() => props.data.reduce((s, d) => s + d.value, 0))
 
-function arcExpand(idx: number): string {
-  const arc = arcs.value[idx]
-  if (!arc || hover.value !== idx) return arc?.d ?? ''
-  const grow = 5
-  const rO = radius.value + grow
-  const rI = innerR.value
-  const { midAngle: a } = arc
-  const large = false
-  // 简化：悬停时整体放大通过 transform 完成，这里返回原路径
-  void rO; void rI; void a; void large
-  return arc.d
-}
-
 function legendValue(d: DonutDatum): string {
   const pct = totalValue.value ? Math.round((d.value / totalValue.value) * 100) : 0
   return `${d.value} · ${pct}%`
@@ -86,20 +73,21 @@ function legendValue(d: DonutDatum): string {
 <template>
   <div class="donut-wrap">
     <div class="donut-svg-holder" :style="{ width: size + 'px', height: size + 'px' }">
-      <svg :width="size" :height="size">
-        <g :transform="`translate(${radius},${radius})`">
+      <svg :viewBox="`-4 -4 ${size + 8} ${size + 8}`" :width="size" :height="size" aria-label="状态分布">
+        <circle :cx="radius" :cy="radius" :r="(radius + innerR) / 2" fill="none" stroke="var(--c-border-light)" :stroke-width="radius - innerR" />
+        <g>
           <path
             v-for="(a, i) in arcs"
             :key="i"
-            :d="arcExpand(i)"
+            :d="a.d"
             :fill="a.datum.color"
-            stroke="#fff"
+            stroke="var(--c-bg-page)"
             stroke-width="2"
-            style="cursor: pointer"
-            @mouseenter="hover = i"
+            :style="{ cursor: interactive ? 'pointer' : 'default' }"
+            @mouseenter="hover = data.indexOf(a.datum)"
             @mouseleave="hover = null"
-            @click="emit('select', a.datum)"
-          />
+            @click="interactive && emit('select', a.datum)"
+          ><title>{{ a.datum.label }}：{{ legendValue(a.datum) }}</title></path>
         </g>
       </svg>
       <div class="donut-center">
@@ -115,11 +103,12 @@ function legendValue(d: DonutDatum): string {
         :class="{ dim: hover !== null && hover !== i }"
         @mouseenter="hover = i"
         @mouseleave="hover = null"
-        @click="emit('select', d)"
       >
+        <button type="button" :disabled="!interactive" @click="emit('select', d)" :aria-label="`${d.label}，${legendValue(d)}`">
         <span class="dl-dot" :style="{ background: d.color }" />
         <span class="dl-label">{{ d.label }}</span>
         <span class="dl-value">{{ legendValue(d) }}</span>
+        </button>
       </li>
     </ul>
   </div>
@@ -130,6 +119,8 @@ function legendValue(d: DonutDatum): string {
   display: flex;
   align-items: center;
   gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 .donut-svg-holder {
   position: relative;
@@ -169,6 +160,9 @@ function legendValue(d: DonutDatum): string {
   cursor: pointer;
   transition: opacity var(--motion-fast) var(--ease-out);
 }
+.donut-legend button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 0; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.donut-legend { flex: 1; }
+.donut-legend button:disabled { cursor: default; opacity: 1; }
 .donut-legend li.dim { opacity: 0.4; }
 .dl-dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
 .dl-label { flex: 1; font-size: var(--text-base); color: var(--c-text-regular); }

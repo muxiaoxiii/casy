@@ -27,18 +27,32 @@ impl CalendarEvent {
         event_type: &str,
         case_id: String,
         case_name: String,
-    ) -> Self {
-        Self {
+    ) -> rusqlite::Result<Self> {
+        let invalid_date = |error| rusqlite::Error::FromSqlConversionFailure(
+            1, rusqlite::types::Type::Text, Box::new(error),
+        );
+        let day = chrono::NaiveDate::parse_from_str(date.get(..10).unwrap_or(""), "%Y-%m-%d")
+            .map_err(invalid_date)?;
+        let start_time = if date.len() > 10 {
+            let timestamp = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"]
+                .iter().find_map(|format| chrono::NaiveDateTime::parse_from_str(&date, format).ok());
+            let time = match timestamp {
+                Some(value) => value.time(),
+                None => chrono::DateTime::parse_from_rfc3339(&date).map_err(invalid_date)?.time(),
+            };
+            Some(time.format("%H:%M").to_string())
+        } else { None };
+        Ok(Self {
             id,
-            date,
+            date: day.to_string(),
             title,
             event_type: event_type.into(),
             case_id,
             case_name,
-            start_time: None,
+            all_day: Some(start_time.is_none()),
+            start_time,
             end_time: None,
-            all_day: None,
-        }
+        })
     }
 }
 
@@ -46,6 +60,7 @@ impl CalendarEvent {
 #[tauri::command]
 pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEvent>, String> {
     run_blocking(move || {
+        anyhow::ensure!(chrono::NaiveDate::from_ymd_opt(year, month, 1).is_some(), "无效的日历月份");
         let conn = db::open_db()?;
 
         let start = format!("{:04}-{:02}-01", year, month);
@@ -57,17 +72,17 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
         let mut stmt = conn.prepare(
             "SELECT h.id, h.hearing_date, h.hearing_name, c.id, c.case_name
              FROM hearings h JOIN cases c ON c.id = h.case_id
-             WHERE h.hearing_date BETWEEN ?1 AND ?2",
+             WHERE substr(h.hearing_date,1,10) BETWEEN ?1 AND ?2",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
-            Ok(CalendarEvent::projection(
+            CalendarEvent::projection(
                 r.get(0)?,
                 r.get(1)?,
-                r.get::<_, Option<String>>(2)?.unwrap_or_else(|| "开庭".into()),
+                r.get::<_, Option<String>>(2)?.filter(|name| !name.is_empty()).unwrap_or_else(|| "开庭".into()),
                 "hearing",
                 r.get(3)?,
                 r.get(4)?,
-            ))
+            )
         })? {
             events.push(row?);
         }
@@ -75,17 +90,17 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
         // 任务到期
         let mut stmt = conn.prepare(
             "SELECT id, deadline, task_name, case_id FROM tasks
-             WHERE deadline BETWEEN ?1 AND ?2 AND completed = 0 AND deleted_at IS NULL",
+             WHERE substr(deadline,1,10) BETWEEN ?1 AND ?2 AND completed = 0 AND deleted_at IS NULL",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
-            Ok(CalendarEvent::projection(
+            CalendarEvent::projection(
                 r.get(0)?,
                 r.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 r.get(2)?,
                 "task",
                 r.get::<_, Option<String>>(3)?.unwrap_or_default(),
                 String::new(),
-            ))
+            )
         })? {
             events.push(row?);
         }
@@ -94,13 +109,13 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
         let mut stmt = conn.prepare(
             "SELECT cd.id, cd.due_date, cd.deadline_name, c.id, c.case_name
              FROM case_deadlines cd JOIN cases c ON c.id = cd.case_id
-             WHERE cd.due_date BETWEEN ?1 AND ?2 AND cd.completed = 0",
+             WHERE substr(cd.due_date,1,10) BETWEEN ?1 AND ?2 AND cd.completed = 0",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
             let due_date: String = r.get(1)?;
             let days_left = {
                 let today = chrono::Local::now().naive_local().date();
-                let due = chrono::NaiveDate::parse_from_str(&due_date, "%Y-%m-%d")
+                let due = chrono::NaiveDate::parse_from_str(due_date.get(..10).unwrap_or(""), "%Y-%m-%d")
                     .unwrap_or(today);
                 (due - today).num_days()
             };
@@ -111,14 +126,14 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
             } else {
                 "deadline_green"
             };
-            Ok(CalendarEvent::projection(
+            CalendarEvent::projection(
                 r.get(0)?,
                 due_date,
                 r.get(2)?,
                 urgency,
                 r.get(3)?,
                 r.get(4)?,
-            ))
+            )
         })? {
             events.push(row?);
         }

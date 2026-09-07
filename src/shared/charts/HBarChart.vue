@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 
 export interface BarDatum {
+  key?: string
   label: string
   value: number
   color?: string
@@ -17,23 +18,24 @@ const maxValue = computed(() => Math.max(1, props.max || Math.max(...props.data.
 
 <template>
   <div class="hbar">
-    <div v-for="d in data" :key="d.label" class="hb-row" style="cursor:pointer" @click="emit('select', d)">
-      <span class="hb-label">{{ d.label }}</span>
-      <div class="hb-track">
-        <div
+    <button v-for="d in data" :key="d.label" type="button" class="hb-row" @click="emit('select', d)" :aria-label="`${d.label}，${d.value} 件，查看案件`">
+      <span class="hb-label" :title="d.label">{{ d.label }}</span>
+      <span class="hb-track">
+        <span
           class="hb-fill"
-          :style="{ width: (d.value / maxValue) * 100 + '%', background: d.color || 'var(--c-primary)' }"
+          :style="{ width: Math.min(100, Math.max(0, d.value / maxValue * 100)) + '%', background: d.color || 'var(--c-primary)' }"
         />
-      </div>
+      </span>
       <span class="hb-value">{{ d.value }}</span>
-    </div>
+    </button>
     <div v-if="!data.length" class="hb-empty">暂无数据</div>
   </div>
 </template>
 
 <style scoped>
 .hbar { display: flex; flex-direction: column; gap: 10px; }
-.hb-row { display: flex; align-items: center; gap: 10px; }
+.hb-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.hb-row:hover { background: var(--c-bg-hover); }
 .hb-label {
   width: 76px; flex-shrink: 0;
   font-size: var(--text-base); color: var(--c-text-regular);
@@ -44,6 +46,7 @@ const maxValue = computed(() => Math.max(1, props.max || Math.max(...props.data.
   background: var(--gray-100); overflow: hidden;
 }
 .hb-fill {
+  display: block;
   height: 100%; border-radius: 4px;
   transition: width var(--motion-slow) var(--ease-out);
 }

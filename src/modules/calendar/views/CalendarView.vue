@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -24,6 +24,7 @@ import {
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const route = useRoute()
 
 // ============================================================
 // 状态管理 (100% 连通真实 SQLite 数据库)
@@ -36,9 +37,11 @@ const cases = ref([])
 const deadlineWarnings = ref([])
 const holidayEntries = ref([])
 const loading = ref(false)
+const eventError = ref('')
+let eventRequest = 0
 
 // 视图切换: 'timeline' | 'month' | 'week' | 'day' | 'forecast'
-const activeView = ref('month')
+const activeView = ref(['timeline', 'month', 'week', 'day', 'forecast'].includes(route.query.view) ? route.query.view : 'month')
 
 // Forecast 预测视图筛选: 'all' | 'risk_only' | 'free_only'
 const forecastFilter = ref('all')
@@ -287,6 +290,14 @@ function openDayModal(cell) {
 
 // 双击打开事项详情编辑
 function openEditDetail(item, type = 'task') {
+  if (type === 'event' && item.type !== 'event') {
+    if (item.type === 'task') {
+      router.push({ name: 'tasks', query: { tab: 'all' } })
+    } else if (item.caseId) {
+      router.push({ name: 'case-detail', params: { id: item.caseId } })
+    }
+    return
+  }
   if (type === 'task') {
     editingItem.value = {
       id: item.id,
@@ -419,7 +430,13 @@ const viewOptions = [
 
 const weekDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const weekDaysCn = ['一', '二', '三', '四', '五', '六', '日']
-const weekHours = Array.from({ length: 14 }, (_, i) => i + 8) // 8:00 - 21:00
+const weekHours = computed(() => {
+  const hours = [...events.value.map(event => event.time), ...tasks.value.map(task => task.startTime)]
+    .filter(Boolean).map(time => Number(time.split(':')[0])).filter(hour => Number.isInteger(hour) && hour >= 0 && hour < 24)
+  const first = Math.min(8, ...hours)
+  const last = Math.max(21, ...hours)
+  return Array.from({ length: last - first + 1 }, (_, i) => i + first)
+})
 
 const currentMonthInfo = computed(() => {
   const y = currentDate.value.getFullYear()
@@ -776,9 +793,13 @@ async function loadData() {
 }
 
 async function loadEvents() {
+  const request = ++eventRequest
+  eventError.value = ''
+  events.value = []
   const y = currentDate.value.getFullYear()
   const m = currentDate.value.getMonth() + 1
   const result = await casyContext.calendar.events(y, m)
+  if (request !== eventRequest) return
   if (result.ok && Array.isArray(result.data)) {
     events.value = result.data.map(e => ({
       ...e,
@@ -786,6 +807,8 @@ async function loadEvents() {
       endTime: e.endTime || null,
       allDay: !!e.allDay,
     }))
+  } else {
+    eventError.value = result.error || '日程加载失败'
   }
 }
 
@@ -804,10 +827,14 @@ async function loadTodayTasks() {
 }
 
 async function loadCases() {
-  const result = await casyContext.cases.list()
-  if (result.ok && Array.isArray(result.data)) {
-    cases.value = result.data
+  const items = []
+  for (let page = 1; ; page++) {
+    const result = await casyContext.cases.list({ page, perPage: 200 })
+    if (!result.ok || !Array.isArray(result.data?.items)) return
+    items.push(...result.data.items)
+    if (!result.data.items.length || items.length >= result.data.total) break
   }
+  cases.value = items
 }
 
 async function loadDeadlineWarnings() {
@@ -890,6 +917,7 @@ async function createFromNaturalLanguage() {
 
 <template>
   <div class="stitch-calendar-workspace">
+    <div v-if="eventError" class="calendar-data-error" role="alert">日程加载失败 <el-button text @click="loadEvents">重试</el-button></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
     <div class="calendar-top-header">
       <div class="header-titles">
@@ -1162,7 +1190,9 @@ async function createFromNaturalLanguage() {
                 @dragover="onDragOver"
                 @drop="onDropOnDay($event, col.date)"
               >
-                <div v-if="col.hasHard" class="allday-court-pill">法庭开庭日</div>
+                <button v-for="ev in eventsForDay(col.date).filter(e => !e.time)" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
+                  <strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
+                </button>
                 <div
                   v-for="mt in col.multiDayTasks"
                   :key="'w-mt-' + mt.id"
@@ -1199,6 +1229,9 @@ async function createFromNaturalLanguage() {
                   >
                     <span class="w-task-title">{{ t.taskName }}</span>
                   </div>
+                  <button v-for="ev in eventsForDay(col.date).filter(e => e.time?.startsWith(String(h).padStart(2, '0')))" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
+                    <span>{{ ev.time }}</span><strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1239,6 +1272,15 @@ async function createFromNaturalLanguage() {
             </div>
           </div>
 
+          <div v-if="eventsForDay(currentDate).some(e => !e.time) || tasksForDay(currentDate).some(t => !t.startTime)" class="day-unscheduled">
+            <h3>全天 / 未指定时间</h3>
+            <button v-for="ev in eventsForDay(currentDate).filter(e => !e.time)" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
+              <strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
+            </button>
+            <button v-for="task in tasksForDay(currentDate).filter(t => !t.startTime && !eventsForDay(currentDate).some(e => e.type === 'task' && e.id === t.id))" :key="task.id" type="button" class="calendar-event-item" @click="openEditDetail(task, 'task')">
+              <strong>{{ task.taskName }}</strong><span>{{ task.caseName }}</span>
+            </button>
+          </div>
           <div class="day-hours-drop-stream">
             <div
               v-for="h in weekHours"
@@ -1265,6 +1307,10 @@ async function createFromNaturalLanguage() {
                       <el-icon v-if="t.completed" :size="12"><Check /></el-icon>
                     </button>
                   </div>
+                  <button v-for="ev in eventsForDay(currentDate).filter(e => e.time?.startsWith(String(h).padStart(2, '0')))" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
+                    <span>{{ ev.time }}<template v-if="ev.endTime"> - {{ ev.endTime }}</template></span>
+                    <strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
+                  </button>
                 </template>
                 <div v-else class="hour-empty-slot-placeholder">
                   <span>{{ dragOverKey === `hour-${h}` ? `松开鼠标安排至 ${String(h).padStart(2, '0')}:00` : 'Available Slot · 拖入右侧待办直接排期' }}</span>
@@ -1637,6 +1683,13 @@ async function createFromNaturalLanguage() {
 </template>
 
 <style scoped>
+.calendar-data-error { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--c-danger); }
+.calendar-event-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-left: 3px solid var(--c-danger); border-radius: 4px; background: var(--c-bg-hover); color: var(--c-text); text-align: left; font: inherit; cursor: pointer; margin-block: 4px; }
+.calendar-event-item strong, .calendar-event-item span { overflow-wrap: anywhere; min-width: 0; }
+.calendar-event-item span { font-size: 12px; color: var(--c-text-secondary); }
+.calendar-event-item:hover { background: var(--c-bg-page); }
+.day-unscheduled { padding: 16px; border-bottom: 1px solid var(--c-border); }
+.day-unscheduled h3 { font-size: 13px; margin: 0 0 8px; }
 /* ═══════════════════════════════════════════════════════════
    Stitch Unified Calendar Layout (v4.0_9 & v4.1_3)
    ═══════════════════════════════════════════════════════════ */

@@ -10,23 +10,20 @@ export interface GanttItem {
   title: string
   date: string // YYYY-MM-DD
   caseName?: string
+  caseId?: string
   daysLeft: number
 }
 
 const props = withDefaults(defineProps<{ items: GanttItem[]; windowDays?: number }>(), { windowDays: 30 })
+const emit = defineEmits<{ (e: 'select', item: GanttItem): void }>()
 
 const today = new Date()
-const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
 const rows = computed(() =>
   [...props.items]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(it => {
-      const d = new Date(it.date)
-      const dayIdx = Math.max(
-        0,
-        Math.min(props.windowDays - 1, Math.round((d.getTime() - today.getTime()) / 86400000)),
-      )
+      const dayIdx = Math.max(0, Math.min(props.windowDays, it.daysLeft))
       return {
         ...it,
         leftPct: (dayIdx / props.windowDays) * 100,
@@ -36,7 +33,7 @@ const rows = computed(() =>
 )
 
 const axisTicks = computed(() =>
-  [0, Math.floor(props.windowDays / 2), props.windowDays - 1].map(d => {
+  [0, Math.floor(props.windowDays / 2), props.windowDays].map(d => {
     const dt = new Date(today.getTime() + d * 86400000)
     return { d, label: `${dt.getMonth() + 1}/${dt.getDate()}` }
   }),
@@ -51,7 +48,8 @@ const axisTicks = computed(() =>
       </span>
     </div>
     <ul class="gt-rows">
-      <li v-for="r in rows" :key="r.id" class="gt-row">
+      <li v-for="r in rows" :key="r.id">
+        <button type="button" class="gt-row" @click="emit('select', r)" :aria-label="`${r.title}，${r.caseName || ''}，${r.date}`">
         <span class="gt-title" :title="`${r.title} · ${r.caseName}`">{{ r.title }}</span>
         <div class="gt-lane">
           <span
@@ -65,6 +63,7 @@ const axisTicks = computed(() =>
         <span class="gt-days" :class="'d-' + r.urgency">
           {{ r.daysLeft === 0 ? '今天' : `${r.daysLeft}天` }}
         </span>
+        </button>
       </li>
     </ul>
     <div v-if="!items.length" class="gt-empty">未来 {{ windowDays }} 天没有庭审安排</div>
@@ -74,18 +73,24 @@ const axisTicks = computed(() =>
 <style scoped>
 .gantt { display: flex; flex-direction: column; gap: 2px; }
 .gt-axis {
+  margin-left: calc(var(--gt-label-width) + 8px);
+  margin-right: 48px;
   position: relative; height: 16px;
   font-size: var(--text-sm); color: var(--c-text-secondary);
   font-family: var(--font-mono);
 }
 .gt-tick { position: absolute; transform: translateX(-50%); }
+.gt-tick:first-child { transform: none; }
+.gt-tick:last-child { transform: translateX(-100%); }
 .gt-rows { list-style: none; margin: 0; padding: 0; }
 .gt-row {
   display: flex; align-items: center; gap: 8px;
-  height: 30px;
+  min-height: 40px; width: 100%; border: 0; padding: 0; background: transparent; font: inherit; text-align: left; cursor: pointer;
 }
+.gt-row:hover { background: var(--c-bg-hover); }
+.gantt { --gt-label-width: 120px; }
 .gt-title {
-  width: 150px; flex-shrink: 0;
+  width: var(--gt-label-width); flex-shrink: 0;
   font-size: var(--text-base); color: var(--c-text-regular);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -119,4 +124,5 @@ const axisTicks = computed(() =>
   padding: 18px 0; text-align: center;
   font-size: var(--text-base); color: var(--c-text-secondary);
 }
+@media (max-width: 600px) { .gantt { --gt-label-width: 88px; } }
 </style>

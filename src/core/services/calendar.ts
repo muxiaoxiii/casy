@@ -7,10 +7,20 @@ export class CalendarService extends Service {
   static inject: string[] = []
 
   async events(year?: number, month?: number): Promise<{ ok: boolean; data?: CalendarEvent[]; error?: string }> {
-    return tauriCallSafe('get_calendar_events', {
+    const result = await tauriCallSafe('get_calendar_events', {
       year: year ?? new Date().getFullYear(),
       month: month ?? new Date().getMonth() + 1,
     })
+    if (!result.ok || !result.data) return { ok: false, error: result.error }
+    return {
+      ok: true,
+      data: result.data.map(event => ({
+        ...event,
+        type: event.eventType,
+        color: event.eventType === 'hearing' || event.eventType === 'deadline_red'
+          ? 'var(--c-danger)' : event.eventType.startsWith('deadline') ? 'var(--c-warning)' : 'var(--c-primary)',
+      })),
+    }
   }
 
   // ── D-7 独立日程（calendar_events · M-CAL-1）──
