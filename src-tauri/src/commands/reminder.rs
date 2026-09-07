@@ -318,10 +318,14 @@ fn check_task_rules(
     let mut triggered = Vec::new();
 
     let mut stmt = conn.prepare(
-        "SELECT t.id, t.case_id, t.task_name, t.deadline, t.due_time, COALESCE(c.case_name, '')
+        "SELECT t.id, t.case_id, t.task_name,
+                COALESCE(NULLIF(t.due_date, ''), NULLIF(t.deadline, '')) AS task_deadline,
+                t.due_time, COALESCE(c.case_name, '')
          FROM tasks t
          LEFT JOIN cases c ON c.id = t.case_id
-         WHERE t.completed = 0 AND t.deadline IS NOT NULL AND t.deadline != '' AND t.deleted_at IS NULL",
+         WHERE t.completed = 0
+           AND COALESCE(NULLIF(t.due_date, ''), NULLIF(t.deadline, '')) IS NOT NULL
+           AND t.deleted_at IS NULL",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -1820,6 +1824,44 @@ mod tests {
         let rule_after2 = test_rule("deadline_after", 2);
         let triggered = check_deadline_rules(&conn, &rule_after2, today).unwrap();
         assert_eq!(triggered.len(), 0, "未逾期不触发 after 规则");
+    }
+
+    #[test]
+    fn task_due_rule_uses_due_date_when_deadline_is_empty() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO cases (id, case_name) VALUES ('c-task', '任务案件')",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (
+               id TEXT PRIMARY KEY,
+               case_id TEXT,
+               task_name TEXT NOT NULL,
+               deadline TEXT,
+               due_date TEXT,
+               due_time TEXT,
+               completed INTEGER DEFAULT 0,
+               deleted_at TEXT
+             );",
+        )
+        .unwrap();
+
+        let today = chrono::Local::now().date_naive();
+        let due = today.format("%Y-%m-%d").to_string();
+        conn.execute(
+            "INSERT INTO tasks (id, case_id, task_name, deadline, due_date, due_time, completed, deleted_at)
+             VALUES ('t-due-date', 'c-task', '只填 dueDate 的任务', NULL, ?1, NULL, 0, NULL)",
+            params![due],
+        )
+        .unwrap();
+
+        let rule = test_rule("task_due", 0);
+        let triggered = check_task_rules(&conn, &rule, today).unwrap();
+        assert_eq!(triggered.len(), 1);
+        assert_eq!(triggered[0].task_id.as_deref(), Some("t-due-date"));
+        assert!(triggered[0].message.contains("只填 dueDate 的任务"));
     }
 
     #[test]
