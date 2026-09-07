@@ -70,8 +70,8 @@ onMounted(() => {
 <template>
   <div class="backup-settings">
     <div class="backup-intro">
-      所有数据以加密形式保存在本机。建议每周至少手动备份一次；备份为完整加密快照，
-      可在换机或异常时整库恢复。
+      数据库以加密形式保存在本机。建议每周至少手动备份一次；当前备份为数据库加密快照，
+      可恢复案件、任务、日历与索引记录，不包含案件目录中的原始卷宗文件。
     </div>
 
     <div class="backup-actions">

@@ -82,12 +82,12 @@ export function useVoiceNote() {
     // 将音频转换为 base64
     const reader = new FileReader()
     reader.onloadend = async () => {
-      const base64 = (reader.result as string).split(',')[1]
+      const audioData = Array.from(new Uint8Array(await audioBlob.arrayBuffer()))
 
       // 保存到临时文件
       const result = await tauriCallSafe('save_voice_note', {
-        audioData: base64,
-        mimeType: 'audio/webm',
+        audioData,
+        durationSeconds: recordingTime.value,
       })
 
       if (result.ok && result.data) {
@@ -96,7 +96,7 @@ export function useVoiceNote() {
           sourceType: 'note',
           title: `语音速记 ${new Date().toLocaleTimeString()}`,
           contentText: transcript.value || '（语音待转写）',
-          sourcePath: result.data.path,
+          sourcePath: result.data,
         })
 
         transcript.value = ''

@@ -7,6 +7,8 @@
  * 判断依据：window.__TAURI_INTERNALS__ 是否存在。
  */
 
+import { addDaysLocalISO, todayLocalISO, toLocalISODate, daysUntil } from '../shared/utils/date'
+
 export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__
 }
@@ -30,6 +32,7 @@ const mockTasks = [
   { id: 't6', taskName: '大疆案庭前调解方案', caseId: null, priority: 'normal', taskType: 'action', startBucket: 'someday' },
   { id: 't7', taskName: '更新案件进度周报', caseId: null, priority: 'normal', dueDate: '2026-08-21', taskType: 'action', startBucket: 'today', blocked: 0 },
 ]
+
 
 const mockEvents = [
   { id: 'e1', title: '隆基无效口审', date: '2026-08-25', type: 'hearing', caseId: 'c1', time: '09:30' },
@@ -70,6 +73,37 @@ const mockStats = {
 // ── Mock 命令处理 ────────────────────────────────────────
 function handleMockCommand(command: string, args: Record<string, unknown>): unknown {
   switch (command) {
+    case 'get_track_distribution': {
+      const counts = new Map<string, number>()
+      mockCases.forEach(c => counts.set(c.track, (counts.get(c.track) || 0) + 1))
+      return Array.from(counts, ([label, value]) => ({ label, value }))
+    }
+    case 'get_monthly_task_trend': {
+      const count = Math.min(24, Math.max(1, Number(args.months) || 6))
+      const now = new Date()
+      return Array.from({ length: count }, (_, i) => {
+        const month = toLocalISODate(new Date(now.getFullYear(), now.getMonth() - count + i + 1, 1)).slice(0, 7)
+        return { month, created: mockTasks.filter((t: { id: string; createdDate?: string }) => t.createdDate?.slice(0, 7) === month).length, completed: 0 }
+      })
+    }
+    case 'get_upcoming_hearings': {
+      const today = todayLocalISO()
+      const end = addDaysLocalISO(today, Number(args.days) || 30)
+      return mockEvents.filter(e => ['hearing', 'court'].includes(e.type) && e.date >= today && e.date <= end).map(e => ({
+        id: e.id, title: e.title, date: e.date, caseId: e.caseId,
+        caseName: mockCases.find(c => c.id === e.caseId)?.caseName || '', daysLeft: daysUntil(e.date),
+      }))
+    }
+    case 'get_today_kpis': {
+      const today = todayLocalISO()
+      const pending = mockTasks.filter((t: { id: string; completed?: number }) => !t.completed)
+      return {
+        todayEvents: mockEvents.filter(e => ['hearing', 'court'].includes(e.type) && e.date === today).length,
+        dueToday: pending.filter((t: { dueDate?: string; deadline?: string }) => t.dueDate === today || t.deadline === today).length,
+        waitingOverdue: pending.filter(t => t.taskType === 'waiting' && t.followUpDate && t.followUpDate < today).length,
+        reviewDue: pending.filter((t: { id: string; nextReviewDate?: string }) => t.nextReviewDate && t.nextReviewDate <= today).length,
+      }
+    }
     case 'get_today_stats':
       return { ...mockStats }
     case 'list_cases':
@@ -82,8 +116,14 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
           events: mockEvents,
         }
       }
-      const items = mockCases
-      return { items, total: items.length }
+      const filter = (args.filter as Record<string, unknown>) || {}
+      const filtered = mockCases.filter(c => (!filter.client || c.clientName === filter.client)
+        && (!filter.track || c.track === filter.track)
+        && (!filter.status || c.caseStatus === filter.status)
+        && (!filter.search || c.caseName.includes(String(filter.search))))
+      const page = Number(filter.page) || 1
+      const perPage = Number(filter.perPage) || 50
+      return { items: filtered.slice((page - 1) * perPage, page * perPage), total: filtered.length, page, perPage }
     }
     case 'get_case':
       return mockCases.find(c => c.id === args.id) || null
@@ -101,7 +141,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
     }
     case 'create_task': {
       const data = (args.data as any) || {}
-      const item = { id: `t${Date.now()}`, completed: 0, ...data }
+      const item = { id: `t${Date.now()}`, completed: 0, createdDate: todayLocalISO(), ...data }
       mockTasks.unshift(item)
       return item
     }
@@ -139,8 +179,8 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
         total: mockCases.length,
         active: mockCases.filter(c => c.caseStatus !== '已结案').length,
         closed: mockCases.filter(c => c.caseStatus === '已结案').length,
-        byTrack: [],
-        byClient: [],
+        byTrack: [...new Set(mockCases.map(c => c.track))].map(track => [track, mockCases.filter(c => c.track === track).length]),
+        byClient: [...new Set(mockCases.map(c => c.clientName))].map(client => [client, mockCases.filter(c => c.clientName === client).length]),
       }
     case 'list_knowledge':
       return { items: mockKnowledge.map(item => ({ ...item })), total: mockKnowledge.length }
@@ -220,17 +260,35 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       const item = mockKnowledge.find(k => k.id === args.id)
       return { item, blocks: [] }
     }
+    case 'add_inbox_item': {
+      const text = String(args.contentText || '')
+      const sourcePath = String(args.sourcePath || '')
+      const item = {
+        id: `i-${crypto.randomUUID()}`, title: String(args.title || text.split(/\r?\n/).find(line => line.trim()) || sourcePath.split(/[\\/]/).pop() || '未命名收件项').slice(0, 120),
+        contentText: text, sourcePath, sourceType: String(args.sourceType || 'note'),
+        sourceLabel: '', status: 'pending', caseId: '', caseName: '', createdAt: new Date().toISOString(),
+      }
+      mockInbox.unshift(item)
+      return item.id
+    }
     case 'list_inbox_items':
       return mockInbox.filter(item => !args.status || item.status === args.status)
     case 'dismiss_inbox_item': {
       const item = mockInbox.find(entry => entry.id === args.id)
-      if (item) item.status = 'dismissed'
+      if (item) item.status = 'ignored'
       return null
     }
     case 'confirm_inbox_action': {
       const item = mockInbox.find(entry => entry.id === args.inboxItemId)
-      if (item) item.status = 'filed'
-      return `mock-${Date.now()}`
+      if (!item || item.status !== 'pending' || args.action !== 'create_task') return undefined
+      const intent = (args.intent || {}) as Record<string, unknown>
+      const task = handleMockCommand('create_task', { data: {
+        ...intent, taskName: intent.taskName || item.title, description: intent.description || item.contentText,
+        caseId: args.targetCaseId || null, taskType: intent.taskType || 'action',
+        startBucket: intent.startBucket || (intent.dueDate ? 'anytime' : 'inbox'), inboxSourceId: item.id,
+      } })
+      item.status = 'filed'
+      return { success: true, action: 'task_created', task }
     }
     case 'get_calendar_events': {
       const year = (args.year as number) || new Date().getFullYear()
@@ -238,7 +296,11 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       return mockEvents.filter(e => {
         const [y, m] = e.date.split('-').map(Number)
         return y === year && m === month
-      })
+      }).map(e => ({
+        id: e.id, date: e.date, title: e.title, eventType: e.type === 'court' ? 'hearing' : e.type,
+        caseId: e.caseId || '', caseName: mockCases.find(c => c.id === e.caseId)?.caseName || '',
+        startTime: e.time, endTime: null, allDay: false,
+      }))
     }
     case 'get_deadline_warnings_with_levels':
     case 'get_deadline_warnings':

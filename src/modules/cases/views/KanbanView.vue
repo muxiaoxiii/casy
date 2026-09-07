@@ -65,17 +65,23 @@ const adminColumns: KanbanColumn[] = [
   { key: 'closed', title: '结案', icon: CircleCheck, color: '#10b981', statuses: ['closed'] },
 ]
 
+function routeContainsTrack(route: CaseRoute | null | undefined, track: '民事诉讼' | '专利无效' | '行政诉讼'): boolean {
+  const value = route || '民事诉讼'
+  return value === '三轨并行' || value.includes(track)
+}
+
+function statusFieldForRoute(route: CaseRoute): 'civilStatus' | 'invalidationStatus' | 'adminStatus' {
+  if (route.includes('专利无效')) return 'invalidationStatus'
+  if (route.includes('行政诉讼') && !route.includes('民事诉讼')) return 'adminStatus'
+  return 'civilStatus'
+}
+
 /** 当前激活的列定义 */
 const activeColumns = computed<KanbanColumn[]>(() => {
-  switch (activeRoute.value) {
-    case '专利无效':
-    case '专利无效+行政诉讼':
-      return invalidationColumns
-    case '行政诉讼':
-      return adminColumns
-    default:
-      return civilColumns
-  }
+  const field = statusFieldForRoute(activeRoute.value)
+  if (field === 'invalidationStatus') return invalidationColumns
+  if (field === 'adminStatus') return adminColumns
+  return civilColumns
 })
 
 // 轨道选项（只显示有案件的轨道）
@@ -104,13 +110,15 @@ function assignCasesToColumns(allCases: Case[]) {
     const route = c.caseRoute || '民事诉讼'
     switch (activeRoute.value) {
       case '民事诉讼':
-        return route.includes('民事诉讼')
+        return routeContainsTrack(route, '民事诉讼')
       case '专利无效':
-        return route.includes('专利无效')
+        return routeContainsTrack(route, '专利无效')
       case '行政诉讼':
-        return route.includes('行政诉讼')
+        return routeContainsTrack(route, '行政诉讼')
       case '民事诉讼+专利无效':
         return route === '民事诉讼+专利无效' || route === '三轨并行'
+      case '民事诉讼+行政诉讼':
+        return route === '民事诉讼+行政诉讼' || route === '三轨并行'
       case '专利无效+行政诉讼':
         return route === '专利无效+行政诉讼' || route === '三轨并行'
       default:
@@ -121,17 +129,8 @@ function assignCasesToColumns(allCases: Case[]) {
   for (const c of filtered) {
     // 根据当前轨道取对应状态
     let status: string | null = null
-    switch (activeRoute.value) {
-      case '专利无效':
-      case '专利无效+行政诉讼':
-        status = c.invalidationStatus
-        break
-      case '行政诉讼':
-        status = c.adminStatus
-        break
-      default:
-        status = c.civilStatus
-    }
+    const statusField = statusFieldForRoute(activeRoute.value)
+    status = c[statusField] || null
 
     let placed = false
     for (const col of activeColumns.value) {
@@ -162,28 +161,15 @@ function formatDate(dateStr: string | null): string {
 
 // 获取当前轨道的状态标签
 function getStatusLabel(c: Case): string {
-  switch (activeRoute.value) {
-    case '专利无效':
-    case '专利无效+行政诉讼':
-      return c.invalidationStatus ? INVALIDATION_STATUS_LABELS[c.invalidationStatus] : ''
-    case '行政诉讼':
-      return c.adminStatus ? ADMIN_STATUS_LABELS[c.adminStatus] : ''
-    default:
-      return c.civilStatus ? CIVIL_STATUS_LABELS[c.civilStatus] : ''
-  }
+  const field = statusFieldForRoute(activeRoute.value)
+  if (field === 'invalidationStatus') return c.invalidationStatus ? INVALIDATION_STATUS_LABELS[c.invalidationStatus] : ''
+  if (field === 'adminStatus') return c.adminStatus ? ADMIN_STATUS_LABELS[c.adminStatus] : ''
+  return c.civilStatus ? CIVIL_STATUS_LABELS[c.civilStatus] : ''
 }
 
 // 获取当前轨道的状态字段名（用于拖拽更新）
 function getStatusFieldName(): string {
-  switch (activeRoute.value) {
-    case '专利无效':
-    case '专利无效+行政诉讼':
-      return 'invalidationStatus'
-    case '行政诉讼':
-      return 'adminStatus'
-    default:
-      return 'civilStatus'
-  }
+  return statusFieldForRoute(activeRoute.value)
 }
 
 // 拖拽结束 → 更新案件状态

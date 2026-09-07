@@ -1,11 +1,10 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
-import { useInboxStore } from '../../../stores/inbox'
-import { useCapture } from '../composables/useCapture'
-import { useVoiceNote } from '../composables/useVoiceNote'
 import { AI_PROMPTS } from '../../../core/prompts'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { todayLocalISO } from '../../../shared/utils/date'
+import { isTauriRuntime } from '../../../core/mockData'
+import { ElMessage } from 'element-plus'
 import {
   Folder,
   Finished,
@@ -33,11 +32,8 @@ import {
   Paperclip,
   Clock,
   Warning,
+  Refresh,
 } from '@element-plus/icons-vue'
-
-const inboxStore = useInboxStore()
-const { captureScreenshot, captureClipboard } = useCapture()
-const { isRecording, startRecording, stopRecording } = useVoiceNote()
 
 const items = ref([])
 const loading = ref(false)
@@ -47,51 +43,46 @@ const selectedItemId = ref('')
 const sourceFilter = ref('all')
 const quickCaptureInputText = ref('')
 const casesList = ref([])
+const loadError = ref('')
+const statusFilter = ref('pending')
+const clarifyTitle = ref('')
+const clarifyWaitingFor = ref('')
+const clarifyFollowUp = ref('')
+const nativeFiles = isTauriRuntime()
 
 // GTD 澄清状态
 const clarifyAction = ref('action') // 'action' | 'delegate' | 'wait' | 'someday'
-const clarifyContext = ref('@Desk')
+const clarifyContext = ref('office')
 const clarifyMatter = ref('')
 const clarifyCaseId = ref('')
 const clarifyDoWhen = ref('today')
 const clarifyDeadline = ref('')
 const clarifyNotes = ref('')
-const clarifyEstMinutes = ref(15)
-
-// 快速判断与 AI 结果缓存
-const quickJudgeResults = ref({})
-const aiResults = ref({})
-
-const folderOptions = [
-  { value: '01_传票', label: '01_传票' },
-  { value: '02_证据', label: '02_证据' },
-  { value: '03_交文', label: '03_交文' },
-  { value: '04_收文', label: '04_收文' },
-  { value: '05_内部', label: '05_内部' },
-  { value: '06_通信', label: '06_通信' },
-  { value: '07_其他', label: '07_其他' },
-]
+const clarifyEstMinutes = ref(null)
 
 const pendingItems = computed(() => items.value.filter((i) => i.status === 'pending'))
 const filedItems = computed(() => items.value.filter((i) => i.status === 'filed'))
 
 const sourceFilters = computed(() => {
-  const counts = pendingItems.value.reduce((result, item) => {
+  const currentItems = statusFilter.value === 'pending' ? pendingItems.value : filedItems.value
+  const counts = currentItems.reduce((result, item) => {
     const source = item.sourceType || 'note'
     result[source] = (result[source] || 0) + 1
     return result
   }, {})
   return [
-    { value: 'all', label: 'All Inbox', count: pendingItems.value.length, icon: Collection },
-    { value: 'email', label: 'Email', count: counts.email || 0, icon: Message },
-    { value: 'wechat', label: 'WeChat', count: counts.wechat || 0, icon: ChatDotRound },
-    { value: 'note', label: 'Call Notes & 速记', count: counts.note || 0, icon: Phone },
+    { value: 'all', label: '全部', count: currentItems.length, icon: Collection },
+    { value: 'email', label: '邮件', count: counts.email || 0, icon: Message },
+    { value: 'wechat', label: '微信', count: counts.wechat || 0, icon: ChatDotRound },
+    { value: 'note', label: '速记', count: counts.note || 0, icon: Phone },
+    { value: 'file', label: '文件', count: counts.file || 0, icon: Paperclip },
   ]
 })
 
 const filteredPendingItems = computed(() => {
-  if (sourceFilter.value === 'all') return pendingItems.value
-  return pendingItems.value.filter((item) => (item.sourceType || 'note') === sourceFilter.value)
+  const list = statusFilter.value === 'pending' ? pendingItems.value : filedItems.value
+  if (sourceFilter.value === 'all') return list
+  return list.filter((item) => (item.sourceType || 'note') === sourceFilter.value)
 })
 
 const selectedItem = computed(() => {
@@ -107,11 +98,26 @@ function selectSource(val) {
 
 function selectItem(item) {
   selectedItemId.value = item.id
+  resetClarification(item)
+}
+function resetClarification(item) {
+  if (!item) return
+  clarifyTitle.value = item.title || ''
+  clarifyAction.value = 'action'
+  clarifyContext.value = 'office'
+  clarifyDoWhen.value = 'today'
+  clarifyDeadline.value = ''
+  clarifyWaitingFor.value = ''
+  clarifyFollowUp.value = ''
+  clarifyEstMinutes.value = null
   clarifyNotes.value = item.contentText || ''
-  clarifyCaseId.value = item.aiSuggestedCaseId || item.caseId || ''
+  clarifyCaseId.value = item.linkedCaseId || item.aiSuggestedCaseId || item.caseId || ''
   const matched = casesList.value.find((c) => c.id === clarifyCaseId.value)
   clarifyMatter.value = matched?.displayName || matched?.caseName || item.caseName || ''
 }
+watch(() => selectedItem.value?.id, () => resetClarification(selectedItem.value))
+function sourceLabel(type) { return ({ email: '邮件', wechat: '微信', note: '速记', file: '文件' }[type] || '收件项') }
+function capturedAt(item) { return item.createdAt ? String(item.createdAt).replace('T', ' ').slice(0, 16) : '' }
 
 function onClarifyCaseChange(caseId) {
   clarifyCaseId.value = caseId
@@ -123,18 +129,23 @@ function onClarifyCaseChange(caseId) {
 // 数据加载
 // ============================================================
 onMounted(async () => {
+  window.addEventListener('casy:inbox-changed', loadItems)
   await loadItems()
   await loadCases()
   if (filteredPendingItems.value[0]) {
     selectItem(filteredPendingItems.value[0])
   }
 })
+onUnmounted(() => window.removeEventListener('casy:inbox-changed', loadItems))
 
 async function loadItems() {
   loading.value = true
+  loadError.value = ''
   const result = await casyContext.inbox.list()
   if (result.ok && Array.isArray(result.data)) {
     items.value = result.data
+  } else {
+    loadError.value = result.error || '收件箱加载失败'
   }
   loading.value = false
 }
@@ -153,80 +164,43 @@ async function loadCases() {
 // ============================================================
 async function processCurrentItem(actionType = clarifyAction.value) {
   const item = selectedItem.value
-  if (!item) return
+  if (!item || processing.value) return
+  if (!clarifyTitle.value.trim()) return ElMessage.warning('请填写任务标题')
 
   processing.value = true
-  let actionResult = { ok: true }
-  if (actionType === 'action') {
-    // 转为任务
-    actionResult = await casyContext.tasks.create({
-      taskName: item.title,
-      description: clarifyNotes.value || item.contentText,
-      caseId: clarifyCaseId.value || null,
-      caseName: clarifyMatter.value || null,
-      startBucket: clarifyDoWhen.value,
-      dueDate: clarifyDeadline.value || null,
-      estimatedMinutes: clarifyEstMinutes.value,
-    })
-  } else if (actionType === 'delegate') {
-    actionResult = await casyContext.tasks.create({
-      taskName: item.title,
-      description: clarifyNotes.value || item.contentText,
-      caseId: clarifyCaseId.value || null,
-      caseName: clarifyMatter.value || null,
-      taskType: 'waiting',
-      waitingFor: '待指定负责人',
-      startBucket: 'anytime',
-    })
-  } else if (actionType === 'wait') {
-    // 设为等待
-    actionResult = await casyContext.tasks.create({
-      taskName: `等外部回复: ${item.title}`,
-      description: clarifyNotes.value,
-      caseId: clarifyCaseId.value || null,
-      caseName: clarifyMatter.value || null,
-      taskType: 'waiting',
-      startBucket: 'anytime',
-    })
-  } else if (actionType === 'someday') {
-    // 放入将来也许
-    actionResult = await casyContext.tasks.create({
-      taskName: item.title,
-      caseId: clarifyCaseId.value || null,
-      caseName: clarifyMatter.value || null,
-      startBucket: 'someday',
-    })
+
+  const taskIntent = {
+    taskName: clarifyTitle.value.trim(),
+    description: clarifyNotes.value || item.contentText || '',
+    taskType: actionType === 'delegate' || actionType === 'wait' ? 'waiting' : 'action',
+    startBucket: actionType === 'someday' ? 'someday' : clarifyDoWhen.value,
+    dueDate: clarifyDeadline.value || null,
+    startDate: clarifyDoWhen.value === 'today' ? todayLocalISO() : null,
+    waitingFor: ['delegate', 'wait'].includes(actionType) ? clarifyWaitingFor.value.trim() || null : null,
+    followUpDate: ['delegate', 'wait'].includes(actionType) ? clarifyFollowUp.value || null : null,
+    context: clarifyContext.value || null,
+    estimatedMinutes: clarifyEstMinutes.value || null,
   }
 
-  if (!actionResult.ok) {
+  const confirmResult = await casyContext.inbox.confirmAction({
+    inboxItemId: item.id,
+    action: 'create_task',
+    targetCaseId: clarifyCaseId.value || null,
+    intent: taskIntent,
+  })
+  if (!confirmResult.ok) {
     processing.value = false
-    ElMessage.error(actionResult.error || '操作失败，收件项未被归档')
+    ElMessage.error(confirmResult.error || '操作失败，收件项未被归档')
     return
   }
 
   const successMessages = {
-    action: '已转为行动并归入案件业务链条',
+    action: '已创建任务',
     delegate: '已建立委派跟踪任务',
     wait: '已记入外部等待列表',
     someday: '已归入将来也许清单',
   }
   ElMessage.success(successMessages[actionType] || '处理完成')
-
-  // 标记收件项完成
-  if (item.id) {
-    const confirmResult = await casyContext.inbox.confirmAction({
-      inboxItemId: item.id,
-      action: actionType === 'action' || actionType === 'delegate' || actionType === 'wait'
-        ? 'create_task'
-        : 'file_to_case',
-      targetCaseId: clarifyCaseId.value || null,
-    })
-    if (!confirmResult.ok) {
-      processing.value = false
-      ElMessage.warning(confirmResult.error || '任务已创建，但收件项归档失败，请稍后重试')
-      return
-    }
-  }
 
   processing.value = false
   await loadItems()
@@ -278,7 +252,7 @@ async function structureWithAI() {
 // 快速捕获
 async function submitQuickCapture() {
   const text = quickCaptureInputText.value.trim()
-  if (!text) return
+  if (!text || processing.value) return
   processing.value = true
   const result = await casyContext.inbox.add('note', text)
   processing.value = false
@@ -286,10 +260,17 @@ async function submitQuickCapture() {
     ElMessage.success('已快速捕获到收件箱')
     quickCaptureInputText.value = ''
     await loadItems()
+    statusFilter.value = 'pending'
+    sourceFilter.value = 'all'
+    selectedItemId.value = result.data || ''
+  } else {
+    ElMessage.error(result.error || '捕获失败')
   }
 }
 
 async function importFile() {
+  if (!nativeFiles || processing.value) return
+  try {
   const { open } = await import('@tauri-apps/plugin-dialog')
   const selected = await open({ multiple: true })
   if (!selected) return
@@ -314,6 +295,10 @@ async function importFile() {
     ElMessage.success(`已导入 ${files.length} 个文件`)
   }
   await loadItems()
+  } catch (error) {
+    processing.value = false
+    ElMessage.error(error instanceof Error ? error.message : '文件导入失败')
+  }
 }
 
 async function dismissItem(item) {
@@ -328,1015 +313,139 @@ async function dismissItem(item) {
 </script>
 
 <template>
-  <div class="stitch-inbox-view">
-    <!-- ═══ 顶部全局快速捕获条 (Global Capture Bar) ═══ -->
-    <div class="quick-capture-hero-bar">
-      <div class="capture-input-container">
-        <div class="capture-icon-bubble">
-          <el-icon :size="16" color="var(--c-primary)"><Plus /></el-icon>
+  <div class="inbox-page">
+    <header class="inbox-header">
+      <div><h1>收件箱</h1><span>{{ pendingItems.length }} 项待处理</span></div>
+      <el-button :icon="Refresh" circle :loading="loading" title="刷新收件箱" aria-label="刷新收件箱" @click="loadItems" />
+    </header>
+    <form class="quick-capture" @submit.prevent="submitQuickCapture">
+      <el-icon><Plus /></el-icon>
+      <input v-model="quickCaptureInputText" aria-label="快速记录" placeholder="记录一件待办或想法…" :disabled="processing" />
+      <el-button :icon="Paperclip" text circle :disabled="!nativeFiles || processing" :title="nativeFiles ? '导入文件' : '请在桌面应用中导入文件'" aria-label="导入文件" @click="importFile" />
+      <el-button :icon="ArrowRight" type="primary" native-type="submit" :disabled="!quickCaptureInputText.trim()" :loading="processing" aria-label="存入收件箱" title="存入收件箱" />
+    </form>
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
+    <div class="inbox-layout" v-loading="loading">
+      <section class="inbox-list">
+        <div class="list-controls">
+          <el-radio-group v-model="statusFilter" size="small" aria-label="处理状态">
+            <el-radio-button value="pending">待处理 {{ pendingItems.length }}</el-radio-button>
+            <el-radio-button value="filed">已处理 {{ filedItems.length }}</el-radio-button>
+          </el-radio-group>
+          <nav class="source-filters" aria-label="收件来源">
+            <button v-for="source in sourceFilters" :key="source.value" type="button" :class="{ active: sourceFilter === source.value }" :aria-pressed="sourceFilter === source.value" @click="selectSource(source.value)">{{ source.label }}<span>{{ source.count }}</span></button>
+          </nav>
         </div>
-        <input
-          v-model="quickCaptureInputText"
-          class="capture-real-input"
-          :placeholder="$t('inbox.capture_placeholder')"
-          @keyup.enter="submitQuickCapture"
-        />
-        <div class="capture-tools">
-          <button class="tool-btn" :class="{ recording: isRecording }" title="语音速记" @click="startRecording">
-            <el-icon :size="16"><Microphone /></el-icon>
+        <div class="item-list">
+          <button v-for="item in filteredPendingItems" :key="item.id" class="inbox-item" :class="{ selected: selectedItem?.id === item.id }" :aria-pressed="selectedItem?.id === item.id" @click="selectItem(item)">
+            <span class="item-meta"><span>{{ sourceLabel(item.sourceType) }}</span><span v-if="capturedAt(item)">{{ capturedAt(item) }}</span></span>
+            <strong>{{ item.title || '未命名收件项' }}</strong>
+            <span class="item-snippet">{{ item.contentText || item.sourcePath || item.filePath || '附件' }}</span>
+            <span v-if="item.caseName" class="item-case"><el-icon><Briefcase /></el-icon>{{ item.caseName }}</span>
           </button>
-          <button class="tool-btn" title="导入文件" @click="importFile">
-            <el-icon :size="16"><Paperclip /></el-icon>
-          </button>
+          <p v-if="!loading && !filteredPendingItems.length && !loadError" class="empty-state">{{ statusFilter === 'pending' ? '暂无待处理事项' : '暂无已处理事项' }}</p>
         </div>
-      </div>
-    </div>
-
-    <!-- ═══ 三栏澄清台主体 (Split View) ═══ -->
-    <div class="inbox-three-columns">
-      <!-- ── 左栏：Sources & Status (240px) ── -->
-      <aside class="inbox-sources-sidebar">
-        <div class="sidebar-section-title">
-          <span>{{ $t('inbox.sources') }}</span>
-        </div>
-
-        <nav class="sources-nav-list">
-          <button
-            v-for="src in sourceFilters"
-            :key="src.value"
-            type="button"
-            class="source-nav-item"
-            :class="{ active: sourceFilter === src.value }"
-            @click="selectSource(src.value)"
-          >
-            <div class="source-nav-left">
-              <el-icon class="source-ico" :size="16"><component :is="src.icon" /></el-icon>
-              <span>{{ src.label }}</span>
-            </div>
-            <span class="source-count-pill">{{ src.count }}</span>
-          </button>
-        </nav>
-
-        <div class="sidebar-section-title" style="margin-top: 24px;">
-          <span>{{ $t('inbox.status') }}</span>
-        </div>
-
-        <button class="source-nav-item status-alert-item" :class="{ active: sourceFilter === 'needs-clarify' }" @click="selectSource('all')">
-          <div class="source-nav-left">
-            <el-icon class="text-warning" :size="16"><Timer /></el-icon>
-            <span>Needs Clarification</span>
+      </section>
+      <section v-if="selectedItem" class="clarify-panel">
+        <header class="clarify-header">
+          <span>{{ selectedItem.status === 'pending' ? '整理收件项' : '已处理收件项' }}</span>
+          <div v-if="selectedItem.status === 'pending'">
+            <el-button :icon="MagicStick" text circle :loading="structuring" :disabled="processing" title="AI 提取待办信息" aria-label="AI 提取待办信息" @click="structureWithAI" />
+            <el-button :icon="Delete" text circle :disabled="processing" title="忽略此项" aria-label="忽略此项" @click="dismissItem(selectedItem)" />
           </div>
-        </button>
-      </aside>
-
-      <!-- ── 中栏：Unprocessed Stream (事项流) ── -->
-      <main class="inbox-stream-panel">
-        <div class="stream-header-row">
-          <div>
-            <h2 class="section-title">{{ $t('inbox.needs_clarify') }} ({{ filteredPendingItems.length }})</h2>
-            <p class="stream-subtitle">Unprocessed items requiring your attention.</p>
-          </div>
-          <div class="stream-actions">
-            <button class="btn-clean-ghost" @click="importFile">
-              <el-icon :size="14"><Plus /></el-icon>
-              <span>New</span>
-              <kbd class="mini-kbd">⌘I</kbd>
-            </button>
-          </div>
-        </div>
-
-        <!-- 任务列表 -->
-        <div class="stream-card-list">
-          <div
-            v-for="item in filteredPendingItems"
-            :key="item.id"
-            class="inbox-stream-card"
-            :class="{ selected: selectedItem?.id === item.id }"
-            @click="selectItem(item)"
-          >
-            <!-- 左侧主色条 -->
-            <div v-if="selectedItem?.id === item.id" class="card-selected-line" />
-
-            <div class="card-content-wrap">
-              <div class="card-top-meta">
-                <span class="meta-source-kicker">{{ item.sourceLabel || 'RAW INBOX' }}</span>
-                <span class="meta-due-tag">{{ item.dueText || 'Due < 24h' }}</span>
+        </header>
+        <div class="clarify-body">
+          <template v-if="selectedItem.status === 'pending'">
+            <el-form label-position="top" :disabled="processing" @submit.prevent>
+              <el-form-item label="任务标题"><el-input v-model="clarifyTitle" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" aria-label="任务标题" /></el-form-item>
+              <el-form-item label="处理方式">
+                <el-radio-group v-model="clarifyAction" class="action-options" aria-label="处理方式">
+                  <el-radio-button value="action">行动</el-radio-button><el-radio-button value="delegate">委派</el-radio-button><el-radio-button value="wait">等待</el-radio-button><el-radio-button value="someday">将来也许</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="关联案件">
+                <el-select v-model="clarifyCaseId" filterable clearable placeholder="未关联案件" aria-label="关联案件" @change="onClarifyCaseChange">
+                  <el-option v-for="item in casesList" :key="item.id" :value="item.id" :label="item.caseNo ? item.caseName + ' · ' + item.caseNo : item.caseName" />
+                </el-select>
+              </el-form-item>
+              <div class="form-grid">
+                <el-form-item label="开始安排">
+                  <el-select v-model="clarifyDoWhen" aria-label="开始安排" :disabled="clarifyAction === 'someday'">
+                    <el-option label="今天" value="today" /><el-option label="随时" value="anytime" /><el-option label="将来也许" value="someday" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="截止日期"><el-date-picker v-model="clarifyDeadline" type="date" value-format="YYYY-MM-DD" placeholder="未设置" aria-label="截止日期" /></el-form-item>
               </div>
-
-              <h3 class="card-item-title">{{ item.title }}</h3>
-              <p class="card-item-snippet">{{ item.contentText }}</p>
-
-              <div class="card-bottom-tags">
-                <span class="tag-context-pill">
-                  <el-icon :size="12"><Finished /></el-icon>
-                  {{ item.context || '@Inbox' }}
-                </span>
-                <span v-if="item.caseName" class="tag-matter-link">
-                  <el-icon :size="12"><Briefcase /></el-icon>
-                  {{ item.caseName }}
-                </span>
+              <div v-if="['delegate', 'wait'].includes(clarifyAction)" class="form-grid">
+                <el-form-item :label="clarifyAction === 'delegate' ? '委派给' : '等待对象'"><el-input v-model="clarifyWaitingFor" placeholder="未指定" aria-label="等待对象" /></el-form-item>
+                <el-form-item label="跟进日期"><el-date-picker v-model="clarifyFollowUp" type="date" value-format="YYYY-MM-DD" placeholder="未设置" aria-label="跟进日期" /></el-form-item>
               </div>
-            </div>
-          </div>
+              <div class="form-grid">
+                <el-form-item label="执行场景"><el-select v-model="clarifyContext" aria-label="执行场景"><el-option label="办公室" value="office" /><el-option label="电话" value="phone" /><el-option label="法庭" value="court" /><el-option label="电脑" value="computer" /><el-option label="外出" value="outside" /></el-select></el-form-item>
+                <el-form-item label="预估时长（分钟）"><el-input-number v-model="clarifyEstMinutes" :min="0" :max="1440" :step="15" controls-position="right" placeholder="未填写" aria-label="预估时长" /></el-form-item>
+              </div>
+              <el-form-item label="备注"><el-input v-model="clarifyNotes" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" aria-label="备注" /></el-form-item>
+            </el-form>
+          </template>
+          <template v-else><h2>{{ selectedItem.title }}</h2><p class="original-content">{{ selectedItem.contentText || selectedItem.sourcePath || selectedItem.filePath }}</p></template>
         </div>
-      </main>
-
-      <!-- ── 右栏：440px Clarify Panel (GTD 澄清详情) ── -->
-      <aside v-if="selectedItem" class="inbox-clarify-panel">
-        <div class="clarify-panel-header">
-          <span class="panel-header-caps">{{ $t('inbox.clarify_task') }}</span>
-          <div class="panel-header-btns">
-            <button class="btn-icon-primary" title="AI 结构化解析" :disabled="structuring" @click="structureWithAI">
-              <el-icon :size="15" :class="{'is-loading': structuring}"><MagicStick /></el-icon>
-            </button>
-            <button class="btn-icon-danger" title="忽略/删除" @click="dismissItem(selectedItem)">
-              <el-icon :size="15"><Delete /></el-icon>
-            </button>
-          </div>
-        </div>
-
-        <div class="clarify-scroll-body">
-          <!-- 标题与来源 -->
-          <div class="clarify-title-block">
-            <textarea
-              v-model="selectedItem.title"
-              class="clarify-title-input"
-              rows="2"
-              placeholder="Task title..."
-            />
-            <div class="capture-meta-origin">
-              <span class="origin-dot-danger" />
-              <span>Captured via {{ selectedItem.sourceType || 'Email' }} · 3 hours ago</span>
-            </div>
-          </div>
-
-          <!-- GTD 4 象限行动选择器 -->
-          <div class="gtd-action-card">
-            <span class="gtd-kicker">Is it actionable?</span>
-            <div class="gtd-buttons-grid">
-              <button
-                class="gtd-quad-btn"
-                :class="{ active: clarifyAction === 'action' }"
-                @click="clarifyAction = 'action'"
-              >
-                <el-icon :size="18"><CaretRight /></el-icon>
-                <strong>Do It</strong>
-              </button>
-              <button
-                class="gtd-quad-btn"
-                :class="{ active: clarifyAction === 'delegate' }"
-                @click="clarifyAction = 'delegate'"
-              >
-                <el-icon :size="18"><UserFilled /></el-icon>
-                <strong>Delegate</strong>
-              </button>
-              <button
-                class="gtd-quad-btn"
-                :class="{ active: clarifyAction === 'wait' }"
-                @click="clarifyAction = 'wait'"
-              >
-                <el-icon :size="18"><Timer /></el-icon>
-                <strong>Defer (Wait)</strong>
-              </button>
-              <button
-                class="gtd-quad-btn"
-                :class="{ active: clarifyAction === 'someday' }"
-                @click="clarifyAction = 'someday'"
-              >
-                <el-icon :size="18"><Folder /></el-icon>
-                <strong>Someday</strong>
-              </button>
-            </div>
-          </div>
-
-          <!-- 属性表单 -->
-          <div class="clarify-form-stack">
-            <!-- 上下文标签 Context -->
-            <div class="form-group-block">
-              <label class="form-label-caps">Context</label>
-              <div class="context-tags-row">
-                <button
-                  class="context-chip"
-                  :class="{ active: clarifyContext === '@Calls' }"
-                  @click="clarifyContext = '@Calls'"
-                >
-                  <el-icon :size="13"><Phone /></el-icon>
-                  <span>@Calls</span>
-                </button>
-                <button
-                  class="context-chip"
-                  :class="{ active: clarifyContext === '@Desk' }"
-                  @click="clarifyContext = '@Desk'"
-                >
-                  <el-icon :size="13"><Finished /></el-icon>
-                  <span>@Desk</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 关联案件 Matter / Project -->
-            <div class="form-group-block">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                <label class="form-label-caps" style="margin-bottom: 0;">Matter / Project（归属案件）</label>
-                <span v-if="clarifyCaseId" style="font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">已关联链条</span>
-                <span v-else style="font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #fffbeb; color: #d97706; border: 1px solid #fde68a;">全局独立项</span>
-              </div>
-              <el-select
-                v-model="clarifyCaseId"
-                filterable
-                clearable
-                placeholder="搜索并选择关联案件 / 项目..."
-                style="width: 100%;"
-                @change="onClarifyCaseChange"
-              >
-                <el-option
-                  v-for="c in casesList"
-                  :key="c.id"
-                  :label="c.caseNo ? `[${c.caseNo}] ${c.displayName || c.caseName}` : (c.displayName || c.caseName)"
-                  :value="c.id"
-                >
-                  <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                    <span style="font-weight: 500;">{{ c.displayName || c.caseName }}</span>
-                    <span v-if="c.caseNo" style="font-size: 11px; font-family: monospace; color: var(--c-primary); background: rgba(62,92,154,0.08); padding: 1px 6px; border-radius: 4px;">{{ c.caseNo }}</span>
-                  </div>
-                </el-option>
-              </el-select>
-            </div>
-
-            <!-- 双时态时间 Time Horizon (Time-Twin) -->
-            <div class="form-group-block">
-              <label class="form-label-caps">Time Horizon</label>
-              <div class="time-twin-container">
-                <div class="time-twin-half">
-                  <span class="time-twin-kicker">Do When</span>
-                  <div class="time-twin-val">
-                    <el-icon :size="14"><Clock /></el-icon>
-                    <strong>Today</strong>
-                  </div>
-                </div>
-                <div class="time-twin-divider" />
-                <div class="time-twin-half">
-                  <span class="time-twin-kicker text-danger">Hard Deadline</span>
-                  <div class="time-twin-val text-danger">
-                    <el-icon :size="14"><Warning /></el-icon>
-                    <strong>TOMORROW 5PM</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 备注与预估时间 -->
-            <div class="form-group-block">
-              <label class="form-label-caps">Notes &amp; Meta</label>
-              <div class="notes-meta-box">
-                <textarea
-                  v-model="clarifyNotes"
-                  class="notes-textarea"
-                  rows="3"
-                  placeholder="补充关键信息、联系方式或初步思考..."
-                />
-                <div class="notes-meta-foot">
-                  <span class="est-tag">
-                    <el-icon :size="13"><Timer /></el-icon>
-                    Est: 15m
-                  </span>
-                  <span class="ai-extracted-badge">
-                    <span class="ai-mono">AI</span>
-                    <span>Extracted</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 底部主操作按钮 (Process & Next ⌘↵) -->
-        <div class="clarify-footer-action">
-          <button class="btn-clarify-primary" :loading="processing" @click="processCurrentItem()">
-            <span>{{ clarifyAction === 'delegate' ? '建立委派跟踪' : clarifyAction === 'wait' ? '转入等待' : clarifyAction === 'someday' ? '归入将来/也许' : $t('inbox.turn_action') }}</span>
-            <span class="kbd-sub">⌘↵</span>
-          </button>
-          <div class="clarify-sub-actions">
-            <button class="btn-clarify-ghost" @click="processCurrentItem('wait')">
-              <el-icon :size="13"><Clock /></el-icon>
-              <span>{{ $t('inbox.wait') }}</span>
-            </button>
-            <button class="btn-clarify-ghost" @click="processCurrentItem('someday')">
-              <el-icon :size="13"><Collection /></el-icon>
-              <span>{{ $t('inbox.vault') }}</span>
-            </button>
-          </div>
-        </div>
-      </aside>
+        <footer v-if="selectedItem.status === 'pending'" class="clarify-footer">
+          <span>{{ sourceLabel(selectedItem.sourceType) }}</span>
+          <el-button type="primary" :loading="processing" :disabled="!clarifyTitle.trim()" @click="processCurrentItem()">{{ clarifyAction === 'delegate' ? '建立委派任务' : clarifyAction === 'wait' ? '转为等待任务' : clarifyAction === 'someday' ? '归入将来也许' : '转为任务' }}</el-button>
+        </footer>
+      </section>
+      <section v-else class="clarify-empty"><el-icon :size="28"><Collection /></el-icon><p>暂无待整理的内容</p></section>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════
-   Stitch Inbox View (v4.0_4 & v4.0_5 Three-Column Workspace)
-   ═══════════════════════════════════════════════════════════ */
-.stitch-inbox-view {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 64px);
-  background: var(--c-bg-page);
-  color: var(--c-text);
-  overflow: hidden;
-}
-
-/* ── 顶部快速捕获条 ───────────────────────────────────────── */
-.quick-capture-hero-bar {
-  padding: 16px 28px 12px;
-  background: var(--c-bg-card);
-  border-bottom: 1px solid var(--c-border);
-}
-
-.capture-input-container {
-  max-width: 960px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--c-bg-subtle);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-xl);
-  padding: 8px 14px;
-  transition: all var(--motion-fast);
-}
-
-.capture-input-container:focus-within {
-  border-color: var(--c-primary);
-  background: var(--c-bg-card);
-  box-shadow: var(--shadow-sm);
-}
-
-.capture-icon-bubble {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--c-primary-light);
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-
-.capture-real-input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-size: 14px;
-  color: var(--c-text);
-}
-
-.capture-tools {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tool-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--slate-gray-light);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  transition: all var(--motion-fast);
-}
-
-.tool-btn:hover {
-  background: var(--c-bg-hover);
-  color: var(--c-text);
-}
-
-.tool-btn.recording {
-  color: var(--status-risk);
-  background: var(--bg-risk-weak);
-}
-
-/* ── 三栏主体布局 ─────────────────────────────────────────── */
-.inbox-three-columns {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* ── 左栏：Sources (240px) ────────────────────────────────── */
-.inbox-sources-sidebar {
-  width: 230px;
-  border-right: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  padding: 18px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.sidebar-section-title {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--slate-gray-light);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  padding: 0 8px 4px;
-}
-
-.sources-nav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.source-nav-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: var(--c-radius-lg);
-  border: none;
-  background: transparent;
-  color: var(--c-text-regular);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--motion-fast);
-}
-
-.source-nav-item:hover {
-  background: var(--c-bg-hover);
-  color: var(--c-text);
-}
-
-.source-nav-item.active {
-  background: var(--c-bg-selected);
-  color: var(--c-primary);
-  font-weight: 600;
-}
-
-.source-nav-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.source-count-pill {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: var(--c-radius-full);
-  background: var(--c-bg-subtle);
-  color: var(--slate-gray-light);
-}
-
-.source-nav-item.active .source-count-pill {
-  background: var(--c-primary-light);
-  color: var(--c-primary);
-}
-
-.status-alert-item {
-  color: var(--status-warning);
-}
-
-/* ── 中栏：Unprocessed Stream ─────────────────────────────── */
-.inbox-stream-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: var(--c-bg-page);
-  border-right: 1px solid var(--c-border);
-  min-width: 0;
-  overflow-y: auto;
-}
-
-.stream-header-row {
-  padding: 20px 24px 14px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--c-border-light);
-}
-
-.stream-main-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--c-text-heading);
-  margin: 0;
-}
-
-.stream-subtitle {
-  font-size: 12px;
-  color: var(--slate-gray-light);
-  margin: 2px 0 0;
-}
-
-.btn-clean-ghost {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--c-radius-lg);
-  border: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  color: var(--c-text-regular);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: all var(--motion-fast);
-}
-
-.btn-clean-ghost:hover {
-  border-color: var(--c-primary);
-  color: var(--c-primary);
-}
-
-.mini-kbd {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  padding: 1px 4px;
-  border: 1px solid var(--c-border);
-  border-radius: 3px;
-  background: var(--c-bg-subtle);
-}
-
-.stream-card-list {
-  padding: 18px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.inbox-stream-card {
-  position: relative;
-  background: var(--c-bg-card);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-xl);
-  padding: 16px;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease, border-color 0.2s ease;
-  overflow: hidden;
-}
-
-.inbox-stream-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--c-border-strong);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-}
-
-.inbox-stream-card.selected {
-  border-color: var(--c-primary);
-  box-shadow: var(--shadow-md);
-}
-
-.card-selected-line {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  background: var(--c-primary);
-}
-
-.card-content-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.card-top-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.meta-source-kicker {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--slate-gray-light);
-  text-transform: uppercase;
-}
-
-.meta-due-tag {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-risk-weak);
-  color: var(--status-risk);
-}
-
-.card-item-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--c-text-heading);
-  margin: 2px 0 0;
-}
-
-.card-item-snippet {
-  font-size: 12.5px;
-  color: var(--c-text-regular);
-  line-height: 1.45;
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.card-bottom-tags {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-}
-
-.tag-context-pill {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--c-bg-subtle);
-  color: var(--slate-gray-light);
-}
-
-.tag-matter-link {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--c-primary);
-}
-
-/* ── 右栏：440px Clarify Panel ────────────────────────────── */
-.inbox-clarify-panel {
-  width: 440px;
-  background: var(--c-bg-card);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  overflow: hidden;
-}
-
-.clarify-panel-header {
-  padding: 16px 22px;
-  border-bottom: 1px solid var(--c-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.panel-header-caps {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--slate-gray-light);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-}
-
-.btn-icon-danger {
-  border: none;
-  background: transparent;
-  color: var(--slate-gray-light);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-}
-
-.btn-icon-danger:hover {
-  color: var(--status-risk);
-  background: var(--bg-risk-weak);
-}
-
-.clarify-scroll-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
-
-.clarify-title-block {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.clarify-title-input {
-  width: 100%;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--c-text-heading);
-  line-height: 1.35;
-  resize: none;
-  padding: 0;
-}
-
-.capture-meta-origin {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--slate-gray-light);
-}
-
-.origin-dot-danger {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--status-risk);
-}
-
-/* GTD 按钮组 */
-.gtd-action-card {
-  background: var(--c-bg-subtle);
-  border-radius: var(--c-radius-xl);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.gtd-kicker {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--slate-gray-light);
-  text-transform: uppercase;
-}
-
-.gtd-buttons-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.gtd-quad-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 10px;
-  border-radius: var(--c-radius-lg);
-  border: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  color: var(--c-text-regular);
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
-}
-
-.gtd-quad-btn:hover {
-  transform: translateY(-1px);
-  border-color: var(--c-primary);
-  color: var(--c-primary);
-  box-shadow: var(--shadow-md);
-}
-
-.gtd-quad-btn.active {
-  border-color: var(--c-primary);
-  background: var(--c-primary-light);
-  color: var(--c-primary);
-}
-
-.gtd-quad-btn strong {
-  font-size: 12px;
-}
-
-/* 表单字段 */
-.clarify-form-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-group-block {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-label-caps {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--slate-gray-light);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.context-tags-row {
-  display: flex;
-  gap: 8px;
-}
-
-.context-chip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  border-radius: var(--c-radius-lg);
-  border: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  color: var(--c-text-regular);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.context-chip.active {
-  border-color: var(--c-primary);
-  background: var(--c-primary);
-  color: var(--c-primary-contrast);
-}
-
-.matter-search-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: var(--c-radius-lg);
-  border: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-}
-
-.field-input-clean {
-  flex: 1;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-size: 12.5px;
-  color: var(--c-text);
-}
-
-/* 双时态 */
-.time-twin-container {
-  display: flex;
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  background: var(--c-bg-card);
-  padding: 8px;
-}
-
-.time-twin-half {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 6px;
-}
-
-.time-twin-divider {
-  width: 1px;
-  background: var(--c-border);
-  margin: 0 4px;
-}
-
-.time-twin-kicker {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  text-transform: uppercase;
-  color: var(--slate-gray-light);
-}
-
-.time-twin-val {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-}
-
-/* 备注 */
-.notes-meta-box {
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  background: var(--c-bg-card);
-  padding: 10px;
-}
-
-.notes-textarea {
-  width: 100%;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-size: 12.5px;
-  color: var(--c-text);
-  resize: none;
-}
-
-.notes-meta-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-top: 1px solid var(--c-border-light);
-  padding-top: 6px;
-  margin-top: 4px;
-}
-
-.est-tag {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--slate-gray-light);
-}
-
-.ai-extracted-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10.5px;
-  color: var(--slate-gray-light);
-  border: 1px dashed var(--c-border);
-  padding: 1px 5px;
-  border-radius: 3px;
-}
-
-.ai-mono {
-  font-family: var(--font-mono);
-  font-weight: 700;
-}
-
-/* 底部操作 */
-.clarify-footer-action {
-  padding: 16px 22px;
-  border-top: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.btn-clarify-primary {
-  width: 100%;
-  padding: 10px;
-  border-radius: var(--c-radius-lg);
-  border: none;
-  background: var(--c-primary);
-  color: var(--c-primary-contrast);
-  font-size: 13.5px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  box-shadow: var(--shadow-sm);
-  transition: all var(--motion-fast);
-}
-
-.btn-clarify-primary:hover {
-  background: var(--c-primary-hover);
-}
-
-.kbd-sub {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  opacity: 0.8;
-}
-
-.clarify-sub-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.btn-clarify-ghost {
-  flex: 1;
-  padding: 6px;
-  border-radius: 6px;
-  border: 1px solid var(--c-border);
-  background: var(--c-bg-card);
-  color: var(--c-text-regular);
-  font-size: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-
-.btn-clarify-ghost:hover {
-  border-color: var(--c-border-strong);
-  background: var(--c-bg-hover);
-}
-
-@media (max-width: 1100px) {
-  .inbox-sources-sidebar { display: none; }
-  .inbox-clarify-panel { width: 360px; }
-}
-
-@media (max-width: 800px) {
-  .inbox-three-columns { flex-direction: column; }
-  .inbox-clarify-panel { width: 100%; }
-}
+.inbox-page { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: 1440px; margin: 0 auto; padding: 28px 32px 0; color: var(--c-text); }
+.inbox-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+.inbox-header h1 { font-size: 24px; line-height: 1.4; margin: 0 0 4px; }
+.inbox-header span { color: var(--c-text-secondary); font-size: 12px; }
+.quick-capture { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; background: var(--c-bg-card); border: 1px solid var(--c-border-strong); border-radius: 8px; margin-bottom: 24px; }
+.quick-capture:focus-within { border-color: var(--c-primary); box-shadow: 0 0 0 2px var(--c-primary-light); }
+.quick-capture > .el-icon { color: var(--c-text-secondary); }
+.quick-capture input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--c-text); outline: 0; font: inherit; padding: 4px 0; }
+.quick-capture input::placeholder { color: var(--c-text-secondary); }
+.quick-capture .el-button + .el-button { margin-left: 0; }
+.inbox-layout { display: grid; grid-template-columns: minmax(250px, .85fr) minmax(340px, 1.15fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; border-top: 1px solid var(--c-border); }
+.inbox-list { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--c-border); }
+.list-controls { padding: 20px 20px 0 0; }
+.source-filters { display: flex; gap: 14px; overflow-x: auto; margin-top: 16px; }
+.source-filters button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 6px 0 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--c-text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.source-filters button.active { color: var(--c-primary); border-bottom-color: var(--c-primary); }
+.source-filters button span { font-variant-numeric: tabular-nums; }
+.item-list { overflow-y: auto; flex: 1; min-height: 0; padding-right: 20px; }
+.inbox-item { display: flex; flex-direction: column; gap: 7px; width: 100%; border: 0; border-bottom: 1px solid var(--c-border-light); background: transparent; padding: 16px 12px; color: var(--c-text); font: inherit; text-align: left; cursor: pointer; transition: background var(--motion-fast); }
+.inbox-item:hover { background: var(--c-bg-hover); }
+.inbox-item.selected { background: var(--c-primary-light); box-shadow: inset 3px 0 var(--c-primary); }
+.item-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--c-text-secondary); }
+.inbox-item strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.item-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--c-text-secondary); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.item-case { display: flex; align-items: center; gap: 5px; color: var(--c-primary); font-size: 11px; overflow-wrap: anywhere; }
+.clarify-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-left: 24px; }
+.clarify-header { display: flex; align-items: center; justify-content: space-between; min-height: 58px; flex-shrink: 0; gap: 8px; font-size: 13px; font-weight: 600; }
+.clarify-body { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.clarify-body :deep(.el-date-editor), .clarify-body :deep(.el-input-number), .clarify-body :deep(.el-select) { width: 100%; }
+.action-options { display: flex; flex-wrap: wrap; }
+.clarify-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 0; flex-shrink: 0; border-top: 1px solid var(--c-border); background: var(--c-bg-page); }
+.clarify-footer > span { color: var(--c-text-secondary); font-size: 12px; }
+.clarify-empty { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; color: var(--c-text-secondary); font-size: 13px; }
+.original-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.clarify-body h2 { font-size: 18px; margin: 16px 0; }
+.empty-state { font-size: 13px; padding: 32px 0; }
+@container (max-width: 700px) {
+  .inbox-page { height: auto; padding: 20px 16px 0; }
+  .inbox-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+  .inbox-list { border: 0; }
+  .list-controls, .item-list { padding-right: 0; }
+  .item-list { max-height: 280px; flex: none; }
+  .clarify-panel { padding-left: 0; border-top: 1px solid var(--c-border); }
+  .clarify-empty { min-height: 160px; }
+  .clarify-footer { position: sticky; bottom: 0; }
+}
+@media (max-width: 480px) { .form-grid { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 </style>

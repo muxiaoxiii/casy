@@ -39,12 +39,15 @@ import {
 } from '@element-plus/icons-vue'
 
 import { useI18n } from 'vue-i18n'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import en from 'element-plus/es/locale/lang/en'
 
 const router = useRouter()
 const route = useRoute()
 const settingsStore = useSettingsStore()
 const aiSettings = useAiSettingsStore()
 const { locale } = useI18n()
+const componentLocale = computed(() => locale.value === 'en-US' ? en : zhCn)
 const isBrowserPreview = computed(() => !isTauriRuntime())
 
 function applyTheme(theme) {
@@ -129,12 +132,8 @@ const navGroups = [
 ]
 
 const utilityModules = [
-  { name: 'projects', label: 'Projects', sublabel: '项目', icon: Folder },
-  { name: 'clients', label: 'Clients', sublabel: '客户', icon: Folder },
-  { name: 'dashboard', label: 'Dashboard', sublabel: '数据看板', icon: Cpu },
-  { name: 'ai', label: 'AI Companion', sublabel: 'AI 智伴', icon: Cpu },
-  { name: 'reminder', label: 'Reminders', sublabel: '提醒预警', icon: Bell },
-  { name: 'sync', label: 'Sync Status', sublabel: '同步状态', icon: Cpu },
+  { name: 'clients', label: 'Clients', sublabel: '客户', icon: User },
+  { name: 'dashboard', label: 'Dashboard', sublabel: '数据看板', icon: DataBoard },
 ]
 
 function isNavActive(item) {
@@ -172,6 +171,7 @@ function openCreateTask() {
 // 全局快速捕获
 // ============================================================
 let unlistenQuickCapture = null
+let unlistenFileDrop = null
 
 async function setupQuickCaptureListener() {
   try {
@@ -180,7 +180,7 @@ async function setupQuickCaptureListener() {
     })
     
     // 全局拖拽文件支持 (Tauri 原生事件)
-    await safeListen('tauri://drag-drop', (event) => {
+    unlistenFileDrop = await safeListen('tauri://drag-drop', (event) => {
       // payload 包含 paths (文件路径数组)
       window.dispatchEvent(new CustomEvent('casy:file-drop', { detail: event.payload }))
     })
@@ -222,6 +222,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (unlistenQuickCapture) unlistenQuickCapture()
+  if (unlistenFileDrop) unlistenFileDrop()
   window.removeEventListener('casy:open-capture', handleOpenCapture)
   unregisterShortcuts.forEach(fn => fn())
   unregisterShortcuts = []
@@ -234,12 +235,13 @@ function onMenuSelect(name) {
 </script>
 
 <template>
+  <el-config-provider :locale="componentLocale">
   <div class="app-shell">
     <!-- ═══ 左侧侧栏 (Stitch UI 240px Fixed Sidebar) ═══ -->
     <button v-if="mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" @click="mobileNavOpen = false" />
     <aside id="app-navigation" class="app-sidebar" :class="{ collapsed: sidebarCollapsed && !mobileNavOpen, 'mobile-open': mobileNavOpen }" @keydown.esc="mobileNavOpen = false">
       <!-- 品牌 Header -->
-      <div class="sidebar-brand" @click="router.push('/')">
+      <button type="button" class="sidebar-brand" aria-label="Casy 首页" @click="router.push('/')">
         <div class="brand-badge">
           <span class="brand-grid-icon">
             <span class="grid-cell" />
@@ -252,7 +254,7 @@ function onMenuSelect(name) {
           <span class="brand-title">Casy v5.0</span>
           <span class="brand-subtitle">法律工作台</span>
         </div>
-      </div>
+      </button>
 
       <!-- 导航组 -->
       <nav class="sidebar-nav">
@@ -279,6 +281,15 @@ function onMenuSelect(name) {
             </button>
           </div>
         </section>
+        <section class="nav-group">
+          <h3 v-show="!sidebarCollapsed || mobileNavOpen" class="nav-group-label">Workspace</h3>
+          <div class="nav-items-stack">
+            <button v-for="item in utilityModules" :key="item.name" type="button" class="nav-item" :class="{ active: isNavActive(item) }" :aria-current="isNavActive(item) ? 'page' : undefined" :title="`${item.label} / ${item.sublabel}`" @click="onMenuSelect(item.name)">
+              <el-icon class="nav-icon" :size="18"><component :is="item.icon" /></el-icon>
+              <span v-show="!sidebarCollapsed || mobileNavOpen" class="nav-label-group"><span class="nav-label-main">{{ item.label }}</span><span class="nav-label-sub">{{ item.sublabel }}</span></span>
+            </button>
+          </div>
+        </section>
       </nav>
 
       <!-- 侧栏底部：AI 状态 + 用户名片 + 设置 -->
@@ -295,11 +306,11 @@ function onMenuSelect(name) {
           @click="onMenuSelect('settings')"
         >
           <div class="user-avatar">
-            {{ profileStore.name?.trim()?.slice(0, 1) || 'W' }}
+            {{ profileStore.name?.trim()?.slice(0, 1) || 'C' }}
           </div>
           <div class="user-info">
-            <span class="user-name">{{ profileStore.name?.trim() || 'Lawyer Wang' }}</span>
-            <span class="user-role">{{ profileStore.practice_areas?.[0] || 'Senior Partner' }}</span>
+            <span class="user-name">{{ profileStore.name?.trim() || '个人工作台' }}</span>
+            <span class="user-role">{{ profileStore.practice_areas?.[0] || '执业信息未设置' }}</span>
           </div>
         </div>
 
@@ -330,11 +341,11 @@ function onMenuSelect(name) {
           </button>
 
           <!-- 全局搜索框 -->
-          <div class="search-trigger" @click="showGlobalSearch = true">
+          <button type="button" class="search-trigger" aria-label="全局搜索" @click="showGlobalSearch = true">
             <el-icon class="search-icon" :size="16"><Search /></el-icon>
-            <span class="search-placeholder">Search matters, tasks, laws... (CMD+K)</span>
+            <span class="search-placeholder">搜索案件、任务、法律条文</span>
             <span class="kbd-badge">⌘K</span>
-          </div>
+          </button>
         </div>
 
         <div class="topbar-right">
@@ -348,15 +359,15 @@ function onMenuSelect(name) {
           </div>
 
           <!-- 快捷新建任务 -->
-          <button class="btn-secondary" @click="openCreateTask">
+          <button class="btn-secondary" title="新建任务" aria-label="新建任务" @click="openCreateTask">
             <el-icon :size="15"><Finished /></el-icon>
-            <span>+ Task</span>
+            <span>新建任务</span>
           </button>
 
           <!-- 快速统一捕获 -->
-          <button class="btn-primary" @click="openUnifiedCapture('auto')">
+          <button class="btn-primary" title="快速捕获" aria-label="快速捕获" @click="openUnifiedCapture('auto')">
             <el-icon :size="15"><Plus /></el-icon>
-            <span>+ Capture</span>
+            <span>快速捕获</span>
             <span class="shortcut-tag">⌘I</span>
           </button>
         </div>
@@ -377,6 +388,7 @@ function onMenuSelect(name) {
   <OnboardingWizard v-model="showOnboarding" @dismiss="onOnboardingDismiss" />
   <UnifiedCaptureDialog v-model="showUnifiedCapture" :initial-action="captureInitialAction" />
   <GlobalSearch v-model="showGlobalSearch" />
+  </el-config-provider>
 </template>
 
 <style scoped>
@@ -414,6 +426,11 @@ function onMenuSelect(name) {
 
 /* 品牌区 */
 .sidebar-brand {
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  width: 100%;
   height: 64px;
   display: flex;
   align-items: center;
@@ -459,7 +476,7 @@ function onMenuSelect(name) {
   font-size: 15px;
   font-weight: 700;
   color: var(--c-primary);
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
 }
 
 .brand-subtitle {
@@ -489,7 +506,7 @@ function onMenuSelect(name) {
   font-weight: 700;
   color: var(--slate-gray-light);
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 0;
   padding: 0 12px 6px;
   margin: 0;
 }
@@ -547,7 +564,7 @@ function onMenuSelect(name) {
 .nav-label-sub {
   font-size: 11px;
   color: var(--c-text-secondary);
-  opacity: 0.8;
+  white-space: nowrap;
 }
 
 .nav-item.active .nav-label-sub {
@@ -584,11 +601,14 @@ function onMenuSelect(name) {
 }
 
 .ai-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10.5px;
   font-weight: 600;
   color: var(--status-success);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0;
 }
 
 .user-profile-card {
@@ -702,6 +722,8 @@ function onMenuSelect(name) {
 
 .search-trigger {
   min-width: 0;
+  text-align: left;
+  font: inherit;
   flex: 1;
   height: 36px;
   background: var(--c-bg-card);
@@ -758,7 +780,7 @@ function onMenuSelect(name) {
   border-radius: 999px;
   background: rgba(234, 179, 8, 0.12);
   border: 1px solid rgba(234, 179, 8, 0.3);
-  color: #ca8a04;
+  color: var(--c-warning);
   font-size: 11px;
   font-weight: 500;
   user-select: none;
@@ -770,11 +792,10 @@ function onMenuSelect(name) {
   height: 6px;
   border-radius: 50%;
   background: #eab308;
-  box-shadow: 0 0 6px rgba(234, 179, 8, 0.6);
 }
 
 .preview-text {
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
 }
 
 .btn-secondary {

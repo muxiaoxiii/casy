@@ -39,6 +39,7 @@ import { useSettingsStore } from '../../stores/settings'
 import BriefingModal from '../../shared/components/BriefingModal.vue'
 // 审查 P0-3：rec.text 的 <strong> 由模板生成，但任务名/案件名来自用户或同步数据，渲染前必须消毒
 import { sanitizeInlineHtml } from '../../shared/markdown/mdBridge'
+import { daysUntil } from '../../shared/utils/date'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -63,12 +64,7 @@ const dateDisplay = computed(() => {
 })
 
 const fullDateDisplay = computed(() => {
-  const now = new Date()
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-  const dayName = days[now.getDay()]
-  const monthName = months[now.getMonth()]
-  return `${dayName}, ${monthName} ${now.getDate()}, ${now.getFullYear()}`
+  return new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
 })
 
 function localDateKey(date = new Date()) {
@@ -219,62 +215,18 @@ const nextActionTasks = computed(() => {
 })
 
 const primaryNextAction = computed(() => {
-  if (isMorning.value) {
-    return nextActionTasks.value.length > 0 ? nextActionTasks.value[0] : null
-  } else {
-    // Evening: return the highest priority completed task
-    const completedTasks = tasksStore.tasks.filter(t => t.completed === 1)
-    return completedTasks.length > 0 ? completedTasks[completedTasks.length - 1] : null
-  }
+  return nextActionTasks.value[0] || null
 })
-
-// 情绪价值文案种子库 (空状态语录) - 用于 Dashboard 回退
-const emptyStateSeeds = [
-  {
-    taskName: '当前无焦点任务',
-    description: '您的待办列表处于清空状态。去喝杯咖啡，或者主动找点案源开拓一下吧！',
-    caseName: '系统状态',
-    caseCode: 'SYSTEM'
-  },
-  {
-    taskName: '享受当下的宁静',
-    description: '今天没有任何紧急硬性任务在追赶你，保持这种良好的节奏，享受清醒的头脑。',
-    caseName: '身心管理',
-    caseCode: 'ZEN'
-  },
-  {
-    taskName: '一切尽在掌握中',
-    description: '当前暂无焦点待办任务，您可以把精力留给深度思考、案卷沉淀与战略筹划。',
-    caseName: '状态播报',
-    caseCode: 'CLEAR'
-  },
-  {
-    taskName: '给自己放个短假',
-    description: '没有永远打不完的仗，既然今天没有紧迫的焦点任务，不如提前规划一下本周的长期目标。',
-    caseName: '精力恢复',
-    caseCode: 'REST'
-  },
-  {
-    taskName: '静水流深，厚积薄发',
-    description: '手头暂无紧急火情。不妨整理一下过去的案卷文档，看看有哪些经验可以沉淀到您的专属知识库。',
-    caseName: '知识沉淀',
-    caseCode: 'BUILD'
-  }
-]
 
 const displayNextAction = computed(() => {
   if (primaryNextAction.value) return primaryNextAction.value
-  const now = new Date()
-  const start = new Date(now.getFullYear(), 0, 0)
-  const diff = now.getTime() - start.getTime()
-  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24))
-  return emptyStateSeeds[dayOfYear % emptyStateSeeds.length]
+  return { taskName: '暂无可立即执行的任务', description: '', caseCode: '' }
 })
 
 function openNextActionMatter(task) {
   if (!task) return
-  if (task.caseId) {
-    router.push({ name: 'cases', query: { selected: task.caseId } })
+  if (task.id) {
+    router.push({ name: 'tasks', query: { edit: task.id } })
   } else {
     router.push({ name: 'tasks' })
   }
@@ -286,24 +238,19 @@ function openNextActionMatter(task) {
 const hardScheduleItems = computed(() => {
   const events = calendarStore.events || []
   
-  // Morning: Today's events. Evening: Tomorrow's events.
-  const targetDate = new Date()
-  if (!isMorning.value) {
-    targetDate.setDate(targetDate.getDate() + 1)
-  }
-  const targetDateStr = localDateKey(targetDate)
+  const targetDateStr = today
 
   const targetEvents = events.filter(e => e.date === targetDateStr || e.startDate === targetDateStr)
 
   return targetEvents.map(e => ({
     id: e.id,
-    time: e.startTime || '09:30 AM',
-    court: e.location || '第二审判法庭',
-    title: e.title || e.name || '法庭审理程序',
-    track: e.track || 'Civil Track',
-    judge: e.judge || '审判长主审',
+    time: e.allDay ? '全天' : e.startTime || e.time || '时间待定',
+    court: e.location || '',
+    title: e.title || e.name || '未命名日程',
+    track: e.track || ({ hearing: '庭审', deadline: '期限', deadline_red: '紧急期限', deadline_yellow: '期限', deadline_green: '期限', task: '任务', other: '日程', event: '日程' }[e.eventType || e.type] || '日程'),
+    judge: e.judge || '',
     risk: e.priority === 'high' || e.priority === 'urgent',
-    timeRemaining: isMorning.value ? '今日排期' : '明日排期'
+    timeRemaining: '今日排期'
   }))
 })
 
@@ -334,7 +281,7 @@ const todayCommitments = computed(() => {
     id: t.id,
     title: t.taskName,
     caseName: resolveCaseName(t),
-    category: t.category || (t.isClient ? 'Client' : 'Internal'),
+    category: t.category || (t.caseId ? '案件' : '个人'),
     overdue: t.dueDate && t.dueDate < today,
     completed: t.status === 'completed' || t.status === 'done',
     task: t,
@@ -342,35 +289,40 @@ const todayCommitments = computed(() => {
 })
 
 async function toggleCommitment(item) {
-  if (item.task) {
-    await tasksStore.toggleTask(item.id)
-    item.completed = !item.completed
-  } else {
-    item.completed = !item.completed
-  }
+  if (pendingCompletions.value.has(item.id)) return
+  pendingCompletions.value.add(item.id)
+  try { await tasksStore.toggleTask(item.id) }
+  finally { pendingCompletions.value.delete(item.id) }
 }
+const pendingCompletions = ref(new Set())
 
 // ============================================================
 // 3. 等待跟进监视器 (Waitlist Items)
 // ============================================================
 const waitlistItems = computed(() => {
   const waitingTasks = tasksStore.waitingTasks || []
-  return waitingTasks.slice(0, 4).map(t => ({
+  return [...waitingTasks].sort((a, b) => (a.followUpDate || '9999').localeCompare(b.followUpDate || '9999')).slice(0, 4).map(t => ({
     id: t.id,
     title: t.taskName,
-    elapsedText: t.followUpDate ? `${Math.ceil((new Date().getTime() - new Date(t.followUpDate).getTime()) / (1000*3600*24))}d elapsed` : 'Waiting',
-    percent: 50,
-    submittedText: t.startDate ? `Started ${t.startDate}` : '',
-    expectedText: t.dueDate ? `Expected ${t.dueDate}` : '',
+    elapsedText: followUpLabel(t.followUpDate),
+    overdue: t.followUpDate && t.followUpDate < today,
+    submittedText: t.waitingFor || '等待反馈',
+    expectedText: t.followUpDate ? `跟进日 ${t.followUpDate}` : '未设置跟进日',
   }))
 })
+function followUpLabel(date) {
+  const days = daysUntil(date)
+  if (days == null) return '待跟进'
+  if (days < 0) return `超期 ${Math.abs(days)} 天`
+  return days === 0 ? '今日跟进' : `${days} 天后跟进`
+}
 
 // ============================================================
 // 4. 精力负荷与容量 (Energy & Capacity)
 // ============================================================
 const totalEstimatedMinutes = computed(() => {
   const todayTasksList = tasksStore.pendingTasks.filter(t => t.startBucket === 'today' || t.dueDate === today)
-  return todayTasksList.reduce((sum, t) => sum + (t.estimatedMinutes || 45), 0)
+  return todayTasksList.reduce((sum, t) => sum + Math.max(0, t.estimatedMinutes || 0), 0)
 })
 
 const committedHours = computed(() => {
@@ -378,14 +330,15 @@ const committedHours = computed(() => {
   return hours
 })
 
-const totalCapacityHours = 8.5
+const unestimatedCount = computed(() => todayCommitments.value.filter(c => !c.task.estimatedMinutes).length)
+const totalCapacityHours = computed(() => Math.max(0, profileStore.work_hours.end_hour - profileStore.work_hours.start_hour))
 const capacityPercent = computed(() => {
-  const val = (Number(committedHours.value) / totalCapacityHours) * 100
-  return Math.min(100, Math.max(10, Math.round(val)))
+  if (!totalCapacityHours.value) return 0
+  return Math.max(0, Math.round(Number(committedHours.value) / totalCapacityHours.value * 100))
 })
 
 const freeSpaceHours = computed(() => {
-  const free = Math.max(0, totalCapacityHours - Number(committedHours.value)).toFixed(1)
+  const free = Math.max(0, totalCapacityHours.value - Number(committedHours.value)).toFixed(1)
   return `${free}h`
 })
 
@@ -393,7 +346,6 @@ const freeSpaceHours = computed(() => {
 // 5. 红线与统计指标
 // ============================================================
 const redlineItems = computed(() => {
-  if (isMorning.value) {
     return tasksStore.pendingTasks
       .filter(t => t.dueDate && (t.dueDate === today || t.dueDate < today))
       .map(t => ({
@@ -402,16 +354,6 @@ const redlineItems = computed(() => {
         caseTitle: resolveCaseName(t) || '重点案件',
         timeText: t.dueDate < today ? '已逾期' : '今日到期',
       }))
-  } else {
-    // Evening: show completed items or newly collected inbox items
-    const completedToday = tasksStore.tasks.filter(t => t.completed === 1).slice(0, 5)
-    return completedToday.map(t => ({
-        id: t.id,
-        title: t.taskName,
-        caseTitle: resolveCaseName(t) || '已完成事项',
-        timeText: '今日完成',
-    }))
-  }
 })
 
 const waitingCount = computed(() => tasksStore.waitingTasks.length || 0)
@@ -506,15 +448,15 @@ async function handleRecAction(rec, decision) {
         <div class="header-status-chips">
           <span class="status-chip chip-risk">
             <span class="dot dot-risk"></span>
-            <span>Hard {{ hardCount }}</span>
+            <span>今日日程 {{ hardCount }}</span>
           </span>
           <span class="status-chip chip-warn">
             <span class="dot dot-warn"></span>
-            <span>Expiring {{ expiringCount }}</span>
+            <span>到期与逾期 {{ expiringCount }}</span>
           </span>
           <span class="status-chip chip-info">
             <span class="dot dot-info"></span>
-            <span>Waiting {{ waitingCount }}</span>
+            <span>等待跟进 {{ waitingCount }}</span>
           </span>
         </div>
       </div>
@@ -587,7 +529,7 @@ async function handleRecAction(rec, decision) {
                 </div>
                 <div class="meta-line">
                   <span class="track-tag">{{ item.track }}</span>
-                  <span class="judge-text">{{ item.court }} · {{ item.judge }}</span>
+                  <span v-if="item.court || item.judge" class="judge-text">{{ [item.court, item.judge].filter(Boolean).join(' · ') }}</span>
                 </div>
               </div>
 
@@ -602,6 +544,7 @@ async function handleRecAction(rec, decision) {
               </div>
             </div>
           </div>
+          <p v-if="!hardScheduleItems.length" class="section-empty">今日暂无日程</p>
         </section>
 
         <!-- 2. Today's Commitments (今日承诺 / 待办事项) -->
@@ -620,18 +563,19 @@ async function handleRecAction(rec, decision) {
               :key="c.id"
               class="commitment-item"
               :class="{ 'is-completed': c.completed, 'is-overdue': c.overdue && !c.completed }"
-              @click="toggleCommitment(c)"
             >
               <input
                 type="checkbox"
                 class="custom-chk"
                 :checked="c.completed"
+                :aria-label="`完成任务：${c.title}`"
+                :disabled="pendingCompletions.has(c.id)"
                 @click.stop="toggleCommitment(c)"
               />
               <div class="commitment-info">
                 <div class="commitment-title-row">
-                  <span class="c-title">{{ c.title }}</span>
-                  <span v-if="c.overdue && !c.completed" class="badge-overdue">OVERDUE</span>
+                  <button type="button" class="c-title task-open" @click="openNextActionMatter(c.task)">{{ c.title }}</button>
+                  <span v-if="c.overdue && !c.completed" class="badge-overdue">已逾期</span>
                 </div>
                 <span v-if="c.caseName" class="c-case">{{ c.caseName }}</span>
               </div>
@@ -640,6 +584,7 @@ async function handleRecAction(rec, decision) {
               </span>
             </div>
           </div>
+          <p v-if="!todayCommitments.length" class="section-empty">今日承诺事项已清空</p>
         </section>
 
         <!-- 3. Waitlist (等待跟进 / 外部回执) -->
@@ -653,27 +598,26 @@ async function handleRecAction(rec, decision) {
           </div>
 
           <div class="waitlist-grid">
-            <div
+            <button type="button"
               v-for="w in waitlistItems"
               :key="w.id"
               class="waitlist-card"
+              @click="router.push({ name: 'tasks', query: { edit: w.id } })"
             >
               <div class="wl-left-accent"></div>
               <div class="wl-content">
                 <div class="wl-head">
                   <strong class="wl-title">{{ w.title }}</strong>
-                  <span class="wl-elapsed">{{ w.elapsedText }}</span>
-                </div>
-                <div class="wl-progress-track">
-                  <div class="wl-progress-fill" :style="{ width: `${w.percent}%` }"></div>
+                  <span class="wl-elapsed" :class="{ 'text-risk': w.overdue }">{{ w.elapsedText }}</span>
                 </div>
                 <div class="wl-foot">
                   <span>{{ w.submittedText }}</span>
                   <span>{{ w.expectedText }}</span>
                 </div>
               </div>
-            </div>
+            </button>
           </div>
+          <p v-if="!waitlistItems.length" class="section-empty">暂无等待跟进事项</p>
         </section>
       </div>
 
@@ -682,12 +626,12 @@ async function handleRecAction(rec, decision) {
         <!-- 1. Focused Next Action 卡片 (高对比度深蓝) -->
         <div class="next-action-card">
           <div class="na-header">
-            <span class="na-kicker">NEXT ACTION</span>
+            <span class="na-kicker">下一步行动</span>
             <span class="na-code" v-if="displayNextAction.caseCode">{{ displayNextAction.caseCode }}</span>
           </div>
 
           <h3 class="na-title">{{ displayNextAction.taskName }}</h3>
-          <p class="na-desc">{{ displayNextAction.description }}</p>
+          <p v-if="displayNextAction.description" class="na-desc">{{ displayNextAction.description }}</p>
 
           <div class="na-actions">
             <button
@@ -695,7 +639,7 @@ async function handleRecAction(rec, decision) {
               @click="openNextActionMatter(displayNextAction)"
             >
               <el-icon><Promotion /></el-icon>
-              <span>{{ t('home.enter_workspace') }}</span>
+              <span>{{ primaryNextAction ? '查看任务' : '查看任务列表' }}</span>
             </button>
           </div>
         </div>
@@ -707,7 +651,7 @@ async function handleRecAction(rec, decision) {
               <el-icon class="icon-sparkle"><Sparkles /></el-icon>
               <span class="recs-title">{{ t('home.smart_recs') }}</span>
             </div>
-            <span class="recs-ai-tag">AI</span>
+            <span class="recs-ai-tag">待办提醒</span>
           </div>
 
           <div class="recs-body">
@@ -731,17 +675,18 @@ async function handleRecAction(rec, decision) {
         <!-- 3. 精力负荷与容量 (Energy & Capacity) -->
         <div class="capacity-meter-card">
           <div class="cap-head">
-            <span class="cap-title">{{ t('home.energy_capacity') }}</span>
+            <span class="cap-title">今日任务预估</span>
             <span class="cap-metric-val">{{ committedHours }} / {{ totalCapacityHours }}h</span>
           </div>
 
           <div class="cap-bar-track">
             <div
               class="cap-bar-fill"
-              :style="{ width: `${capacityPercent}%` }"
+              :style="{ width: `${Math.min(100, capacityPercent)}%` }"
               :class="{ 'cap-over': capacityPercent > 85 }"
             ></div>
           </div>
+          <p v-if="unestimatedCount" class="estimate-note">{{ unestimatedCount }} 项任务未填写预估时长</p>
 
           <div class="cap-foot-info">
             <span class="cap-free">{{ t('home.capacity_free') }}<strong>{{ freeSpaceHours }}</strong></span>
@@ -825,7 +770,7 @@ async function handleRecAction(rec, decision) {
   font-size: 24px;
   font-weight: 700;
   color: var(--c-text-heading);
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
   margin: 0;
 }
 
@@ -835,7 +780,6 @@ async function handleRecAction(rec, decision) {
   gap: 16px;
   font-family: var(--font-mono);
   font-size: 11.5px;
-  text-transform: uppercase;
   color: var(--c-text-secondary);
 }
 
@@ -893,9 +837,9 @@ async function handleRecAction(rec, decision) {
   gap: 28px;
 }
 
-@media (min-width: 1024px) {
+@container (min-width: 880px) {
   .today-grid-layout {
-    grid-template-columns: 8fr 4fr;
+    grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
   }
 }
 
@@ -1161,6 +1105,9 @@ async function handleRecAction(rec, decision) {
 }
 
 .waitlist-card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   position: relative;
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
@@ -1255,7 +1202,7 @@ async function handleRecAction(rec, decision) {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   opacity: 0.85;
 }
 
@@ -1473,6 +1420,31 @@ async function handleRecAction(rec, decision) {
 
 .cap-bar-fill.cap-over {
   background: var(--status-warning);
+}
+.section-empty { padding: 20px 0; color: var(--c-text-secondary); font-size: 13px; border-bottom: 1px solid var(--c-border-light); }
+.task-open { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.task-open:hover { color: var(--c-primary); }
+.commitment-info, .info-col, .main-column-left, .side-column-right { min-width: 0; }
+.matter-title, .c-title, .wl-title, .na-title { overflow-wrap: anywhere; }
+.title-line, .meta-line, .commitment-title-row, .wl-head, .wl-foot, .cap-foot-info { flex-wrap: wrap; }
+.wl-head, .wl-foot { gap: 8px; }
+.estimate-note { margin: 0; font-size: 12px; color: var(--c-warning); }
+.next-action-card { background: var(--c-primary-light); color: var(--c-text); border: 1px solid var(--c-border); box-shadow: none; border-left: 3px solid var(--c-primary); border-radius: 8px; }
+.na-title { color: var(--c-text-heading); }
+.na-desc { color: var(--c-text-regular); opacity: 1; }
+.na-kicker { color: var(--c-primary); font-size: 12px; opacity: 1; }
+.btn-na-open { background: var(--c-primary); color: var(--c-primary-contrast); }
+.btn-na-open:hover { background: var(--c-primary-hover); }
+.smart-recs-card, .capacity-meter-card { background: transparent; border: 0; border-top: 1px solid var(--c-border); border-radius: 0; box-shadow: none; padding: 16px 0; }
+@media (max-width: 600px) {
+  .today-page-container { padding: 20px 16px 32px; gap: 24px; }
+  .header-date-title { font-size: 20px; }
+  .header-status-chips, .header-actions-group { flex-wrap: wrap; gap: 10px; }
+  .btn-report-trigger { padding: 7px 10px; }
+  .hard-schedule-row { padding: 12px; }
+  .time-col { width: 64px; padding-right: 8px; }
+  .info-col { padding-left: 10px; }
+  .waitlist-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .cap-foot-info {

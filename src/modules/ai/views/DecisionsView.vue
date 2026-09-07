@@ -84,46 +84,14 @@ const stats = computed(() => ({
 
 async function loadDecisions() {
   loading.value = true
-  // 尝试调用后端命令，如果不存在则使用占位数据
   const result = await casyContext.ai.listDecisions({ limit: 200 })
   if (result.ok) {
     decisions.value = result.data || []
   } else {
-    // 后端命令不存在，使用占位数据
-    decisions.value = getPlaceholderData()
+    decisions.value = []
+    ElMessage.error(result.error || '决策记录加载失败')
   }
   loading.value = false
-}
-
-function getPlaceholderData() {
-  // 占位数据，展示 UI 结构
-  return [
-    {
-      id: 'demo-001',
-      entityType: 'case',
-      entityId: 'case-001',
-      decisionType: 'recommend_priority',
-      decision: '建议将案件优先级提升为重要紧急',
-      basis: JSON.stringify({ reason: '开庭日期临近', daysLeft: 5 }),
-      aiAdvice: '根据案件时间线分析，距离开庭仅剩 5 天，建议优先处理',
-      aiModel: 'gpt-4o-mini',
-      status: 'proposed',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'demo-002',
-      entityType: 'task',
-      entityId: 'task-001',
-      decisionType: 'recommend_today',
-      decision: '建议今日完成证据整理',
-      basis: JSON.stringify({ reason: '举证期限将至' }),
-      aiAdvice: '举证期限为明日，建议今日完成证据整理和提交',
-      aiModel: 'gpt-4o-mini',
-      status: 'confirmed',
-      confirmedAt: new Date().toISOString(),
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-    },
-  ]
 }
 
 function viewDetail(decision) {
