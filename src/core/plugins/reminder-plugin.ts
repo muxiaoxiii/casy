@@ -30,7 +30,7 @@ export class ReminderPlugin implements CasyPlugin {
   }
   
   private createListReminderRulesTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'list_reminder_rules',
       description: '获取提醒规则列表',
       category: 'reminder',

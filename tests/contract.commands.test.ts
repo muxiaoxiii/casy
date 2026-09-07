@@ -22,7 +22,7 @@ const SRC_DIR = join(ROOT, 'src')
 const COMMAND_MAP_FILE = join(SRC_DIR, 'types', 'commandMap.ts')
 const RUST_COMMANDS_FILE = join(ROOT, 'src-tauri', 'src', 'commands', 'mod.rs')
 
-/** 递归收集 src 下所有 .ts / .vue 文件 */
+/** 递归收集 src 下所有 .ts / .vue / .js 文件 */
 function collectSrcFiles(dir: string, acc: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
@@ -30,7 +30,7 @@ function collectSrcFiles(dir: string, acc: string[] = []): string[] {
       // 跳过会污染提取结果的元数据目录（本仓库 src 下无此类，保守跳过）
       if (['node_modules', 'dist', '.git'].includes(name)) continue
       collectSrcFiles(full, acc)
-    } else if (name.endsWith('.ts') || name.endsWith('.vue')) {
+    } else if (name.endsWith('.ts') || name.endsWith('.vue') || name.endsWith('.js')) {
       acc.push(full)
     }
   }
@@ -116,5 +116,65 @@ describe('CommandMap 契约全覆盖', () => {
 
   it('CommandMap ⊆ Rust：契约表不允许登记后端不存在的命令', () => {
     assertSubset(commandMap, rust, 'CommandMap ⊆ Rust')
+  })
+
+  it('禁止 tauriCallSafe / tauriCall 显式泛型调用', () => {
+    const offenders: string[] = []
+    const explicitGenericRe = /\b(?:tauriCallSafe|tauriCall)\s*</g
+    for (const file of collectSrcFiles(SRC_DIR)) {
+      if (relative(ROOT, file) === 'src/core/tauriBridge.ts') continue
+      const content = readFileSync(file, 'utf8')
+      let m: RegExpExecArray | null
+      while ((m = explicitGenericRe.exec(content)) !== null) {
+        const line = content.slice(0, m.index).split('\n').length
+        offenders.push(`${relative(ROOT, file)}:${line}`)
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([])
+  })
+
+  it('禁止 tauriCallSafe / tauriCall 动态命令名调用', () => {
+    const offenders: string[] = []
+    const dynamicCommandRe = /\b(?:tauriCallSafe|tauriCall)\s*\(\s*([^'"\s)][^,\n)]*)/g
+    for (const file of collectSrcFiles(SRC_DIR)) {
+      if (relative(ROOT, file) === 'src/core/tauriBridge.ts') continue
+      const content = readFileSync(file, 'utf8')
+      let m: RegExpExecArray | null
+      while ((m = dynamicCommandRe.exec(content)) !== null) {
+        const line = content.slice(0, m.index).split('\n').length
+        offenders.push(`${relative(ROOT, file)}:${line}: ${m[1].trim()}`)
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([])
+  })
+
+  it('禁止业务代码直接调用 Tauri invoke 绕过 tauriBridge', () => {
+    const offenders: string[] = []
+    const invokeImportRe = /from\s+['"]@tauri-apps\/api(?:\/core)?['"]/
+    const directInvokeRe = /\binvoke\s*\(/g
+    for (const file of collectSrcFiles(SRC_DIR)) {
+      if (relative(ROOT, file) === 'src/core/tauriBridge.ts') continue
+      const content = readFileSync(file, 'utf8')
+      if (!invokeImportRe.test(content)) continue
+      let m: RegExpExecArray | null
+      directInvokeRe.lastIndex = 0
+      while ((m = directInvokeRe.exec(content)) !== null) {
+        const line = content.slice(0, m.index).split('\n').length
+        offenders.push(`${relative(ROOT, file)}:${line}`)
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([])
+  })
+
+  it('CommandMap 禁止回退到宽 fallback 类型', () => {
+    const text = readFileSync(COMMAND_MAP_FILE, 'utf8')
+    const offenders: string[] = []
+    const wideTypeRe = /\bRecord<string, unknown>\b|\b(?:any|unknown)\[\]/g
+    let m: RegExpExecArray | null
+    while ((m = wideTypeRe.exec(text)) !== null) {
+      const line = text.slice(0, m.index).split('\n').length
+      offenders.push(`src/types/commandMap.ts:${line}: ${m[0]}`)
+    }
+    expect(offenders, offenders.join('\n')).toEqual([])
   })
 })

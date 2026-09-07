@@ -41,7 +41,7 @@ export class InboxPlugin implements CasyPlugin {
         properties: {
           status: { 
             type: 'string', 
-            enum: ['pending', 'processed', 'filed', 'dismissed', 'all'],
+            enum: ['pending', 'processed', 'filed', 'dismissed', 'ignored', 'all'],
             description: '筛选状态' 
           },
         },

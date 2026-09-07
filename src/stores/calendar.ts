@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia'
 import { casyContext } from '../core/plugin/context'
 import type { CalendarEvent } from '../types'
+import type { HolidayCalendarEntry } from '../types/ipc'
 
 interface CalendarState {
   events: CalendarEvent[]
   loading: boolean
   currentYear: number
   currentMonth: number
-  holidayEntries: any[]
+  holidayEntries: HolidayCalendarEntry[]
 }
 
 export const useCalendarStore = defineStore('calendar', {
@@ -33,7 +34,7 @@ export const useCalendarStore = defineStore('calendar', {
         // format: YYYY-MM-DD
         const entry = state.holidayEntries.find(h => h.date === dateStr)
         if (entry) {
-          return entry.type === 'workday'
+          return entry.kind === 'workday'
         }
         // If not explicitly holiday/workday, fallback to weekend check
         const d = new Date(dateStr)
@@ -47,7 +48,7 @@ export const useCalendarStore = defineStore('calendar', {
     async loadHolidays(year: number): Promise<void> {
       const result = await casyContext.calendar.holidays(year)
       if (result.ok && result.data) {
-        this.holidayEntries = (result.data as any).entries || []
+        this.holidayEntries = result.data.entries || []
       }
     },
 

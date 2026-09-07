@@ -39,7 +39,7 @@ export async function loadAutoPushStatus(): Promise<TauriResult<AutoPushStatus>>
 /**
  * 设置自动推送开关
  */
-export async function setAutoPushEnabled(enabled: boolean): Promise<TauriResult<void>> {
+export async function setAutoPushEnabled(enabled: boolean): Promise<TauriResult<string>> {
   const result = await tauriCallSafe('set_feishu_auto_push', { enabled })
   if (result.ok) {
     autoPushEnabled.value = enabled

@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { casyContext } from '../core/plugin/context'
 import type { InboxItem, InboxStatus } from '../types'
+import type { CommandMap } from '../types/commandMap'
+
+type ProcessedInboxResult = CommandMap['process_inbox_item']['result']
 
 interface InboxState {
   items: InboxItem[]
@@ -56,7 +59,7 @@ export const useInboxStore = defineStore('inbox', {
       return result
     },
 
-    async processItem(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    async processItem(id: string): Promise<{ ok: boolean; data?: ProcessedInboxResult; error?: string }> {
       this.processing = true
       const result = await casyContext.inbox.process(id)
       this.processing = false

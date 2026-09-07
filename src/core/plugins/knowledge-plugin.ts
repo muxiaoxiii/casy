@@ -6,6 +6,11 @@
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
 import { defineTool } from '../plugin/defineTool'
+import type { CreateKnowledgeInput } from '../../types/bindings'
+import type { CommandMap } from '../../types/commandMap'
+import type { KnowledgePatchInput } from '../../types/ipc'
+
+type ListKnowledgeToolParams = CommandMap['list_knowledge']['params']
 
 export class KnowledgePlugin implements CasyPlugin {
   name = 'knowledge'
@@ -38,7 +43,7 @@ export class KnowledgePlugin implements CasyPlugin {
   // ============================================================
   
   private createListKnowledgeTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ filter?: Record<string, unknown> }>({
+    return defineTool<ListKnowledgeToolParams>({
       name: 'list_knowledge',
       description: '获取知识库列表，支持按职能分类筛选',
       category: 'knowledge',
@@ -85,7 +90,7 @@ export class KnowledgePlugin implements CasyPlugin {
   }
   
   private createCreateKnowledgeTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<Partial<CreateKnowledgeInput>>({
       name: 'create_knowledge',
       description: '创建知识条目',
       category: 'knowledge',
@@ -110,7 +115,7 @@ export class KnowledgePlugin implements CasyPlugin {
   }
   
   private createUpdateKnowledgeTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ id: string; data: Record<string, unknown> }>({
+    return defineTool<{ id: string; data: KnowledgePatchInput }>({
       name: 'update_knowledge',
       description: '更新知识条目',
       category: 'knowledge',

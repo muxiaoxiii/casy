@@ -2,10 +2,8 @@
  * 命令契约注册表（D-3 / B1：tauriBridge 泛型化的数据源）
  *
  * - result 类型来自 src/types/bindings.ts（specta 生成物，禁止手改）
- * - params 类型按各 service 实际传参手写核定；尚未核定的先 `Record<string, unknown>`
- *   （仍获得返回类型检查），随后续收口逐条收紧
- * - 不在本表中的命令走 tauriBridge 的通用重载，行为不变
- * - 92 个 JSON 动态参数命令随 B1 DomainCommand 化逐步入表
+ * - params 类型按各 service 实际传参手写核定；核心写命令禁止退回宽 JSON 参数
+ * - 不在本表中的命令无法通过 tauriBridge 调用，避免新命令绕过契约
  */
 import type {
   AiChatResult,
@@ -115,7 +113,6 @@ import type {
   PersonCaseDto as BusinessPersonCaseDto,
   PersonDto as BusinessPersonDto,
 } from '../modules/persons/types'
-
 import type {
   CalendarEventInput,
   CalendarSyncStatus,
@@ -185,86 +182,6 @@ export interface CaseDirEntry {
 }
 
 export type CommandMap = {
-  create_reminder_rule: Cmd<{ data: ReminderRuleInput }, ReminderRule>
-  update_reminder_rule: Cmd<{ id: string; data: ReminderRuleInput }, void>
-  delete_reminder_rule: Cmd<{ id: string }, void>
-  start_reminder_engine: Cmd<{ intervalSecs?: number | null }, void>
-  reminder_recompute_now: Cmd<{}, number>
-  record_reminder_feedback: Cmd<{ reminderLogId?: string | null; taskId?: string | null; status: string }, void>
-  test_webdav_connection: Cmd<{ url: string; username: string; password: string }, string>
-  get_settings: Cmd<{}, Record<string, IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]>>
-  save_settings: Cmd<{ settings: Record<string, IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]> }, void>
-  list_saved_filters: Cmd<{ module?: string | null; entityType?: string | null }, IpcJsonObject[]>
-  save_filter: Cmd<{ filter: IpcJsonObject }, IpcJsonObject>
-  delete_filter: Cmd<{ id: string }, void>
-  get_lawyer_profile: Cmd<{}, IpcJsonObject>
-  save_lawyer_profile: Cmd<{ profile: IpcJsonObject }, IpcJsonObject>
-  save_folder_template: Cmd<{ data: Partial<FolderTemplateInput> }, string>
-  delete_folder_template: Cmd<{ templateId: string }, void>
-  save_folder_naming_settings: Cmd<{ data: Partial<FolderNamingSettingsInput> }, void>
-  get_holidays_summary: Cmd<{}, { holidaysCount: number; workdaysCount: number; yearRange: string | null }>
-  import_holidays_json: Cmd<{ jsonPath: string }, IpcJsonObject>
-  get_email_monitor_status: Cmd<{}, EmailMonitorStatus>
-  list_imap_accounts: Cmd<{}, IpcJsonObject[]>
-  configure_imap: Cmd<{ account: import('./bindings').ImapAccountConfig }, string>
-  delete_imap_account: Cmd<{ emailAddress: string }, string>
-  start_email_monitor: Cmd<{}, string>
-  stop_email_monitor: Cmd<{}, string>
-  check_keychain_status: Cmd<{}, KeychainStatus>
-  approve_mcp_write: Cmd<{ id: string }, IpcJsonObject>
-  reject_mcp_write: Cmd<{ id: string }, void>
-  configure_feishu: Cmd<{ appId: string; appSecret: string }, string>
-  test_feishu_connection: Cmd<{ appId?: string | null; appSecret?: string | null }, string>
-  get_feishu_sync_info: Cmd<{}, FeishuSyncInfo>
-  feishu_list_tables: Cmd<{ appToken: string }, FeishuBitableTableInfo[]>
-  feishu_list_fields: Cmd<{ appToken: string; tableId: string }, FeishuBitableFieldInfo[]>
-  feishu_save_mappings: Cmd<{ mappingsJson: FeishuMappingPayload[] }, string>
-  configure_ai: Cmd<{ mode: string; apiUrl?: string | null; apiKey?: string | null; model?: string | null; dailyLimit?: number | null }, string>
-  get_today_recommendations: Cmd<{}, TodayRecommendations>
-  record_decision: Cmd<{ entityType: string; entityId: string; decisionType: string; decision: string; basis?: string | null; sourceRef?: string | null; status?: string; reviewDue?: string | null }, string>
-  get_learning_analysis: Cmd<{}, IpcJsonObject>
-  apply_learning_calibration: Cmd<{}, IpcJsonObject>
-  list_pending_memories: Cmd<{}, IpcJsonObject[]>
-  confirm_memory: Cmd<{ id: string; sinkToKnowledge?: boolean | null }, IpcJsonObject>
-  dismiss_memory: Cmd<{ id: string }, void>
-  list_pending_insights: Cmd<{}, IpcJsonObject[]>
-  generate_insights_cmd: Cmd<{}, { inserted: number }>
-  confirm_insight: Cmd<{ id: string; sinkToKnowledge?: boolean | null }, IpcJsonObject>
-  dismiss_insight: Cmd<{ id: string }, void>
-  list_summaries: Cmd<{ summaryType?: string | null; limit?: number | null }, IpcJsonObject[]>
-  list_decisions: Cmd<{ entityType?: string | null; status?: string | null; limit?: number | null }, IpcJsonObject[]>
-  get_pending_decision_reviews: Cmd<{}, IpcJsonObject[]>
-  mark_decision_reviewed: Cmd<{ id: string; stillValid: boolean; note?: string | null }, void>
-  run_recursive_check: Cmd<{ decisionId: string }, IpcJsonObject>
-  get_ai_run_history: Cmd<{ limit?: number | null; purpose?: string | null }, IpcJsonObject[]>
-  record_ai_tool_audit: Cmd<{ tool: string; turnId: string; outcome: string; digest?: string | null; runId?: string | null }, void>
-  ai_analyze_inbox_item: Cmd<{ id: string }, ProcessedInboxResult>
-  snooze_task: Cmd<{ id: string; option?: string | null; newDueDate?: string | null }, void>
-  update_knowledge: Cmd<{ id: string; data: KnowledgePatchInput }, void>
-  delete_knowledge: Cmd<{ id: string }, void>
-  confirm_inbox_action: Cmd<{
-    inboxItemId: string
-    action: string
-    targetCaseId?: string | null
-    targetCategory?: string | null
-    intent?: IpcJsonObject | null
-  }, IpcJsonObject>
-  reject_inbox_recommendation: Cmd<{ inboxItemId: string; action: string; reason?: string | null; intent?: IpcJsonObject | null }, void>
-  transcribe_voice_note: Cmd<{ voiceNoteId: string }, string>
-  start_inbox_batch: Cmd<{}, void>
-  pause_inbox_batch: Cmd<{}, void>
-  resume_inbox_batch: Cmd<{}, void>
-  cancel_inbox_batch: Cmd<{}, void>
-  get_holiday_calendar: Cmd<{ year: number }, HolidayCalendarPayload>
-  send_ics_invitation_cmd: Cmd<{ to: string; subject: string; description: string; startIso: string; durationMinutes: number; alarmMinutes: number }, string>
-  test_caldav_connection: Cmd<{}, string>
-  get_calendar_sync_status: Cmd<{}, CalendarSyncStatus>
-  get_today_brief: Cmd<{}, SmartSummaryRow>
-  generate_daily_brief_cmd: Cmd<{}, IpcJsonObject>
-  append_fe_crash: Cmd<{ message: string; stack?: string | null; url?: string | null }, void>
-  generate_writing_suggestion: Cmd<{ intent: string; context?: string | null; knowledge?: string | null; style?: string | null }, string>
-  link_knowledge_to_case: Cmd<{ knowledgeId: string; caseId: string; relationType?: string | null }, void>
-  link_knowledge_to_law: Cmd<{ knowledgeId: string; lawName: string; articleNo?: string | null }, void>
   // ── 卷宗管理（index-v2 精装版 · 本地文件夹同步）──
   list_case_dirs: Cmd<{ caseId: string }, CaseDirEntry[]>
   create_case_subdir: Cmd<{ caseId: string; parentRel: string | null; name: string }, string>
@@ -308,18 +225,24 @@ export type CommandMap = {
   get_dashboard_stats: Cmd<{}, BusinessDashboardStats>
   update_case_status: Cmd<{}, BusinessCase>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
-  // B1 类型化：create_case/update_case 参数因「缺键跳过 vs null 清除」三态语义复杂，保持 Record
-  create_case: Cmd<{ data: import('./ipc').CreateCasePayload }, BusinessCase>
-  update_case: Cmd<{ id: string; data: import('./ipc').CasePatchInput }, BusinessCase>
+  // B1 类型化：Case PATCH 仍保持缺键跳过 / null 清除语义，但字段集合已收口到后端白名单。
+  create_case: Cmd<{ data: CreateCasePayload }, BusinessCase>
+  update_case: Cmd<{ id: string; data: CasePatchInput }, BusinessCase>
   // B1 类型化：新增类型化命令
   list_field_groups: Cmd<{ caseType?: string }, FieldGroup[]>
-  get_case_unified_view: Cmd<{ filters?: Record<string, unknown> }, CaseUnifiedView[]>
+  get_case_unified_view: Cmd<{ filters?: Partial<CaseFilter> }, CaseUnifiedView[]>
   get_today_stats: Cmd<{}, TodayStats>
   get_case_type_metrics: Cmd<{ caseId: string }, CaseTypeMetrics>
   get_all_case_type_metrics: Cmd<{}, CaseTypeMetrics[]>
 
   // ── 关系 / 时间线 ──
-  add_relation: Cmd<{ caseId: string; targetId: string; relationType: string; merge_data?: Record<string, unknown> }, CaseRelation>
+  add_relation: Cmd<{
+    caseId: string
+    relatedId: string
+    relationType: string
+    label?: string | null
+    mergeData?: boolean
+  }, CaseRelation>
   detect_relations: Cmd<{ caseId: string }, CaseRelation[]>
   get_relations: Cmd<{ caseId: string }, RelatedCase[]>
   get_case_timeline: Cmd<{ caseId: string }, TimelineEvent[]>
@@ -340,10 +263,16 @@ export type CommandMap = {
 
   // ── 提醒域 ──
   list_reminder_rules: Cmd<{}, ReminderRule[]>
+  create_reminder_rule: Cmd<{ data: ReminderRuleInput }, ReminderRule>
+  update_reminder_rule: Cmd<{ id: string; data: ReminderRuleInput }, void>
+  delete_reminder_rule: Cmd<{ id: string }, void>
   get_reminder_log: Cmd<{ limit?: number }, ReminderLogEntry[]>
   get_deadline_warnings: Cmd<{}, DeadlineResult[]>
   get_deadline_warnings_with_levels: Cmd<{}, DeadlineWarning[]>
-  test_reminder: Cmd<{ ruleId: string; channel: string; message: string }, ReminderLogEntry>
+  test_reminder: Cmd<{ channels: string[]; message?: string | null }, ReminderLogEntry[]>
+  start_reminder_engine: Cmd<{ intervalSecs?: number | null }, void>
+  reminder_recompute_now: Cmd<{}, number>
+  record_reminder_feedback: Cmd<{ reminderLogId?: string | null; taskId?: string | null; status: string }, void>
 
   // ── 备份域 ──
   create_backup: Cmd<{}, import('./bindings').BackupFile>
@@ -352,9 +281,10 @@ export type CommandMap = {
 
   // ── 同步域 ──
   get_sync_status: Cmd<{}, SyncStatus>
-  webdav_push: Cmd<{}, SyncResult>
-  webdav_pull: Cmd<{}, SyncResult>
-  webdav_startup_sync: Cmd<{}, SyncResult>
+  test_webdav_connection: Cmd<{ url: string; username: string; password: string }, string>
+  webdav_push: Cmd<{ url: string; username: string; password: string }, SyncResult>
+  webdav_pull: Cmd<{ url: string; username: string; password: string }, SyncResult>
+  webdav_startup_sync: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_resolve_keep_local: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_resolve_keep_remote: Cmd<{ url: string; username: string; password: string }, SyncResult>
   sync_feishu_pull: Cmd<{ appToken: string; tableId: string }, FeishuSyncReport>
@@ -362,6 +292,27 @@ export type CommandMap = {
   get_folder_template: Cmd<{ templateId: string }, FolderTemplateOutput>
   list_folder_templates: Cmd<{}, FolderTemplateOutput[]>
   get_folder_naming_settings: Cmd<{}, FolderNamingSettingsOutput>
+  get_settings: Cmd<{}, Record<string, IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]>>
+  save_settings: Cmd<{ settings: Record<string, IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]> }, void>
+  list_saved_filters: Cmd<{ module?: string | null; entityType?: string | null }, IpcJsonObject[]>
+  save_filter: Cmd<{ filter: IpcJsonObject }, IpcJsonObject>
+  delete_filter: Cmd<{ id: string }, void>
+  get_lawyer_profile: Cmd<{}, IpcJsonObject>
+  save_lawyer_profile: Cmd<{ profile: IpcJsonObject }, IpcJsonObject>
+  save_folder_template: Cmd<{ data: Partial<FolderTemplateInput> }, string>
+  delete_folder_template: Cmd<{ templateId: string }, void>
+  save_folder_naming_settings: Cmd<{ data: Partial<FolderNamingSettingsInput> }, void>
+  get_holidays_summary: Cmd<{}, { holidaysCount: number; workdaysCount: number; yearRange: string | null }>
+  import_holidays_json: Cmd<{ jsonPath: string }, IpcJsonObject>
+  get_email_monitor_status: Cmd<{}, EmailMonitorStatus>
+  list_imap_accounts: Cmd<{}, IpcJsonObject[]>
+  configure_imap: Cmd<{ account: import('./bindings').ImapAccountConfig }, string>
+  delete_imap_account: Cmd<{ emailAddress: string }, string>
+  start_email_monitor: Cmd<{}, string>
+  stop_email_monitor: Cmd<{}, string>
+  check_keychain_status: Cmd<{}, KeychainStatus>
+  approve_mcp_write: Cmd<{ id: string }, IpcJsonObject>
+  reject_mcp_write: Cmd<{ id: string }, void>
 
   feishu_import_all: Cmd<{
     appToken: string
@@ -385,6 +336,12 @@ export type CommandMap = {
 
   import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
   sync_reminders_to_calendar: Cmd<{}, CalendarSyncReport>
+  configure_feishu: Cmd<{ appId: string; appSecret: string }, string>
+  test_feishu_connection: Cmd<{ appId?: string | null; appSecret?: string | null }, string>
+  get_feishu_sync_info: Cmd<{}, FeishuSyncInfo>
+  feishu_list_tables: Cmd<{ appToken: string }, FeishuBitableTableInfo[]>
+  feishu_list_fields: Cmd<{ appToken: string; tableId: string }, FeishuBitableFieldInfo[]>
+  feishu_save_mappings: Cmd<{ mappingsJson: FeishuMappingPayload[] }, string>
 
   // ── AI 域 ──
   get_ai_profiles: Cmd<{}, import('./aiProfiles').AiProfiles>
@@ -400,23 +357,44 @@ export type CommandMap = {
     profileId?: string
   }, AiChatResult>
   get_ai_config: Cmd<{}, AiConfig>
-  get_command_route_info: Cmd<{}, CommandRoute>
+  configure_ai: Cmd<{ mode: string; apiUrl?: string | null; apiKey?: string | null; model?: string | null; dailyLimit?: number | null }, string>
+  get_command_route_info: Cmd<{ commandName: string }, CommandRoute | null>
+  get_today_recommendations: Cmd<{}, TodayRecommendations>
+  record_decision: Cmd<{ entityType: string; entityId: string; decisionType: string; decision: string; basis?: string | null; sourceRef?: string | null; status?: string; reviewDue?: string | null }, string>
+  get_learning_analysis: Cmd<{}, IpcJsonObject>
+  apply_learning_calibration: Cmd<{}, IpcJsonObject>
+  list_pending_memories: Cmd<{}, IpcJsonObject[]>
+  confirm_memory: Cmd<{ id: string; sinkToKnowledge?: boolean | null }, IpcJsonObject>
+  dismiss_memory: Cmd<{ id: string }, void>
+  list_pending_insights: Cmd<{}, IpcJsonObject[]>
+  generate_insights_cmd: Cmd<{}, { inserted: number }>
+  confirm_insight: Cmd<{ id: string; sinkToKnowledge?: boolean | null }, IpcJsonObject>
+  dismiss_insight: Cmd<{ id: string }, void>
+  list_summaries: Cmd<{ summaryType?: string | null; limit?: number | null }, IpcJsonObject[]>
+  list_decisions: Cmd<{ entityType?: string | null; status?: string | null; limit?: number | null }, IpcJsonObject[]>
+  get_pending_decision_reviews: Cmd<{}, IpcJsonObject[]>
+  mark_decision_reviewed: Cmd<{ id: string; stillValid: boolean; note?: string | null }, void>
+  run_recursive_check: Cmd<{ decisionId: string }, IpcJsonObject>
+  get_ai_run_history: Cmd<{ limit?: number | null; purpose?: string | null }, IpcJsonObject[]>
+  record_ai_tool_audit: Cmd<{ tool: string; turnId: string; outcome: string; digest?: string | null; runId?: string | null }, void>
   quick_judge_inbox_item: Cmd<{ id: string }, QuickJudgeResult>
+  ai_analyze_inbox_item: Cmd<{ id: string }, ProcessedInboxResult>
   list_mcp_pending_writes: Cmd<{}, McpPendingWrite[]>
   get_feishu_auto_push_status: Cmd<{}, { enabled: boolean; pending: boolean; hasTimer: boolean; configured: boolean }>
-  set_feishu_auto_push: Cmd<{ enabled: boolean }, void>
+  set_feishu_auto_push: Cmd<{ enabled: boolean }, string>
 
   // ── 任务域 ──
   list_tasks: Cmd<{ filter?: Partial<TaskFilter> }, Task[]>
   search_tasks: Cmd<{ query: string }, SearchTaskDto[]>
   // P1-6：撤销删除专用还原命令（保留原 id / completed；snapshot 为前端 Task 快照）
   restore_task: Cmd<{ snapshot: Task }, TaskDto>
-  // 任务写命令（B1 类型化）：data 参数当前按 Record 收口，后续逐步收紧为强类型输入。
+  // 任务写命令（B1 类型化）：data 字段集合与后端 create_task / UpdateTaskPatch 对齐。
   // create_task 后端实际仅返回 { id }（非完整 Task），勿误标为 Task；写类命令返回 null。
-  create_task: Cmd<{ data: Record<string, unknown> }, { id: string }>
-  update_task: Cmd<{ data: Record<string, unknown> }, null>
+  create_task: Cmd<{ data: CreateTaskPayload }, { id: string }>
+  update_task: Cmd<{ data: UpdateTaskPayload }, null>
   toggle_task: Cmd<{ id: string; actualMinutes?: number | null; origin?: string | null; proposalToken?: string | null }, null>
   delete_task: Cmd<{ id: string; origin?: string | null; proposalToken?: string | null }, null>
+  snooze_task: Cmd<{ id: string; option?: string | null; newDueDate?: string | null }, void>
 
 
   search_knowledge: Cmd<{ query: string }, SearchKnowledgeDto[]>
@@ -440,13 +418,15 @@ export type CommandMap = {
   >
 
   // ── 知识域 ──
-  create_knowledge: Cmd<{ data: CreateKnowledgeInput }, string>
+  create_knowledge: Cmd<{ data: Partial<CreateKnowledgeInput> }, string>
+  update_knowledge: Cmd<{ id: string; data: KnowledgePatchInput }, void>
+  delete_knowledge: Cmd<{ id: string }, void>
 
   // ── 领域域（DomainCommand 样板）──
   list_areas: Cmd<{}, AreaDto[]>
   get_area: Cmd<{ id: string }, AreaDto>
   create_area: Cmd<{ data: CreateAreaInput }, CreateAreaOutput>
-  update_area: Cmd<{ id: string; data: UpdateAreaInput }, void>
+  update_area: Cmd<{ id: string; data: Partial<UpdateAreaInput> }, void>
   delete_area: Cmd<{ id: string }, void>
   get_area_stats: Cmd<{ id: string }, AreaStatsDto>
 
@@ -464,14 +444,33 @@ export type CommandMap = {
   dismiss_inbox_item: Cmd<{ id: string }, void>
   get_inbox_progress: Cmd<{}, InboxProgress>
   parse_holiday_notice: Cmd<{ content: string }, HolidayNotice>
+  confirm_inbox_action: Cmd<{
+    inboxItemId: string
+    action: string
+    targetCaseId?: string | null
+    targetCategory?: string | null
+    intent?: IpcJsonObject | null
+  }, IpcJsonObject>
+  reject_inbox_recommendation: Cmd<{ inboxItemId: string; action: string; reason?: string | null; intent?: IpcJsonObject | null }, void>
+  transcribe_voice_note: Cmd<{ voiceNoteId: string }, string>
+  start_inbox_batch: Cmd<{}, void>
+  pause_inbox_batch: Cmd<{}, void>
+  resume_inbox_batch: Cmd<{}, void>
+  cancel_inbox_batch: Cmd<{}, void>
 
   // ── 日历域 ──
   get_calendar_events: Cmd<{ year: number; month: number }, CalendarEvent[]>
   list_calendar_events: Cmd<{ startDate: string; endDate: string }, CalendarEventRow[]>
-  create_calendar_event: Cmd<{ data: Record<string, unknown> }, CalendarEventRow>
-  update_calendar_event: Cmd<{ id: string; data: Record<string, unknown> }, void>
-  move_calendar_event: Cmd<{ id: string; newDate: string; newStart?: string }, void>
+  create_calendar_event: Cmd<{ data: CalendarEventInput }, CalendarEventRow>
+  update_calendar_event: Cmd<{ id: string; data: CalendarEventInput }, void>
+  move_calendar_event: Cmd<{ id: string; newDate: string; newStart?: string | null }, void>
   delete_calendar_event: Cmd<{ id: string }, void>
+  get_holiday_calendar: Cmd<{ year: number }, HolidayCalendarPayload>
+  send_ics_invitation_cmd: Cmd<{ to: string; subject: string; description: string; startIso: string; durationMinutes: number; alarmMinutes: number }, string>
+  test_caldav_connection: Cmd<{}, string>
+  get_calendar_sync_status: Cmd<{}, CalendarSyncStatus>
+  get_today_brief: Cmd<{}, SmartSummaryRow>
+  generate_daily_brief_cmd: Cmd<{}, IpcJsonObject>
 
   // ── 文书引擎 ──
   list_docsy_templates: Cmd<{}, TemplateListResponse>
@@ -578,16 +577,19 @@ export type CommandMap = {
 
   // ====================================契约门禁补齐（tests/contract.commands.test.ts 防回退）
   // 以下命令此前由前端调用但未登记 CommandMap（frontend ⊄ CommandMap）。
-  search_document_passages: Cmd<{ query: string; scope: string[] }, import('./documentRetrieval').DocumentPassage[]>
-  // 多为复杂/尚未收口的契约：params 按调用现场尽量核定，result 以 any/unknown
-  // 收口避免漏项（仍能为已登记调用提供参数检查），随后续收口逐步收紧。
+  // 多为复杂命令：params 按调用现场核定，result 优先复用 bindings/手写 DTO，避免漏项回退。
   reasoning_search: Cmd<{ query: string; scope: string[] }, string>
+  search_document_passages: Cmd<{ query: string; scope: string[] }, import('./documentRetrieval').DocumentPassage[]>
   get_document_engine_status: Cmd<{}, import('./bindings').DocumentEngineStatus>
   queue_document_processing: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto>
   list_document_jobs: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto[]>
   list_case_document_jobs: Cmd<{ caseId: string }, import('./bindings').DocumentJobDto[]>
   cancel_document_job: Cmd<{ jobId: string }, void>
   retry_document_job: Cmd<{ jobId: string }, void>
+  append_fe_crash: Cmd<{ message: string; stack?: string | null; url?: string | null }, void>
+  generate_writing_suggestion: Cmd<{ intent: string; context?: string | null; knowledge?: string | null; style?: string | null }, string>
+  link_knowledge_to_case: Cmd<{ knowledgeId: string; caseId: string; relationType?: string | null }, void>
+  link_knowledge_to_law: Cmd<{ knowledgeId: string; lawName: string; articleNo?: string | null }, void>
   list_case_hearings: Cmd<{ caseId: string }, import('./bindings').HearingDto[]>
   create_case_hearing: Cmd<{ payload: HearingInput }, import('./bindings').HearingDto>
   update_case_hearing: Cmd<{ id: string; payload: Partial<HearingInput> }, void>
@@ -607,7 +609,7 @@ export type CommandMap = {
   start_clipboard_monitor: Cmd<{}, void>
   capture_screenshot: Cmd<{}, string>
   capture_clipboard: Cmd<{}, string>
-  save_voice_note: Cmd<{ audioData: string; mimeType: string }, { path: string }>
+  save_voice_note: Cmd<{ audioData: number[]; durationSeconds: number }, string>
   delete_case: Cmd<{ id: string; origin?: string | null; proposalToken?: string | null }, void>
   add_case_log: Cmd<{
     caseId: string

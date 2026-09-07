@@ -6,6 +6,9 @@
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
 import { defineTool } from '../plugin/defineTool'
+import type { IpcJsonObject, IpcJsonScalar } from '../../types/ipc'
+
+type SettingsValue = IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]
 
 export class SettingsPlugin implements CasyPlugin {
   name = 'settings'
@@ -28,7 +31,7 @@ export class SettingsPlugin implements CasyPlugin {
   }
   
   private createGetSettingsTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'get_settings',
       description: '获取设置',
       category: 'settings',
@@ -41,7 +44,7 @@ export class SettingsPlugin implements CasyPlugin {
   }
   
   private createSaveSettingsTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ data: Record<string, unknown> }>({
+    return defineTool<{ data: Record<string, SettingsValue> }>({
       name: 'save_settings',
       description: '保存设置',
       category: 'settings',

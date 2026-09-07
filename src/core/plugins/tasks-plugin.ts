@@ -6,6 +6,10 @@
 
 import type { CasyPlugin, CasyContext, CasyTool } from '../plugin/types'
 import { defineTool } from '../plugin/defineTool'
+import type { CreateTaskPayload, UpdateTaskPayload } from '../../types/ipc'
+import type { CommandMap } from '../../types/commandMap'
+
+type ListTasksToolParams = CommandMap['list_tasks']['params']
 
 export class TasksPlugin implements CasyPlugin {
   name = 'tasks'
@@ -33,7 +37,7 @@ export class TasksPlugin implements CasyPlugin {
   // ============================================================
   
   private createListTasksTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ filter?: Record<string, unknown> }>({
+    return defineTool<ListTasksToolParams>({
       name: 'list_tasks',
       description: '获取任务列表，支持按案件、类型、状态筛选',
       category: 'tasks',
@@ -63,7 +67,7 @@ export class TasksPlugin implements CasyPlugin {
   }
   
   private createCreateTaskTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<CreateTaskPayload>({
       name: 'create_task',
       description: '创建新任务',
       category: 'tasks',
@@ -93,7 +97,7 @@ export class TasksPlugin implements CasyPlugin {
   }
   
   private createToggleTaskTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ id: string }>({
+    return defineTool<{ id: string; origin?: string; proposalToken?: string }>({
       name: 'toggle_task',
       description: '切换任务完成状态',
       category: 'tasks',
@@ -112,14 +116,13 @@ export class TasksPlugin implements CasyPlugin {
       },
       execute: async (params) => {
         // P0-2：提案批准后的重放会注入 origin/proposalToken，透传给服务端网关消费 token
-        const p = params as { id: string; origin?: string; proposalToken?: string }
-        return ctx.tasks.toggle(p.id, null, { origin: p.origin, proposalToken: p.proposalToken })
+        return ctx.tasks.toggle(params.id, null, { origin: params.origin, proposalToken: params.proposalToken })
       },
     })
   }
 
   private createUpdateTaskTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ id: string; data: Record<string, unknown> }>({
+    return defineTool<{ id: string; data: Omit<UpdateTaskPayload, 'id'> }>({
       name: 'update_task',
       description: '更新任务信息',
       category: 'tasks',
@@ -147,7 +150,7 @@ export class TasksPlugin implements CasyPlugin {
   }
   
   private createDeleteTaskTool(ctx: CasyContext): CasyTool {
-    return defineTool<{ id: string }>({
+    return defineTool<{ id: string; origin?: string; proposalToken?: string }>({
       name: 'delete_task',
       description: '删除任务',
       category: 'tasks',
@@ -165,8 +168,7 @@ export class TasksPlugin implements CasyPlugin {
         required: ['id'],
       },
       execute: async (params) => {
-        const p = params as { id: string; origin?: string; proposalToken?: string }
-        return ctx.tasks.remove(p.id, { origin: p.origin, proposalToken: p.proposalToken })
+        return ctx.tasks.remove(params.id, { origin: params.origin, proposalToken: params.proposalToken })
       },
     })
   }

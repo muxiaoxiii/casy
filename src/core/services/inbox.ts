@@ -1,14 +1,19 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { InboxItem } from '../../types'
+import type { CommandMap } from '../../types/commandMap'
 import type { IpcJsonObject } from '../../types/ipc'
+
+type ProcessedInboxResult = CommandMap['process_inbox_item']['result']
+type QuickJudgeResult = CommandMap['quick_judge_inbox_item']['result']
+type InboxProgress = CommandMap['get_inbox_progress']['result']
 
 /** 收件箱服务：ctx.inbox */
 export class InboxService extends Service {
   static inject: string[] = []
 
   async list(status?: string): Promise<{ ok: boolean; data?: InboxItem[]; error?: string }> {
-    return tauriCallSafe('list_inbox_items', { status: status || null })
+    return tauriCallSafe('list_inbox_items', { status: status || undefined })
   }
 
   async add(sourceType: string, contentText?: string, sourcePath?: string): Promise<{ ok: boolean; data?: string; error?: string }> {
@@ -19,7 +24,7 @@ export class InboxService extends Service {
     })
   }
 
-  async process(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async process(id: string): Promise<{ ok: boolean; data?: ProcessedInboxResult; error?: string }> {
     // 返回类型由 CommandMap 提供（ProcessedInboxResult），此处不再显式泛型
     return tauriCallSafe('process_inbox_item', { id })
   }
@@ -37,12 +42,12 @@ export class InboxService extends Service {
   }
 
   /** 即时意图判断（本地规则，0ms）：文件 → 归档推荐；文本 → 任务/期限/知识/案件/提醒推荐 */
-  async quickJudge(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async quickJudge(id: string): Promise<{ ok: boolean; data?: QuickJudgeResult; error?: string }> {
     return tauriCallSafe('quick_judge_inbox_item', { id })
   }
 
   /** AI 分析（带缓存） */
-  async aiAnalyze(id: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async aiAnalyze(id: string): Promise<{ ok: boolean; data?: ProcessedInboxResult; error?: string }> {
     return tauriCallSafe('ai_analyze_inbox_item', { id })
   }
 
@@ -69,8 +74,8 @@ export class InboxService extends Service {
   }
 
   /** 语音转写（需 OpenAI 兼容 STT） */
-  async transcribeVoiceNote(inboxItemId: string): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    return tauriCallSafe('transcribe_voice_note', { inboxItemId })
+  async transcribeVoiceNote(inboxItemId: string): Promise<{ ok: boolean; data?: string; error?: string }> {
+    return tauriCallSafe('transcribe_voice_note', { voiceNoteId: inboxItemId })
   }
 
   /**
@@ -83,7 +88,7 @@ export class InboxService extends Service {
     inboxItemId: string
     action: string
     reason?: string
-    intent?: Record<string, unknown> | null
+    intent?: IpcJsonObject | null
   }): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe('reject_inbox_recommendation', {
       inboxItemId: opts.inboxItemId,
@@ -94,7 +99,7 @@ export class InboxService extends Service {
   }
 
   /** 批量 AI 处理队列控制 */
-  async startBatch(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async startBatch(): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe('start_inbox_batch', {})
   }
   async pauseBatch(): Promise<{ ok: boolean; error?: string }> {
@@ -106,7 +111,7 @@ export class InboxService extends Service {
   async cancelBatch(): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe('cancel_inbox_batch', {})
   }
-  async getBatchProgress(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async getBatchProgress(): Promise<{ ok: boolean; data?: InboxProgress; error?: string }> {
     return tauriCallSafe('get_inbox_progress', {})
   }
 }

@@ -4,6 +4,16 @@ import type { TauriResult, TauriCallOptions } from '../types'
 import { isTauriRuntime, tryMockCommand } from './mockData'
 import type { CommandMap } from '../types/commandMap'
 
+type CommandArgs<K extends keyof CommandMap & string> =
+  keyof CommandMap[K]['params'] extends never
+    ? [args?: CommandMap[K]['params']]
+    : [args: CommandMap[K]['params']]
+
+type CommandArgsWithOptions<K extends keyof CommandMap & string> =
+  keyof CommandMap[K]['params'] extends never
+    ? [args?: CommandMap[K]['params'], options?: TauriCallOptions]
+    : [args: CommandMap[K]['params'], options?: TauriCallOptions]
+
 // 是否启用全局错误提示（可通过设置关闭）
 let globalErrorNotify = true
 
@@ -17,30 +27,23 @@ export function setGlobalErrorNotify(enabled: boolean): void {
 /**
  * 安全调用 Tauri 命令，返回 { ok, data, error }
  *
- * 重载 1（D-3/B1）：已登记进 CommandMap 的命令获得参数/返回的编译期检查；
- * 重载 2：未登记命令保持原通用签名（含显式泛型），行为不变。
+ * 仅允许调用已登记进 CommandMap 的命令，参数与返回值均由契约推导。
  * 浏览器开发模式（无 Tauri）时回退到 mock 数据。
  */
 export async function tauriCallSafe<K extends keyof CommandMap & string>(
   command: K,
-  args: CommandMap[K]['params']
-): Promise<TauriResult<CommandMap[K]['result']>>
-export async function tauriCallSafe<R = unknown>(
-  command: string,
-  args?: Record<string, unknown>
-): Promise<TauriResult<R>>
-export async function tauriCallSafe(
-  command: string,
-  args: Record<string, unknown> = {}
-): Promise<TauriResult<unknown>> {
+  ...rest: CommandArgs<K>
+): Promise<TauriResult<CommandMap[K]['result']>> {
+  const [args] = rest
+  const invokeArgs = (args ?? {}) as Record<string, unknown>
   // 浏览器模式：尝试 mock
   if (!isTauriRuntime()) {
     if (['ai_chat', 'test_ai_profile', 'save_ai_profiles', 'test_ai_connection'].includes(command)) {
       return { ok: false, error: '请在 Casy 桌面应用中配置并调用 AI；浏览器预览不执行模型请求。' }
     }
-    const mock = tryMockCommand(command, args)
+    const mock = tryMockCommand(command, invokeArgs)
     if (mock !== undefined) {
-      return { ok: true, data: mock }
+      return { ok: true, data: mock as CommandMap[K]['result'] }
     }
     // 没有 mock 的命令：静默返回失败（避免刷错误）
     console.warn(`[Mock] 未提供命令 ${command} 的模拟数据`)
@@ -48,7 +51,7 @@ export async function tauriCallSafe(
   }
 
   try {
-    const result = await invoke<unknown>(command, args)
+    const result = await invoke<CommandMap[K]['result']>(command, invokeArgs)
     return { ok: true, data: result }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -63,32 +66,23 @@ export async function tauriCallSafe(
  */
 export async function tauriCall<K extends keyof CommandMap & string>(
   command: K,
-  args: CommandMap[K]['params'],
-  options?: TauriCallOptions
-): Promise<CommandMap[K]['result'] | null>
-export async function tauriCall<T = unknown>(
-  command: string,
-  args?: Record<string, unknown>,
-  options?: TauriCallOptions
-): Promise<T | null>
-export async function tauriCall<T = unknown>(
-  command: string,
-  args: Record<string, unknown> = {},
-  options: TauriCallOptions = {}
-): Promise<T | null> {
+  ...rest: CommandArgsWithOptions<K>
+): Promise<CommandMap[K]['result'] | null> {
+  const [args, options = {}] = rest
+  const invokeArgs = (args ?? {}) as Record<string, unknown>
   const { silent = false, errorMessage } = options
   // 浏览器模式：尝试 mock
   if (!isTauriRuntime()) {
     if (['ai_chat', 'test_ai_profile', 'save_ai_profiles', 'test_ai_connection'].includes(command)) return null
-    const mock = tryMockCommand(command, args)
+    const mock = tryMockCommand(command, invokeArgs)
     if (mock !== undefined) {
-      return mock as T
+      return mock as CommandMap[K]['result']
     }
     return null
   }
 
   try {
-    const result = await invoke<T>(command, args)
+    const result = await invoke<CommandMap[K]['result']>(command, invokeArgs)
     return result
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

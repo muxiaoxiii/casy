@@ -30,7 +30,7 @@ export class SyncPlugin implements CasyPlugin {
   }
   
   private createGetSyncStatusTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'get_sync_status',
       description: '获取同步状态（WebDAV/飞书）',
       category: 'sync',
@@ -43,7 +43,7 @@ export class SyncPlugin implements CasyPlugin {
   }
   
   private createTestWebdavConnectionTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'test_webdav_connection',
       description: '测试 WebDAV 连接',
       category: 'sync',
@@ -58,7 +58,7 @@ export class SyncPlugin implements CasyPlugin {
   }
   
   private createManualSyncPushTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'manual_sync_push',
       description: '手动推送同步',
       category: 'sync',
@@ -79,7 +79,7 @@ export class SyncPlugin implements CasyPlugin {
   }
   
   private createManualSyncPullTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'manual_sync_pull',
       description: '手动拉取同步',
       category: 'sync',

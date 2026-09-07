@@ -1,19 +1,21 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
+import type { ReminderLogEntry, ReminderRule } from '../../types/bindings'
+import type { ReminderRuleInput } from '../../types/ipc'
 
 /** 提醒服务：ctx.reminder */
 export class ReminderService extends Service {
   static inject: string[] = []
 
-  async rules(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async rules(): Promise<{ ok: boolean; data?: ReminderRule[]; error?: string }> {
     return tauriCallSafe('list_reminder_rules', {})
   }
 
-  async createRule(data: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async createRule(data: ReminderRuleInput): Promise<{ ok: boolean; data?: ReminderRule; error?: string }> {
     return tauriCallSafe('create_reminder_rule', { data })
   }
 
-  async log(limit?: number): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async log(limit?: number): Promise<{ ok: boolean; data?: ReminderLogEntry[]; error?: string }> {
     return tauriCallSafe('get_reminder_log', { limit: limit ?? 50 })
   }
 
@@ -22,11 +24,11 @@ export class ReminderService extends Service {
   }
 
   /** 立即重算一次（K-3：task:completed 事件消费者调用，不等引擎周期） */
-  async recomputeNow(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async recomputeNow(): Promise<{ ok: boolean; data?: number; error?: string }> {
     return tauriCallSafe('reminder_recompute_now', {})
   }
 
-  async updateRule(id: string, data: Record<string, unknown>): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async updateRule(id: string, data: ReminderRuleInput): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe('update_reminder_rule', { id, data })
   }
 
@@ -35,10 +37,9 @@ export class ReminderService extends Service {
   }
 
   /** 发送本地测试提醒 */
-  async test(opts: { ruleId: string; channel: string; message: string }): Promise<{ ok: boolean; error?: string }> {
+  async test(opts: { ruleId: string; channel: string; message: string }): Promise<{ ok: boolean; data?: ReminderLogEntry[]; error?: string }> {
     return tauriCallSafe('test_reminder', {
-      ruleId: opts.ruleId,
-      channel: opts.channel,
+      channels: [opts.channel],
       message: opts.message,
     })
   }

@@ -47,7 +47,7 @@ export class CalendarPlugin implements CasyPlugin {
   }
   
   private createGetDeadlineWarningsTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'get_deadline_warnings',
       description: '获取期限预警（红/黄/绿分级）',
       category: 'calendar',
@@ -60,7 +60,7 @@ export class CalendarPlugin implements CasyPlugin {
   }
   
   private createGetDashboardStatsTool(ctx: CasyContext): CasyTool {
-    return defineTool<Record<string, unknown>>({
+    return defineTool<{}>({
       name: 'get_dashboard_stats',
       description: '获取仪表盘统计（活跃案件、期限预警、最近活动）',
       category: 'calendar',

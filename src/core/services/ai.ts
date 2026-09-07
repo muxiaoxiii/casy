@@ -1,5 +1,20 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
+import type { CommandMap } from '../../types/commandMap'
+
+type TodayRecommendations = CommandMap['get_today_recommendations']['result']
+type RecordDecisionResult = CommandMap['record_decision']['result']
+type LearningAnalysis = CommandMap['get_learning_analysis']['result']
+type CalibrationResult = CommandMap['apply_learning_calibration']['result']
+type PendingMemory = CommandMap['list_pending_memories']['result'][number]
+type ConfirmMemoryResult = CommandMap['confirm_memory']['result']
+type PendingInsight = CommandMap['list_pending_insights']['result'][number]
+type GenerateInsightsResult = CommandMap['generate_insights_cmd']['result']
+type ConfirmInsightResult = CommandMap['confirm_insight']['result']
+type SmartSummary = CommandMap['list_summaries']['result'][number]
+type DecisionRecord = CommandMap['list_decisions']['result'][number]
+type RecursiveCheckResult = CommandMap['run_recursive_check']['result']
+type AiRunHistoryItem = CommandMap['get_ai_run_history']['result'][number]
 
 /**
  * AI 服务：ctx.ai —— AI 模块数据通路
@@ -22,7 +37,7 @@ export class AiService extends Service {
   // ── 今日推荐（§11.6 推荐引擎） ──
 
   /** 获取今日推荐（recommendations + followupSuggestions + source） */
-  async todayRecommendations(): Promise<{ ok: boolean; data?: import('../../types/ipc').TodayRecommendations; error?: string }> {
+  async todayRecommendations(): Promise<{ ok: boolean; data?: TodayRecommendations; error?: string }> {
     return tauriCallSafe('get_today_recommendations', {})
   }
 
@@ -39,7 +54,7 @@ export class AiService extends Service {
     sourceRef?: string | null
     status?: string
     reviewDue?: string | null
-  }): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  }): Promise<{ ok: boolean; data?: RecordDecisionResult; error?: string }> {
     return tauriCallSafe('record_decision', {
       entityType: opts.entityType,
       entityId: opts.entityId,
@@ -55,24 +70,24 @@ export class AiService extends Service {
   // ── 学习洞察（§11.9 行为学习闭环） ──
 
   /** 获取行为学习分析（耗时校准 / 活跃时段 / 延期模式） */
-  async learningAnalysis(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  async learningAnalysis(): Promise<{ ok: boolean; data?: LearningAnalysis; error?: string }> {
     return tauriCallSafe('get_learning_analysis', {})
   }
 
   /** 一键校准预估（把偏差 >50% 或未设预估的未完成任务更新为历史均值） */
-  async applyCalibration(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  async applyCalibration(): Promise<{ ok: boolean; data?: CalibrationResult; error?: string }> {
     return tauriCallSafe('apply_learning_calibration', {})
   }
 
   // ── 记忆确认区（蒸馏候选） ──
 
   /** 列出待确认候选记忆 */
-  async pendingMemories(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  async pendingMemories(): Promise<{ ok: boolean; data?: PendingMemory[]; error?: string }> {
     return tauriCallSafe('list_pending_memories', {})
   }
 
   /** 采纳候选记忆（可选同时沉淀进 knowledge_items 经验类） */
-  async confirmMemory(id: string, sinkToKnowledge: boolean): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async confirmMemory(id: string, sinkToKnowledge: boolean): Promise<{ ok: boolean; data?: ConfirmMemoryResult; error?: string }> {
     return tauriCallSafe('confirm_memory', { id, sinkToKnowledge })
   }
 
@@ -84,17 +99,17 @@ export class AiService extends Service {
   // ── 关联洞察（§3.2 通道 B 隐性关联学习） ──
 
   /** 列出待确认关联洞察 */
-  async pendingInsights(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  async pendingInsights(): Promise<{ ok: boolean; data?: PendingInsight[]; error?: string }> {
     return tauriCallSafe('list_pending_insights', {})
   }
 
   /** 手动触发关联洞察生成（AI 未配置时静默返回 0） */
-  async generateInsights(): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  async generateInsights(): Promise<{ ok: boolean; data?: GenerateInsightsResult; error?: string }> {
     return tauriCallSafe('generate_insights_cmd', {})
   }
 
   /** 确认关联洞察（可选沉淀 knowledge_items 经验类） */
-  async confirmInsight(id: string, sinkToKnowledge: boolean): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  async confirmInsight(id: string, sinkToKnowledge: boolean): Promise<{ ok: boolean; data?: ConfirmInsightResult; error?: string }> {
     return tauriCallSafe('confirm_insight', { id, sinkToKnowledge })
   }
 
@@ -106,14 +121,14 @@ export class AiService extends Service {
   // ── 报表历史（smart_summaries，§11.3） ──
 
   /** 列出报表历史（summaryType: daily / weekly） */
-  async listSummaries(summaryType: string, limit?: number | null): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  async listSummaries(summaryType: string, limit?: number | null): Promise<{ ok: boolean; data?: SmartSummary[]; error?: string }> {
     return tauriCallSafe('list_summaries', { summaryType, limit: limit ?? null })
   }
 
   // ── 决策记录（§11.6 / §11.7 决策复核） ──
 
   /** 查询决策记录（可按实体类型 / 状态 / 条数过滤） */
-  async listDecisions(opts: { entityType?: string | null; status?: string | null; limit?: number | null } = {}): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  async listDecisions(opts: { entityType?: string | null; status?: string | null; limit?: number | null } = {}): Promise<{ ok: boolean; data?: DecisionRecord[]; error?: string }> {
     return tauriCallSafe('list_decisions', {
       entityType: opts.entityType ?? null,
       status: opts.status ?? null,
@@ -122,7 +137,7 @@ export class AiService extends Service {
   }
 
   /** 获取到期待复核决策列表（§11.7："该决策仍有效吗？"） */
-  async pendingDecisionReviews(): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  async pendingDecisionReviews(): Promise<{ ok: boolean; data?: DecisionRecord[]; error?: string }> {
     return tauriCallSafe('get_pending_decision_reviews', {})
   }
 
@@ -132,14 +147,14 @@ export class AiService extends Service {
   }
 
   /** L3 递归核对：AI 核对决策与案件状态的一致性，失败时降级为规则核对 */
-  async runRecursiveCheck(decisionId: string): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  async runRecursiveCheck(decisionId: string): Promise<{ ok: boolean; data?: RecursiveCheckResult; error?: string }> {
     return tauriCallSafe('run_recursive_check', { decisionId })
   }
 
   // ── AI 审计（ai_runs 历史） ──
 
   /** 获取 AI 运行历史（可加 purpose 过滤） */
-  async runHistory(limit?: number | null, purpose?: string | null): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  async runHistory(limit?: number | null, purpose?: string | null): Promise<{ ok: boolean; data?: AiRunHistoryItem[]; error?: string }> {
     return tauriCallSafe('get_ai_run_history', { limit: limit ?? null, purpose: purpose ?? null })
   }
 }

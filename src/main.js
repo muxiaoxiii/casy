@@ -12,12 +12,12 @@ import i18n from './locales/index.ts'
 // R-6 前端崩溃基线：window.onerror / unhandledrejection → 本地 JSONL
 // （经 append_fe_crash 命令写入与 Rust panic 同一目录；D-13 严格本地不上报）
 // ============================================================
-import { invoke } from '@tauri-apps/api/core'
+import { tauriCallSafe } from './core/tauriBridge'
 
 function reportFeCrash(message, stack, url) {
   try {
     if (!window.__TAURI_INTERNALS__) return // 浏览器预览模式无后端可写
-    invoke('append_fe_crash', {
+    tauriCallSafe('append_fe_crash', {
       message: String(message ?? ''),
       stack: stack ?? null,
       url: url ?? null,
@@ -41,6 +41,13 @@ window.addEventListener('unhandledrejection', (e) => {
 import { initializePluginSystem } from './core/plugin/initializer'
 
 const app = createApp(App)
+app.config.errorHandler = (error, _instance, info) => {
+  console.error(`[Casy] Vue ${info}:`, error)
+  reportFeCrash(error?.message ?? String(error), error?.stack ?? null, window.location.href)
+}
+router.onError((error) => {
+  reportFeCrash(error.message, error.stack ?? null, window.location.href)
+})
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)
