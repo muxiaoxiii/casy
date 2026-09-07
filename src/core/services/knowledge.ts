@@ -36,6 +36,10 @@ export class KnowledgeService extends Service {
     return tauriCallSafe('global_search', { query })
   }
 
+  async searchIndex(query: string, useSemantic: boolean) {
+    return tauriCallSafe('search_knowledge_index', { query, useSemantic })
+  }
+
   async create(data: Partial<CreateKnowledgeInput>): Promise<{ ok: boolean; data?: string; error?: string }> {
     return tauriCallSafe('create_knowledge', { data })
   }

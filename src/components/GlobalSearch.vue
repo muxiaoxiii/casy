@@ -8,10 +8,10 @@
  * - ↑↓ 在扁平序上循环移动，Enter 跳转对应视图
  * - 所有数据经 casyContext 服务（双路径铁律），无直连 tauriCallSafe
  */
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, shallowRef, watch, nextTick, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Finished, Folder, Reading, Briefcase } from '@element-plus/icons-vue'
+import { Search, Finished, Folder, Reading } from '@element-plus/icons-vue'
 import { casyContext } from '../core/plugin/context'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -26,6 +26,9 @@ const query = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
+const semanticLoading = ref(false)
+const semanticWarning = ref('')
+const mode = ref(localStorage.getItem('casy_global_search_mode') || 'keyword')
 
 interface ResultItem {
   key: string
@@ -36,14 +39,23 @@ interface ResultItem {
   route: string
 }
 
-const results = ref<ResultItem[]>([])
+const results = shallowRef<ResultItem[]>([])
 const activeIndex = ref(0)
 
 const flatResults = computed(() => results.value)
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let semanticTimer: ReturnType<typeof setTimeout> | null = null
+let sequence = 0
+const groupOrder = ['项目', '任务', '案件', '知识']
 
-async function runSearch(q: string) {
+function publish(items: ResultItem[]) {
+  const activeKey = flatResults.value[activeIndex.value]?.key
+  results.value = items.sort((a,b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group))
+  activeIndex.value = Math.max(0, results.value.findIndex(item => item.key === activeKey))
+}
+
+async function runSearch(q: string, request: number) {
   const text = q.trim()
   if (!text) {
     results.value = []
@@ -53,9 +65,10 @@ async function runSearch(q: string) {
   const [tasksRes, casesRes, knRes, projRes] = await Promise.all([
     casyContext.tasks.searchTasks(text),
     casyContext.cases.search(text),
-    casyContext.knowledge.search(text),
+    casyContext.knowledge.searchIndex(text, false),
     casyContext.projects.list(text),
   ])
+  if (request !== sequence || !visible.value) return
   loading.value = false
 
   const out: ResultItem[] = []
@@ -84,15 +97,15 @@ async function runSearch(q: string) {
       })
     }
   }
-  if (knRes.ok && Array.isArray(knRes.data)) {
-    for (const k of knRes.data as Array<Record<string, unknown>>) {
+  if (knRes.ok && knRes.data) {
+    for (const k of knRes.data.results) {
       out.push({
         key: 'kn-' + String(k.id),
         group: '知识',
         icon: Reading,
         title: String(k.title ?? ''),
-        meta: String(k.category ?? k.updatedAt ?? ''),
-        route: '/knowledge',
+        meta: k.content.replace(/\s+/g, ' ').slice(0,100),
+        route: '/knowledge?select=' + encodeURIComponent(k.id),
       })
     }
   }
@@ -112,16 +125,52 @@ async function runSearch(q: string) {
     }
   }
 
-  results.value = out
-  activeIndex.value = 0
+  publish(out)
+  if (!knRes.ok) semanticWarning.value = knRes.error || '知识检索失败'
+  if (mode.value === 'hybrid') {
+    semanticLoading.value = true
+    semanticTimer = setTimeout(async () => {
+      const response = await casyContext.knowledge.searchIndex(text, true)
+      if (request !== sequence || !visible.value) return
+      semanticLoading.value = false
+      if (!response.ok || !response.data) {
+        semanticWarning.value = response.error || '语义检索不可用，已保留关键词结果'
+        return
+      }
+      semanticWarning.value = response.data.warning || ({not_configured:'语义检索尚未启用',not_indexed:'尚无当前模型的索引'}[response.data.semanticStatus] || '')
+      const knowledge: ResultItem[] = response.data.results.map(k => ({
+        key:'kn-'+k.id,group:'知识',icon:Reading,title:k.title,
+        meta:(k.source === 'fts' ? '' : '语义 · ') + k.content.replace(/\s+/g,' ').slice(0,100),
+        route:'/knowledge?select='+encodeURIComponent(k.id),
+      }))
+      publish([...out.filter(item => item.group !== '知识'), ...knowledge])
+    }, 400)
+  }
 }
 
-watch(query, q => {
+function scheduleSearch() {
+  const request = ++sequence
   if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => void runSearch(q), 200)
-})
+  if (semanticTimer) clearTimeout(semanticTimer)
+  loading.value = false
+  semanticLoading.value = false
+  semanticWarning.value = ''
+  results.value = []
+  if (query.value.trim()) {
+    loading.value = true
+    debounceTimer = setTimeout(() => void runSearch(query.value, request), 200)
+  }
+}
+watch(query, scheduleSearch)
+watch(mode, value => { localStorage.setItem('casy_global_search_mode', value); scheduleSearch() })
 
 watch(visible, v => {
+  ++sequence
+  if (debounceTimer) clearTimeout(debounceTimer)
+  if (semanticTimer) clearTimeout(semanticTimer)
+  loading.value = false
+  semanticLoading.value = false
+  semanticWarning.value = ''
   if (v) {
     query.value = ''
     results.value = []
@@ -129,6 +178,7 @@ watch(visible, v => {
     void nextTick(() => inputRef.value?.focus())
   }
 })
+onBeforeUnmount(() => { ++sequence; if (debounceTimer) clearTimeout(debounceTimer); if (semanticTimer) clearTimeout(semanticTimer) })
 
 function move(delta: number) {
   const n = flatResults.value.length
@@ -181,11 +231,22 @@ function onKeydown(e: KeyboardEvent) {
               v-model="query"
               class="cmdk-input"
               placeholder="搜索任务、案件、知识…"
+              aria-label="全局检索问题"
+              maxlength="500"
               spellcheck="false"
               @keydown="onKeydown"
             />
             <span class="cmdk-esc">Esc</span>
           </div>
+
+          <div class="cmdk-modes">
+            <el-radio-group v-model="mode" size="small" aria-label="全局检索方式">
+              <el-radio-button value="keyword">关键词</el-radio-button>
+              <el-radio-button value="hybrid">混合检索</el-radio-button>
+            </el-radio-group>
+            <span v-if="semanticLoading" role="status">语义检索中</span>
+          </div>
+          <div v-if="semanticWarning" class="cmdk-warning" role="status">{{ semanticWarning }}</div>
 
           <div ref="listRef" class="cmdk-list">
             <template v-if="flatResults.length">
@@ -207,8 +268,7 @@ function onKeydown(e: KeyboardEvent) {
                     @click="choose(r)"
                   >
                     <el-icon class="cmdk-item-icon"><component :is="r.icon" /></el-icon>
-                    <span class="cmdk-item-title">{{ r.title }}</span>
-                    <span class="cmdk-item-meta">{{ r.meta }}</span>
+                    <span class="cmdk-item-body"><span class="cmdk-item-title">{{ r.title }}</span><span class="cmdk-item-meta">{{ r.meta }}</span></span>
                     <span v-if="flatResults[activeIndex]?.key === r.key" class="cmdk-enter-hint">↵</span>
                   </div>
                 </template>
@@ -264,6 +324,8 @@ function onKeydown(e: KeyboardEvent) {
   padding: 14px 16px;
   border-bottom: 1px solid var(--c-border-light);
 }
+.cmdk-modes { display:flex; gap:12px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--c-border-light); font-size:12px; color:var(--c-text-secondary); }
+.cmdk-warning { padding:8px 16px; font-size:12px; color:var(--c-text-secondary); overflow-wrap:anywhere; }
 .cmdk-search-icon {
   color: var(--c-text-secondary);
   font-size: 16px;
@@ -308,6 +370,7 @@ function onKeydown(e: KeyboardEvent) {
   background: #F0F4FA;
 }
 .cmdk-item-icon { color: var(--gray-500); flex-shrink: 0; }
+.cmdk-item-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
 .cmdk-item-title {
   flex: 1;
   min-width: 0;
@@ -320,7 +383,9 @@ function onKeydown(e: KeyboardEvent) {
 .cmdk-item-meta {
   font-size: 11px;
   color: var(--c-text-secondary);
-  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cmdk-enter-hint { color: var(--c-text-secondary); font-size: 13px; }
 

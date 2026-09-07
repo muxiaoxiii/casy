@@ -24,7 +24,7 @@ const stateLabels: Record<string, string> = {
 }
 const semanticLabel = computed(() => ({
   ready: '混合检索', disabled: '关键词检索', not_configured: '关键词结果 · 向量接口未配置',
-  not_indexed: '关键词结果 · 尚无当前模型的索引', unavailable: '关键词结果 · 向量接口不可用',
+  not_indexed: '关键词结果 · 尚无当前模型的索引', unavailable: '关键词结果 · 语义检索不可用',
 }[response.value?.semanticStatus || ''] || ''))
 
 async function refresh() {

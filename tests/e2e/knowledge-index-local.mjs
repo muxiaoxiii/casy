@@ -52,7 +52,7 @@ try {
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => { if (message.type() === 'error' || message.text().startsWith('[Vue warn]')) errors.push(message.text()) })
   await page.exposeFunction('__casyKnowledge', call)
-  await page.goto(process.env.CASY_QA_URL || 'http://127.0.0.1:1422/')
+  await page.goto((process.env.CASY_QA_URL || 'http://127.0.0.1:1422/').replace(/#.*$/, '') + '#/cases')
   await page.getByRole('button', { name: '暂时跳过' }).click()
   await page.evaluate(async () => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
@@ -65,6 +65,7 @@ try {
       start_reminder_engine: null, list_deadline_rules: [], list_smart_rules: [], get_feishu_sync_info: {},
       get_email_monitor_status: { running: false }, list_imap_accounts: [], get_calendar_sync_status: {},
       check_keychain_status: {}, list_mcp_pending_writes: [], list_backups: [], get_settings: {},
+      list_case_files: [], list_case_dirs: [], search_tasks: [], search_cases: [], list_projects: [],
     }
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args = {}) => {
@@ -155,6 +156,24 @@ try {
   await page.screenshot({ path: path.join(profile, 'index-mobile.png'), animations: 'disabled' })
   await drawer.getByRole('button', { name: '取消索引' }).click()
   await drawer.locator('.index-job[data-status="cancelled"]').waitFor()
+  await call('embed_knowledge', { itemId: status.jobs[0].itemId })
+  await call('qa_process_next')
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => { location.hash = '/cases' })
+  await page.getByRole('button', { name: '全局搜索', exact: true }).click()
+  const globalSearch = page.getByRole('dialog', { name: '全局搜索', exact: true })
+  await globalSearch.getByText('混合检索', { exact: true }).click()
+  await globalSearch.getByRole('textbox', { name: '全局检索问题' }).fill('损失数额')
+  await globalSearch.locator('.cmdk-item').filter({ hasText: '第三人赔偿研究' }).waitFor()
+  assert((await globalSearch.innerText()).includes('语义'))
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false)
+  await page.screenshot({ path: path.join(profile, 'global-mobile.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.screenshot({ path: path.join(profile, 'global-desktop.png'), animations: 'disabled' })
+  await globalSearch.locator('.cmdk-item').filter({ hasText: '第三人赔偿研究' }).click()
+  await page.waitForURL(/knowledge\?select=/)
+  await page.waitForFunction(() => document.querySelector('.title-editor')?.value === '第三人赔偿研究')
+  assert.equal(await page.locator('.title-editor').inputValue(), '第三人赔偿研究')
   const audit = await call('qa_audit')
   assert.deepEqual(audit, { integrity: 'ok', foreignKeyErrors: 0 })
   assert.equal(errors.length, 0, errors.join('\n'))

@@ -313,7 +313,7 @@ async function loadAll(preferredId = '') {
   if (caseRes.ok) cases.value = normalizeList(caseRes.data)
   const queryId = typeof route.query.select === 'string' ? route.query.select : ''
   const nextId = preferredId || queryId || selectedId.value || filteredNotes.value[0]?.id
-  if (nextId) await selectNote(notes.value.find(n => n.id === nextId))
+  if (nextId) await selectNote(notes.value.find(n => n.id === nextId) || { id: nextId })
 }
 
 async function loadCaseOptions() {
@@ -404,7 +404,7 @@ function changeMode(nextMode) {
 
 watch(() => route.query.select, (id) => {
   if (typeof id !== 'string') return
-  selectNote(notes.value.find(item => item.id === id))
+  selectNote(notes.value.find(item => item.id === id) || { id })
 })
 
 onBeforeRouteLeave(async () => {
