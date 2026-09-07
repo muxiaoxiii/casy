@@ -2,8 +2,10 @@
 
 > **版本**: v2.4  
 > **日期**: 2026-08-18  
-> **状态**: 设计基准（Master Design Doc）  
-> **定位**: 当前Casy完整设计基准。
+> **状态**: 历史设计哲学归档口径
+> **定位**: v2.4 设计哲学存档；当前产品设计基准见 `docs/casy-product-design-v3.md` v3.1。
+>
+> **2026-09-04 说明**：严格 IPC 边界与案卷材料可追溯闭环已上升为当前设计哲学的一部分，详见 `docs/casy-product-design-v3.md` 的“工程护栏：边界即信任”和“案卷护栏：材料必须可追溯”。后续以 v3.1 为产品与工程裁决入口，本文件保留历史语义和长篇蓝图。
 >
 > **v2.4（R1-R4 后端分级接通 + AI 审计日志）**：① `reminder_log` 新增 `level` 列，`dispatch_reminder` 在派发时计算并写入 R1/R2/R3/R4，前端 ReminderView 直接消费后端 level（兼容旧数据回退前端解析）；② AI 调用接通审计日志——`process_inbox_with_ai` 与 `generate_writing_suggestion` 在调用后写入 `ai_runs`（provider/model/purpose/input_hash/output_hash/status/error），input/output 用 SHA256 脱敏入库，审计失败不阻塞主流程；③ `log_ai_context_item` 保留为待接（按场景需要再调）。
 >

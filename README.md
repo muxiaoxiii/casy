@@ -4,7 +4,7 @@
 
 Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：动态字段、跨类型筛选、期限引擎、多通道提醒、知识库、文书生成、大口袋收件箱。
 
-**架构**：cordis 风格内核（借鉴 DeepSeek Harness / @deepseek-ai/cordis）——Context 服务解析 + Service 注入 + Fiber 生命周期，9+ 个业务服务（ctx.cases / ctx.tasks / ...）构成数据通路：视图 → ctx 服务 → tauriBridge → Rust 命令（写入口唯一）。AI 能力以工具/技能形式接入。现行产品设计基准为 docs/casy-product-design-v3.md（v2.4 归档于 docs/casy-design-philosophy.md）。
+**架构**：cordis 风格内核（借鉴 DeepSeek Harness / @deepseek-ai/cordis）——Context 服务解析 + Service 注入 + Fiber 生命周期，9+ 个业务服务（ctx.cases / ctx.tasks / ...）构成数据通路：视图 → ctx 服务 → tauriBridge → Rust 命令（写入口唯一）。AI 能力以工具/技能形式接入。现行产品设计基准为 docs/casy-product-design-v3.md（v3.1 起将严格 IPC 边界写入设计哲学；v2.4 归档于 docs/casy-design-philosophy.md）。
 
 ---
 
@@ -16,7 +16,7 @@ Casy 起点是飞书多维表格的数据结构，但比多维表格更好用：
 | 前端 | Vue 3 + Element Plus + Pinia + Vue Router（TypeScript） |
 | 编辑器 | TipTap (ProseMirror) |
 | 后端 | Rust |
-| 数据库 | SQLite (SQLCipher 加密) + FTS5 全文搜索（Schema v18，含子任务/重复规则/项目垂直拆表/独立日程实体） |
+| 数据库 | SQLite (SQLCipher 加密) + FTS5 全文搜索（Schema v26，含子任务/重复规则/项目垂直拆表/独立日程实体/软删除审计/PDF 页级索引） |
 | 公式引擎 | Rust nom 解析器 |
 | 同步 | WebDAV + 飞书 Bitable API |
 | 提醒 | 本地弹窗 + macOS 通知 + 飞书消息 + 飞书任务（R1-R4 分级预警） |
@@ -75,7 +75,7 @@ Casy/
 │   │   ├── ai/             # AI 后端 + prompt
 │   │   ├── parse/          # 文档解析
 │   │   ├── files/          # 文件管理
-│   │   └── docsy/          # Docsy 模板引擎
+│   │   └── docsy_engine/   # Docsy 模板引擎
 │   └── Cargo.toml
 ├── src/                    # Vue 前端
 │   ├── modules/            # 功能模块
@@ -98,11 +98,12 @@ Casy/
 │   ├── types/              # TypeScript 类型定义
 │   └── router/             # 路由
 ├── docs/                   # 设计文档
-│   ├── casy-design-philosophy.md # ★ 设计哲学（唯一总纲：原则/模块蓝图/UI 规范/路线图）
+│   ├── casy-product-design-v3.md # ★ 产品设计基准（唯一总纲：原则/模块蓝图/UI 规范/路线图）
+│   ├── casy-design-philosophy.md # 历史设计哲学 v2.4 归档口径
 │   ├── devlog/             # 开发日志
-│   └── archive/            # 数据模型口径（architecture.md）+ 法条依据 + feishu 数据
+│   └── audits/             # 代码审查与改进方向
 ├── designs/                # UI 设计稿（11 张屏幕 PNG+SVG + HTML 原型）
-├── Casy-STATUS-v3.md       # 项目状态（当前）
+├── Casy-STATUS.md          # 项目状态（当前）
 └── README.md               # 本文件
 ```
 
@@ -112,9 +113,10 @@ Casy/
 
 ```
 README.md（你在这里）
-  ├─ docs/casy-design-philosophy.md ← 设计哲学（唯一总纲：八大原则、模块蓝图、UI 规范、路线图）
-  ├─ docs/devlog/                   ← 开发日志（按日期 + TODO.md 待办清单）
-  └─ docs/archive/                  ← 数据模型口径（architecture.md，被设计哲学引用）+ 法条依据 + feishu-base 数据
+  ├─ docs/casy-product-design-v3.md ← 当前产品设计基准（v3.1）
+  ├─ docs/casy-design-philosophy.md ← 历史设计哲学 v2.4 归档口径
+  ├─ docs/devlog/                   ← 开发日志
+  └─ docs/audits/                   ← 代码审查、风险与改进方向
 ```
 
 ---
@@ -160,12 +162,22 @@ npm run tauri build
 | 指标 | 数值 |
 |------|------|
 | 代码行数 | ~43,300（Rust ~20k + Vue ~19.4k + TS/JS） |
-| Rust 命令 | 232（specta 类型导出 58） |
+| Rust 命令 | 311 注册命令 |
+| CommandMap 契约 | 276 键；前端 254 个字面量 IPC 命令全覆盖 |
+| specta 类型导出 | 121 类型 |
 | Vue 组件 | 44 |
+| 路由 | 18 |
 | 业务插件 | 9（v3.0 插件化架构） |
 | 注册工具 | 38 |
-| 路由 | 18 |
 | 编译错误 | 0 |
+
+### 真实案件测试口径（2026-09-04）
+
+- 新建案件已支持 `民事诉讼+行政诉讼` 并行路由；案件向导会随路由提交对应程序状态。
+- Excel/飞书导入可识别民事侵权与行政程序并行描述，并导入民事/无效/行政状态及关键日期。
+- 案卷上传会先复制进案件归档目录再登记；收件箱归档分类会归一到稳定 `case_files.category` key。
+- PDF/OCR 处理完成后，页级文本写入 `document_pages` 并同步到 `document_pages_fts` trigram 索引；全局搜索可返回带 `[pN]` 的页内命中。
+- Markdown/文书编辑链路已加固知识引用渲染、导出返回字段和显式导出路径；详见 `docs/audits/casy-real-case-readiness-review-2026-09-04.md`。
 
 ---
 

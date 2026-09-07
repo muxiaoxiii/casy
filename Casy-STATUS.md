@@ -1,10 +1,10 @@
 # Casy 项目状态
 
-> **记录时间**: 2026-09-01 · **状态**: 🚀 **RC（发布候选）· 待 Dogfooding**
-> **规划**: `docs/refactoring-plan.md` v1.7 · **上位哲学**: casy-design-philosophy.md v2.3
-> **基线**: main 工作区干净 · cargo test 119+7 ✓ · vue-tsc 0 ✓ · build ✓
-> **最新批次**: 全球对标灵感落地（2026-09-01）—— Schema v20 · 10 项灵感全量实装 · bindings 115 类型 · CommandMap +45 契约
-> 详见 `docs/global-benchmark-inspirations-plan-2026-09-01.md` 与 `docs/global-benchmark-inspirations-walkthrough-2026-09-01.md`
+> **记录时间**: 2026-09-04 · **状态**: RC（发布候选）· 真实案件测试前隐患收口 · 待 Dogfooding
+> **规划**: `docs/refactoring-plan.md` v1.7 · **上位哲学**: `docs/casy-product-design-v3.md` v3.1
+> **基线**: vue-tsc 0 ✓ · vitest 120 ✓ · cargo test 172+ lib + 集成 ✓ · build ✓
+> **最新批次**: 真实案件测试前收口（2026-09-04）—— 民事+行政并行路由 · PDF 页级 FTS trigram · 上传先归档 · 编辑器/导出/打开路径安全加固
+> 详见 `docs/audits/casy-ipc-strict-review-2026-09-04.md` 与 `docs/audits/casy-real-case-readiness-review-2026-09-04.md`
 
 ---
 
@@ -20,12 +20,14 @@
 | B3/B1 内核收口 | ✅ | 确认策略上收；类型双轨合一；事件层激活；bindings 83 类型；错误码全域 |
 | B4 生产化 | 🔶 | R-1 身份/updater ✅ · R-3 CI ✅ · R-4 CSP/审计 ✅ · R-5 备份恢复 ✅ · R-6 崩溃日志 ✅ · R-7 合规文本 ✅ · R-2 签名 ⏸️ 待证书 |
 | 对标灵感落地（豁免冻结） | ✅ | AI Proposal Diff+@引用 · Defer Date · 通知中心 · 期限规则自定义+留痕 · 双链 · OCR+SmartRules · persons 对象 · 事实白板 |
+| 严格 IPC 收口 | ✅ | 所有前端 IPC 字面量命令入 CommandMap；禁止显式泛型、动态命令名、直接 invoke、宽 fallback 类型；Case/Task/Calendar PATCH 改为精确 DTO |
+| 真实案件测试前收口 | ✅ | 新建/导入并行案件可落库；卷宗上传先入案件目录；PDF 页文本进入 `document_pages_fts`；搜索特殊字符安全；编辑器引用渲染与导出路径加固 |
 
 ## 二、当前形态
 
 - **架构**：cordis 式内核（Context/Service/Fiber）+ 单一数据通路 + AI 无特权通道（executeTool 强制确认 + audit_events 归因）
-- **Schema v20**：tasks(+parent/recurrence/defer_until) / projects + case_legal_details / calendar_events / notifications / links / persons+case_persons / smart_rules / whiteboards+fact_nodes / deadline_rule_audit
-- **类型安全**：specta 绑定 58 类型 + commandMap 契约注册表 + tauriCallSafe 双重载；动态命令余量 ~86（杂项盘点 63 个已分桶：可定型31/三态2/键袋18/核验2，随 DomainCommand 化消化）
+- **Schema v26**：tasks(+parent/recurrence/defer_until/deleted_at) / projects + case_legal_details / calendar_events / notifications / links / persons+case_persons / smart_rules / whiteboards+fact_nodes / deadline_rule_audit / document_jobs / document_pages_fts
+- **类型安全**：specta 绑定 121 类型 + CommandMap 276 键契约注册表；tauriBridge 仅允许已登记命令；前端显式泛型 IPC 调用 0，动态命令名 0，直接 invoke 0
 - **CI**：.github/workflows/ci.yml 三平台矩阵 + bindings 漂移校验 + tag 发布草稿
 
 ## 三、已知问题 / 待办
@@ -36,14 +38,17 @@
 
 ### 技术备忘
 - quick-xml 升级需跨 minor 适配 calamine/docsy_engine（本地输入面，接受风险，见 security-audit-r4.md）
-- create/update_case 三态语义待 B1 DomainCommand 设计时定型（现保持 Record 有决策记录）
+- Case/Task/Calendar PATCH 与主要 service 返回类型已完成 DTO 收口；后续重点转向业务组件去 `any`、AI 工具参数运行时校验、错误码结构化
+- PDF 页级 FTS 已接入全局搜索；下一步是把页码/坐标/证据引用锚点整合到知识库搜索与 Markdown 编辑器工作流
 - CalendarView forecast 的任务投影依赖 get_calendar_events 月度窗口，年视图已单独处理
 - docsy_engine 改名建议挂 C 线解冻首批
 
 ## 四、验证方式
 
 ```bash
-npm run test     # vue-tsc + cargo test (104)
-npm run build    # 含类型门禁
+npm run typecheck
+npm run test:unit
+(cd src-tauri && cargo test)
+npm run build
 .github/workflows/ci.yml   # push 自动三平台矩阵 + bindings 漂移校验
 ```
