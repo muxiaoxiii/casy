@@ -1,5 +1,10 @@
 # Casy 项目状态
 
+> **2026-09-07 更新**：本地 OCR 默认改为非 mobile 的 PP-OCRv6 medium ONNX，暂停 VL 路线。
+> 原 PDF、Markdown、页内位置已接通对照阅读和相邻页检索。中英德法日混排及日语竖排合成测试通过。
+> 模型及配置约 139 MB，完整安装包体积尚未验证；复杂版面、跨页表格和安装体验仍在完善。
+> 本批验证与限制见 `docs/audits/casy-ocr-source-binding-2026-09-07.md`。以下保留 2026-09-04 阶段记录。
+
 > **记录时间**: 2026-09-04 · **状态**: RC（发布候选）· 真实案件测试前隐患收口 · 待 Dogfooding
 > **规划**: `docs/refactoring-plan.md` v1.7 · **上位哲学**: `docs/casy-product-design-v3.md` v3.1
 > **基线**: vue-tsc 0 ✓ · vitest 120 ✓ · cargo test 172+ lib + 集成 ✓ · build ✓
