@@ -7,12 +7,21 @@ pub async fn convert_file_to_markdown(
     source_path: String,
     output_dir: String,
 ) -> Result<serde_json::Value, String> {
-    convert(source_path, output_dir)
-        .await
-        .map_err(|e| e.to_string())
+    let job_id = crate::db::new_id();
+    tracing::info!(%job_id, "Standalone document conversion requested");
+    match convert(source_path, output_dir, &job_id).await {
+        Ok(result) => {
+            tracing::info!(%job_id, pages = %result["pages"], bytes = %result["bytes"], "Standalone document conversion completed");
+            Ok(result)
+        }
+        Err(error) => {
+            tracing::error!(%job_id, error = %format!("{error:#}"), "Standalone document conversion failed");
+            Err(format!("{error:#}"))
+        }
+    }
 }
 
-async fn convert(source_path: String, output_dir: String) -> Result<serde_json::Value> {
+async fn convert(source_path: String, output_dir: String, job_id: &str) -> Result<serde_json::Value> {
     let (source, destination, hash) = super::run_blocking(move || {
         let source = PathBuf::from(source_path);
         let destination = PathBuf::from(output_dir);
@@ -34,12 +43,12 @@ async fn convert(source_path: String, output_dir: String) -> Result<serde_json::
     .map_err(anyhow::Error::msg)?;
     let temporary = tempfile::tempdir()?;
     let request = document_pipeline::process_request(
-        &crate::db::new_id(),
+        job_id,
         &source.to_string_lossy(),
         &hash,
         temporary.path(),
     );
-    let result = document_pipeline::run_engine(request).await?;
+    let result = document_pipeline::run_standalone_engine(request).await?;
     let count = result.pages.len();
     super::run_blocking(move || {
         if document_pipeline::sha256_file(&source)? != hash { bail!("源文件在转换期间发生变化，请重试"); }
@@ -66,6 +75,18 @@ async fn convert(source_path: String, output_dir: String) -> Result<serde_json::
 mod tests {
     use super::*;
     #[tokio::test]
+    #[ignore = "requires bundled document engine and CASY_CONVERSION_TEST_PDF"]
+    async fn standalone_pdf_conversion_with_real_engine() {
+        let source = std::env::var("CASY_CONVERSION_TEST_PDF").unwrap();
+        let before = document_pipeline::sha256_file(std::path::Path::new(&source)).unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let result = convert_file_to_markdown(source.clone(), output.path().display().to_string()).await.unwrap();
+        assert!(result["pages"].as_u64().unwrap() > 0);
+        assert!(result["bytes"].as_u64().unwrap() > 0);
+        assert!(std::fs::read_to_string(result["outputPath"].as_str().unwrap()).unwrap().contains("<!-- page 1 -->"));
+        assert_eq!(before, document_pipeline::sha256_file(std::path::Path::new(&source)).unwrap());
+    }
+    #[tokio::test]
     async fn conversion_preserves_source_and_existing_output() {
         let root = tempfile::tempdir().unwrap();
         let source = root.path().join("证据.md");
@@ -74,6 +95,7 @@ mod tests {
         let result = convert(
             source.display().to_string(),
             root.path().display().to_string(),
+            "test-conversion",
         )
         .await
         .unwrap();
@@ -86,7 +108,7 @@ mod tests {
             std::fs::read_to_string(result["outputPath"].as_str().unwrap()).unwrap(),
             text
         );
-        assert!(convert(source.display().to_string(), "relative".into())
+        assert!(convert(source.display().to_string(), "relative".into(), "test-invalid")
             .await
             .is_err());
     }

@@ -38,6 +38,12 @@ pub fn bundled_runtime() -> Option<PathBuf> {
         .map(|dir| dir.join("runtime"))
         .filter(|dir| dir.is_dir())
         .or_else(|| debug_override("CASY_RUNTIME_DIR").filter(|dir| dir.is_dir()))
+        .or_else(|| {
+            if cfg!(debug_assertions) {
+                let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtime");
+                dir.is_dir().then_some(dir)
+            } else { None }
+        })
 }
 
 pub fn runtime_asset(environment: &str, relative: &str) -> Option<PathBuf> {

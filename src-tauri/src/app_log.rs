@@ -35,7 +35,7 @@ pub fn append_crash_line(file_stem: &str, line: &str) {
 ///
 /// 日志级别通过 CASY_LOG 环境变量控制，默认 info。
 /// 示例：CASY_LOG=debug cargo tauri dev
-pub fn init() {
+pub fn init() -> tracing_appender::non_blocking::WorkerGuard {
     let log_dir = log_dir();
 
     // 文件 appender：按天轮转
@@ -56,7 +56,7 @@ pub fn init() {
                 .expect("无法创建临时日志文件")
         });
 
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     // 日志级别过滤
     let env_filter = EnvFilter::try_from_env("CASY_LOG").unwrap_or_else(|_| {
@@ -99,6 +99,7 @@ pub fn init() {
         debug_mode = cfg!(debug_assertions),
         "日志系统已初始化"
     );
+    guard
 }
 
 /// 安装 panic hook，将 panic 信息写入日志
@@ -132,4 +133,28 @@ fn install_panic_hook() {
 
         default_hook(info);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn file_logger_survives_initialization_and_flushes_on_shutdown() {
+        if std::env::var_os("CASY_LOG_GUARD_TEST_CHILD").is_some() {
+            let guard = super::init();
+            tracing::info!("conversion-log-after-init");
+            drop(guard);
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "app_log::tests::file_logger_survives_initialization_and_flushes_on_shutdown", "--nocapture"])
+            .env("CASY_LOG_GUARD_TEST_CHILD", "1")
+            .env("CASY_TEST_DATA_DIR", root.path())
+            .env("CASY_LOG", "casy_lib=info")
+            .status().unwrap();
+        assert!(status.success());
+        let content = std::fs::read_dir(root.path().join("logs")).unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap()).collect::<String>();
+        assert!(content.contains("conversion-log-after-init"), "log writer stopped after init");
+    }
 }

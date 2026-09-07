@@ -59,7 +59,7 @@ impl ConversionState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    app_log::init();
+    let _log_guard = app_log::init();
     let conversion_state = Arc::new(ConversionState::new());
 
     tauri::Builder::default()

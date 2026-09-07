@@ -198,6 +198,15 @@ pub fn artifact_dir(file_id: &str, sha256: &str) -> Result<PathBuf> {
 }
 
 pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
+    run_processing(request, true).await
+}
+
+/// Standalone conversion has no document_processing_jobs row or database cancellation owner.
+pub async fn run_standalone_engine(request: ProcessRequest) -> Result<ProcessResult> {
+    run_processing(request, false).await
+}
+
+async fn run_processing(request: ProcessRequest, tracked: bool) -> Result<ProcessResult> {
     if crate::parse::text_document::supports(Path::new(&request.source_path)) {
         return tokio::task::spawn_blocking(move || {
             let result = crate::parse::text_document::process(&request)?;
@@ -207,18 +216,23 @@ pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
         .await?;
     }
     let payload = serde_json::to_vec(&request)?;
-    run_engine_command(request, "process", payload).await
+    run_engine_command(request, "process", payload, tracked).await
 }
 
 pub async fn run_revision(request: ProcessRequest, pages: Vec<DocumentPage>) -> Result<ProcessResult> {
     let payload = serde_json::to_vec(&serde_json::json!({"request":request,"pages":pages}))?;
-    run_engine_command(request, "revise", payload).await
+    run_engine_command(request, "revise", payload, true).await
 }
 
-async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec<u8>) -> Result<ProcessResult> {
+async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec<u8>, tracked: bool) -> Result<ProcessResult> {
     let executable = engine_executable().ok_or_else(|| {
         anyhow!("DOC_ENGINE_NOT_FOUND: 请设置 CASY_DOC_ENGINE 或安装 casy-doc-engine")
     })?;
+    execute_engine(request, command, payload, tracked, &executable).await
+}
+
+async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>, tracked: bool, executable: &Path) -> Result<ProcessResult> {
+    tracing::info!(job_id = %request.job_id, %command, tracked, executable = %executable.display(), "Starting document engine");
     let mut child = tokio::process::Command::new(executable)
         .arg(command)
         .env("RAYON_NUM_THREADS", "2")
@@ -226,7 +240,8 @@ async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
-        .spawn()?;
+        .spawn().context("DOC_ENGINE_START_FAILED: 无法启动文档引擎")?;
+    tracing::info!(job_id = %request.job_id, pid = ?child.id(), "Document engine started");
     use tokio::io::AsyncWriteExt;
     child
         .stdin
@@ -258,21 +273,22 @@ async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec
         tokio::select! {
             result = &mut wait => break result?,
             _ = interval.tick() => {
-                let conn = crate::db::open_db()?;
-                let running: bool = conn.query_row(
-                    "SELECT status='running' FROM document_processing_jobs WHERE id=?1",
-                    [&request.job_id], |row| row.get(0),
-                ).unwrap_or(false);
-                if !running { return Err(anyhow!("CANCELLED: 文档任务已取消")); }
+                let conn = if tracked {
+                    let conn = crate::db::open_db()?;
+                    check_job_running(&conn, &request.job_id)?;
+                    Some(conn)
+                } else { None };
                 if let Ok(bytes) = std::fs::read(Path::new(&request.output_dir).join("progress.json")) {
                     if let Ok(progress) = serde_json::from_slice::<EngineProgress>(&bytes) {
                         if progress.current_page > current_page && progress.current_page <= progress.total_pages {
                             current_page = progress.current_page;
                             last_progress = std::time::Instant::now();
+                            tracing::info!(job_id = %request.job_id, current_page, total_pages = progress.total_pages, "Document engine progress");
                         }
                         if progress.total_pages > 0 && progress.current_page <= progress.total_pages {
-                            conn.execute("UPDATE document_processing_jobs SET current_page=?1,total_pages=?2,progress=?3,updated_at=datetime('now','localtime') WHERE id=?4 AND status='running'",
+                            if let Some(conn) = &conn { conn.execute("UPDATE document_processing_jobs SET current_page=?1,total_pages=?2,progress=?3,updated_at=datetime('now','localtime') WHERE id=?4 AND status='running'",
                                 rusqlite::params![progress.current_page,progress.total_pages,0.01 + 0.94 * progress.current_page as f64 / progress.total_pages as f64,request.job_id])?;
+                            }
                         }
                     }
                 }
@@ -282,6 +298,7 @@ async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec
             }
         }
     };
+    tracing::info!(job_id = %request.job_id, status = %output.0, "Document engine exited");
     if !output.0.success() {
         return Err(anyhow!(
             "DOC_ENGINE_FAILED: {}",
@@ -292,6 +309,24 @@ async fn run_engine_command(request: ProcessRequest, command: &str, payload: Vec
         serde_json::from_slice(&output.1).context("文档引擎结果不是有效 JSON")?;
     validate_result(&request, &result)?;
     Ok(result)
+}
+
+fn check_job_running(conn: &rusqlite::Connection, job_id: &str) -> Result<()> {
+    use rusqlite::OptionalExtension;
+    let status: Option<String> = conn.query_row(
+        "SELECT status FROM document_processing_jobs WHERE id=?1", [job_id], |row| row.get(0)
+    ).optional().context("DOC_JOB_STATE_FAILED: 无法读取文档任务状态")?;
+    match status.as_deref() {
+        Some("running") => Ok(()),
+        Some("cancelled") => {
+            tracing::info!(%job_id, "Document engine cancelled by persisted job state");
+            Err(anyhow!("CANCELLED: 文档任务已取消"))
+        }
+        other => {
+            tracing::warn!(%job_id, status = ?other, "Document engine stopped after job state changed");
+            Err(anyhow!("DOC_JOB_STATE_CHANGED: 文档任务不存在或已停止运行"))
+        }
+    }
 }
 
 async fn read_bounded(reader: impl tokio::io::AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>> {
@@ -447,6 +482,30 @@ pub fn process_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn standalone_engine_waits_for_process_instead_of_cancelling_missing_job() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("test-engine");
+        std::fs::write(&executable, "#!/bin/sh\ncat >/dev/null\nsleep 0.2\nprintf 'synthetic engine failure' >&2\nexit 7\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let request = process_request("unregistered-standalone", "/synthetic.pdf", "hash", root.path());
+        let error = execute_engine(request, "process", b"{}".to_vec(), false, &executable).await.unwrap_err();
+        assert!(error.to_string().contains("DOC_ENGINE_FAILED: synthetic engine failure"), "{error:#}");
+    }
+
+    #[test]
+    fn job_state_distinguishes_cancellation_from_missing_rows_and_sql_errors() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        assert!(check_job_running(&conn, "job").unwrap_err().to_string().contains("DOC_JOB_STATE_FAILED"));
+        conn.execute_batch("CREATE TABLE document_processing_jobs(id TEXT,status TEXT); INSERT INTO document_processing_jobs VALUES('job','running')").unwrap();
+        check_job_running(&conn, "job").unwrap();
+        assert!(check_job_running(&conn, "missing").unwrap_err().to_string().contains("DOC_JOB_STATE_CHANGED"));
+        conn.execute("UPDATE document_processing_jobs SET status='cancelled'", []).unwrap();
+        assert!(check_job_running(&conn, "job").unwrap_err().to_string().starts_with("CANCELLED:"));
+    }
 
     #[test]
     fn rejects_path_traversal_and_invalid_hashes() {

@@ -1,5 +1,7 @@
 # Casy 项目状态
 
+> **2026-09-07 文件转换故障修复**：修复独立 PDF 转换误用后台任务状态检查导致立即 `CANCELLED` 的问题，以及日志 WorkerGuard 提前释放导致后续日志丢失的问题。212 项库测试、实际扫描 PDF 转换、PDF/TXT/DOCX 弹窗回归通过；修复版已打包。原先的转换验收漏测了 PDF 引擎分支，不能以旧结果证明这条路径可用。详见 `docs/audits/document-conversion-cancel-fix-2026-09-07.md`。
+
 > **2026-09-07 Zvec 检索 beta**：知识库已改用原生 Zvec FP16 HNSW 候选检索、SQLite 紧凑向量精排与全文融合；全局搜索新增混合检索并直达知识笔记。支持增量同步、损坏重建、模型切换和长文结果去重。
 > 完整 Rust 回归、176 项前端测试、真实 E5 中英德法日检索与桌面/窄屏界面回归通过。6000 分段合成测试 recall@10 为 100%；新增缓存占用约 13.6 MB，并非零额外空间。完整本地包因现有 PDF 渲染器要求 macOS 26+、Apple Silicon。详见 `docs/audits/zvec-global-search-beta-2026-09-07.md`。
 
