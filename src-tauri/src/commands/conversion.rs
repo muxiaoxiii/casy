@@ -8,13 +8,18 @@ pub async fn convert_file_to_markdown(
     output_dir: String,
 ) -> Result<serde_json::Value, String> {
     let job_id = crate::db::new_id();
+    let started = std::time::Instant::now();
+    document_pipeline::emit_conversion_progress(&job_id, &source_path, "preparing", 0, 0, 0.0);
     tracing::info!(%job_id, "Standalone document conversion requested");
-    match convert(source_path, output_dir, &job_id).await {
+    match convert(source_path.clone(), output_dir, &job_id).await {
         Ok(result) => {
+            let pages = result["pages"].as_u64().unwrap_or(0) as u32;
+            document_pipeline::emit_conversion_progress(&job_id, &source_path, "completed", pages, pages, started.elapsed().as_secs_f64());
             tracing::info!(%job_id, pages = %result["pages"], bytes = %result["bytes"], "Standalone document conversion completed");
             Ok(result)
         }
         Err(error) => {
+            document_pipeline::emit_conversion_progress(&job_id, &source_path, "failed", 0, 0, started.elapsed().as_secs_f64());
             tracing::error!(%job_id, error = %format!("{error:#}"), "Standalone document conversion failed");
             Err(format!("{error:#}"))
         }

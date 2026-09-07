@@ -33,6 +33,8 @@ struct ProcessRequest {
     output_dir: String,
     coordinate_model_dir: Option<String>,
     cjk_font_path: Option<String>,
+    #[serde(default)]
+    markdown_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +65,7 @@ struct ProcessResult {
     source_sha256: String,
     engine: String,
     model_version: Option<String>,
-    searchable_pdf_path: String,
+    searchable_pdf_path: Option<String>,
     page_ir_path: String,
     markdown_path: String,
     source_map_path: String,
@@ -207,7 +209,7 @@ fn write_progress(request: &ProcessRequest, current: u32, total: u32) -> Result<
     Ok(())
 }
 
-fn raster_pdf(source: &Path, output: &Path) -> Result<()> {
+fn read_raster(source: &Path) -> Result<image::DynamicImage> {
     use image::AnimationDecoder;
     let file = std::io::BufReader::new(std::fs::File::open(source)?);
     let format = image::ImageReader::open(source)?
@@ -239,7 +241,11 @@ fn raster_pdf(source: &Path, output: &Path) -> Result<()> {
     limits.max_image_height = Some(16000);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
-    let image = reader.decode()?;
+    Ok(reader.decode()?)
+}
+
+fn raster_pdf(source: &Path, output: &Path) -> Result<()> {
+    let image = read_raster(source)?;
     let size = (
         image.width() as f32 * 72.0 / 200.0,
         image.height() as f32 * 72.0 / 200.0,
@@ -251,6 +257,20 @@ fn raster_pdf(source: &Path, output: &Path) -> Result<()> {
         .add_image(png.get_ref(), [0.0, 0.0, size.0, size.1])?;
     doc.save(output)?;
     Ok(())
+}
+
+fn raster_ocr_image(source: &Path) -> Result<image::RgbImage> {
+    let image = read_raster(source)?;
+    let image = if image.width().max(image.height()) > 2400 {
+        image.resize(2400, 2400, image::imageops::FilterType::Lanczos3)
+    } else { image };
+    // Match a PDF's white page when screenshots contain transparent pixels.
+    let rgba = image.to_rgba8();
+    Ok(image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let pixel = rgba.get_pixel(x, y).0;
+        let alpha = pixel[3] as u32;
+        image::Rgb(std::array::from_fn(|i| ((pixel[i] as u32 * alpha + 255 * (255 - alpha) + 127) / 255) as u8))
+    }))
 }
 
 #[cfg(feature = "models")]
@@ -280,11 +300,13 @@ fn recognize(
     source: &Path,
     temp: &Path,
     total: u32,
+    direct_image: bool,
 ) -> Result<Vec<Page>> {
     use oar_ocr::prelude::*;
     let mut coordinate = None;
     let mut layout_predictor = None;
     let mut pages = Vec::new();
+    let mut timings = Vec::new();
     // Keep only one rendered page and its model inputs alive at a time.
     for page_number in 1..=total {
         // The visible raster is authoritative, including PDFs with deceptive text layers.
@@ -303,16 +325,21 @@ fn recognize(
                     return Err(anyhow!("MODEL_MISSING: {}", path.display()));
                 }
             }
+            let threads = std::env::var("CASY_OCR_THREADS").ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| (1..=8).contains(value))
+                .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get().min(4)).unwrap_or(2));
             oar_ocr::core::OrtGlobalThreadPoolOptions::new()
-                .with_intra_threads(2)
+                .with_intra_threads(threads)
                 .with_inter_threads(1)
                 .with_spin_control(false)
                 .commit()?;
             coordinate = Some(
                 OAROCRBuilder::new(&det, &rec, &dict)
                     .character_dict_content(model_dictionary(coord_dir)?)
-                    .return_word_box(true)
-                    .region_batch_size(6)
+                    .return_word_box(false)
+                    // Single-line inference avoids expensive padded medium-model CPU batches.
+                    .region_batch_size(1)
                     .build()?,
             );
             let layout_path = env_path("CASY_LAYOUT_MODEL").or_else(|| {
@@ -325,8 +352,11 @@ fn recognize(
                     .build(path)?);
             }
         }
-        let path = render_page(source, temp, page_number)?;
-        let image = image::open(&path)?.to_rgb8();
+        let start = std::time::Instant::now();
+        let path = if direct_image { None } else { Some(render_page(source, temp, page_number)?) };
+        let image = if let Some(path) = &path { image::open(path)?.to_rgb8() } else { raster_ocr_image(source)? };
+        let render_ms = start.elapsed().as_millis();
+        let ocr_start = std::time::Instant::now();
         let mut coordinate_results = coordinate.as_ref().unwrap().predict(vec![image.clone()])?;
         let ocr = coordinate_results
             .pop()
@@ -358,6 +388,8 @@ fn recognize(
                 })
             }
         }
+        let ocr_ms = ocr_start.elapsed().as_millis();
+        let layout_start = std::time::Instant::now();
         if let Some(predictor) = &layout_predictor {
             let output = predictor.predict(vec![image.clone()])?;
             if let Some(elements) = output.elements.first() {
@@ -382,7 +414,9 @@ fn recognize(
             confidence,
             native_text: false,
         });
-        std::fs::remove_file(path)?;
+        if let Some(path) = path { std::fs::remove_file(path)?; }
+        timings.push(serde_json::json!({"page":page_number,"renderMs":render_ms,"ocrMs":ocr_ms,"layoutMs":layout_start.elapsed().as_millis()}));
+        std::fs::write(Path::new(&request.output_dir).join("timings.json"), serde_json::to_vec(&timings)?)?;
         write_progress(request, page_number, total)?;
     }
     Ok(pages)
@@ -394,6 +428,7 @@ fn recognize(
     _source: &Path,
     _temp: &Path,
     _total: u32,
+    _direct_image: bool,
 ) -> Result<Vec<Page>> {
     Err(anyhow!(
         "MODEL_RUNTIME_MISSING: 请用 --features models 构建文档引擎；未验证的 PDF 文本层不能代替 OCR"
@@ -455,16 +490,17 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
     let output_dir = Path::new(&request.output_dir);
     std::fs::create_dir_all(output_dir)?;
     let converted = temp.path().join("image.pdf");
-    let pdf_source = if source
+    let is_pdf = source
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-    {
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
+    let direct_image = !is_pdf && request.markdown_only && corrected.is_none();
+    let pdf_source = if is_pdf || direct_image {
         source
     } else {
         raster_pdf(source, &converted)?;
         converted.as_path()
     };
-    let total = Document::from_file(pdf_source)?.page_count();
+    let total = if direct_image { 1 } else { Document::from_file(pdf_source)?.page_count() };
     if total == 0 {
         return Err(anyhow!("EMPTY_DOCUMENT: 文档没有页面"));
     }
@@ -473,16 +509,18 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
     let pages = if let Some(pages) = corrected {
         anyhow::ensure!(pages.len() == total as usize && pages.iter().enumerate().all(|(i,p)|p.page_number as usize == i+1), "CORRECTION_PAGES_INVALID");
         pages
-    } else { recognize(request, pdf_source, temp.path(), total)? };
+    } else { recognize(request, pdf_source, temp.path(), total, direct_image)? };
     let pdf = output_dir.join("source.searchable.pdf");
     let ir = output_dir.join("source.document.json");
     let md = output_dir.join("source.md");
     let map_path = output_dir.join("source.map.json");
-    let font = request
-        .cjk_font_path
-        .as_deref()
-        .ok_or_else(|| anyhow!("FONT_MISSING: CASY_OCR_FONT 未配置"))?;
-    add_search_layer(pdf_source, &pdf, Path::new(font), &pages)?;
+    if !request.markdown_only {
+        let font = request
+            .cjk_font_path
+            .as_deref()
+            .ok_or_else(|| anyhow!("FONT_MISSING: CASY_OCR_FONT 未配置"))?;
+        add_search_layer(pdf_source, &pdf, Path::new(font), &pages)?;
+    }
     std::fs::write(&ir, serde_json::to_vec_pretty(&pages)?)?;
     let (markdown, source_map) = source_map::build(&pages, &before);
     std::fs::write(&md, markdown)?;
@@ -517,7 +555,7 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
         source_sha256: after,
         engine: if is_correction { "paddle-onnx-corrected" } else { "paddle-onnx-visual" }.into(),
         model_version,
-        searchable_pdf_path: pdf.display().to_string(),
+        searchable_pdf_path: (!request.markdown_only).then(|| pdf.display().to_string()),
         page_ir_path: ir.display().to_string(),
         markdown_path: md.display().to_string(),
         source_map_path: map_path.display().to_string(),
@@ -561,6 +599,19 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_image_keeps_pixels_and_composites_transparency_on_white() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("transparent.png");
+        let mut input = image::RgbaImage::from_pixel(20, 10, image::Rgba([0, 0, 0, 0]));
+        input.put_pixel(3, 4, image::Rgba([15, 30, 45, 255]));
+        input.save(&path).unwrap();
+        let output = raster_ocr_image(&path).unwrap();
+        assert_eq!(output.dimensions(), (20, 10));
+        assert_eq!(output.get_pixel(0, 0).0, [255, 255, 255]);
+        assert_eq!(output.get_pixel(3, 4).0, [15, 30, 45]);
+    }
 
     #[test]
     fn derived_pdf_discards_forged_hidden_text() {
@@ -746,6 +797,7 @@ mod tests {
             output_dir: root.join("result").display().to_string(),
             coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
             cjk_font_path: Some(font_path),
+            markdown_only: false,
         })
         .unwrap();
         std::fs::write(
@@ -760,7 +812,7 @@ mod tests {
         );
         assert_eq!(result.pages.len(), 2);
         assert_eq!(hash, sha256_file(&scan).unwrap());
-        let searchable = Document::from_file(&result.searchable_pdf_path).unwrap();
+        let searchable = Document::from_file(result.searchable_pdf_path.as_deref().unwrap()).unwrap();
         for (index, page) in result.pages.iter().enumerate() {
             for keyword in if index == 0 {
                 vec!["第三人", "李华", "128000"]
@@ -919,6 +971,7 @@ mod tests {
             output_dir: root.join("result").display().to_string(),
             coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
             cjk_font_path: Some(font_path),
+            markdown_only: false,
         })
         .unwrap();
         std::fs::write(
@@ -953,7 +1006,7 @@ mod tests {
             "vertical Japanese: {compact}"
         );
         assert!(!result.pages.iter().any(|p| p.plain_text.contains("999999")));
-        let extracted = pdf_extract::extract_text(&result.searchable_pdf_path).unwrap();
+        let extracted = pdf_extract::extract_text(result.searchable_pdf_path.as_deref().unwrap()).unwrap();
         assert!(!extracted.contains("999999"));
         assert_eq!(before, sha256_file(&source).unwrap());
     }

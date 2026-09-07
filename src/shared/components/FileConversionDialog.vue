@@ -5,10 +5,21 @@ import { FolderOpened, Plus, Delete, RefreshRight, Document } from '@element-plu
 import { tauriCallSafe } from '../../core/tauriBridge'
 import { casyContext } from '../../core/plugin/context'
 import { isTauriRuntime } from '../../core/mockData'
+import { safeListen } from '../../core/tauriEvents'
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
-type Entry = { path: string; status: 'pending' | 'running' | 'done' | 'failed'; output?: string; error?: string }
+type Progress = { jobId: string; sourcePath: string; phase: string; currentPage: number; totalPages: number; elapsedSeconds: number; remainingSeconds: number | null }
+type Entry = { path: string; status: 'pending' | 'running' | 'done' | 'failed'; output?: string; error?: string; progress?: Progress; startedAt?: number }
 const entries = ref<Entry[]>([]), outputDir = ref(''), running = ref(false), stop = ref(false)
+const now = ref(Date.now())
+let unlisten: (() => void) | undefined
+let timer: ReturnType<typeof setInterval> | undefined
+let disposed = false
+function duration(seconds: number) {
+  const value = Math.max(0, Math.round(seconds))
+  return value < 60 ? `${value} 秒` : `${Math.floor(value / 60)} 分 ${value % 60} 秒`
+}
+function elapsed(entry: Entry) { return duration((now.value - (entry.startedAt ?? now.value)) / 1000) }
 const pending = computed(() => entries.value.filter(e => e.status === 'pending'))
 const formats = ['pdf','png','jpg','jpeg','webp','bmp','tif','tiff','md','markdown','txt','doc','docx','docm','rtf','odt']
 function add(paths: string[]) {
@@ -33,21 +44,28 @@ async function convert() {
   if (!outputDir.value || running.value) return
   running.value = true; stop.value = false
   try {
+    unlisten = await safeListen<Progress>('document-conversion-progress', ({ payload }) => {
+      const entry = entries.value.find(e => e.status === 'running' && (e.progress?.jobId === payload.jobId || (!e.progress && payload.phase === 'preparing' && e.path === payload.sourcePath)))
+      if (entry) entry.progress = payload
+    })
+    if (disposed) return
+    timer = setInterval(() => { now.value = Date.now() }, 1000)
     for (const entry of pending.value) {
       if (stop.value) break
       entry.status = 'running'; entry.error = undefined
+      entry.progress = undefined; entry.startedAt = Date.now(); now.value = Date.now()
       const result = await tauriCallSafe('convert_file_to_markdown', { sourcePath: entry.path, outputDir: outputDir.value })
       entry.status = result.ok ? 'done' : 'failed'
       entry.output = result.data?.outputPath
       entry.error = result.error || undefined
     }
-  } finally { running.value = false }
+  } finally { unlisten?.(); unlisten = undefined; clearInterval(timer); timer = undefined; running.value = false }
 }
 function drop(event: Event) {
   if (props.modelValue && !running.value) add((event as CustomEvent<{ paths?: string[] }>).detail?.paths || [])
 }
 onMounted(() => window.addEventListener('casy:file-drop', drop))
-onUnmounted(() => window.removeEventListener('casy:file-drop', drop))
+onUnmounted(() => { disposed = true; stop.value = true; window.removeEventListener('casy:file-drop', drop); unlisten?.(); clearInterval(timer) })
 </script>
 <template>
   <el-dialog :model-value="modelValue" title="文件转换" width="760px" class="conversion-dialog" :close-on-click-modal="!running" :close-on-press-escape="!running" :show-close="!running" @update:model-value="emit('update:modelValue', $event)">
@@ -55,7 +73,13 @@ onUnmounted(() => window.removeEventListener('casy:file-drop', drop))
     <div class="conversion-list">
       <div v-if="!entries.length" class="conversion-empty"><el-icon :size="28"><Document /></el-icon><span>没有待转换文件</span></div>
       <div v-for="entry in entries" :key="entry.path" class="conversion-row">
-        <div class="file-detail"><strong :title="entry.path">{{ entry.path.split(/[\\/]/).pop() }}</strong><span v-if="entry.error" class="conversion-error">{{ entry.error }}</span><span v-else>{{ ({pending:'待转换',running:'正在转换',done:'已完成',failed:'失败'})[entry.status] }}</span></div>
+        <div class="file-detail"><strong :title="entry.path">{{ entry.path.split(/[\\/]/).pop() }}</strong><span v-if="entry.error" class="conversion-error">{{ entry.error }}</span><span v-else-if="entry.status !== 'running'">{{ ({pending:'待转换',done:'已完成',failed:'失败'})[entry.status] }}</span>
+          <template v-if="entry.status === 'running'">
+            <span aria-live="polite">{{ entry.progress?.phase === 'finalizing' || entry.progress?.phase === 'completed' ? '正在整理结果' : entry.progress?.totalPages ? `已识别 ${entry.progress.currentPage} / ${entry.progress.totalPages} 页` : '正在准备转换' }}</span>
+            <el-progress v-if="entry.progress?.totalPages" :percentage="Math.min(99, Math.round(entry.progress.currentPage / entry.progress.totalPages * 100))" :show-text="false" :stroke-width="4" />
+            <span class="conversion-timing">已用 {{ elapsed(entry) }}<template v-if="entry.progress?.remainingSeconds != null"> · 预计剩余 {{ duration(entry.progress.remainingSeconds) }}</template></span>
+          </template>
+        </div>
         <el-button v-if="entry.output" :icon="FolderOpened" title="定位 Markdown" aria-label="定位 Markdown" @click="casyContext.files.reveal(entry.output)" />
         <el-button v-if="entry.status === 'failed'" :icon="RefreshRight" :disabled="running" title="重试" aria-label="重试" @click="entry.status = 'pending'; entry.error = undefined" />
         <el-button :icon="Delete" :disabled="running" title="移出队列" aria-label="移出队列" @click="entries = entries.filter(e => e !== entry)" />

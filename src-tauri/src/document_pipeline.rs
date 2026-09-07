@@ -52,6 +52,8 @@ pub struct ProcessRequest {
     pub output_dir: String,
     pub coordinate_model_dir: Option<String>,
     pub cjk_font_path: Option<String>,
+    #[serde(default)]
+    pub markdown_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +68,19 @@ pub struct ProcessResult {
     #[serde(default)]
     pub source_map_path: Option<String>,
     pub pages: Vec<DocumentPage>,
+}
+
+pub fn emit_conversion_progress(job_id: &str, source_path: &str, phase: &str, current: u32, total: u32, elapsed: f64) {
+    use tauri::Emitter;
+    let remaining = (current > 0 && current < total)
+        .then(|| elapsed / current as f64 * (total - current) as f64);
+    if let Some(app) = crate::get_app_handle() {
+        let _ = app.emit("document-conversion-progress", serde_json::json!({
+            "jobId": job_id, "sourcePath": source_path, "phase": phase,
+            "currentPage": current, "totalPages": total,
+            "elapsedSeconds": elapsed, "remainingSeconds": remaining,
+        }));
+    }
 }
 
 pub fn sha256_file(path: &Path) -> Result<String> {
@@ -202,7 +217,8 @@ pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
 }
 
 /// Standalone conversion has no document_processing_jobs row or database cancellation owner.
-pub async fn run_standalone_engine(request: ProcessRequest) -> Result<ProcessResult> {
+pub async fn run_standalone_engine(mut request: ProcessRequest) -> Result<ProcessResult> {
+    request.markdown_only = true;
     run_processing(request, false).await
 }
 
@@ -267,6 +283,7 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
     };
     tokio::pin!(wait);
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    let started = std::time::Instant::now();
     let mut last_progress = std::time::Instant::now();
     let mut current_page = 0;
     let output = loop {
@@ -286,6 +303,10 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
                             tracing::info!(job_id = %request.job_id, current_page, total_pages = progress.total_pages, "Document engine progress");
                         }
                         if progress.total_pages > 0 && progress.current_page <= progress.total_pages {
+                            if !tracked {
+                                let phase = if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" };
+                                emit_conversion_progress(&request.job_id, &request.source_path, phase, progress.current_page, progress.total_pages, started.elapsed().as_secs_f64());
+                            }
                             if let Some(conn) = &conn { conn.execute("UPDATE document_processing_jobs SET current_page=?1,total_pages=?2,progress=?3,updated_at=datetime('now','localtime') WHERE id=?4 AND status='running'",
                                 rusqlite::params![progress.current_page,progress.total_pages,0.01 + 0.94 * progress.current_page as f64 / progress.total_pages as f64,request.job_id])?;
                             }
@@ -371,7 +392,7 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     let root = std::fs::canonicalize(&request.output_dir)?;
     let source = std::fs::canonicalize(&request.source_path)?;
     let text_document = crate::parse::text_document::supports(Path::new(&request.source_path));
-    if !text_document && result.searchable_pdf_path.is_none() {
+    if !text_document && !request.markdown_only && result.searchable_pdf_path.is_none() {
         return Err(anyhow!("INVALID_PDF: 缺少可搜索 PDF"));
     }
     for path in [&result.page_ir_path, &result.markdown_path]
@@ -476,6 +497,7 @@ pub fn process_request(
         output_dir: output_dir.display().to_string(),
         coordinate_model_dir: env_path("CASY_PPOCR_MODEL_DIR"),
         cjk_font_path: env_path("CASY_OCR_FONT"),
+        markdown_only: false,
     }
 }
 
@@ -577,6 +599,12 @@ mod tests {
         result.searchable_pdf_path = Some(source.display().to_string());
         assert!(validate_result(&request, &result).is_err());
         result.searchable_pdf_path = pdf;
+        let mut markdown_request = request.clone();
+        markdown_request.markdown_only = true;
+        let mut markdown_result = result.clone();
+        markdown_result.searchable_pdf_path = None;
+        validate_result(&markdown_request, &markdown_result).unwrap();
+        assert!(validate_result(&request, &markdown_result).is_err());
         std::fs::write(&result.markdown_path, "mismatched backup").unwrap();
         assert!(validate_result(&request, &result).is_err());
         std::fs::write(&result.markdown_path, "<!-- page 1 -->\n# Evidence").unwrap();
