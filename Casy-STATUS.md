@@ -2,6 +2,8 @@
 
 更新：2026-09-22。版本 **0.1.3 生产验证版**，schema **41**。分支 `codex/casy-0.1.3-production-validation`，本地 Git 记录包含既有功能基线、本轮修复、设计接入与文档整理。
 
+安装包：`release/Casy-0.1.3-production-validation-macOS-arm64.dmg`（约 874 MiB）。程序源码提交 `6d44f50`；SHA-256 与只读挂载记录见 [验收文档](docs/RELEASE_0.1.3.md)。
+
 ## 本轮完成
 
 - Judicial Docket（卷宗墨卷）视觉系统、应用印章图标、明暗主题与主要模块布局打磨。

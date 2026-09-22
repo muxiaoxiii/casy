@@ -1,0 +1,11 @@
+{
+  "version": "0.1.3",
+  "revision": "6d44f502ca8cca48d93fa073a08df20a2a8fe469",
+  "dirty": false,
+  "sha256": "b21f1d626ada0bea29dc3a13479306f4e48afc06a7c05813781635b43b1146c1",
+  "arch": "arm64",
+  "minimumMacOS": "26.0",
+  "signing": "ad-hoc",
+  "notarized": false,
+  "validatedAt": "2026-09-22T09:25:47.116Z"
+}
