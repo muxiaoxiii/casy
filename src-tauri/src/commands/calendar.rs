@@ -58,21 +58,25 @@ impl CalendarEvent {
 
 /// 月历合并投影：案件域事实（庭审/期限）+ 任务到期 + 独立日程（D-7 calendar_events）
 #[tauri::command]
-pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEvent>, String> {
+pub async fn get_calendar_events(year: i32, month: u32, month_count: Option<u32>) -> Result<Vec<CalendarEvent>, String> {
     run_blocking(move || {
         anyhow::ensure!(chrono::NaiveDate::from_ymd_opt(year, month, 1).is_some(), "无效的日历月份");
         let conn = db::open_db()?;
 
         let start = format!("{:04}-{:02}-01", year, month);
-        let last_day = last_day_of_month(year, month);
-        let end = format!("{:04}-{:02}-{:02}", year, month, last_day);
+        let count = month_count.unwrap_or(1);
+        anyhow::ensure!((1..=12).contains(&count), "日历查询范围应为 1—12 个月");
+        let end_month = month - 1 + count - 1;
+        let end_year = year + (end_month / 12) as i32;
+        let end_month = end_month % 12 + 1;
+        let end = format!("{:04}-{:02}-{:02}", end_year, end_month, last_day_of_month(end_year, end_month));
         let mut events = Vec::new();
 
         // 庭审
         let mut stmt = conn.prepare(
             "SELECT h.id, h.hearing_date, h.hearing_name, c.id, c.case_name
              FROM hearings h JOIN cases c ON c.id = h.case_id
-             WHERE substr(h.hearing_date,1,10) BETWEEN ?1 AND ?2",
+             WHERE substr(h.hearing_date,1,10) BETWEEN ?1 AND ?2 AND h.lifecycle_status NOT IN ('postponed','cancelled')",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
             CalendarEvent::projection(
@@ -138,12 +142,27 @@ pub async fn get_calendar_events(year: i32, month: u32) -> Result<Vec<CalendarEv
             events.push(row?);
         }
 
+        // Procedural dates share the same live projection as the case board.
+        let cases = db::cases::active_cases(&conn)?;
+        let context = crate::deadline::procedure::ProjectionContext::load(&conn,&cases)?;
+        for case in cases {
+            let (_,items)=crate::deadline::procedure::case_items_with_context(&case,&context)?;
+            for i in items.into_iter().filter(|i|i.status=="open") {
+                if let Some(due)=i.due_on {
+                    if due>=start && due<=end {
+                        let prefix=if i.needs_review {"待核对"} else if i.source=="internal" {"内部"} else if i.owner=="opponent" {"对方"}else{"我方"};
+                        events.push(CalendarEvent::projection(i.id,due,format!("[{}] {} · {}",prefix,i.actor_role,i.title),if i.days_left.unwrap_or(0)<=3 {"deadline_red"}else{"deadline_yellow"},i.case_id,i.case_name)?);
+                    }
+                }
+            }
+        }
+
         // D-7 独立日程：并入月历投影，带时刻信息供周/日视图定位
         let mut stmt = conn.prepare(
             "SELECT id, event_date, title, start_time, end_time, all_day,
                     COALESCE(case_id, ''), COALESCE((SELECT case_name FROM cases WHERE id = ce.case_id), '')
              FROM calendar_events ce
-             WHERE event_date BETWEEN ?1 AND ?2",
+             WHERE event_date BETWEEN ?1 AND ?2 AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id=ce.task_id AND t.deleted_at IS NOT NULL)",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
             let all_day: i64 = r.get(5)?;

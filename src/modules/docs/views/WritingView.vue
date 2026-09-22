@@ -1,9 +1,11 @@
 <script setup>
 import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
 import { useDraftRecovery } from '../../../composables/useDraftRecovery'
-import { ref, reactive, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, reactive, onMounted, watch, onBeforeUnmount } from 'vue'
+import { flushSourceEditors, hasSourceDraft } from '../../../shared/editor/SourceNodeView'
 import { useRoute, useRouter } from 'vue-router'
-import { useEditor, EditorContent } from '@tiptap/vue-3'
+import DocumentEditor from '../../../shared/editor/DocumentEditor.vue'
+import {exportDocument} from '../../../shared/editor/exportDocument'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -22,7 +24,7 @@ import {
   QuestionFilled,
   Medal,
   Document
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import CopilotSidebar from '../components/CopilotSidebar.vue'
 import { useCopilot } from '../composables/useCopilot.js'
 
@@ -46,7 +48,7 @@ let autoSaveTimer = null
 let savePending = null
 let editRevision = 0
 let savedRevision = 0
-useSaveBeforeLeave(() => editRevision !== savedRevision || saving.value, saveDraft)
+useSaveBeforeLeave(() => editRevision !== savedRevision || saving.value || (docEditorRef.value && (hasSourceDraft(editor.value) || docEditorRef.value.hasPendingSerialize?.())), saveDraft)
 watch(draftTitle, scheduleAutoSave)
 
 // 右键知识入库
@@ -63,65 +65,13 @@ const captureDialog = reactive({
 })
 
 // 编辑器
-const editor = useEditor({
-  content: '<p>开始撰写...</p>',
-  extensions: [
-    StarterKit,
-    Underline,
-    Highlight,
-    Placeholder.configure({ placeholder: '开始撰写法律文书...' }),
-    BlockReference,
-    WikiLink,
-    WikiLinkSuggestion.configure({
-      search: async (query) => {
-        // 搜索知识库
-        const result = await casyContext.knowledge.search(query, 10)
-        if (result.ok && result.data) {
-          return result.data.map((item) => ({
-            id: item.id,
-            title: item.title,
-            category: item.category,
-          }))
-        }
-        return []
-      },
-      onSelect: (item) => {
-        // 插入 wikiLink
-        editor.value?.chain().focus()
-          .insertContent(`[[${item.title}]]`)
-          .setWikiLink(item.id, item.title)
-          .run()
-        ElMessage.success(`已链接到知识：${item.title}`)
-      },
-    }),
-  ],
-  onUpdate: ({ editor }) => {
-    // 内容变化时触发自动保存
-    scheduleAutoSave()
-    
-    // ── 双向链接 [[ ]] 自动识别（设计哲学 §8.2）───────
-    const text = editor.getText()
-    const wikiPattern = /[[(.+?)]]/g
-    let match
-    const matches = []
-    while ((match = wikiPattern.exec(text)) !== null) {
-      matches.push({ text: match[0], title: match[1], index: match.index })
-    }
-    
-    // 如果检测到 [[标题]] 且未被标记为 wikiLink，自动转换
-    if (matches.length > 0 && !editor.isActive('wikiLink')) {
-      // 简单处理：将第一个 [[标题]] 转换为 wikiLink
-      // 实际实现需要更精确的字符位置映射
-      const firstMatch = matches[0]
-      // 这里仅做标记，完整实现需要 ProseMirror 位置映射
-      console.log('检测到双向链接:', firstMatch.title)
-    }
-  },
-  onSelectionUpdate: ({ editor }) => {
-    // 光标移动时自动检索相关知识（防抖）
-    scheduleCopilotSearch(editor)
-  },
-})
+const editor=shallowRef(null)
+const docEditorRef=shallowRef(null)
+const documentContent=ref('')
+const writingExtensions=[BlockReference]
+function editorReady(instance){editor.value=instance;instance.on('selectionUpdate',()=>scheduleCopilotSearch(instance))}
+const exporting=ref(false)
+async function exportWriting(format){if(!editor.value || exporting.value)return;exporting.value=true;try{if(!await saveDraft())return;const path=await exportDocument({content:editor.value.getHTML(),contentFormat:'html',title:draftTitle.value,format,document:editor.value.getJSON()});if(path)ElMessage.success(`文档已保存：${path}`)}catch(error){ElMessage.error(String(error))}finally{exporting.value=false}}
 
 // ---- Copilot Sidebar ----
 const {
@@ -218,12 +168,15 @@ function scheduleAutoSave() {
   recovery.checkpoint({ id: draftId.value || 'new-document', title: draftTitle.value, content: editor.value?.getHTML() || '' })
   editRevision++
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
-  autoSaveTimer = setTimeout(() => saveDraft(), 900)
+  autoSaveTimer = setTimeout(() => saveDraft(false), 900)
 }
 
-function saveDraft() {
+function saveDraft(commitSources=true) {
+  try{if(commitSources!==false && editor.value)flushSourceEditors(editor.value)}catch(error){ElMessage.warning(String(error));return Promise.resolve(false)}
   if (savePending) return savePending
   if (!editor.value) return Promise.resolve(true)
+  // 400ms 防抖未落盘时必须先刷出最新正文，否则离开守卫会误判为干净并丢字。
+  if (docEditorRef.value?.hasPendingSerialize?.()) docEditorRef.value.flushAndGetMarkdown?.(false)
   if (savedRevision === editRevision) return Promise.resolve(true)
   clearTimeout(autoSaveTimer)
   savePending = (async () => {
@@ -276,9 +229,7 @@ async function loadDraft(id) {
       caseId.value = result.data.caseId
       loadCaseData()
     }
-    if (editor.value && result.data.content) {
-      editor.value.commands.setContent(result.data.content)
-    }
+    documentContent.value = result.data.content || ''
   }
 }
 
@@ -379,7 +330,7 @@ onBeforeUnmount(() => {
   if (copilotSearchTimer) clearTimeout(copilotSearchTimer)
   document.removeEventListener('click', onDocumentClick)
   document.removeEventListener('keydown', handleKeydown)
-  if (editor.value) editor.value.destroy()
+
 })
 </script>
 
@@ -411,6 +362,7 @@ onBeforeUnmount(() => {
             :value="c.id"
           />
         </el-select>
+        <el-dropdown trigger="click" :disabled="exporting" @command="exportWriting"><el-button :loading="exporting">导出</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="md">Markdown</el-dropdown-item><el-dropdown-item command="pdf">PDF</el-dropdown-item><el-dropdown-item command="docx">Word</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
         <el-button type="primary" :loading="saving" @click="saveDraft">
           {{ saving ? '保存中...' : '保存' }}
         </el-button>
@@ -438,46 +390,7 @@ onBeforeUnmount(() => {
 
         <!-- 编辑器区域 -->
         <div class="editor-container">
-          <div v-if="editor" class="editor-menubar">
-            <el-button-group size="small">
-              <el-button
-                :type="editor.isActive('bold') ? 'primary' : 'default'"
-                @click="editor.chain().focus().toggleBold().run()"
-              >粗体</el-button>
-              <el-button
-                :type="editor.isActive('italic') ? 'primary' : 'default'"
-                @click="editor.chain().focus().toggleItalic().run()"
-              >斜体</el-button>
-              <el-button
-                :type="editor.isActive('underline') ? 'primary' : 'default'"
-                @click="editor.chain().focus().toggleUnderline().run()"
-              >下划线</el-button>
-              <el-button
-                :type="editor.isActive('highlight') ? 'primary' : 'default'"
-                @click="editor.chain().focus().toggleHighlight().run()"
-              >高亮</el-button>
-            </el-button-group>
-            <el-button-group size="small" style="margin-left: 8px">
-              <el-button @click="editor.chain().focus().setHeading({ level: 1 }).run()">H1</el-button>
-              <el-button @click="editor.chain().focus().setHeading({ level: 2 }).run()">H2</el-button>
-              <el-button @click="editor.chain().focus().setHeading({ level: 3 }).run()">H3</el-button>
-            </el-button-group>
-            <el-button-group size="small" style="margin-left: 8px">
-              <el-button @click="editor.chain().focus().toggleBulletList().run()">列表</el-button>
-              <el-button @click="editor.chain().focus().toggleOrderedList().run()">编号</el-button>
-              <el-button @click="editor.chain().focus().toggleBlockquote().run()">引用</el-button>
-            </el-button-group>
-            <el-button-group size="small" style="margin-left: 8px">
-              <el-button @click="editor.chain().focus().undo().run()">撤销</el-button>
-              <el-button @click="editor.chain().focus().redo().run()">重做</el-button>
-            </el-button-group>
-            <el-button-group size="small" style="margin-left: 8px">
-              <el-button @click="copilotOpenAiDialog()" title="AI 写作辅助 (Ctrl+K)">
-                AI 辅助
-              </el-button>
-            </el-button-group>
-          </div>
-          <EditorContent :editor="editor" class="editor-content" @contextmenu="handleContextMenu" />
+          <DocumentEditor ref="docEditorRef" v-model="documentContent" content-format="html" :extra-extensions="writingExtensions" source-type="doc" :source-id="draftId || undefined" :case-id="caseId" @ready="editorReady" @update:model-value="scheduleAutoSave" @save="saveDraft" @contextmenu="handleContextMenu" />
         </div>
       </div>
 

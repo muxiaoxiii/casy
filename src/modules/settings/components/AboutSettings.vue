@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
-import { Cpu, Lock, Document, Connection, Refresh } from '@element-plus/icons-vue'
+import { Cpu, Lock, Document, Connection, Refresh } from '../../../shared/icons'
 
 const appVersion = ref('4.0.0-pro')
 const dbStatus = ref('SQLite (Local Encrypted)')

@@ -8,7 +8,7 @@
  */
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Close, FolderOpened } from '@element-plus/icons-vue'
+import { Close, FolderOpened } from '../../../shared/icons'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { casyContext } from '../../../core/plugin/context'
 

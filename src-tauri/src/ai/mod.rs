@@ -461,19 +461,19 @@ pub struct OllamaBackend {
 }
 
 impl OllamaBackend {
-    pub fn new(api_url: &str, model: &str) -> Self {
+    pub fn new(api_url: &str, model: &str) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(120))
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .expect("创建 HTTP client 失败");
+            .map_err(|e| anyhow::anyhow!("创建 HTTP client 失败: {e}"))?;
 
-        Self {
+        Ok(Self {
             client,
             base_url: api_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
-        }
+        })
     }
 
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
@@ -607,20 +607,20 @@ pub struct OpenAiBackend {
 }
 
 impl OpenAiBackend {
-    pub fn new(api_url: &str, api_key: &str, model: &str) -> Self {
+    pub fn new(api_url: &str, api_key: &str, model: &str) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(120))
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .expect("创建 HTTP client 失败");
+            .map_err(|e| anyhow::anyhow!("创建 HTTP client 失败: {e}"))?;
 
-        Self {
+        Ok(Self {
             client,
             base_url: api_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
             model: model.to_string(),
-        }
+        })
     }
 
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
@@ -917,7 +917,13 @@ pub fn create_backend(config: &AiConfig) -> Box<dyn AiBackend> {
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
             let model = config.model.as_deref().unwrap_or("qwen2.5:7b");
-            Box::new(OllamaBackend::new(url, model))
+            match OllamaBackend::new(url, model) {
+                Ok(backend) => Box::new(backend),
+                Err(error) => {
+                    log::error!("Ollama 后端初始化失败，回退到 noop: {error}");
+                    Box::new(NoOpBackend)
+                }
+            }
         }
         "openai" => {
             let url = config
@@ -926,7 +932,13 @@ pub fn create_backend(config: &AiConfig) -> Box<dyn AiBackend> {
                 .unwrap_or("https://api.openai.com/v1");
             let key = config.api_key.as_deref().unwrap_or("");
             let model = config.model.as_deref().unwrap_or("gpt-4o-mini");
-            Box::new(OpenAiBackend::new(url, key, model))
+            match OpenAiBackend::new(url, key, model) {
+                Ok(backend) => Box::new(backend),
+                Err(error) => {
+                    log::error!("OpenAI 后端初始化失败，回退到 noop: {error}");
+                    Box::new(NoOpBackend)
+                }
+            }
         }
         _ => Box::new(NoOpBackend),
     }
@@ -1044,9 +1056,7 @@ pub async fn test_ai_connection() -> Result<String, String> {
 #[tauri::command]
 pub async fn get_ai_config() -> Result<AiConfig, String> {
     crate::commands::run_blocking(|| {
-        let mut config = profiles::resolve(&*crate::db::open_db()?, None)?;
-        config.api_key = None;
-        Ok(config)
+        { let conn=crate::db::open_db()?; profiles::public_config(&conn) }
     })
     .await
 }
@@ -1088,20 +1098,18 @@ pub async fn ai_chat(
     context_refs: Option<Vec<context_refs::ContextRef>>,
     profile_id: Option<String>,
 ) -> Result<AiChatResult, String> {
+    crate::processing::tracked("ai","AI 对话处理",async {
     // @ 引用沙箱：先注入受控上下文，使 input_hash 覆盖模型实际可见内容（§11.9）
     let mut messages = messages;
     let system_prompt = profiles::read(&*crate::db::open_db().map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?
         .system_prompt;
-    if !system_prompt.trim().is_empty() {
-        messages.insert(
-            0,
-            ChatMessage {
-                role: "system".into(),
-                content: system_prompt,
-            },
-        );
-    }
+    let mut policies = vec![system_prompt];
+    policies.extend(messages.iter().filter(|m|m.role=="system").map(|m|m.content.clone()));
+    let mut seen=std::collections::HashSet::new();
+    policies.retain(|p|!p.trim().is_empty() && seen.insert(p.clone()));
+    messages.retain(|m|m.role!="system");
+    if !policies.is_empty() { messages.insert(0,ChatMessage{role:"system".into(),content:policies.join("\n\n")}); }
     let mut used_refs: Vec<context_refs::UsedRef> = Vec::new();
     if let Some(refs) = context_refs {
         if !refs.is_empty() {
@@ -1210,6 +1218,8 @@ pub async fn ai_chat(
         run_id,
         used_refs,
     })
+
+    }).await
 }
 
 /// AI 写作辅助：根据意图、上下文、知识库和风格生成写作建议

@@ -6,6 +6,7 @@
  * - 不在本表中的命令无法通过 tauriBridge 调用，避免新命令绕过契约
  */
 import type {
+  ProcessingCenter,
   AiChatResult,
   AiConfig,
   AppNotification,
@@ -14,6 +15,10 @@ import type {
   DeadlineRuleAuditDto,
   DeadlineRuleDto,
   FactNodeDto,
+  FactHistoryDto,
+  ProcedureEvent,
+  ProcedureBoard,
+  ProcedureAudit,
   FileOcrStateDto,
   LinkDto,
   PersonCaseDto,
@@ -165,6 +170,8 @@ export interface HearingInput {
   caseLevel?: string | null
   contactInfo?: string | null
   actualStatus?: string | null
+  lifecycleStatus?: string | null
+  changeReason?: string | null
 }
 
 export interface AiUsage {
@@ -182,7 +189,10 @@ export interface CaseDirEntry {
 }
 
 export type CommandMap = {
-  convert_file_to_markdown: Cmd<{ sourcePath: string; outputDir: string }, { outputPath: string; pages: number; bytes: number }>
+  convert_file_to_markdown: Cmd<
+    { sourcePath: string; outputDir: string; jobId?: string | null; targetFormat?: 'markdown' | 'pdf' | 'both' | null },
+    { outputPath: string; markdownPath?: string | null; pdfPath?: string | null; pages: number; bytes: number }
+  >
   // ── 卷宗管理（index-v2 精装版 · 本地文件夹同步）──
   list_case_dirs: Cmd<{ caseId: string }, CaseDirEntry[]>
   create_case_subdir: Cmd<{ caseId: string; parentRel: string | null; name: string }, string>
@@ -227,7 +237,7 @@ export type CommandMap = {
   search_cases: Cmd<{ query: string }, BusinessCase[]>
   case_stats: Cmd<{}, CaseStats>
   get_dashboard_stats: Cmd<{}, BusinessDashboardStats>
-  update_case_status: Cmd<{}, BusinessCase>
+  update_case_status: Cmd<{ caseId: string; track: string; newStatus: string; note?: string | null }, BusinessCase>
   export_cases: Cmd<{ format: string; filter?: Partial<CaseFilter> }, string>
   // B1 类型化：Case PATCH 仍保持缺键跳过 / null 清除语义，但字段集合已收口到后端白名单。
   create_case: Cmd<{ data: CreateCasePayload }, BusinessCase>
@@ -301,6 +311,7 @@ export type CommandMap = {
   get_folder_template: Cmd<{ templateId: string }, FolderTemplateOutput>
   list_folder_templates: Cmd<{}, FolderTemplateOutput[]>
   get_folder_naming_settings: Cmd<{}, FolderNamingSettingsOutput>
+  backup_database_key_to_keychain: Cmd<{}, void>
   get_settings: Cmd<{}, Record<string, IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]>>
   save_settings: Cmd<{ settings: Record<string, IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]> }, void>
   list_saved_filters: Cmd<{ module?: string | null; entityType?: string | null }, IpcJsonObject[]>
@@ -369,7 +380,7 @@ export type CommandMap = {
   configure_ai: Cmd<{ mode: string; apiUrl?: string | null; apiKey?: string | null; model?: string | null; dailyLimit?: number | null }, string>
   get_command_route_info: Cmd<{ commandName: string }, CommandRoute | null>
   get_today_recommendations: Cmd<{}, TodayRecommendations>
-  record_decision: Cmd<{ entityType: string; entityId: string; decisionType: string; decision: string; basis?: string | null; sourceRef?: string | null; status?: string; reviewDue?: string | null }, string>
+  record_decision: Cmd<{ entityType: string; entityId: string; decisionType: string; decision: string; basis?: string | null; sourceRef?: string | null; status?: string; reviewDue?: string | null }, { id: string }>
   get_learning_analysis: Cmd<{}, IpcJsonObject>
   apply_learning_calibration: Cmd<{}, IpcJsonObject>
   list_pending_memories: Cmd<{}, IpcJsonObject[]>
@@ -468,7 +479,7 @@ export type CommandMap = {
   cancel_inbox_batch: Cmd<{}, void>
 
   // ── 日历域 ──
-  get_calendar_events: Cmd<{ year: number; month: number }, CalendarEvent[]>
+  get_calendar_events: Cmd<{ year: number; month: number; monthCount?: number }, CalendarEvent[]>
   list_calendar_events: Cmd<{ startDate: string; endDate: string }, CalendarEventRow[]>
   create_calendar_event: Cmd<{ data: CalendarEventInput }, CalendarEventRow>
   update_calendar_event: Cmd<{ id: string; data: CalendarEventInput }, void>
@@ -485,6 +496,8 @@ export type CommandMap = {
   list_docsy_templates: Cmd<{}, TemplateListResponse>
   render_docsy_template: Cmd<{ templateId: string; caseId: string }, RenderResponse>
   export_docx: Cmd<{ templateId: string; caseId: string; outputPath?: string | null }, ExportResponse>
+  export_editor_document: Cmd<{document:import('../core/services/docs').RichTextDocument;markdown:string;title:string;format:'md'|'pdf'|'docx'|'docx-annotated';outputPath:string;layout?:import('../core/services/docs').DocumentLayout},ExportResponse>
+  preview_editor_document: Cmd<{document:import('../core/services/docs').RichTextDocument;layout:import('../core/services/docs').DocumentLayout},import('../core/services/docs').DocumentPreview>
   export_edited_docx: Cmd<{
     document: RichTextDocument
     title: string
@@ -508,7 +521,7 @@ export type CommandMap = {
     Draft
   >
   update_draft: Cmd<
-    { id: string; title?: string; content?: string | null; status?: string; caseId?: string | null; expectedVersion?: number },
+    { id: string; title?: string; content?: string | null; status?: string; caseId?: string | null; expectedVersion?: number; clearCase?: boolean },
     Draft
   >
   delete_draft: Cmd<{ id: string }, boolean>
@@ -559,10 +572,25 @@ export type CommandMap = {
   list_case_persons: Cmd<{ caseId: string }, BusinessCasePersonDto[]>
   list_person_cases: Cmd<{ personId: string }, BusinessPersonCaseDto[]>
   // W7 事实白板（LiquidText 式）
+  get_editor_tasks: Cmd<{sourceType:string;sourceId:string}, import('./bindings').EditorTask[]>
+  bind_editor_task: Cmd<{sourceType:string;sourceId:string;bindingId:string;title:string;taskId:string|null;caseId:string|null},string>
+  set_editor_task_completed: Cmd<{sourceType:string;sourceId:string;taskId:string;completed:boolean;expectedCompleted:boolean},null>
+  get_whiteboard_document: Cmd<{caseId:string;whiteboardId:string}, import('./bindings').WhiteboardDocument>
+  save_whiteboard_document: Cmd<{input:import('./bindings').WhiteboardDocumentInput}, import('./bindings').WhiteboardDocument>
+  list_whiteboard_sources: Cmd<{caseId:string;scope:string;query:string;offset:number}, import('./bindings').WhiteboardSources>
+  write_whiteboard_export: Cmd<{caseId:string;whiteboardId:string;outputPath:string;format:string;dataBase64:string}, string>
+  get_whiteboard_scene: Cmd<{caseId: string; whiteboardId: string}, import('./bindings').WhiteboardSceneDto>
+  save_whiteboard_scene: Cmd<{caseId: string; whiteboardId: string; sceneJson: string; preview: string | null; revision: number}, number>
+  list_whiteboard_scene_history: Cmd<{caseId: string; whiteboardId: string}, import('./bindings').WhiteboardSceneDto[]>
   list_whiteboards: Cmd<{ caseId: string }, WhiteboardDto[]>
   create_whiteboard: Cmd<{ caseId: string; name: string }, string>
   rename_whiteboard: Cmd<{ id: string; name: string }, void>
   delete_whiteboard: Cmd<{ id: string }, void>
+  get_procedure_board: Cmd<{ caseId: string; includeRelated: boolean }, ProcedureBoard>
+  save_procedure_event: Cmd<{ event: ProcedureEvent; reason: string }, ProcedureEvent>
+  set_procedure_item_state: Cmd<{ caseId: string; itemId: string; fingerprint: string; status: string; note: string }, null>
+  get_procedure_history: Cmd<{ caseId: string }, ProcedureAudit[]>
+  list_fact_history: Cmd<{ whiteboardId: string; beforeSequence?: number | null }, FactHistoryDto[]>
   list_fact_nodes: Cmd<{ whiteboardId: string }, FactNodeDto[]>
   create_fact_node: Cmd<{ whiteboardId: string; fileId: string | null; page: number | null; excerpt: string; note: string | null; x: number; y: number }, string>
   update_fact_node: Cmd<{ id: string; page?: number | null; excerpt?: string; note?: string | null; x?: number; y?: number }, void>
@@ -573,6 +601,7 @@ export type CommandMap = {
 
   // ==========================================W1 AI Proposal 预览（Cursor 式 Diff 确认）
   get_proposal_preview: Cmd<{ proposalId: string }, import('../core/ai/proposals').ProposalPreviewDto>
+  renew_ai_proposal: Cmd<{ proposalId: string }, AiProposal>
   approve_ai_proposal: Cmd<{ proposalId: string }, string>
   reject_ai_proposal: Cmd<{ proposalId: string }, null>
   create_ai_proposal: Cmd<{
@@ -589,6 +618,10 @@ export type CommandMap = {
   // 多为复杂命令：params 按调用现场核定，result 优先复用 bindings/手写 DTO，避免漏项回退。
   reasoning_search: Cmd<{ query: string; scope: string[] }, string>
   search_document_passages: Cmd<{ query: string; scope: string[] }, import('./documentRetrieval').DocumentPassage[]>
+  get_processing_center: Cmd<{ filter: string; offset: number; limit: number }, ProcessingCenter>
+  register_conversion_batch: Cmd<{ sourcePaths: string[] }, string[]>
+  cancel_conversion: Cmd<{ jobId: string }, void>
+  cancel_queued_conversions: Cmd<{ jobIds: string[] }, void>
   get_document_engine_status: Cmd<{}, import('./bindings').DocumentEngineStatus>
   get_document_page: Cmd<{fileId:string; jobId:string; pageNumber:number}, import('./documentRetrieval').DocumentPageView>
   queue_document_processing: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto>
@@ -619,7 +652,7 @@ export type CommandMap = {
   start_clipboard_monitor: Cmd<{}, void>
   capture_screenshot: Cmd<{}, string>
   capture_clipboard: Cmd<{}, string>
-  save_voice_note: Cmd<{ audioData: number[]; durationSeconds: number }, string>
+  save_voice_note: Cmd<{ audioBase64: string; mimeType: string; durationSeconds: number }, string>
   delete_case: Cmd<{ id: string; origin?: string | null; proposalToken?: string | null }, void>
   add_case_log: Cmd<{
     caseId: string

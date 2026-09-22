@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
@@ -8,7 +8,7 @@ import {
   Message,
   Document,
   ArrowRight,
-  Clock,
+  Waiting,
   Warning,
   Finished,
   Refresh,
@@ -27,8 +27,9 @@ import {
   DataAnalysis,
   Opportunity,
   Opportunity as Sparkles,
-} from '@element-plus/icons-vue'
+} from '../../shared/icons'
 import { ElMessage } from 'element-plus'
+import { observeChanges } from '../../core/observeChanges'
 import { casyContext } from '../../core/plugin/context'
 import { useCasesStore } from '../../stores/cases'
 import { useTasksStore } from '../../stores/tasks'
@@ -437,6 +438,9 @@ async function handleRecAction(rec, decision) {
   if (!decisionRes.ok) return ElMessage.error(decisionRes.error || '记录决策失败')
   ElMessage.success(decision === 'accept' ? '已采纳建议' : '已忽略该建议')
 }
+onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], async () => {
+  await Promise.all([tasksStore.loadTasks(), casesStore.loadDashboard(), casesStore.loadCases(), inboxStore.loadItems(), calendarStore.loadEvents(new Date().getFullYear(), new Date().getMonth() + 1)])
+}))
 </script>
 
 <template>
@@ -444,21 +448,8 @@ async function handleRecAction(rec, decision) {
     <!-- ═══ 顶部日期、状态指标与报表入口 ═══ -->
     <header class="today-hero-header">
       <div class="header-left">
+        <p class="today-date">今日工作台</p>
         <h1 class="header-date-title">{{ fullDateDisplay }}</h1>
-        <div class="header-status-chips">
-          <span class="status-chip chip-risk">
-            <span class="dot dot-risk"></span>
-            <span>今日日程 {{ hardCount }}</span>
-          </span>
-          <span class="status-chip chip-warn">
-            <span class="dot dot-warn"></span>
-            <span>到期与逾期 {{ expiringCount }}</span>
-          </span>
-          <span class="status-chip chip-info">
-            <span class="dot dot-info"></span>
-            <span>等待跟进 {{ waitingCount }}</span>
-          </span>
-        </div>
       </div>
 
       <div class="header-actions-group">
@@ -494,6 +485,27 @@ async function handleRecAction(rec, decision) {
       </div>
     </header>
 
+    <nav class="today-summary" aria-label="今日事项概览">
+      <button class="summary-item" @click="router.push('/calendar')">
+        <span class="summary-icon"><el-icon><Calendar /></el-icon></span>
+        <span class="summary-copy"><span class="summary-label">今日日程</span><span class="summary-hint">查看时间安排</span></span>
+        <strong class="summary-value">{{ hardCount }}</strong>
+        <el-icon class="summary-arrow"><ArrowRight /></el-icon>
+      </button>
+      <button class="summary-item" :class="{ 'has-urgent': expiringCount > 0 }" @click="router.push({ name: 'tasks', query: { tab: 'all', metric: 'dueOrOverdue' } })">
+        <span class="summary-icon"><el-icon><Finished /></el-icon></span>
+        <span class="summary-copy"><span class="summary-label">到期与逾期</span><span class="summary-hint">优先处理截止事项</span></span>
+        <strong class="summary-value">{{ expiringCount }}</strong>
+        <el-icon class="summary-arrow"><ArrowRight /></el-icon>
+      </button>
+      <button class="summary-item" @click="router.push({ name: 'tasks', query: { tab: 'waiting' } })">
+        <span class="summary-icon"><el-icon><Waiting /></el-icon></span>
+        <span class="summary-copy"><span class="summary-label">等待跟进</span><span class="summary-hint">核实回复与进展</span></span>
+        <strong class="summary-value">{{ waitingCount }}</strong>
+        <el-icon class="summary-arrow"><ArrowRight /></el-icon>
+      </button>
+    </nav>
+
     <!-- ═══ 主内容区：双栏 8 + 4 架构 (Stitch v4.5) ═══ -->
     <div class="today-grid-layout">
       <!-- ── 左侧 8 栏：核心办案执行流 ── -->
@@ -508,7 +520,7 @@ async function handleRecAction(rec, decision) {
             <span class="count-badge">{{ t('home.hard_schedule_count', { count: hardScheduleItems.length }) }}</span>
           </div>
 
-          <div class="hard-schedule-card-list">
+          <div v-if="hardScheduleItems.length" class="hard-schedule-card-list">
             <div
               v-for="item in hardScheduleItems"
               :key="item.id"
@@ -539,12 +551,12 @@ async function handleRecAction(rec, decision) {
                   title="查看详情"
                   @click="router.push('/calendar')"
                 >
-                  <el-icon><Open /></el-icon>
+                  <el-icon><ArrowRight /></el-icon>
                 </button>
               </div>
             </div>
           </div>
-          <p v-if="!hardScheduleItems.length" class="section-empty">今日暂无日程</p>
+          <p v-if="!hardScheduleItems.length" class="section-empty">今日暂无日程<button @click="router.push('/calendar')">查看日历 <el-icon><ArrowRight /></el-icon></button></p>
         </section>
 
         <!-- 2. Today's Commitments (今日承诺 / 待办事项) -->
@@ -557,7 +569,7 @@ async function handleRecAction(rec, decision) {
             <span class="count-badge">{{ t('home.commitments_unresolved', { count: todayCommitments.filter(c => !c.completed).length }) }}</span>
           </div>
 
-          <div class="commitments-list">
+          <div v-if="todayCommitments.length" class="commitments-list">
             <div
               v-for="c in todayCommitments"
               :key="c.id"
@@ -584,14 +596,14 @@ async function handleRecAction(rec, decision) {
               </span>
             </div>
           </div>
-          <p v-if="!todayCommitments.length" class="section-empty">今日承诺事项已清空</p>
+          <p v-if="!todayCommitments.length" class="section-empty">今日承诺事项已清空<button @click="router.push({ name: 'tasks', query: { tab: 'all' } })">查看全部任务 <el-icon><ArrowRight /></el-icon></button></p>
         </section>
 
         <!-- 3. Waitlist (等待跟进 / 外部回执) -->
         <section class="section-block">
           <div class="section-title-row">
             <div class="title-with-icon">
-              <el-icon class="icon-discovery"><Clock /></el-icon>
+              <el-icon class="icon-discovery"><Waiting /></el-icon>
               <h2 class="sec-heading">{{ t('home.waitlist') }}</h2>
             </div>
             <span class="count-badge">{{ t('home.waitlist_count', { count: waitlistItems.length }) }}</span>
@@ -746,7 +758,7 @@ async function handleRecAction(rec, decision) {
   padding: 24px 32px 48px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 24px;
 }
 
 /* ── 顶部日期与操作栏 ── */
@@ -754,8 +766,7 @@ async function handleRecAction(rec, decision) {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  border-bottom: 1px solid var(--c-border);
-  padding-bottom: 20px;
+  padding-bottom: 0;
   gap: 20px;
   flex-wrap: wrap;
 }
@@ -767,36 +778,35 @@ async function handleRecAction(rec, decision) {
 }
 
 .header-date-title {
-  font-size: 24px;
+  font-size: 28px;
+  line-height: 1.3;
   font-weight: 700;
   color: var(--c-text-heading);
   letter-spacing: 0;
   margin: 0;
 }
 
-.header-status-chips {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--c-text-secondary);
+.today-date { margin: 0; color: var(--c-text-secondary); font-size: 13px; }
+.today-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--c-radius-xl); }
+.summary-item { display: flex; align-items: center; gap: 12px; padding: 18px 20px; text-align: left; border: 0; background: transparent; color: var(--c-text); cursor: pointer; min-width: 0; border-radius: var(--c-radius-xl); transition: background var(--motion-fast); }
+.summary-item + .summary-item { border-left: 1px solid var(--c-border-light); border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.summary-item:hover { background: var(--c-bg-subtle); }
+.summary-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--c-radius-lg); background: var(--c-primary-light); color: var(--c-primary); font-size: 18px; flex-shrink: 0; }
+.summary-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.summary-label { font-size: 13px; font-weight: 600; }
+.summary-hint { color: var(--c-text-secondary); font-size: 12px; }
+.summary-value { margin-left: auto; font-size: 28px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.summary-arrow { color: var(--c-text-secondary); font-size: 13px; }
+.has-urgent .summary-icon { color: var(--c-danger); background: var(--c-danger-light); }
+.has-urgent .summary-value { color: var(--c-danger); }
+@container (max-width: 1000px) { .summary-item { padding: 16px 14px; gap: 10px; } .summary-hint, .summary-arrow { display: none; } }
+@container (max-width: 540px) {
+  .today-summary { grid-template-columns: minmax(0, 1fr); }
+  .summary-item { padding: 12px 16px; }
+  .summary-item + .summary-item { border-left: 0; border-top: 1px solid var(--c-border-light); border-radius: 0; }
+  .summary-value { font-size: 24px; }
+  .summary-hint, .summary-arrow { display: block; }
 }
-
-.status-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-.dot-risk { background: var(--status-risk); }
-.dot-warn { background: var(--status-warning); }
-.dot-info { background: var(--status-discovery); }
 
 .header-actions-group {
   display: flex;
@@ -834,7 +844,7 @@ async function handleRecAction(rec, decision) {
 .today-grid-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 28px;
+  gap: 24px;
 }
 
 @container (min-width: 880px) {
@@ -847,7 +857,7 @@ async function handleRecAction(rec, decision) {
 .main-column-left {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 24px;
 }
 
 .section-block {
@@ -879,9 +889,9 @@ async function handleRecAction(rec, decision) {
 }
 
 .count-badge {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--slate-gray-light);
+  font-family: var(--font-family);
+  font-size: 12px;
+  color: var(--c-text-secondary);
   background: var(--c-bg-subtle);
   padding: 2px 8px;
   border-radius: 4px;
@@ -1010,31 +1020,30 @@ async function handleRecAction(rec, decision) {
 .commitments-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  overflow: hidden;
 }
 
 .commitment-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 16px;
   background: var(--c-bg-card);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
+  border: 0;
+  border-bottom: 1px solid var(--c-border-light);
+  border-radius: 0;
+  box-shadow: none;
   transition: all var(--motion-fast);
 }
 
-.commitment-item:hover {
-  border-color: var(--c-border-strong);
-}
+.commitment-item:last-child { border-bottom: 0; }
+.commitment-item:hover { background: var(--c-bg-subtle); }
 
-.commitment-item.is-overdue {
-  background: color-mix(in srgb, var(--status-risk) 6%, var(--c-bg-card));
-  border-color: color-mix(in srgb, var(--status-risk) 30%, var(--c-border));
-  box-shadow: var(--shadow-sm), inset 3px 0 0 0 var(--status-risk);
-}
+.commitment-item.is-overdue { box-shadow: inset 2px 0 0 var(--status-risk); }
 
 .commitment-item.is-completed .c-title {
   text-decoration: line-through;
@@ -1069,10 +1078,10 @@ async function handleRecAction(rec, decision) {
 
 .badge-overdue {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
-  background: var(--status-risk);
-  color: #fff;
+  background: var(--c-danger-light);
+  color: var(--c-danger);
   padding: 1px 5px;
   border-radius: 3px;
 }
@@ -1296,7 +1305,7 @@ async function handleRecAction(rec, decision) {
 
 .recs-ai-tag {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 3px;
@@ -1421,7 +1430,8 @@ async function handleRecAction(rec, decision) {
 .cap-bar-fill.cap-over {
   background: var(--status-warning);
 }
-.section-empty { padding: 20px 0; color: var(--c-text-secondary); font-size: 13px; border-bottom: 1px solid var(--c-border-light); }
+.section-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 22px 18px; color: var(--c-text-secondary); font-size: 13px; background: var(--c-bg-card); border: 1px dashed var(--c-border-strong); border-radius: var(--c-radius-lg); }
+.section-empty button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--c-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
 .task-open { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .task-open:hover { color: var(--c-primary); }
 .commitment-info, .info-col, .main-column-left, .side-column-right { min-width: 0; }

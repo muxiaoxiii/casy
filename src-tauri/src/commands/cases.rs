@@ -820,12 +820,13 @@ pub async fn update_case_status(
     run_blocking(move || {
         let conn = db::open_db()?;
 
+        let conn = conn.unchecked_transaction()?;
         // 1. 获取当前状态
         let old_status: Option<String> = conn.query_row(
             &format!("SELECT {} FROM cases WHERE id = ?1", track),
             rusqlite::params![case_id],
             |r| r.get(0),
-        ).ok().flatten();
+        )?;
 
         // 2. 更新状态
         conn.execute(
@@ -834,21 +835,10 @@ pub async fn update_case_status(
         )?;
 
         // 3. 同步更新聚合状态 case_status
-        let civil: Option<String> = conn.query_row(
-            "SELECT civil_status FROM cases WHERE id = ?1",
-            rusqlite::params![case_id],
-            |r| r.get(0),
-        ).unwrap_or(None);
-        let invalidation: Option<String> = conn.query_row(
-            "SELECT invalidation_status FROM cases WHERE id = ?1",
-            rusqlite::params![case_id],
-            |r| r.get(0),
-        ).unwrap_or(None);
-        let admin: Option<String> = conn.query_row(
-            "SELECT admin_status FROM cases WHERE id = ?1",
-            rusqlite::params![case_id],
-            |r| r.get(0),
-        ).unwrap_or(None);
+        let (civil, invalidation, admin): (Option<String>, Option<String>, Option<String>) = conn.query_row(
+            "SELECT civil_status, invalidation_status, admin_status FROM cases WHERE id = ?1",
+            [&case_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
 
         let aggregate = compute_aggregate_status(civil.as_deref(), invalidation.as_deref(), admin.as_deref());
         conn.execute(
@@ -877,8 +867,9 @@ pub async fn update_case_status(
             ],
         )?;
 
-        // 5. 返回更新后的案件
-        db::cases::get_case(&conn, &case_id)
+        let updated = db::cases::get_case(&conn, &case_id)?;
+        conn.commit()?;
+        Ok(updated)
     })
     .await
 }
@@ -954,6 +945,8 @@ pub async fn get_today_stats() -> Result<TodayStats, String> {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HearingDto {
+    pub lifecycle_status: String,
+    pub change_reason: String,
     pub id: String,
     pub case_id: String,
     pub hearing_record: String,
@@ -974,11 +967,12 @@ pub async fn list_case_hearings(case_id: String) -> Result<Vec<HearingDto>, Stri
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
-            "SELECT id, case_id, hearing_record, hearing_name, hearing_date, venue, attendees, judges, court, case_level, contact_info, actual_status, created_at
+            "SELECT id, case_id, hearing_record, hearing_name, hearing_date, venue, attendees, judges, court, case_level, contact_info, actual_status, created_at, lifecycle_status, change_reason
              FROM hearings WHERE case_id = ?1 OR EXISTS (SELECT 1 FROM case_hearing_links chl WHERE chl.hearing_id=hearings.id AND chl.case_id=?1) ORDER BY hearing_date ASC"
         )?;
         let rows = stmt.query_map(rusqlite::params![case_id], |r| {
             Ok(HearingDto {
+                lifecycle_status:r.get(13)?, change_reason:r.get(14)?,
                 id: r.get(0)?,
                 case_id: r.get(1)?,
                 hearing_record: r.get(2)?,
@@ -1002,13 +996,22 @@ pub async fn list_case_hearings(case_id: String) -> Result<Vec<HearingDto>, Stri
     }).await
 }
 
+fn validate_hearing_date(value: &str) -> anyhow::Result<()> {
+    if chrono::NaiveDateTime::parse_from_str(value,"%Y-%m-%d %H:%M:%S").is_err()
+        && chrono::NaiveDateTime::parse_from_str(value,"%Y-%m-%d %H:%M").is_err()
+        && chrono::NaiveDate::parse_from_str(value,"%Y-%m-%d").is_err() {anyhow::bail!("开庭日期格式无效");}
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn create_case_hearing(payload: serde_json::Value) -> Result<HearingDto, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw_conn = db::open_db()?;
+        let conn = raw_conn.transaction()?;
         let id = payload["id"].as_str().map(|s| s.to_string()).unwrap_or_else(db::new_id);
         let case_id = payload["caseId"].as_str().ok_or_else(|| anyhow::anyhow!("缺少 caseId"))?.to_string();
         let hearing_date = payload["hearingDate"].as_str().ok_or_else(|| anyhow::anyhow!("缺少 hearingDate"))?.to_string();
+        validate_hearing_date(&hearing_date)?;
         let hearing_name = payload["hearingName"].as_str().unwrap_or("开庭/口审").to_string();
         let court = payload["court"].as_str().map(|s| s.to_string());
         let venue = payload["venue"].as_str().map(|s| s.to_string());
@@ -1036,13 +1039,11 @@ pub async fn create_case_hearing(payload: serde_json::Value) -> Result<HearingDt
             ],
         )?;
 
-        // 同步更新案件首期开庭 (如果案件 trial_date 为空)
-        let _ = conn.execute(
-            "UPDATE cases SET trial_date = ?1 WHERE id = ?2 AND (trial_date IS NULL OR trial_date = '')",
-            rusqlite::params![hearing_date, case_id],
-        );
+        if actual_status.as_deref()==Some("已开") {conn.execute("UPDATE hearings SET lifecycle_status='held' WHERE id=?1",[&id])?;}
+        conn.commit()?;
 
         Ok(HearingDto {
+            lifecycle_status:if actual_status.as_deref()==Some("已开"){"held".into()}else{"scheduled".into()}, change_reason:String::new(),
             id,
             case_id,
             hearing_record: hearing_name.clone(),
@@ -1062,8 +1063,10 @@ pub async fn create_case_hearing(payload: serde_json::Value) -> Result<HearingDt
 
 #[tauri::command]
 pub async fn update_case_hearing(id: String, payload: serde_json::Value) -> Result<(), String> {
-    run_blocking(move || {
-        let conn = db::open_db()?;
+    run_blocking(move || {let mut conn=db::open_db()?; update_hearing(&mut conn,&id,&payload)}).await
+}
+fn update_hearing(conn: &mut rusqlite::Connection,id: &str,payload: &serde_json::Value) -> anyhow::Result<()> {
+        let tx = conn.transaction()?;
         let hearing_name = payload["hearingName"].as_str();
         let hearing_date = payload["hearingDate"].as_str();
         let venue = payload["venue"].as_str();
@@ -1073,7 +1076,12 @@ pub async fn update_case_hearing(id: String, payload: serde_json::Value) -> Resu
         let contact_info = payload["contactInfo"].as_str();
         let actual_status = payload["actualStatus"].as_str();
 
-        conn.execute(
+        let lifecycle = payload["lifecycleStatus"].as_str().or_else(|| actual_status.map(|s|if s=="已开"{"held"}else{"scheduled"}));
+        let reason = payload["changeReason"].as_str().unwrap_or("");
+        let (old_date,old_status):(String,String)=tx.query_row("SELECT hearing_date,lifecycle_status FROM hearings WHERE id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?)))?;
+        if (hearing_date.is_some_and(|s|s!=old_date) || lifecycle.is_some_and(|s|s!=old_status && matches!(s,"postponed"|"cancelled"))) && reason.trim().is_empty() {anyhow::bail!("变更排期、延期或取消须填写通知／决定依据");}
+        if let Some(date)=hearing_date { validate_hearing_date(date)?; }
+        tx.execute(
             "UPDATE hearings SET
                 hearing_name = COALESCE(?1, hearing_name),
                 hearing_record = COALESCE(?1, hearing_record),
@@ -1083,7 +1091,8 @@ pub async fn update_case_hearing(id: String, payload: serde_json::Value) -> Resu
                 judges = COALESCE(?5, judges),
                 case_level = COALESCE(?6, case_level),
                 contact_info = COALESCE(?7, contact_info),
-                actual_status = COALESCE(?8, actual_status)
+                actual_status = CASE WHEN ?10='held' THEN '已开' WHEN ?10 IS NOT NULL THEN '未开' ELSE COALESCE(?8, actual_status) END,
+                lifecycle_status=COALESCE(?10,lifecycle_status), change_reason=?11
              WHERE id = ?9",
             rusqlite::params![
                 hearing_name,
@@ -1094,12 +1103,11 @@ pub async fn update_case_hearing(id: String, payload: serde_json::Value) -> Resu
                 case_level,
                 contact_info,
                 actual_status,
-                id
+                id, lifecycle, reason
             ],
         )?;
+        tx.commit()?;
         Ok(())
-    })
-    .await
 }
 
 #[tauri::command]
@@ -1453,5 +1461,22 @@ mod case_type_metrics_tests {
     fn test_case_not_found() {
         let conn = setup_test_db();
         assert!(compute_case_type_metrics(&conn, "no-such").is_err());
+    }
+}
+
+#[cfg(test)]
+mod hearing_lifecycle_tests {
+    use super::*;
+    #[test]
+    fn rescheduling_requires_evidence_preserves_other_round_and_audits_old_date() {
+        let mut conn=rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema::SCHEMA_SQL).unwrap();db::schema::run_migrations(&conn,1).unwrap();
+        conn.execute_batch("INSERT INTO cases(id,case_name,track,client_name) VALUES('c','测试','other','test'); INSERT INTO hearings(id,case_id,hearing_record,hearing_date) VALUES('h1','c','第一次','2026-10-01'),('h2','c','第二次','2026-11-01');").unwrap();
+        assert!(update_hearing(&mut conn,"h1",&serde_json::json!({"hearingDate":"2026-10-02"})).is_err());
+        update_hearing(&mut conn,"h1",&serde_json::json!({"hearingDate":"2026-10-02","lifecycleStatus":"postponed","changeReason":"收到改期通知，等待明确新排期"})).unwrap();
+        assert_eq!(conn.query_row("SELECT hearing_date FROM hearings WHERE id='h2'",[],|r|r.get::<_,String>(0)).unwrap(),"2026-11-01");
+        let history=crate::deadline::procedure::history(&conn,"c").unwrap();
+        assert!(history[0].before_json.as_ref().unwrap().contains("2026-10-01"));
+        assert!(update_hearing(&mut conn,"h1",&serde_json::json!({"hearingDate":"bad","changeReason":"录入"})).is_err());
     }
 }

@@ -22,9 +22,9 @@
     "settings": "系统设置"
   },
   "home": {
-    "greeting_morning": "☀️ 晨间规划",
-    "greeting_evening": "🌙 晚间总结",
-    "greeting_week_start": "🚀 本周规划",
+    "greeting_morning": "晨间规划",
+    "greeting_evening": "晚间总结",
+    "greeting_week_start": "本周规划",
     "greeting_week_end": "🏆 周末复盘",
     "calendar_shortcut": "排期日历",
     "hard_schedule": "法庭与硬日程",
@@ -93,5 +93,22 @@
     "insert_field": "字段",
     "insert_law": "法条",
     "insert_party": "当事人"
+  },
+  "calendar": {
+    "timeline": "时间线",
+    "month": "月",
+    "week": "周",
+    "day": "日",
+    "forecast": "排期预测",
+    "today": "今天",
+    "previous": "上一时段",
+    "next": "下一时段",
+    "capture": "输入日程，按 Enter 安排…",
+    "deadlines": "截止事项",
+    "workload": "预估工时",
+    "workdays": "工作日",
+    "holidays": "节假日",
+    "taskPool": "待排期任务",
+    "globalTimeline": "全局时间线"
   }
 }

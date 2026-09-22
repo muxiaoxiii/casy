@@ -29,4 +29,6 @@ export interface DocumentPageView {
   width: number | null
   height: number | null
   regions: Array<{text:string; bbox:[number,number,number,number]; confidence:number|null}>
+  layout: unknown | null
+  timing: {renderMs:number; ocrMs:number; layoutMs:number; totalMs:number} | null
 }

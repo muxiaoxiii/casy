@@ -33,12 +33,15 @@ export class SettingsPlugin implements CasyPlugin {
   private createGetSettingsTool(ctx: CasyContext): CasyTool {
     return defineTool<{}>({
       name: 'get_settings',
+      policy: { write: false, level: 'L1' },
       description: '获取设置',
       category: 'settings',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
         const result = await ctx.settings.get()
-        return result
+        // Preferences only. Credentials and connection details stay in native settings.
+        const allowed = ['theme', 'language', 'locale', 'fontSize', 'font_size', 'weekStart', 'week_start']
+        return { ...result, data: result.data ? Object.fromEntries(Object.entries(result.data).filter(([key]) => allowed.includes(key))) : undefined }
       },
     })
   }

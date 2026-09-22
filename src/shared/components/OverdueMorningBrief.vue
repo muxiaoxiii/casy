@@ -3,7 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { tauriCallSafe } from '../../core/tauriBridge'
 import { todayLocalISO } from '../utils/date'
-import { Warning, Timer, Bell, Calendar, ArrowRight, Check } from '@element-plus/icons-vue'
+import { Warning, Timer, Bell, Calendar, ArrowRight, Check } from '../icons'
 
 const router = useRouter()
 const route = useRoute()

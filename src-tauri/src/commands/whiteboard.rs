@@ -8,7 +8,28 @@ use crate::db;
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub struct FactHistoryDto {
+    pub id: String,
+    pub sequence: i64,
+    pub event_type: String,
+    pub payload: String,
+    pub created_at: String,
+}
+
+#[tauri::command]
+pub async fn list_fact_history(whiteboard_id: String, before_sequence: Option<i64>) -> Result<Vec<FactHistoryDto>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare("SELECT id,event_type,payload,created_at,rowid FROM audit_events WHERE aggregate_type='whiteboard' AND aggregate_id=?1 AND event_type IN ('fact_created','fact_updated','fact_deleted','whiteboard_deleted') AND (?2 IS NULL OR rowid < ?2) ORDER BY rowid DESC LIMIT 100")?;
+        let rows = stmt.query_map(params![whiteboard_id, before_sequence], |row| Ok(FactHistoryDto { id: row.get(0)?, sequence: row.get(4)?, event_type: row.get(1)?, payload: row.get(2)?, created_at: row.get(3)? }))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }).await
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct WhiteboardDto {
+    pub preview: Option<String>,
     pub id: String,
     pub case_id: String,
     pub name: String,
@@ -39,11 +60,13 @@ pub async fn list_whiteboards(case_id: String) -> Result<Vec<WhiteboardDto>, Str
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
             "SELECT w.id, w.case_id, w.name, w.created_at, w.updated_at,
+                    (SELECT preview FROM whiteboard_scenes WHERE whiteboard_id=w.id) AS preview,
                     (SELECT COUNT(*) FROM fact_nodes fn WHERE fn.whiteboard_id = w.id) AS node_count
              FROM whiteboards w WHERE w.case_id = ?1 ORDER BY w.updated_at DESC",
         )?;
         let rows = stmt.query_map(params![case_id], |row| {
             Ok(WhiteboardDto {
+                preview: row.get("preview")?,
                 id: row.get("id")?,
                 case_id: row.get("case_id")?,
                 name: row.get("name")?,
@@ -178,31 +201,17 @@ pub async fn update_fact_node(
 ) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        // 位置与内容分开更新，避免三态复杂度：坐标总是成对出现
-        if let (Some(nx), Some(ny)) = (x, y) {
-            conn.execute(
-                "UPDATE fact_nodes SET x = ?2, y = ?3, updated_at = datetime('now','localtime') WHERE id = ?1",
-                params![id, nx, ny],
-            )?;
+        if excerpt.as_ref().is_some_and(|v| v.trim().is_empty()) {
+            return Err(anyhow::anyhow!("摘录内容不能为空"));
         }
-        if let Some(e) = excerpt {
-            conn.execute(
-                "UPDATE fact_nodes SET excerpt = ?2, updated_at = datetime('now','localtime') WHERE id = ?1",
-                params![id, e],
-            )?;
-        }
-        if let Some(n) = note {
-            conn.execute(
-                "UPDATE fact_nodes SET note = ?2, updated_at = datetime('now','localtime') WHERE id = ?1",
-                params![id, n],
-            )?;
-        }
-        if let Some(p) = page {
-            conn.execute(
-                "UPDATE fact_nodes SET page = ?2, updated_at = datetime('now','localtime') WHERE id = ?1",
-                params![id, p],
-            )?;
-        }
+        if page.is_some_and(|v| v < 1) { return Err(anyhow::anyhow!("页码必须大于零")); }
+        if x.is_some() != y.is_some() { return Err(anyhow::anyhow!("坐标必须成对提供")); }
+        if x.is_some_and(|v| !v.is_finite()) || y.is_some_and(|v| !v.is_finite()) { return Err(anyhow::anyhow!("坐标无效")); }
+        let n = conn.execute(
+            "UPDATE fact_nodes SET excerpt=COALESCE(?2,excerpt), note=COALESCE(?3,note), page=COALESCE(?4,page), x=COALESCE(?5,x), y=COALESCE(?6,y), updated_at=datetime('now','localtime') WHERE id=?1",
+            params![id,excerpt,note,page,x,y],
+        )?;
+        if n == 0 { return Err(anyhow::anyhow!("事实节点不存在")); }
         Ok(())
     })
     .await

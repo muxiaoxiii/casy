@@ -137,27 +137,9 @@ pub fn recalculate_case_formulas(conn: &Connection, case_id: &str) -> Result<usi
         updates.push(("formula_petitioner_first", None));
     }
 
-    // formula_defense_deadline: skip if patent_invalidation or no complaint_received_date
-    if cause_action.as_deref() != Some("专利无效") && complaint_received_date.is_some() {
-        if let Some(ref d) = complaint_received_date {
-            if let Ok(date) = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-                let deadline = date + chrono::Duration::days(15);
-                let deadline = evaluator
-                    .evaluate(
-                        &parse_formula(&format!("WORKDAY(\"{}\", 1)", deadline.format("%Y-%m-%d")))
-                            .unwrap_or(ast::Expr::Literal(Value::Null)),
-                        &ctx,
-                    )
-                    .unwrap_or(Value::Null);
-                updates.push((
-                    "formula_defense_deadline",
-                    Some(deadline.to_display_string()),
-                ));
-            }
-        }
-    } else {
-        updates.push(("formula_defense_deadline", None));
-    }
+    // A complaint date alone cannot establish jurisdiction/procedure or court directions.
+    // Confirm service and applicability in the procedural event editor instead.
+    updates.push(("formula_defense_deadline", None));
 
     // Estimated trial limit
     if filing_date.is_some() {
@@ -204,75 +186,27 @@ pub fn recalculate_case_formulas(conn: &Connection, case_id: &str) -> Result<usi
         updates.push(("formula_estimated_trial_limit", None));
     }
 
-    // Deadline formulas (petitioner_supp, petitioner_reply, patentee_statement, patentee_supp)
-    // All follow the pattern: IF(AND(cause_action="专利无效", NOT(ISBLANK(source_date))),
-    //   EDATE(source_date, 1) adjusted to workday, "")
-    let deadline_formulas: Vec<(&str, &str)> = vec![
-        ("formula_petitioner_supp", "petitioner_first_invalid"),
-        ("formula_petitioner_reply", "petitioner_received_date"),
-        ("formula_patentee_statement", "patentee_received_date"),
-        ("formula_patentee_supp", "patentee_received_supp_date"),
-    ];
+    // Only the petitioner's initial supplementation has a statutory one-month baseline.
+    // Reply periods come from notices, and must not be fabricated from legacy dates.
+    let cal = match crate::db::get_setting(conn, "holidays_json")? {
+        Some(value) => crate::deadline::holidays::HolidayCalendar::from_json_str(&value).map_err(anyhow::Error::msg)?,
+        None => crate::deadline::holidays::HolidayCalendar::builtin(),
+    };
+    let supp = if cause_action.as_deref()==Some("专利无效") {
+        petitioner_first_invalid.as_deref().and_then(|s|chrono::NaiveDate::parse_from_str(s,"%Y-%m-%d").ok()).map(|d|cal.add_months_patent(d,1).to_string())
+    } else {None};
+    updates.push(("formula_petitioner_supp",supp));
+    for col in ["formula_petitioner_reply","formula_patentee_statement","formula_patentee_supp"] {updates.push((col,None));}
 
-    for (formula_col, source_col) in deadline_formulas {
-        if cause_action.as_deref() == Some("专利无效") {
-            let source_val = match source_col {
-                "petitioner_first_invalid" => petitioner_first_invalid.clone(),
-                "petitioner_received_date" => petitioner_received_date.clone(),
-                "patentee_received_date" => patentee_received_date.clone(),
-                "patentee_received_supp_date" => patentee_received_supp_date.clone(),
-                _ => None,
-            };
-            if let Some(ref d) = source_val {
-                if let Ok(date) = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-                    // EDATE(date, 1) with workday adjustment
-                    let edate = eval::FormulaEvaluator::new()
-                        .evaluate(
-                            &ast::Expr::Call {
-                                name: "EDATE".to_string(),
-                                args: vec![
-                                    ast::Expr::Literal(Value::Date(date)),
-                                    ast::Expr::Literal(Value::Number(1.0)),
-                                ],
-                            },
-                            &ctx,
-                        )
-                        .unwrap_or(Value::Null);
-                    if let Value::Date(ed) = edate {
-                        // Check if ed is a workday, if so use it; otherwise use WORKDAY(ed, -1)
-                        let cal = crate::deadline::holidays::HolidayCalendar::builtin();
-                        let result = if cal.is_workday(ed) {
-                            ed
-                        } else {
-                            // WORKDAY(ed, -1)
-                            let mut d = ed - chrono::Duration::days(1);
-                            while !cal.is_workday(d) {
-                                d -= chrono::Duration::days(1);
-                            }
-                            d
-                        };
-                        updates.push((formula_col, Some(result.format("%Y-%m-%d").to_string())));
-                    } else {
-                        updates.push((formula_col, None));
-                    }
-                } else {
-                    updates.push((formula_col, None));
-                }
-            } else {
-                updates.push((formula_col, None));
-            }
-        } else {
-            updates.push((formula_col, None));
-        }
-    }
-
-    // Write all updates
+    // Write all updates in one transaction so a mid-loop failure cannot leave a half-updated case.
+    let tx = conn.unchecked_transaction()?;
     let mut updated_count = 0;
     for (col, val) in updates {
         let sql = format!("UPDATE cases SET {} = ?1 WHERE id = ?2", col);
-        conn.execute(&sql, rusqlite::params![val, case_id])?;
+        tx.execute(&sql, rusqlite::params![val, case_id])?;
         updated_count += 1;
     }
+    tx.commit()?;
 
     Ok(updated_count)
 }

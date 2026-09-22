@@ -1,5 +1,5 @@
 <script setup>
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete } from '../../../shared/icons'
 import { roleOptions } from './caseIntake'
 defineProps({ modelValue: { type: Array, default: () => [] } })
 const emit = defineEmits(['update:modelValue'])

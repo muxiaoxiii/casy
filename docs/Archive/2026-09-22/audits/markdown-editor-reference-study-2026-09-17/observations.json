@@ -1,0 +1,1101 @@
+[
+  {
+    "id": "h5-h6",
+    "source": "##### 五级标题\n\n###### 六级标题\n\n正文",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "五级标题"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "六级标题"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<p>五级标题</p><p>六级标题</p><p>正文</p><p>追加核查</p>",
+    "saved": "五级标题\n\n六级标题\n\n正文\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "五级标题"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "六级标题"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "五级标题\n\n六级标题\n\n正文\n\n追加核查"
+  },
+  {
+    "id": "footnote",
+    "source": "主张依据[^law]。\n\n[^law]: 第六十五条。",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "主张依据"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "%E7%AC%AC%E5%85%AD%E5%8D%81%E4%BA%94%E6%9D%A1%E3%80%82",
+                    "target": "_blank",
+                    "rel": "noopener noreferrer nofollow",
+                    "class": null,
+                    "title": null
+                  }
+                }
+              ],
+              "text": "^law"
+            },
+            {
+              "type": "text",
+              "text": "。"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<p>主张依据<a target=\"_blank\" rel=\"noopener noreferrer nofollow\" href=\"%E7%AC%AC%E5%85%AD%E5%8D%81%E4%BA%94%E6%9D%A1%E3%80%82\">^law</a>。</p><p>追加核查</p>",
+    "saved": "主张依据[^law](%E7%AC%AC%E5%85%AD%E5%8D%81%E4%BA%94%E6%9D%A1%E3%80%82)。\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "主张依据"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "%E7%AC%AC%E5%85%AD%E5%8D%81%E4%BA%94%E6%9D%A1%E3%80%82",
+                    "target": "_blank",
+                    "rel": "noopener noreferrer nofollow",
+                    "class": null,
+                    "title": null
+                  }
+                }
+              ],
+              "text": "^law"
+            },
+            {
+              "type": "text",
+              "text": "。"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "主张依据^law。\n\n追加核查"
+  },
+  {
+    "id": "inline-math",
+    "source": "损失为 $x_i + y_i$，以及 $a*b*c$。",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "损失为 $x_i + y_i$，以及 $a"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ],
+              "text": "b"
+            },
+            {
+              "type": "text",
+              "text": "c$。"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<p>损失为 $x_i + y_i$，以及 $a<em>b</em>c$。</p><p>追加核查</p>",
+    "saved": "损失为 $x\\_i + y\\_i$，以及 $a*b*c$。\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "损失为 $x_i + y_i$，以及 $a"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ],
+              "text": "b"
+            },
+            {
+              "type": "text",
+              "text": "c$。"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "损失为 $x_i + y_i$，以及 $abc$。\n\n追加核查"
+  },
+  {
+    "id": "mermaid",
+    "source": "```mermaid\ngraph LR\n  A[立案] --> B[开庭]\n```",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "mermaid"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "graph LR\n  A[立案] --> B[开庭]\n"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<pre><code class=\"language-mermaid\">graph LR\n  A[立案] --&gt; B[开庭]\n</code></pre><p>追加核查</p>",
+    "saved": "```mermaid\ngraph LR\n  A[立案] --> B[开庭]\n```\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "mermaid"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "graph LR\n  A[立案] --> B[开庭]\n"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "graph LR\n  A[立案] --> B[开庭]\n\n\n追加核查"
+  },
+  {
+    "id": "table-alignment",
+    "source": "| 名称 | 金额 |\n| :--- | ---: |\n| 费用 | 100 |",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "名称"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "right"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "金额"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "费用"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "right"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "100"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<table style=\"min-width: 50px;\"><colgroup><col style=\"min-width: 25px;\"><col style=\"min-width: 25px;\"></colgroup><tbody><tr><th colspan=\"1\" rowspan=\"1\" style=\"text-align: left;\"><p>名称</p></th><th colspan=\"1\" rowspan=\"1\" style=\"text-align: right;\"><p>金额</p></th></tr><tr><td colspan=\"1\" rowspan=\"1\" style=\"text-align: left;\"><p>费用</p></td><td colspan=\"1\" rowspan=\"1\" style=\"text-align: right;\"><p>100</p></td></tr></tbody></table><p>追加核查</p>",
+    "saved": "<table style=\"min-width: 50px;\"><colgroup><col style=\"min-width: 25px;\"><col style=\"min-width: 25px;\"></colgroup><tbody><tr><th colspan=\"1\" rowspan=\"1\" style=\"text-align: left;\"><p>名称</p></th><th colspan=\"1\" rowspan=\"1\" style=\"text-align: right;\"><p>金额</p></th></tr><tr><td colspan=\"1\" rowspan=\"1\" style=\"text-align: left;\"><p>费用</p></td><td colspan=\"1\" rowspan=\"1\" style=\"text-align: right;\"><p>100</p></td></tr></tbody></table>\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "名称"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "金额"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "费用"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "100"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "\n\n\n\n\n\n名称\n\n\n\n金额\n\n\n\n\n\n费用\n\n\n\n100\n\n追加核查"
+  },
+  {
+    "id": "reference-link",
+    "source": "参见[原件][evidence]。\n\n[evidence]: https://example.com/evidence \"证据标题\"",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "参见"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com/evidence",
+                    "target": "_blank",
+                    "rel": "noopener noreferrer nofollow",
+                    "class": null,
+                    "title": "证据标题"
+                  }
+                }
+              ],
+              "text": "原件"
+            },
+            {
+              "type": "text",
+              "text": "。"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<p>参见<a target=\"_blank\" rel=\"noopener noreferrer nofollow\" href=\"https://example.com/evidence\" title=\"证据标题\">原件</a>。</p><p>追加核查</p>",
+    "saved": "参见[原件](https://example.com/evidence \"证据标题\")。\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "参见"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com/evidence",
+                    "target": "_blank",
+                    "rel": "noopener noreferrer nofollow",
+                    "class": null,
+                    "title": "证据标题"
+                  }
+                }
+              ],
+              "text": "原件"
+            },
+            {
+              "type": "text",
+              "text": "。"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "参见原件。\n\n追加核查"
+  },
+  {
+    "id": "image-title",
+    "source": "![证据](asset://local/evidence.png \"原件\")\n\n正文",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          }
+        },
+        {
+          "type": "image",
+          "attrs": {
+            "src": "asset://local/evidence.png",
+            "alt": "证据",
+            "title": "原件",
+            "width": null,
+            "height": null
+          }
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<p></p><img src=\"asset://local/evidence.png\" alt=\"证据\" title=\"原件\"><p>正文</p><p>追加核查</p>",
+    "saved": "![证据](asset://local/evidence.png \"原件\")\n\n正文\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          }
+        },
+        {
+          "type": "image",
+          "attrs": {
+            "src": "asset://local/evidence.png",
+            "alt": "证据",
+            "title": "原件",
+            "width": null,
+            "height": null
+          }
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "\n\n\n\n正文\n\n追加核查"
+  },
+  {
+    "id": "merged-table",
+    "source": "<table><tr><td colspan=\"2\"><p>合并内容</p></td></tr></table>\n\n正文",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "colspan": 2,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "合并内容"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<table style=\"min-width: 50px;\"><colgroup><col style=\"min-width: 25px;\"><col style=\"min-width: 25px;\"></colgroup><tbody><tr><td colspan=\"2\" rowspan=\"1\"><p>合并内容</p></td></tr></tbody></table><p>正文</p><p>追加核查</p>",
+    "saved": "<table style=\"min-width: 50px;\"><colgroup><col style=\"min-width: 25px;\"><col style=\"min-width: 25px;\"></colgroup><tbody><tr><td colspan=\"2\" rowspan=\"1\"><p>合并内容</p></td></tr></tbody></table>\n\n正文\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "colspan": 2,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "合并内容"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "\n\n\n\n\n\n合并内容\n\n正文\n\n追加核查"
+  },
+  {
+    "id": "ordered-start",
+    "source": "3. 第三项\n4. 第四项",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 3,
+            "type": null
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "第三项"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "第四项"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<ol start=\"3\"><li><p>第三项</p></li><li><p>第四项</p></li></ol><p>追加核查</p>",
+    "saved": "3. 第三项\n    \n4. 第四项\n    \n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 3,
+            "type": null
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "第三项"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "第四项"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "\n\n\n\n第三项\n\n\n\n第四项\n\n追加核查"
+  },
+  {
+    "id": "unknown-html",
+    "source": "<details><summary>详情</summary>证据补充</details>\n\n正文",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "rawHtmlBlock",
+          "attrs": {
+            "raw": "<details><summary>详情</summary>证据补充</details>"
+          }
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<div data-raw-html=\"%3Cdetails%3E%3Csummary%3E%E8%AF%A6%E6%83%85%3C%2Fsummary%3E%E8%AF%81%E6%8D%AE%E8%A1%A5%E5%85%85%3C%2Fdetails%3E\" data-raw-html-kind=\"block\" class=\"raw-html-placeholder raw-html-placeholder--block\" title=\"原始 HTML 已原样保留，请在源码模式编辑\">原始 HTML（已保留）</div><p>正文</p><p>追加核查</p>",
+    "saved": "<details><summary>详情</summary>证据补充</details>\n\n正文\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "rawHtmlBlock",
+          "attrs": {
+            "raw": "<details><summary>详情</summary>证据补充</details>"
+          }
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "正文"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "\n\n正文\n\n追加核查"
+  },
+  {
+    "id": "unicode",
+    "source": "𠮷野 é 👩🏽‍⚖️ 原件",
+    "initial": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "𠮷野 é 👩🏽‍⚖️ 原件"
+            }
+          ]
+        }
+      ]
+    },
+    "html": "<p>𠮷野 é 👩🏽‍⚖️ 原件</p><p>追加核查</p>",
+    "saved": "𠮷野 é 👩🏽‍⚖️ 原件\n\n追加核查",
+    "reopened": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "𠮷野 é 👩🏽‍⚖️ 原件"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "追加核查"
+            }
+          ]
+        }
+      ]
+    },
+    "text": "𠮷野 é 👩🏽‍⚖️ 原件\n\n追加核查"
+  }
+]

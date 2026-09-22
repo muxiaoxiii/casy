@@ -18,6 +18,8 @@ import type {
 } from '../types'
 
 interface CasesState {
+  listRequest: number
+  caseRequest: number
   cases: Case[]
   currentCase: Case | null
   loading: boolean
@@ -31,6 +33,8 @@ interface CasesState {
 
 export const useCasesStore = defineStore('cases', {
   state: (): CasesState => ({
+    listRequest: 0,
+    caseRequest: 0,
     cases: [],
     currentCase: null,
     loading: false,
@@ -112,7 +116,9 @@ export const useCasesStore = defineStore('cases', {
 
   actions: {
     async loadCases(): Promise<void> {
+      const request = ++this.listRequest
       this.loading = true
+      try {
       const result = await casyContext.cases.list({
         track: this.filter.track || null,
         client: this.filter.client || null,
@@ -130,16 +136,19 @@ export const useCasesStore = defineStore('cases', {
         adminStatus: this.filter.adminStatus || null,
         caseRoute: this.filter.caseRoute || null,
       })
+      if (request !== this.listRequest) return
       if (result.ok && result.data) {
         this.cases = result.data.items || []
         this.total = result.data.total || 0
       }
-      this.loading = false
+      } finally {if(request===this.listRequest)this.loading = false}
     },
 
     async loadCase(id: string): Promise<{ ok: boolean; data?: Case; error?: string }> {
+      const request=++this.caseRequest
+      this.currentCase=null
       const result = await casyContext.cases.get(id)
-      if (result.ok && result.data) {
+      if (request===this.caseRequest && result.ok && result.data) {
         this.currentCase = result.data
       }
       return result
@@ -163,6 +172,7 @@ export const useCasesStore = defineStore('cases', {
         if (this.currentCase?.id === id) {
           this.currentCase = { ...this.currentCase, ...result.data }
         }
+        await this.loadStats()
         notifyDataChange()
       }
       return result

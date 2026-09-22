@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, type PropType } from 'vue'
-import { Close, CopyDocument, Download, Refresh } from '@element-plus/icons-vue'
+import { Close, CopyDocument, Download, Refresh } from '../icons'
 import { ElMessage } from 'element-plus'
 import html2canvas from 'html2canvas'
 import waxSealOxblood from '../../assets/briefing/wax-seal-oxblood.png'
@@ -15,6 +15,7 @@ import {
   type ReportMetrics,
 } from './briefing/useBriefingModel'
 import { renderBriefingMarkdown } from './briefing/briefingMarkdown'
+import BriefingIllustration from './briefing/BriefingIllustration.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -58,6 +59,13 @@ const {
 
 const sealSrc = computed(() => (activeMeta.value.seal === 'gold' ? waxSealAntiqueGold : waxSealOxblood))
 const reportStyleVars = computed(() => ({ '--paper-texture': `url(${paperFiberWarm})` }))
+const collectibleCopy = computed(() => ({
+  'magic-prophet': { heading: '预言家日报', kicker: 'OWL POST · 猫头鹰邮政特供', note: '平凡日常，也有值得登上头版的魔法。', edition: 'THE DAILY PROPHET' },
+  receipt: { heading: '今日份的小确幸', kicker: 'LITTLE THINGS STORE / 日常补给商店', note: '谢谢你认真度过今天。此刻值得收藏。', edition: 'KEEP THIS MOMENT' },
+  herbarium: { heading: '把今天，轻轻收好', kicker: 'HERBARIUM / 日常生长记录', note: '不必每一天都开花，扎根也是生长。', edition: 'A DAY IN BLOOM' },
+  'lunar-log': { heading: '从月亮回望这一周', kicker: 'CASY OBSERVATORY / 月面观测站', note: '暂时离开引力，允许自己安静一会儿。', edition: 'LETTERS FROM THE MOON' },
+  airmail: { heading: '寄给认真生活的你', kicker: 'PAR AVION / 一周一封，寄给自己', note: '这一程辛苦了。下一站，慢慢来。', edition: 'POSTCARDS TO MYSELF' },
+} as Record<string, { heading: string; kicker: string; note: string; edition: string }>)[activeStyle.value])
 
 // 审查 P2-1：模板 v-html 里直接调用 renderBriefingMarkdown(displayContent) 会在每次重渲染都重跑渲染。
 // 这里预计算 renderedContent，仅在简报内容变化时渲染一次（内容先转义，输出受控 HTML）。
@@ -127,7 +135,7 @@ async function exportImage() {
     const clone = source.cloneNode(true) as HTMLElement
     clone.classList.add('is-exporting')
     Object.assign(clone.style, {
-      width: '780px',
+      width: activeStyle.value === 'receipt' ? '520px' : '780px',
       maxWidth: 'none',
       minHeight: '1040px',
       margin: '0',
@@ -141,7 +149,7 @@ async function exportImage() {
       position: 'fixed',
       left: '-12000px',
       top: '0',
-      width: '876px',
+      width: activeStyle.value === 'receipt' ? '616px' : '876px',
       padding: '48px',
       boxSizing: 'border-box',
       background: getComputedStyle(source).getPropertyValue('--export-mat').trim() || '#d8d2c7',
@@ -224,8 +232,16 @@ async function exportImage() {
             </header>
 
             <div class="title-block">
-              <p class="style-kicker">{{ activeMeta.name }} / {{ activeMeta.label }}</p>
-              <h1>{{ effectiveTitle }}</h1>
+              <p class="style-kicker">{{ collectibleCopy?.kicker || `${activeMeta.name} / ${activeMeta.label}` }}</p>
+              <template v-if="collectibleCopy">
+                <p class="collectible-edition">{{ collectibleCopy.edition }}</p>
+                <h1>{{ collectibleCopy.heading }}</h1>
+                <div class="collectible-frontispiece">
+                  <BriefingIllustration v-if="activeStyle !== 'receipt'" :variant="activeStyle" class="collectible-art" />
+                  <div class="collectible-caption"><span>{{ effectiveTitle }}</span><p>{{ collectibleCopy.note }}</p></div>
+                </div>
+              </template>
+              <h1 v-else>{{ effectiveTitle }}</h1>
               <div class="title-meta">
                 <span>{{ effectiveDate }}</span>
                 <span>{{ reportTypeCn }}</span>
@@ -298,6 +314,11 @@ async function exportImage() {
               </section>
             </div>
 
+            <div v-if="collectibleCopy" class="collectible-colophon">
+              <span>{{ collectibleCopy.note }}</span>
+              <div v-if="activeStyle === 'receipt'" class="receipt-barcode" aria-hidden="true"></div>
+              <small>{{ activeStyle === 'receipt' ? '非交易凭证 · 只记录真实的日常' : 'A LITTLE KEEPSAKE / 为日常留一份纪念' }}</small>
+            </div>
             <footer class="report-signoff">
               <div>
                 <span>CASY BRIEFING</span>
@@ -908,6 +929,68 @@ async function exportImage() {
 .style-wax-sealed-parchment .report-signoff { border-top: 3px double var(--accent); }
 .style-wax-sealed-parchment .material-seal { width: 112px; height: 112px; }
 
+.collectible-edition { margin: 0 0 12px; font: 900 clamp(18px, 4vw, 36px)/1.1 var(--display-font); letter-spacing: 0.04em; }
+.collectible-frontispiece { display: flex; align-items: center; justify-content: center; gap: 24px; margin-top: 22px; }
+.collectible-art { display: block; width: 240px; max-width: 48%; flex-shrink: 0; color: var(--accent); }
+.collectible-caption { max-width: 260px; text-align: left; }
+.collectible-caption > span { font: 700 18px/1.6 var(--display-font); }
+.collectible-caption p { margin: 10px 0 0; font: 400 13px/1.9 var(--display-font); color: var(--muted); }
+.collectible-colophon { display: grid; gap: 12px; padding: 30px 0; text-align: center; border-top: 1px solid var(--line); font: 400 15px/1.8 var(--display-font); }
+.collectible-colophon small { font: 500 9px/1.6 var(--mono-font); letter-spacing: 0.1em; color: var(--muted); }
+.style-magic-prophet { --paper: #eee0bc; --texture-opacity: 0.4; --display-font: 'Baskerville', 'Songti SC', 'STSong', serif; }
+.style-magic-prophet .ornament-medallion { display: none; }
+.style-magic-prophet .title-block { padding-top: 30px; }
+.style-magic-prophet .title-block h1 { max-width: none; font-size: clamp(42px, 7vw, 78px); letter-spacing: 0.08em; line-height: 1.25; }
+.style-magic-prophet .collectible-edition { border-bottom: 1px solid var(--ink); padding-bottom: 14px; letter-spacing: 0.06em; }
+.style-magic-prophet .collectible-frontispiece { border-block: 1px solid var(--ink); margin-top: 20px; padding: 6px 0; }
+.style-magic-prophet .collectible-art { width: 270px; color: var(--ink); }
+.style-magic-prophet .collectible-caption { border-left: 1px solid var(--line); padding-left: 24px; }
+.style-magic-prophet .narrative-section { border-bottom: 1px solid var(--ink); padding-bottom: 26px; }
+.style-magic-prophet .markdown-body { columns: 2; column-gap: 28px; column-rule: 1px solid var(--line); }
+.style-magic-prophet .markdown-body :deep(p) { margin-top: 0; }
+.style-magic-prophet .section-label { letter-spacing: 0.16em; }
+.style-receipt { --paper: #faf9f3; --ink: #343a32; --muted: #697064; --accent: #45483f; --texture-opacity: 0.09; --display-font: 'SFMono-Regular', Consolas, 'PingFang SC', monospace; --body-font: var(--display-font); --export-mat: #555e53; max-width: 520px; margin-inline: auto; padding: 42px 38px; border-top: 8px dotted var(--export-mat); border-bottom: 8px dotted var(--export-mat); box-shadow: 0 10px 35px #0002; }
+.style-receipt .report-header { border-bottom: 1px dashed var(--ink); }
+.style-receipt .brand-mark, .style-receipt .material-rule { display: none; }
+.style-receipt .title-block { text-align: center; padding: 32px 0; }
+.style-receipt .title-block h1 { font-size: 30px; line-height: 1.4; letter-spacing: 0; }
+.style-receipt .collectible-edition { font: 600 10px/1.5 var(--mono-font); letter-spacing: 0.2em; }
+.style-receipt .collectible-caption { text-align: center; }
+.style-receipt .collectible-caption > span { font-size: 12px; }
+.style-receipt .focus-panel { grid-template-columns: 24px 1fr; gap: 12px; border-block: 1px dashed var(--ink); }
+.style-receipt .focus-copy h2 { font-size: 20px; }
+.style-receipt .metric-grid { display: block; border-bottom: 2px dashed var(--ink); }
+.style-receipt .metric-cell { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 14px 0; border: 0; border-bottom: 1px dotted var(--line); }
+.style-receipt .metric-cell { min-height: 0; align-items: center; }
+.style-receipt .metric-cell strong { font-size: 24px; margin: 0; }
+.style-receipt .metric-cell small { grid-column: 1 / -1; }
+.style-receipt .detail-grid { grid-template-columns: 1fr; }
+.style-receipt .report-signoff { flex-wrap: wrap; border-top: 1px dashed var(--ink); }
+.receipt-barcode { width: 190px; height: 40px; margin: 6px auto; background: repeating-linear-gradient(90deg, var(--ink) 0 2px, transparent 2px 5px, var(--ink) 5px 6px, transparent 6px 9px, var(--ink) 9px 13px, transparent 13px 16px, var(--ink) 16px 17px, transparent 17px 21px); }
+.style-herbarium { --paper: #f0f0e4; --ink: #304431; --muted: #63715d; --accent: #49634a; --line: #49634a40; --export-mat: #6d7965; --texture-opacity: 0.3; border: 12px solid #dce0cd; }
+.style-herbarium .title-block h1 { font-size: clamp(34px, 5vw, 56px); font-weight: 400; line-height: 1.3; }
+.style-herbarium .collectible-edition { font-size: 13px; letter-spacing: 0.25em; }
+.style-herbarium .collectible-frontispiece { flex-direction: row-reverse; justify-content: space-between; }
+.style-herbarium .collectible-art { width: 260px; }
+.style-herbarium .focus-panel { padding: 26px; border: 1px solid var(--line); background: #ffffff40; }
+.style-herbarium .metric-grid { border-bottom: 1px solid var(--line); }
+.style-herbarium .metric-cell strong { font-weight: 400; }
+.style-lunar-log { --paper: #14242e; --ink: #e2e9ed; --muted: #a7bdc8; --accent: #b6cfdf; --line: #b6cfdf40; --export-mat: #0a141b; --texture-opacity: 0.08; }
+.style-lunar-log::after { inset: 16px; border: 1px solid var(--line); background: radial-gradient(circle at 12% 5%, #d7e9ef 0 1px, transparent 1.5px), radial-gradient(circle at 85% 30%, #d7e9ef 0 1px, transparent 1.5px); }
+.style-lunar-log .title-block h1 { font-size: clamp(32px, 5vw, 54px); font-weight: 400; line-height: 1.4; }
+.style-lunar-log .collectible-edition { font: 500 12px/1.8 var(--mono-font); letter-spacing: 0.16em; }
+.style-lunar-log .collectible-frontispiece { flex-direction: row-reverse; justify-content: space-between; }
+.style-lunar-log .collectible-art { width: 300px; }
+.style-lunar-log .metric-grid { border: 1px solid var(--line); }
+.style-lunar-log .metric-cell strong { font-weight: 400; }
+.style-airmail { --paper: #f8f0dd; --ink: #334b5d; --muted: #726e61; --accent: #a64c3d; --line: #334b5d40; --export-mat: #6f807d; --texture-opacity: 0.28; border-inline: 10px solid transparent; border-image: repeating-linear-gradient(145deg, #a64c3d 0 18px, #f8f0dd 18px 30px, #476b80 30px 48px, #f8f0dd 48px 60px) 10; }
+.style-airmail .title-block h1 { font-size: clamp(34px, 5vw, 56px); font-weight: 400; line-height: 1.4; }
+.style-airmail .collectible-edition { font-style: italic; font-size: 22px; }
+.style-airmail .collectible-frontispiece { flex-direction: row-reverse; justify-content: space-between; }
+.style-airmail .collectible-art { width: 240px; transform: rotate(-6deg); }
+.style-airmail .focus-panel { border-top: 2px solid var(--line); }
+.style-airmail .markdown-body { line-height: 2; }
+.style-airmail .collectible-colophon { text-align: right; }
 .is-exporting { box-sizing: border-box; }
 .is-exporting .sample-ribbon { print-color-adjust: exact; }
 
@@ -921,6 +1004,11 @@ async function exportImage() {
 }
 
 @media (max-width: 700px) {
+  .collectible-frontispiece { gap: 12px; }
+  .collectible-caption > span { font-size: 15px; }
+  .collectible-caption p { font-size: 12px; }
+  .style-magic-prophet .markdown-body { columns: 1; }
+  .style-magic-prophet .collectible-caption { padding-left: 12px; }
   .brief-modal-backdrop { padding: 54px 10px 10px; }
   .report-sheet { min-height: 0; padding: 38px 26px 30px; }
   .title-block { padding-block: 46px 30px; }

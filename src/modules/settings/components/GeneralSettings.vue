@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
-import { Setting, Calendar, Upload, Refresh } from '@element-plus/icons-vue'
+import { Setting, Calendar, Upload, Refresh } from '../../../shared/icons'
 import { THEME_OPTIONS, applyThemePreference } from '../../../shared/theme'
 import WorkspaceSyncSettings from './WorkspaceSyncSettings.vue'
 
@@ -80,7 +80,7 @@ onMounted(() => {
         </div>
       </template>
 
-      <el-form label-width="100px" size="default">
+      <el-form label-position="top" size="default">
         <el-form-item label="案件文件夹路径">
           <div class="folder-input">
             <el-input v-model="settingsStore.caseFolderBase" placeholder="默认: ~/Documents/Casy/cases" readonly />

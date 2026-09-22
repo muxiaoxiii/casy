@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { componentInventory } from './runtime-components.mjs'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
@@ -43,6 +44,8 @@ async function pinnedDownload(relative, url, size, blob) {
   if (!await verify()) throw new Error(`Checksum mismatch: ${relative}`)
 }
 await pinnedDownload('fonts/NotoSansCJK-Regular.ttf', fontRoot + 'Sans/Variable/TTF/NotoSansCJKsc-VF.ttf', 36144788, 'e67840913223f5c5db60570ce5bf001b0e079d42')
+// Static outlines are required for consistent Typst SVG/PDF rendering. Keep the existing variable font for other consumers.
+await pinnedDownload('fonts/NotoSansCJKsc-Regular.otf', fontRoot + 'Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf', 16437364, 'dc15562470b4f842321894787a0d066879ccff8b')
 await pinnedDownload('licenses/Noto-OFL.txt', fontRoot + 'Sans/LICENSE', 4301, 'd952d62c065f3f35fb83a173496e90b21525aef3')
 
 const components = []
@@ -142,6 +145,8 @@ await copyFile(join(project, 'docs/compliance/LICENSES.md'), join(runtime, 'lice
 await copyFile(join(project, 'docs/compliance/MinerU-Popo-LICENSE.txt'), join(runtime, 'licenses/MinerU-Popo-LICENSE.txt'))
 await copyFile(join(project, 'docs/compliance/E5-MIT-LICENSE.txt'), join(runtime, 'licenses/E5-MIT-LICENSE.txt'))
 await copyFile(join(project, 'scripts/prepare-runtime.mjs'), join(runtime, 'licenses/runtime-build.mjs'))
+await copyFile(join(project, 'scripts/runtime-components.mjs'), join(runtime, 'licenses/runtime-components.mjs'))
+await copyFile(join(project, 'scripts/license-policy.mjs'), join(runtime, 'licenses/license-policy.mjs'))
 await copyFile(join(project, 'scripts/prepare-notices.mjs'), join(runtime, 'licenses/prepare-notices.mjs'))
 await copyFile(join(project, 'scripts/homebrew-source.rb'), join(runtime, 'licenses/homebrew-source.rb'))
 await writeFile(join(runtime, 'fonts/fonts.conf'), '<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd"><fontconfig><dir prefix="relative">.</dir><cachedir prefix="xdg">casy/fontconfig</cachedir></fontconfig>\n')
@@ -159,9 +164,9 @@ async function inventory(directory, prefix = '') {
   }
 }
 await inventory(runtime)
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ platform: process.platform, arch: process.arch, files }, null, 2) + '\n')
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ schemaVersion: 2, delivery: 'full', platform: process.platform, arch: process.arch, components: componentInventory(files), files }, null, 2) + '\n')
 const env = { ...process.env, PATH: '/usr/bin:/bin' }
-for (const key of ['CASY_DOC_ENGINE', 'CASY_PPOCR_MODEL_DIR', 'CASY_OCR_FONT', 'CASY_PDFTOPPM']) delete env[key]
+for (const key of ['CASY_DOC_ENGINE', 'CASY_PPOCR_MODEL_DIR', 'CASY_KOREAN_MODEL_DIR', 'CASY_OCR_FONT', 'CASY_PDFTOPPM']) delete env[key]
 const probe = JSON.parse(run(join(runtime, `bin/casy-doc-engine${exe}`), ['probe'], { env }))
 if (!probe.available) throw new Error(`Bundled engine unavailable: ${JSON.stringify(probe)}`)
 console.log(`Runtime verified: ${files.length} files, ${files.reduce((n, f) => n + f.bytes, 0)} bytes`)

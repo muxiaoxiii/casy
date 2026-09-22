@@ -14,7 +14,7 @@ import {
   ScaleToOriginal,
   SwitchButton,
   CircleCheck,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import { useCasesStore } from '../../../stores/cases'
 import { todayLocalISO } from '../../../shared/utils/date'
 import { casyContext } from '../../../core/plugin/context'

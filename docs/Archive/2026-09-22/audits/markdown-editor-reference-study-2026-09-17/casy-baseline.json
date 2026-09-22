@@ -1,0 +1,11 @@
+{
+  "date": "2026-09-17",
+  "scope": "working-tree files, including pre-existing uncommitted edits",
+  "sha256": {
+    "src/shared/editor/DocumentEditor.vue": "5268b1ab07fbc4df112f5faceaf1afa48504ec794d45c1184b8dea32371e3693",
+    "src/shared/editor/schema.ts": "2502a5b88b95b1e519d2bbe3ce0b073ed1d259aa3c6840fefe9167a30a7966bd",
+    "src/shared/markdown/mdBridge.ts": "6bf16a48735396f026b4bb4c1fbef5960b37696d0c816eb7678d7f0789da329b",
+    "package-lock.json": "695e4728999c639d3bdc7c644e211e11dbd1d8635d1de0c4b5fc235541038e1c",
+    "vitest.config.ts": "520789daf97ae5f99f03189b57cdfc6a41d68600d9529da18f50c020a0df926b"
+  }
+}

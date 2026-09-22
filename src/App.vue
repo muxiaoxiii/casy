@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { safeListen } from './core/tauriEvents'
+import { ElMessage } from 'element-plus'
 import { casyContext } from './core/plugin/context'
 import ReminderToast from './shared/components/ReminderToast.vue'
 import ReminderBanner from './shared/components/ReminderBanner.vue'
@@ -13,6 +14,7 @@ import GlobalSearch from './components/GlobalSearch.vue'
 import NotificationBell from './modules/notifications/components/NotificationBell.vue'
 import UnifiedCaptureDialog from './shared/components/UnifiedCaptureDialog.vue'
 import FileConversionDialog from './shared/components/FileConversionDialog.vue'
+import ProcessingCenter from './shared/components/ProcessingCenter.vue'
 import { registerShortcut } from './shared/keyboard'
 import { useProfileStore } from './stores/profile'
 import { useSettingsStore } from './stores/settings'
@@ -21,6 +23,7 @@ import { applyThemePreference, disposeThemeListener } from './shared/theme'
 import { isTauriRuntime } from './core/mockData'
 import './shared/markdown/legal-document.css'
 import {
+  BrandSeal,
   DataBoard,
   Briefcase,
   Calendar,
@@ -39,7 +42,7 @@ import {
   User,
   Sunny,
   Switch,
-} from '@element-plus/icons-vue'
+} from './shared/icons'
 
 import { useI18n } from 'vue-i18n'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
@@ -93,15 +96,54 @@ function onOnboardingDismiss() {
 // ============================================================
 const sidebarCollapsed = ref(localStorage.getItem('casy_sidebar_collapsed') === '1')
 const mobileNavOpen = ref(false)
+const navMedia = window.matchMedia('(max-width: 900px)')
+const compactNav = ref(navMedia.matches)
+function syncNavViewport(event) {
+  compactNav.value = event.matches
+  if (!event.matches) mobileNavOpen.value = false
+}
+onMounted(() => navMedia.addEventListener('change', syncNavViewport))
+onUnmounted(() => navMedia.removeEventListener('change', syncNavViewport))
+const sidebarRef = ref(null)
+const sidebarToggleRef = ref(null)
+function closeMobileNav() {
+  mobileNavOpen.value = false
+  nextTick(() => sidebarToggleRef.value?.focus())
+}
+function handleSidebarKeydown(event) {
+  if (!mobileNavOpen.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMobileNav()
+  }
+  if (event.key !== 'Tab') return
+  const items = [...sidebarRef.value.querySelectorAll('button, a[href], [tabindex="0"]')]
+    .filter(element => element.getClientRects().length)
+  const first = items[0]
+  const last = items.at(-1)
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+watch(mobileNavOpen, async open => {
+  if (open) {
+    await nextTick()
+    sidebarRef.value?.querySelector('button')?.focus()
+  }
+})
 function toggleSidebar() {
-  if (window.matchMedia('(max-width: 900px)').matches) {
+  if (compactNav.value) {
     mobileNavOpen.value = !mobileNavOpen.value
     return
   }
   sidebarCollapsed.value = !sidebarCollapsed.value
   localStorage.setItem('casy_sidebar_collapsed', sidebarCollapsed.value ? '1' : '0')
 }
-watch(() => route.fullPath, () => { mobileNavOpen.value = false })
+watch(() => route.fullPath, () => { if (mobileNavOpen.value) closeMobileNav() })
 const showGlobalSearch = ref(false)
 
 const aiStatusText = computed(() => {
@@ -114,35 +156,38 @@ const aiStatusText = computed(() => {
 // ============================================================
 const navGroups = [
   {
-    label: 'Focus',
+    label: '专注',
     items: [
-      { name: 'home', label: 'Today', sublabel: '今日', icon: Sunny, routePrefix: '/' },
-      { name: 'inbox', label: 'Inbox', sublabel: '收件箱', icon: Box, routePrefix: '/inbox' },
+      { name: 'home', label: '今日', sublabel: 'Today', icon: Sunny, routePrefix: '/' },
+      { name: 'inbox', label: '收件箱', sublabel: 'Inbox', icon: Box, routePrefix: '/inbox' },
     ],
   },
   {
-    label: 'Matters',
+    label: '事项',
     items: [
-      { name: 'cases', label: 'Cases', sublabel: '案件', icon: Briefcase, routePrefix: '/cases' },
-      { name: 'tasks', label: 'Tasks', sublabel: '任务', icon: Finished, routePrefix: '/tasks' },
-      { name: 'calendar', label: 'Calendar', sublabel: '日历', icon: Calendar, routePrefix: '/calendar' },
+      { name: 'cases', label: '案件', sublabel: 'Cases', icon: Briefcase, routePrefix: '/cases' },
+      { name: 'tasks', label: '任务', sublabel: 'Tasks', icon: Finished, routePrefix: '/tasks' },
+      { name: 'calendar', label: '日历', sublabel: 'Calendar', icon: Calendar, routePrefix: '/calendar' },
     ],
   },
   {
-    label: 'Knowledge',
+    label: '知识',
     items: [
-      { name: 'knowledge', label: 'Vault', sublabel: '知识库', icon: Collection, routePrefix: '/knowledge' },
-      { name: 'docs', label: 'Drafting', sublabel: '文书工坊', icon: Document, routePrefix: '/docs' },
+      { name: 'knowledge', label: '知识库', sublabel: 'Vault', icon: Collection, routePrefix: '/knowledge' },
+      { name: 'files', label: '卷宗', sublabel: 'Dossier', icon: Folder, routePrefix: '/files' },
+      { name: 'docs', label: '文书工坊', sublabel: 'Drafting', icon: Document, routePrefix: '/docs' },
     ],
   },
 ]
 
 const utilityModules = [
-  { name: 'clients', label: 'Clients', sublabel: '客户', icon: User },
-  { name: 'dashboard', label: 'Dashboard', sublabel: '数据看板', icon: DataBoard },
+  { name: 'clients', label: '客户', sublabel: 'Clients', icon: User },
+  { name: 'dashboard', label: '数据看板', sublabel: 'Dashboard', icon: DataBoard },
 ]
 
 function isNavActive(item) {
+  if (item.name === 'docs' && route.name === 'write') return true
+  if (item.name === 'cases' && ['whiteboard'].includes(route.name)) return true
   if (item.name === 'home') {
     return route.path === '/' || route.name === 'home'
   }
@@ -178,12 +223,12 @@ let unlistenFileDrop = null
 
 async function setupQuickCaptureListener() {
   try {
-    unlistenQuickCapture = await safeListen('global:quick_capture', (event) => {
+    unlistenQuickCapture = safeListen('global:quick_capture', (event) => {
       openUnifiedCapture(event.payload || 'auto')
     })
     
     // 全局拖拽文件支持 (Tauri 原生事件)
-    unlistenFileDrop = await safeListen('tauri://drag-drop', (event) => {
+    unlistenFileDrop = safeListen('tauri://drag-drop', (event) => {
       // payload 包含 paths (文件路径数组)
       window.dispatchEvent(new CustomEvent('casy:file-drop', { detail: event.payload }))
     })
@@ -205,6 +250,11 @@ onMounted(async () => {
   void aiSettings.load()
   await settingsStore.load()
   applyTheme(settingsStore.theme)
+  if (settingsStore.webdavAutoSync && settingsStore.webdavUrl && settingsStore.webdavUsername) {
+    void casyContext.sync.startupSync(settingsStore.webdavUrl, settingsStore.webdavUsername, '').then(result => {
+      if (!result.ok || result.data?.conflict) ElMessage.warning('WebDAV 版本检查需要处理，请前往同步中心')
+    })
+  }
   checkOnboarding()
   setupQuickCaptureListener()
   window.addEventListener('casy:open-capture', handleOpenCapture)
@@ -232,6 +282,10 @@ onUnmounted(() => {
   disposeThemeListener()
 })
 
+function documentFocusMain() {
+  document.getElementById('main-content')?.focus()
+}
+
 function onMenuSelect(name) {
   router.push({ name })
 }
@@ -239,22 +293,18 @@ function onMenuSelect(name) {
 
 <template>
   <el-config-provider :locale="componentLocale">
-  <div class="app-shell">
+  <div class="app-shell" :inert="showGlobalSearch || undefined">
+    <a class="skip-link" href="#main-content" @click.prevent="documentFocusMain">跳转到主要内容</a>
     <!-- ═══ 左侧侧栏 (Stitch UI 240px Fixed Sidebar) ═══ -->
-    <button v-if="mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" @click="mobileNavOpen = false" />
-    <aside id="app-navigation" class="app-sidebar" :class="{ collapsed: sidebarCollapsed && !mobileNavOpen, 'mobile-open': mobileNavOpen }" @keydown.esc="mobileNavOpen = false">
+    <button v-if="mobileNavOpen" class="nav-backdrop" aria-label="关闭导航" @click="closeMobileNav" />
+    <aside ref="sidebarRef" id="app-navigation" :role="mobileNavOpen ? 'dialog' : undefined" :aria-modal="mobileNavOpen || undefined" aria-label="主导航" class="app-sidebar" :class="{ collapsed: sidebarCollapsed && !mobileNavOpen, 'mobile-open': mobileNavOpen }" @keydown="handleSidebarKeydown">
       <!-- 品牌 Header -->
       <button type="button" class="sidebar-brand" aria-label="Casy 首页" @click="router.push('/')">
         <div class="brand-badge">
-          <span class="brand-grid-icon">
-            <span class="grid-cell" />
-            <span class="grid-cell" />
-            <span class="grid-cell" />
-            <span class="grid-cell" />
-          </span>
+          <BrandSeal class="brand-seal" />
         </div>
         <div v-show="!sidebarCollapsed" class="brand-copy">
-          <span class="brand-title">Casy v5.0</span>
+          <span class="brand-title">Casy</span>
           <span class="brand-subtitle">法律工作台</span>
         </div>
       </button>
@@ -272,7 +322,7 @@ function onMenuSelect(name) {
               :class="{ active: isNavActive(item) }"
               :aria-current="isNavActive(item) ? 'page' : undefined"
               @click="onMenuSelect(item.name)"
-              :title="item.label"
+              :title="`${item.label} / ${item.sublabel}`"
             >
               <el-icon class="nav-icon" :size="18">
                 <component :is="item.icon" />
@@ -303,8 +353,9 @@ function onMenuSelect(name) {
         </div>
 
         <!-- 律师名片 -->
-        <div
-          v-show="!sidebarCollapsed"
+        <button
+          type="button"
+          v-show="!sidebarCollapsed || mobileNavOpen"
           class="user-profile-card"
           @click="onMenuSelect('settings')"
         >
@@ -315,7 +366,7 @@ function onMenuSelect(name) {
             <span class="user-name">{{ profileStore.name?.trim() || '个人工作台' }}</span>
             <span class="user-role">{{ profileStore.practice_areas?.[0] || '执业信息未设置' }}</span>
           </div>
-        </div>
+        </button>
 
         <!-- 设置项 -->
         <button
@@ -326,19 +377,19 @@ function onMenuSelect(name) {
           title="Settings / 设置"
         >
           <el-icon class="nav-icon" :size="18"><Setting /></el-icon>
-          <span v-show="!sidebarCollapsed" class="nav-label-main">Settings</span>
+          <span v-show="!sidebarCollapsed || mobileNavOpen" class="nav-label-group"><span class="nav-label-main">设置</span><span class="nav-label-sub">Settings</span></span>
         </button>
       </div>
     </aside>
 
     <!-- ═══ 右侧主工作区 ═══ -->
-    <div class="app-main">
+    <div class="app-main" :inert="mobileNavOpen || undefined">
       <!-- 顶栏 (Stitch UI 64px Topbar with Backdrop Blur) -->
       <header class="topbar">
         <div class="topbar-left">
-          <button class="sidebar-toggle-btn" @click="toggleSidebar" title="折叠/展开侧栏" aria-label="折叠/展开侧栏" aria-controls="app-navigation" :aria-expanded="mobileNavOpen || !sidebarCollapsed">
+          <button ref="sidebarToggleRef" class="sidebar-toggle-btn" @click="toggleSidebar" title="折叠/展开侧栏" aria-label="折叠/展开侧栏" aria-controls="app-navigation" :aria-expanded="compactNav ? mobileNavOpen : !sidebarCollapsed">
             <el-icon :size="17">
-              <Expand v-if="sidebarCollapsed" />
+              <Expand v-if="compactNav ? !mobileNavOpen : sidebarCollapsed" />
               <Fold v-else />
             </el-icon>
           </button>
@@ -353,6 +404,7 @@ function onMenuSelect(name) {
 
         <div class="topbar-right">
           <!-- W2 通知中心（铃铛 + 未读角标） -->
+          <ProcessingCenter @conversion="showConversion = true" />
           <NotificationBell />
 
           <!-- 浏览器预览模式标识 -->
@@ -361,9 +413,8 @@ function onMenuSelect(name) {
             <span class="preview-text">Mock 预览</span>
           </div>
 
-          <button class="btn-secondary" title="文件转换" aria-label="文件转换" @click="showConversion = true">
+          <button class="btn-secondary btn-icon-only" title="文件转换" aria-label="文件转换" @click="showConversion = true">
             <el-icon :size="15"><Switch /></el-icon>
-            <span class="conversion-label">文件转换</span>
           </button>
 
           <!-- 快速统一捕获 -->
@@ -376,7 +427,7 @@ function onMenuSelect(name) {
       </header>
 
       <!-- 主体内容滚动区 -->
-      <main class="content-scroll">
+      <main id="main-content" class="content-scroll" tabindex="-1" :aria-label="String(route.meta.title || '工作区')">
         <router-view />
       </main>
     </div>
@@ -410,8 +461,8 @@ function onMenuSelect(name) {
 
 /* ── 侧栏 (240px 稳固侧栏) ────────────────────────────────── */
 .app-sidebar {
-  width: 240px;
-  min-width: 240px;
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
   background: var(--c-bg-sidebar);
   border-right: 1px solid var(--c-border);
   display: flex;
@@ -434,7 +485,7 @@ function onMenuSelect(name) {
   text-align: left;
   font: inherit;
   width: 100%;
-  height: 64px;
+  height: var(--app-topbar-height);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -493,10 +544,10 @@ function onMenuSelect(name) {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 18px 12px;
+  padding: 20px 12px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .nav-group {
@@ -525,7 +576,7 @@ function onMenuSelect(name) {
   align-items: center;
   gap: 12px;
   width: 100%;
-  height: 38px;
+  height: 40px;
   padding: 0 12px;
   border-radius: var(--c-radius-lg);
   cursor: pointer;
@@ -543,7 +594,8 @@ function onMenuSelect(name) {
 }
 
 .nav-item.active {
-  background: var(--c-bg-selected);
+  box-shadow: inset 3px 0 0 var(--c-primary);
+  background: var(--c-primary-light);
   color: var(--c-primary);
   font-weight: 600;
 }
@@ -555,24 +607,29 @@ function onMenuSelect(name) {
 .nav-label-group {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .nav-label-main {
-  font-size: 13px;
+  order: -1;
+  font-size: 14px;
   font-weight: 500;
+  color: var(--c-text-regular);
+  white-space: nowrap;
 }
 
 .nav-label-sub {
   font-size: 11px;
+  font-weight: 400;
   color: var(--c-text-secondary);
-  white-space: nowrap;
+  margin-left: auto;
 }
 
-.nav-item.active .nav-label-sub {
+.nav-item.active .nav-label-main {
   color: var(--c-primary);
-  opacity: 0.7;
+  opacity: 1;
 }
 
 /* 侧栏底部 */
@@ -615,6 +672,11 @@ function onMenuSelect(name) {
 }
 
 .user-profile-card {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -665,7 +727,7 @@ function onMenuSelect(name) {
 }
 
 .settings-item {
-  height: 34px;
+  height: 36px;
   padding: 0 10px;
 }
 
@@ -681,7 +743,7 @@ function onMenuSelect(name) {
 
 /* ── 顶栏 ─────────────────────────────────────────────── */
 .topbar {
-  height: 64px;
+  height: var(--app-topbar-height);
   background: var(--c-bg-topbar);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -689,7 +751,7 @@ function onMenuSelect(name) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
+  padding: 0 24px;
   gap: 16px;
   flex-shrink: 0;
   z-index: 40;
@@ -701,7 +763,7 @@ function onMenuSelect(name) {
   align-items: center;
   gap: 14px;
   flex: 1;
-  max-width: 480px;
+  max-width: 460px;
 }
 
 .sidebar-toggle-btn {
@@ -803,7 +865,7 @@ function onMenuSelect(name) {
 
 .btn-secondary {
   white-space: nowrap;
-  height: 34px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -825,9 +887,15 @@ function onMenuSelect(name) {
   border-color: var(--c-border-strong);
 }
 
+.btn-secondary.btn-icon-only {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
 .btn-primary {
   white-space: nowrap;
-  height: 34px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -880,6 +948,7 @@ function onMenuSelect(name) {
 
 /* ── 页面主体滚动 ─────────────────────────────────────────── */
 .content-scroll {
+  outline: none;
   min-height: 0;
   container-type: inline-size;
   flex: 1;
@@ -901,11 +970,11 @@ function onMenuSelect(name) {
   .app-sidebar:not(.mobile-open) .nav-label-group,
   .app-sidebar:not(.mobile-open) .ai-status-pill,
   .app-sidebar:not(.mobile-open) .user-profile-card,
-  .app-sidebar:not(.mobile-open) .settings-item .nav-label-main {
+  .app-sidebar:not(.mobile-open) .settings-item .nav-label-group {
     display: none;
   }
   .app-sidebar.mobile-open { position: fixed; inset: 0 auto 0 0; width: 240px; min-width: 240px; box-shadow: var(--shadow-lg); }
-  .mobile-open .brand-copy, .mobile-open .nav-label-group, .mobile-open .nav-group-label { display: flex !important; }
+  .mobile-open .brand-copy, .mobile-open .nav-label-group, .mobile-open .nav-group-label, .mobile-open .ai-status-pill { display: flex !important; }
   .nav-backdrop { position: fixed; inset: 0; background: var(--c-overlay); border: 0; z-index: 45; }
 }
 @media (max-width: 600px) {
@@ -918,5 +987,16 @@ function onMenuSelect(name) {
   .browser-preview-pill { display: none; }
   .btn-primary { padding: 0 10px; }
   .browser-preview-pill { padding: 3px 6px; font-size: 10px; }
+}
+.app-sidebar.collapsed .sidebar-brand { padding-inline: 18px; }
+.ai-status-pill.disabled { background: var(--c-bg-subtle); border-color: var(--c-border); }
+.ai-status-pill.disabled .ai-status-text { color: var(--c-text-secondary); }
+@media (max-height: 760px) and (min-width: 901px) {
+  .sidebar-nav { gap: 12px; padding-block: 12px; }
+  .nav-group-label { padding-bottom: 4px; }
+  .sidebar-footer { gap: 4px; padding-block: 8px; }
+}
+@media (max-width: 1100px) {
+  .browser-preview-pill { display: none; }
 }
 </style>

@@ -2,8 +2,19 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import { Download, Upload, Refresh } from '@element-plus/icons-vue'
+import { Download, Upload, Refresh } from '../../../shared/icons'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { casyContext } from '../../../core/plugin/context'
+
+const keychainBusy = ref(false)
+async function backupKeyToKeychain() {
+  keychainBusy.value = true
+  try {
+    const result = await tauriCallSafe('backup_database_key_to_keychain')
+    if (!result.ok) { ElMessage.error(result.error || '钥匙串备份失败'); return }
+    ElMessage.success('数据库密钥已备份到系统钥匙串，本地密钥保留')
+  } finally { keychainBusy.value = false }
+}
 
 const backups = ref([])
 const loading = ref(false)
@@ -107,6 +118,13 @@ onMounted(() => {
 
 <template>
   <div class="backup-settings">
+    <section class="backup-intro">
+      <h3>数据库密钥与系统钥匙串</h3>
+      <p>新资料库默认使用本机密钥文件加密，不在首次打开时请求钥匙串。密钥文件与资料库一起由当前系统用户保管，请定期导出完整加密备份。</p>
+      <p>你可以把 Casy 自己的数据库密钥备份到系统钥匙串。点击后系统可能要求授权；此操作保留本地密钥。已有资料库若仅在钥匙串保存密钥，打开时仍需授权。</p>
+      <p>邮箱、日历等账号凭据在配置或使用对应功能时访问。</p>
+      <el-button :loading="keychainBusy" @click="backupKeyToKeychain">将数据库密钥备份到钥匙串</el-button>
+    </section>
     <div class="backup-intro">
       完整备份包含数据库、原始卷宗和本地文档产物，使用独立密码加密。请保管好密码，遗失后无法恢复。
     </div>

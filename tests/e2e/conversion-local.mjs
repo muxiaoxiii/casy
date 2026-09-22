@@ -40,7 +40,7 @@ try {
   await page.goto(url.href)
   await page.evaluate(async ({sources,output}) => {
     const { tryMockCommand } = await import('/src/core/mockData.ts')
-    const native = new Set(['convert_file_to_markdown','list_knowledge','get_knowledge_with_blocks','list_knowledge_versions','list_links_for','get_backlinks','save_editor_recovery','export_edited_docx'])
+    const native = new Set(['register_conversion_batch','cancel_queued_conversions','get_processing_center','convert_file_to_markdown','list_knowledge','get_knowledge_with_blocks','list_knowledge_versions','list_links_for','get_backlinks','save_editor_recovery','export_edited_docx'])
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener:()=>{} }
     window.__TAURI_INTERNALS__ = { invoke:async(command,args={})=>{
       if (native.has(command)) return window.__conversionCall(command,args)

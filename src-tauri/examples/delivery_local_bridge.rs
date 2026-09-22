@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
             optional("status"),
             optional("caseId"),
             args["expectedVersion"].as_i64().map(|v| v as i32),
+            args["clearCase"].as_bool(),
         )
         .await
         .map(|v| json!(v)),

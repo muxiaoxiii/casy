@@ -532,13 +532,8 @@ fn load_smtp_config() -> Result<SmtpConfig> {
         .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 用户名，请前往设置页配置（smtp_user）"))?;
     let port: u16 = get("smtp_port").and_then(|p| p.parse().ok()).unwrap_or(465);
 
-    // 密码：优先 keychain，回退 settings 表
-    let password =
-        crate::credentials::get_credential(crate::credentials::CredentialType::SmtpPassword, &user)
-            .ok()
-            .flatten()
-            .or_else(|| get("smtp_pass"))
-            .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 密码，请前往设置页配置（smtp_pass）"))?;
+    let password = crate::credentials::resolve_settings_secret(&conn,"smtp_pass")?
+        .ok_or_else(|| anyhow::anyhow!("未配置 SMTP 密码，请前往设置页配置"))?;
 
     Ok(SmtpConfig {
         smtp_server: host,

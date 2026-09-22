@@ -23,6 +23,22 @@ export interface RichTextDocument {
   marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
 }
 
+export interface DocumentLayout {
+  title: string
+  caseNo: string
+  marginMm: number
+  bindingMm: number
+  firstLineIndent: boolean
+  header: boolean
+  skipFirstHeader: boolean
+}
+export interface DocumentPreview {
+  pages: Array<{svg:string;width:number;height:number}>
+  anchors: Array<{block:number;page:number;x:number;y:number}>
+  warnings: string[]
+  elapsedMs: number
+}
+
 /**
  * 文书服务：ctx.docs —— docs 模块数据通路
  *
@@ -53,12 +69,12 @@ export class DocsService extends Service {
     caseId?: string | null
     templatePath?: string | null
   }): Promise<{ ok: boolean; data?: Draft; error?: string }> {
-    return tauriCallSafe('create_draft', {
+    return this.mutation('doc', tauriCallSafe('create_draft', {
       title: data.title,
       content: data.content ?? null,
       caseId: data.caseId ?? null,
       templatePath: data.templatePath ?? null,
-    })
+    }))
   }
 
   /** 更新草稿（title/content/status/caseId 均可选，缺省保留原值） */
@@ -72,12 +88,12 @@ export class DocsService extends Service {
       expectedVersion?: number
     } = {}
   ): Promise<{ ok: boolean; data?: Draft; error?: string }> {
-    return tauriCallSafe('update_draft', { id, ...data })
+    return this.mutation('doc', tauriCallSafe('update_draft', { id, ...data, clearCase: data.caseId === null }))
   }
 
   /** 删除草稿 */
   async deleteDraft(id: string): Promise<{ ok: boolean; data?: boolean; error?: string }> {
-    return tauriCallSafe('delete_draft', { id })
+    return this.mutation('doc', tauriCallSafe('delete_draft', { id }))
   }
 
   // ── Docsy 模板 ──

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Plus, Delete, CopyDocument, Switch, Edit, List, Finished, Opportunity } from '@element-plus/icons-vue'
+import { Plus, Delete, CopyDocument, Switch, Edit, List, Finished, Opportunity } from '../../../shared/icons'
 
 const props = defineProps<{
   editor: any

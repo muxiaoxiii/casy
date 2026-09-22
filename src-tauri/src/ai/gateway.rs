@@ -400,3 +400,14 @@ pub fn verify_ai_mutation_authorized(
 
     Ok(())
 }
+
+/// Revalidation never authorizes or executes a write. The user must review the refreshed diff.
+pub fn renew_proposal(conn:&Connection,id:&str)->Result<AiProposal> {
+    let tx=conn.unchecked_transaction()?;
+    let proposal=get_proposal(&tx,id)?.ok_or_else(||anyhow!("提案不存在"))?;
+    anyhow::ensure!(matches!(proposal.status.as_str(),"pending"|"expired"),"已授权或已处理的提案不能续期");
+    let hash=proposal.target_entity_id.as_deref().map(|target|compute_current_entity_hash(&tx,&proposal.target_entity_type,target)).transpose()?;
+    let expires=(chrono::Local::now()+chrono::Duration::minutes(5)).format("%Y-%m-%d %H:%M:%S").to_string();
+    tx.execute("UPDATE ai_proposals SET pre_state_hash=?2,expires_at=?3,auth_token=?4,status='pending' WHERE id=?1",params![id,hash,expires,format!("tok_{}",uuid::Uuid::new_v4().simple())])?;
+    let result=get_proposal(&tx,id)?.ok_or_else(||anyhow!("提案不存在"))?;tx.commit()?;Ok(result)
+}

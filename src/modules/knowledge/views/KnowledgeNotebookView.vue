@@ -1,16 +1,20 @@
 <script setup>
+import "../../../shared/editor/checklist.css"
+import {exportDocument} from '../../../shared/editor/exportDocument'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
 import {
   Collection, Delete, Document, Folder, Link, Plus, Search,
   Tickets, View, EditPen, Clock, Connection, Download, MagicStick, List,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import MarkdownCodeMirror from '../components/MarkdownCodeMirror.vue'
 import MarkdownWysiwygEditor from '../components/MarkdownWysiwygEditor.vue'
 import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
+import RelatedWork from '../../../shared/components/RelatedWork.vue'
 import KnowledgeRelationsPanel from '../components/KnowledgeRelationsPanel.vue'
 import KnowledgeHistoryPanel from '../components/KnowledgeHistoryPanel.vue'
 import KnowledgeImportPanel from '../components/KnowledgeImportPanel.vue'
@@ -23,6 +27,7 @@ import WorkspaceDocumentPreview from '../components/WorkspaceDocumentPreview.vue
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
+const writingFocus = ref(false)
 const notes = ref([])
 const cases = ref([])
 const selectedCaseIds = ref([])
@@ -201,73 +206,14 @@ function jumpToHeading(id) {
   editorRef.value?.scrollToHeading?.(id)
 }
 
-async function chooseExportPath(extension, label) {
-  const { save } = await import('@tauri-apps/plugin-dialog')
-  return await save({
-    title: `导出${label}`,
-    defaultPath: `${safeFileName(draft.value.title)}.${extension}`,
-    filters: [{ name: label, extensions: [extension] }],
-  })
-}
-
-async function getCurrentDocumentJson() {
-  const current = editorRef.value?.getDocumentJson?.()
-  if (current) return current
-  const previousMode = mode.value
-  mode.value = 'rich'
-  await nextTick()
-  const document = editorRef.value?.getDocumentJson?.() || null
-  if (previousMode !== 'rich') {
-    mode.value = previousMode
-    await nextTick()
-  }
-  return document
-}
-
-async function finishExport(path, label) {
-  ElMessage.success(`${label} 已导出`)
-  let shouldOpen = false
-  try {
-    await ElMessageBox.confirm(`文件已保存到：\n${path}`, '导出完成', {
-      confirmButtonText: '打开文件', cancelButtonText: '完成', type: 'success',
-    })
-    shouldOpen = true
-  } catch { /* 用户点击“完成”或关闭弹窗：取消打开，属预期 */ }
-  if (!shouldOpen) return
-  const result = await casyContext.files.open(path)
-  if (!result.ok) return ElMessage.error(result.error || '打开文件失败')
-}
-
-async function exportMarkdown() {
-  if (!(await flushSave())) return
-  const outputPath = await chooseExportPath('md', 'Markdown')
-  if (!outputPath) return
-  const result = await casyContext.knowledge.exportMarkdown(draft.value.id, outputPath)
-  if (!result.ok) return ElMessage.error(result.error || 'Markdown 导出失败')
-  await finishExport(result.data?.outputPath || outputPath, 'Markdown')
-}
-
-async function exportDocx() {
-  if (!(await flushSave())) return
-  const document = await getCurrentDocumentJson()
-  if (!document) return ElMessage.error('编辑器内容尚未就绪，无法导出 Word')
-  const outputPath = await chooseExportPath('docx', 'Word 文档')
-  if (!outputPath) return
-  const result = await casyContext.docs.exportEditedDocx({ document, title: draft.value.title || '无标题笔记', outputPath })
-  if (!result.ok) return ElMessage.error(result.error || 'Word 导出失败')
-  const exportedPath = result.data?.outputPath || result.data?.output_path || outputPath
-  await finishExport(exportedPath, 'Word 文档')
-}
-
-async function handleExportCommand(command) {
-  if (!draft.value.id || exporting.value) return
-  exporting.value = true
-  try {
-    if (command === 'markdown') await exportMarkdown()
-    if (command === 'docx') await exportDocx()
-  } finally {
-    exporting.value = false
-  }
+async function handleExportCommand(format) {
+ if (!draft.value.id || exporting.value) return
+ exporting.value=true
+ try {
+  if(!await flushSave())return
+  const path=await exportDocument({content:draft.value.content,contentFormat:'markdown',title:draft.value.title || '无标题笔记',format:format==='markdown'?'md':format,document:editorRef.value?.getDocumentJson?.()})
+  if(path)ElMessage.success(`文档已保存：${path}`)
+ }catch(error){ElMessage.error(String(error))}finally{exporting.value=false}
 }
 
 // 预览与编辑器共用同一 MD 桥（GFM 表格/任务列表/wiki 链接全量渲染，v-html 前消毒）
@@ -291,8 +237,8 @@ async function onWikiLinkClick({ title }) {
 }
 
 /** 从当前富文本编辑器取回权威 Markdown；必须在替换 draft/selectedId 前执行。 */
-function syncEditorContent() {
-  const value = editorRef.value?.flushAndGetMarkdown?.()
+function syncEditorContent(commitSources = true) {
+  const value = editorRef.value?.flushAndGetMarkdown?.(commitSources)
   if (typeof value === 'string' && value !== draft.value.content) {
     draft.value.content = value
   }
@@ -366,7 +312,7 @@ async function createNote(parentId = '') {
   parentId = typeof parentId === 'string' ? parentId : ''
   if (!(await flushSave())) return
   const result = await casyContext.knowledge.create({
-    title: '无标题笔记', content: '# 无标题笔记\n\n开始记录…', category: 'reference',
+    title: '无标题笔记', content: '', category: 'reference',
     tags: '', linkedCaseId: null, parentId: parentId || null, sourceType: 'notebook', status: 'current', blockType: 'page',
   })
   if (!result.ok) return ElMessage.error(result.error || '新建失败')
@@ -398,7 +344,7 @@ async function flushSave() {
 
 function changeMode(nextMode) {
   if (documentBusy.value || mode.value === nextMode) return
-  syncEditorContent()
+  try { syncEditorContent() } catch(error) { ElMessage.error(String(error)); return }
   mode.value = nextMode
 }
 
@@ -450,7 +396,7 @@ async function restoreVersion(noteId, versionId) {
 }
 
 function beforeUnload(event) {
-  syncEditorContent()
+  try { syncEditorContent() } catch { event.preventDefault(); event.returnValue = ''; return }
   if (!dirty.value && !saving.value && !documentBusy.value) return
   event.preventDefault()
   event.returnValue = ''
@@ -458,7 +404,7 @@ function beforeUnload(event) {
 
 onMounted(async () => {
   sourceTimer = setInterval(loadSources, 10000)
-  const stop = await safeListen('workspace:updated', () => { void loadSources(); if (!dirty.value && !documentBusy.value) void refreshNoteList() })
+  const stop = safeListen('workspace:updated', () => { void loadSources(); if (!dirty.value && !documentBusy.value) void refreshNoteList() })
   if (unmounted) stop?.()
   else stopWorkspaceListener = stop
   window.addEventListener('beforeunload', beforeUnload)
@@ -468,7 +414,7 @@ onMounted(async () => {
       if (unmounted) return
       const current = getCurrentWindow()
       const unlisten = await current.onCloseRequested(async event => {
-        syncEditorContent()
+        try { syncEditorContent() } catch(error) { event.preventDefault(); ElMessage.error(String(error)); return }
         if (!dirty.value && !saving.value && !documentBusy.value) return
         event.preventDefault()
         if (documentBusy.value) return
@@ -509,7 +455,13 @@ onBeforeUnmount(() => {
 async function openSearch() {
   if (await flushSave()) searchOpen.value = true
 }
-onBeforeUnmount(casyContext.on('inbox:confirmed', () => loadAll()))
+// Refresh the catalog only: never replace a dirty or focused editor on background writes.
+onBeforeUnmount(observeChanges(casyContext, ['knowledge', 'case', 'inbox'], async () => {
+  const [noteRes, caseRes] = await Promise.all([casyContext.knowledge.list({}), loadCaseOptions()])
+  if (unmounted) return
+  if (noteRes.ok) notes.value = normalizeList(noteRes.data)
+  if (caseRes.ok) cases.value = normalizeList(caseRes.data)
+}))
 
 async function openSearchHit(id) {
   await selectNote({ id })
@@ -518,7 +470,7 @@ async function openSearchHit(id) {
 </script>
 
 <template>
-  <div class="notebook-shell" :class="[`mobile-${mobilePane}`, { 'source-open': !!selectedSource }]">
+  <div class="notebook-shell" :class="[`mobile-${mobilePane}`, { 'source-open': !!selectedSource, 'writing-focus': writingFocus }]">
     <nav class="mobile-notebook-nav" aria-label="笔记视图">
       <button :class="{ active: mobilePane === 'notes' }" @click="mobilePane = 'notes'">笔记</button>
       <button :disabled="!selectedNote && !selectedSource" :class="{ active: mobilePane === 'editor' }" @click="mobilePane = 'editor'">正文</button>
@@ -568,12 +520,13 @@ async function openSearchHit(id) {
       <template v-else-if="selectedNote">
         <header class="editor-toolbar">
           <div class="save-state" role="status"><span :class="{ dirty }" />{{ saving ? '保存中…' : saveError ? '保存失败' : dirty ? '等待自动保存' : '已保存' }}</div>
-          <div class="mode-switch"><button title="富文本" :class="{ active: mode === 'rich' }" @click="changeMode('rich')"><MagicStick /> 富文本</button><button title="源码" :class="{ active: mode === 'edit' }" @click="changeMode('edit')"><EditPen /> 源码</button><button title="分栏" :class="{ active: mode === 'split' }" @click="changeMode('split')"><Tickets /> 分栏</button><button title="预览" :class="{ active: mode === 'preview' }" @click="changeMode('preview')"><View /> 预览</button></div>
+          <button type="button" class="writing-focus-button" :aria-pressed="writingFocus" @click="writingFocus = !writingFocus">{{ writingFocus ? '退出专注' : '专注书写' }}</button><div class="mode-switch"><button title="富文本" :class="{ active: mode === 'rich' }" @click="changeMode('rich')"><MagicStick /> 富文本</button><button title="源码" :class="{ active: mode === 'edit' }" @click="changeMode('edit')"><EditPen /> 源码</button><button title="分栏" :class="{ active: mode === 'split' }" @click="changeMode('split')"><Tickets /> 分栏</button><button title="预览" :class="{ active: mode === 'preview' }" @click="changeMode('preview')"><View /> 预览</button></div>
           <el-dropdown trigger="click" :disabled="exporting" @command="handleExportCommand">
             <button class="export-button" :disabled="exporting"><Download />{{ exporting ? '导出中…' : '导出' }}</button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="markdown">Markdown（.md）</el-dropdown-item>
+                <el-dropdown-item command="pdf">PDF 文档（.pdf）</el-dropdown-item>
                 <el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -585,17 +538,18 @@ async function openSearchHit(id) {
         <section class="editor-document">
         <div class="note-fields">
           <input ref="titleInput" v-model="draft.title" class="title-editor" placeholder="无标题笔记" />
-          <div class="property-row">
+          <details class="note-properties" :open="!writingFocus"><summary>笔记属性 <span>{{ selectedCaseName || '独立笔记' }}</span></summary><div class="property-row">
             <label>分类<select v-model="draft.category"><option v-for="item in categories.slice(1)" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
             <label>关联案件<select v-model="draft.linkedCaseId"><option value="">未关联案件</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.displayName || c.caseNo }}</option></select></label>
             <label>上级笔记<select v-model="draft.parentId"><option value="">知识库根目录</option><option v-for="item in notes.filter(n => n.id !== draft.id && n.blockType !== 'block')" :key="item.id" :value="item.id">{{ item.title || '无标题笔记' }}</option></select></label>
             <label class="tags-field">标签<input v-model="draft.tags" placeholder="用逗号分隔" /></label>
           </div>
+          </details>
           <div v-if="selectedCaseName" class="case-chip"><Folder /> 已关联：{{ selectedCaseName }}</div>
         </div>
         <div class="markdown-workspace" :class="`mode-${mode}`">
           <!-- :key 随笔记切换重建编辑器，撤销历史不跨笔记残留（对齐 CodeMirror 重建 state 的语义） -->
-          <MarkdownWysiwygEditor v-if="mode === 'rich' || mode === 'split'" :key="`rich-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-rich" :note-titles="noteTitleOptions" @change="persistence.changed" @save="saveNow(false)" @wiki-link-click="onWikiLinkClick" @outline-change="onOutlineChange" />
+          <MarkdownWysiwygEditor v-if="mode === 'rich' || mode === 'split'" :key="`rich-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-rich" :note-titles="noteTitleOptions" source-type="knowledge" :source-id="draft.id" :case-id="draft.linkedCaseId || null" @change="persistence.changed" @save="saveNow(false)" @wiki-link-click="onWikiLinkClick" @outline-change="onOutlineChange" />
           <MarkdownCodeMirror v-if="mode === 'edit'" :key="`src-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-source" :note-titles="noteTitleOptions" @save="saveNow(false)" />
           <article v-if="mode === 'split' || mode === 'preview'" class="markdown-preview" v-html="previewHtml" />
         </div>
@@ -605,12 +559,14 @@ async function openSearchHit(id) {
     </main>
     <aside v-if="!selectedSource" class="knowledge-info-rail">
       <div class="info-tabs">
+        <button :class="{active:infoTab==='work'}" @click="infoTab='work'"><Folder /> 工作</button>
         <button :class="{active:infoTab==='relations'}" @click="infoTab='relations'"><Connection /> 双链</button>
         <button :class="{active:infoTab==='outline'}" @click="infoTab='outline'"><List /> 目录</button>
         <button :class="{active:infoTab==='history'}" @click="infoTab='history'"><Clock /> 历史</button>
         <button :class="{active:infoTab==='import'}" @click="infoTab='import'"><Download /> 沉淀</button>
       </div>
-      <KnowledgeRelationsPanel v-if="infoTab==='relations'" ref="relationPanelRef" :note="selectedNote" :notes="notes" @navigate="id => selectNote(notes.find(item => item.id === id))" />
+      <div v-if="infoTab==='work'" class="note-related-work"><RelatedWork v-if="draft.linkedCaseId" :case-id="draft.linkedCaseId" /><p v-else>关联案件后，在这里查看同案任务、日程与文书。</p></div>
+      <KnowledgeRelationsPanel v-else-if="infoTab==='relations'" ref="relationPanelRef" :note="selectedNote" :notes="notes" @navigate="id => selectNote(notes.find(item => item.id === id))" />
       <nav v-else-if="infoTab==='outline'" class="outline-panel">
         <div class="outline-heading">本文目录</div>
         <button v-for="item in outlineItems" :key="item.id" :style="{ paddingLeft: `${10 + (item.level - 1) * 13}px` }" @click="jumpToHeading(item.id)">{{ item.text }}</button>
@@ -623,10 +579,10 @@ async function openSearchHit(id) {
 </template>
 
 <style scoped>
-.notebook-shell{height:calc(100dvh - 64px);min-height:620px;display:grid;grid-template-columns:300px minmax(520px,1fr) 280px;background:var(--c-bg-page);overflow:hidden;color:var(--c-text)}
-.notebook-sidebar{padding:22px 14px;border-right:1px solid var(--c-border);background:color-mix(in srgb,var(--c-bg-card) 86%,var(--c-bg-page));display:flex;flex-direction:column;gap:5px}.vault-title{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:750;padding:0 8px 16px}.vault-title svg,.side-link svg,.new-note svg{width:16px}.new-note{display:flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:9px;padding:10px;background:var(--c-primary);color:white;font-weight:650;cursor:pointer;margin-bottom:16px}.side-label{padding:8px 10px 5px;text-transform:uppercase;letter-spacing:.08em;font-size:10px;color:var(--c-text-secondary)}.relation-label{margin-top:12px}.category-item,.side-link{width:100%;border:0;background:transparent;color:var(--c-text);display:flex;align-items:center;gap:8px;text-align:left;padding:8px 10px;border-radius:8px;cursor:pointer}.category-item:hover,.side-link:hover,.category-item.active{background:var(--c-bg-subtle)}.category-item.active{font-weight:650}.category-item b{margin-left:auto;font-size:11px;color:var(--c-text-secondary)}.category-dot{width:8px;height:8px;border-radius:50%}.license-note{margin-top:auto;padding:12px 9px;font-size:10px;line-height:1.5;color:var(--c-text-secondary)}
-.note-list-panel{border-right:1px solid var(--c-border);background:var(--c-bg-card);display:flex;flex-direction:column;min-width:0}.list-head{padding:21px 18px 12px;display:flex;align-items:baseline;justify-content:space-between}.list-head h2{font-size:18px;margin:0}.list-head span{font-size:12px;color:var(--c-text-secondary)}.search-box{margin:0 14px 12px;display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-bg-page)}.search-box svg{width:14px;color:var(--c-text-secondary)}.search-box input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:inherit}.note-scroll{overflow:auto;padding:0 9px 20px}.note-card{width:100%;padding:14px 12px;border:1px solid transparent;border-bottom-color:var(--c-border);background:transparent;text-align:left;color:inherit;cursor:pointer}.note-card:hover{background:var(--c-bg-subtle)}.note-card.active{border-color:color-mix(in srgb,var(--c-primary) 35%,transparent);background:color-mix(in srgb,var(--c-primary) 8%,var(--c-bg-card));border-radius:10px}.note-card-top{display:flex;gap:10px;align-items:flex-start}.note-card-top strong{flex:1;font-size:14px;line-height:1.45}.note-category{font-size:10px;color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 10%,transparent);padding:2px 5px;border-radius:5px}.note-card p{font-size:12px;color:var(--c-text-secondary);line-height:1.55;margin:7px 0 10px}.note-meta{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:var(--c-text-secondary)}.note-meta span{display:flex;align-items:center;gap:3px}.note-meta svg{width:11px}.empty-notes,.editor-empty{display:grid;place-items:center;text-align:center;color:var(--c-text-secondary);padding:50px 20px}.empty-notes svg,.editor-empty svg{width:36px}.empty-notes button,.editor-empty button{border:0;background:var(--c-primary);color:#fff;border-radius:8px;padding:9px 13px;cursor:pointer}
-.editor-panel{min-width:0;display:flex;flex-direction:column;background:var(--c-bg-page)}.editor-toolbar{height:56px;padding:0 16px;border-bottom:1px solid var(--c-border);display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--c-bg-card) 92%,var(--c-bg-page))}.save-state{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--c-text-secondary);margin-right:auto;white-space:nowrap;flex-shrink:0}.save-state>span{width:8px;height:8px;border-radius:50%;background:#67c23a}.save-state>span.dirty{background:#e6a23c}.mode-switch{display:flex;padding:3px;gap:2px;background:var(--c-bg-subtle);border-radius:9px}.mode-switch button{display:flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--c-text-secondary);padding:6px 10px;border-radius:7px;cursor:pointer;font-size:11.5px;font-weight:550;transition:all var(--motion-fast);white-space:nowrap;flex-shrink:0}.mode-switch button:hover{color:var(--c-text)}.mode-switch button.active{background:var(--c-bg-card);color:var(--c-text);box-shadow:var(--shadow-sm)}.mode-switch svg,.delete-button svg{width:13px}.save-button{border:0;background:var(--c-primary);color:#fff;border-radius:7px;padding:7px 13px;cursor:pointer;font-weight:600;white-space:nowrap;flex-shrink:0}.save-button:hover{filter:brightness(1.06)}.delete-button{border:0;background:transparent;color:var(--c-text-secondary);padding:6px;cursor:pointer;border-radius:6px}.delete-button:hover{color:var(--status-risk);background:color-mix(in srgb,var(--status-risk) 10%,transparent)}.note-fields{padding:24px 28px 14px;border-bottom:1px solid var(--c-border)}.title-editor{width:100%;border:0;outline:0;background:transparent;color:var(--c-text-heading);font-size:28px;font-weight:750;margin-bottom:16px}.property-row{display:flex;gap:16px;align-items:end;flex-wrap:wrap}.property-row label{display:flex;flex-direction:column;gap:5px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--c-text-secondary)}.property-row select,.property-row input{border:1px solid var(--c-border);border-radius:7px;background:var(--c-bg-page);color:var(--c-text);padding:7px 8px;min-width:145px}.tags-field{flex:1}.tags-field input{width:100%;box-sizing:border-box}.case-chip{display:inline-flex;align-items:center;gap:5px;margin-top:10px;padding:4px 8px;border-radius:6px;background:color-mix(in srgb,var(--c-primary) 9%,transparent);color:var(--c-primary);font-size:11px}.case-chip svg{width:12px}.markdown-workspace{flex:1;min-height:0;display:grid;overflow:hidden}.markdown-workspace.mode-split{grid-template-columns:1fr 1fr}.markdown-source,.markdown-preview{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow:auto;padding:26px 32px;border:0;outline:0;background:var(--c-bg-card);color:var(--c-text);font-size:15px;line-height:1.75}.markdown-source{resize:none;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace}.mode-split .markdown-source{border-right:1px solid var(--c-border)}.markdown-preview{font-family:var(--font-family);max-width:none}.markdown-preview :deep(h1){font-size:28px;border-bottom:1px solid var(--c-border);padding-bottom:8px}.markdown-preview :deep(h2){font-size:22px}.markdown-preview :deep(p){margin:0 0 13px}.markdown-preview :deep(blockquote){border-left:3px solid var(--c-primary);margin:12px 0;padding:5px 14px;color:var(--c-text-secondary);background:var(--c-bg-subtle)}.markdown-preview :deep(pre){background:#18202b;color:#e7edf5;padding:14px;border-radius:8px;overflow:auto}.markdown-preview :deep(code){font-family:monospace;background:var(--c-bg-subtle);padding:2px 4px;border-radius:4px}.markdown-preview :deep(pre code){background:transparent;padding:0}.markdown-preview :deep(a){color:var(--c-primary)}.editor-empty{height:100%;align-content:center}.editor-empty h3{color:var(--c-text-heading);margin:14px 0 4px}.editor-empty p{margin:0 0 18px}
+.notebook-shell{height:calc(100dvh - var(--app-topbar-height));min-height:0;display:grid;grid-template-columns:300px minmax(520px,1fr) 280px;background:var(--c-bg-page);overflow:hidden;color:var(--c-text)}
+.notebook-sidebar{padding:22px 14px;border-right:1px solid var(--c-border);background:color-mix(in srgb,var(--c-bg-card) 86%,var(--c-bg-page));display:flex;flex-direction:column;gap:5px}.vault-title{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:750;padding:0 8px 16px}.vault-title svg,.side-link svg,.new-note svg{width:16px}.new-note{display:flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:9px;padding:10px;background:var(--c-primary);color:var(--c-primary-contrast);font-weight:650;cursor:pointer;margin-bottom:16px}.side-label{padding:8px 10px 5px;text-transform:uppercase;letter-spacing:.08em;font-size:10px;color:var(--c-text-secondary)}.relation-label{margin-top:12px}.category-item,.side-link{width:100%;border:0;background:transparent;color:var(--c-text);display:flex;align-items:center;gap:8px;text-align:left;padding:8px 10px;border-radius:8px;cursor:pointer}.category-item:hover,.side-link:hover,.category-item.active{background:var(--c-bg-subtle)}.category-item.active{font-weight:650}.category-item b{margin-left:auto;font-size:11px;color:var(--c-text-secondary)}.category-dot{width:8px;height:8px;border-radius:50%}.license-note{margin-top:auto;padding:12px 9px;font-size:10px;line-height:1.5;color:var(--c-text-secondary)}
+.note-list-panel{border-right:1px solid var(--c-border);background:var(--c-bg-card);display:flex;flex-direction:column;min-width:0}.list-head{padding:21px 18px 12px;display:flex;align-items:baseline;justify-content:space-between}.list-head h2{font-size:18px;margin:0}.list-head span{font-size:12px;color:var(--c-text-secondary)}.search-box{margin:0 14px 12px;display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-bg-page)}.search-box svg{width:14px;color:var(--c-text-secondary)}.search-box input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:inherit}.note-scroll{overflow:auto;padding:0 9px 20px}.note-card{width:100%;padding:14px 12px;border:1px solid transparent;border-bottom-color:var(--c-border);background:transparent;text-align:left;color:inherit;cursor:pointer}.note-card:hover{background:var(--c-bg-subtle)}.note-card.active{border-color:color-mix(in srgb,var(--c-primary) 35%,transparent);background:color-mix(in srgb,var(--c-primary) 8%,var(--c-bg-card));border-radius:10px}.note-card-top{display:flex;gap:10px;align-items:flex-start}.note-card-top strong{flex:1;font-size:14px;line-height:1.45}.note-category{font-size:10px;color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 10%,transparent);padding:2px 5px;border-radius:5px}.note-card p{font-size:12px;color:var(--c-text-secondary);line-height:1.55;margin:7px 0 10px}.note-meta{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--c-text-secondary)}.note-meta span{display:flex;align-items:center;gap:3px}.note-meta svg{width:11px}.empty-notes,.editor-empty{display:grid;place-items:center;text-align:center;color:var(--c-text-secondary);padding:50px 20px}.empty-notes svg,.editor-empty svg{width:36px}.empty-notes button,.editor-empty button{border:0;background:var(--c-primary);color:var(--c-primary-contrast);border-radius:8px;padding:9px 13px;cursor:pointer}
+.editor-panel{min-width:0;display:flex;flex-direction:column;background:var(--c-bg-page)}.editor-toolbar{height:56px;padding:0 16px;border-bottom:1px solid var(--c-border);display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--c-bg-card) 92%,var(--c-bg-page))}.save-state{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--c-text-secondary);margin-right:auto;white-space:nowrap;flex-shrink:0}.save-state>span{width:8px;height:8px;border-radius:50%;background:#67c23a}.save-state>span.dirty{background:#e6a23c}.mode-switch{display:flex;padding:3px;gap:2px;background:var(--c-bg-subtle);border-radius:9px}.mode-switch button{display:flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--c-text-secondary);padding:6px 10px;border-radius:7px;cursor:pointer;font-size:11.5px;font-weight:550;transition:all var(--motion-fast);white-space:nowrap;flex-shrink:0}.mode-switch button:hover{color:var(--c-text)}.mode-switch button.active{background:var(--c-bg-card);color:var(--c-text);box-shadow:var(--shadow-sm)}.mode-switch svg,.delete-button svg{width:13px}.save-button{border:0;background:var(--c-primary);color:var(--c-primary-contrast);border-radius:7px;padding:7px 13px;cursor:pointer;font-weight:600;white-space:nowrap;flex-shrink:0}.save-button:hover{filter:brightness(1.06)}.delete-button{border:0;background:transparent;color:var(--c-text-secondary);padding:6px;cursor:pointer;border-radius:6px}.delete-button:hover{color:var(--status-risk);background:color-mix(in srgb,var(--status-risk) 10%,transparent)}.note-fields{padding:24px 28px 14px;border-bottom:1px solid var(--c-border)}.title-editor{width:100%;border:0;outline:0;background:transparent;color:var(--c-text-heading);font-size:28px;font-weight:750;margin-bottom:16px}.property-row{display:flex;gap:16px;align-items:end;flex-wrap:wrap}.property-row label{display:flex;flex-direction:column;gap:5px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--c-text-secondary)}.property-row select,.property-row input{border:1px solid var(--c-border);border-radius:7px;background:var(--c-bg-page);color:var(--c-text);padding:7px 8px;min-width:145px}.tags-field{flex:1}.tags-field input{width:100%;box-sizing:border-box}.case-chip{display:inline-flex;align-items:center;gap:5px;margin-top:10px;padding:4px 8px;border-radius:6px;background:color-mix(in srgb,var(--c-primary) 9%,transparent);color:var(--c-primary);font-size:11px}.case-chip svg{width:12px}.markdown-workspace{flex:1;min-height:0;display:grid;overflow:hidden}.markdown-workspace.mode-split{grid-template-columns:1fr 1fr}.markdown-source,.markdown-preview{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow:auto;padding:26px 32px;border:0;outline:0;background:var(--c-bg-card);color:var(--c-text);font-size:15px;line-height:1.75}.markdown-source{resize:none;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace}.mode-split .markdown-source{border-right:1px solid var(--c-border)}.markdown-preview{font-family:var(--font-family);max-width:none}.markdown-preview :deep(h1){font-size:28px;border-bottom:1px solid var(--c-border);padding-bottom:8px}.markdown-preview :deep(h2){font-size:22px}.markdown-preview :deep(p){margin:0 0 13px}.markdown-preview :deep(blockquote){border-left:3px solid var(--c-primary);margin:12px 0;padding:5px 14px;color:var(--c-text-secondary);background:var(--c-bg-subtle)}.markdown-preview :deep(pre){background:#18202b;color:#e7edf5;padding:14px;border-radius:8px;overflow:auto}.markdown-preview :deep(code){font-family:monospace;background:var(--c-bg-subtle);padding:2px 4px;border-radius:4px}.markdown-preview :deep(pre code){background:transparent;padding:0}.markdown-preview :deep(a){color:var(--c-primary)}.editor-empty{height:100%;align-content:center}.editor-empty h3{color:var(--c-text-heading);margin:14px 0 4px}.editor-empty p{margin:0 0 18px}
 .note-card{width:calc(100% - var(--tree-depth,0) * 12px);margin-left:calc(var(--tree-depth,0) * 12px);position:relative}
 .child-button{display:flex;align-items:center;gap:3px;border:1px solid var(--c-border);background:transparent;color:var(--c-text);border-radius:7px;padding:6px 8px;cursor:pointer;font-size:11px}.child-button svg{width:12px}
 .markdown-source{min-width:0;height:100%;overflow:hidden;padding:0;font-family:inherit}
@@ -635,8 +591,6 @@ async function openSearchHit(id) {
 .markdown-preview :deep(table){border-collapse:collapse;margin:14px 0;width:100%}
 .markdown-preview :deep(th),.markdown-preview :deep(td){border:1px solid var(--c-border);padding:7px 10px;text-align:left}
 .markdown-preview :deep(th){background:var(--c-bg-subtle);font-weight:600}
-.markdown-preview :deep(ul[data-type="taskList"]){list-style:none;padding-left:4px}
-.markdown-preview :deep(ul[data-type="taskList"] input[type="checkbox"]){accent-color:var(--c-primary);margin-right:6px}
 .markdown-preview :deep(span[data-wiki-link]){color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 9%,transparent);border-bottom:1px dashed var(--c-primary);border-radius:4px;padding:0 4px;cursor:pointer}
 .markdown-preview :deep(hr){border:0;border-top:1px solid var(--c-border);margin:20px 0}
 .markdown-preview :deep(mark){background:color-mix(in srgb,var(--c-primary) 22%,transparent);border-radius:3px;padding:0 2px}
@@ -651,14 +605,14 @@ async function openSearchHit(id) {
 .new-note-icon svg{width:16px}
 .category-strip{display:flex;gap:5px;padding:0 12px 10px;overflow-x:auto;scrollbar-width:none}
 .category-strip::-webkit-scrollbar{display:none}
-.category-strip button{display:flex;align-items:center;gap:5px;border:1px solid var(--c-border);border-radius:999px;background:var(--c-bg-page);color:var(--c-text-secondary);padding:5px 8px;font-size:10px;white-space:nowrap;cursor:pointer}
+.category-strip button{display:flex;align-items:center;gap:5px;border:1px solid var(--c-border);border-radius:999px;background:var(--c-bg-page);color:var(--c-text-secondary);padding:5px 8px;font-size:12px;white-space:nowrap;cursor:pointer}
 .category-strip button.active{border-color:color-mix(in srgb,var(--c-primary) 45%,var(--c-border));background:color-mix(in srgb,var(--c-primary) 9%,var(--c-bg-card));color:var(--c-primary);font-weight:700}
 .category-strip b{font-size:9px;font-weight:600;opacity:.7}
 .list-utilities{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px;border-top:1px solid var(--c-border)}
-.list-utilities button{display:flex;align-items:center;justify-content:center;gap:5px;border:0;border-radius:7px;background:transparent;color:var(--c-text-secondary);padding:7px;font-size:10px;cursor:pointer}
+.list-utilities button{display:flex;align-items:center;justify-content:center;gap:5px;border:0;border-radius:7px;background:transparent;color:var(--c-text-secondary);padding:7px;font-size:12px;cursor:pointer}
 .list-utilities button:hover{background:var(--c-bg-subtle);color:var(--c-text)}
 .list-utilities svg{width:12px}
-.editor-document{width:calc(100% - 28px);max-width:1120px;min-height:0;flex:1;margin:14px auto;border:1px solid var(--c-border);border-radius:12px;background:var(--c-bg-card);box-shadow:0 10px 30px color-mix(in srgb,#000 8%,transparent);overflow:hidden;display:flex;flex-direction:column}
+.editor-document{width:calc(100% - 28px);max-width:1120px;min-height:0;flex:1;margin:14px auto;border:1px solid var(--c-border);border-radius:12px;background:var(--c-bg-card);box-shadow:var(--shadow-sm);overflow:hidden;display:flex;flex-direction:column}
 .export-button{display:flex;align-items:center;gap:5px;border:1px solid var(--c-border);background:var(--c-bg-card);color:var(--c-text);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}
 .export-button:hover{border-color:color-mix(in srgb,var(--c-primary) 45%,var(--c-border));color:var(--c-primary)}
 .export-button:disabled{opacity:.55;cursor:wait}
@@ -668,9 +622,11 @@ async function openSearchHit(id) {
 .outline-panel button{width:100%;display:block;border:0;border-radius:6px;background:transparent;color:var(--c-text-secondary);padding-top:6px;padding-right:8px;padding-bottom:6px;text-align:left;font-size:11px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .outline-panel button:hover{background:var(--c-bg-subtle);color:var(--c-primary)}
 .outline-empty{padding:12px 8px;color:var(--c-text-secondary);font-size:10px;line-height:1.6}
-@media(max-width:1380px){.notebook-shell{grid-template-columns:260px minmax(440px,1fr) 240px}.editor-toolbar{padding-left:10px;padding-right:10px;gap:6px}.child-button{font-size:0}.child-button svg{width:13px}.note-fields{padding-left:18px;padding-right:18px}.mode-switch button{font-size:0}.mode-switch svg{width:14px}}
+@media(max-width:1380px){.notebook-shell{grid-template-columns:260px minmax(440px,1fr) 240px}.editor-toolbar{padding-left:10px;padding-right:10px;gap:6px}.child-button{font-size:0}.child-button svg{width:13px}.note-fields{padding-left:18px;padding-right:18px}.mode-switch button{font-size:12px}.mode-switch svg{width:14px}}
 @media(max-width:980px){.notebook-shell{grid-template-columns:240px minmax(430px,1fr)}.knowledge-info-rail{display:none}}
-.mobile-notebook-nav{display:none}
+.mobile-notebook-nav{display:none;gap:4px;padding:4px 12px;border-bottom:1px solid var(--c-border);background:var(--c-bg-card)}
+.mobile-notebook-nav button{flex:1;border:0;padding:5px 12px;background:transparent;color:var(--c-text-secondary);border-radius:var(--c-radius);font:inherit;font-size:12px;cursor:pointer}
+.mobile-notebook-nav button.active{background:var(--c-primary-light);color:var(--c-primary);font-weight:600}
 @media(max-width:1180px){
   .notebook-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:40px minmax(0,1fr);min-height:0}
   .mobile-notebook-nav{display:flex;gap:4px;padding:4px 8px;border-bottom:1px solid var(--c-border)}
@@ -680,7 +636,7 @@ async function openSearchHit(id) {
   .mobile-notes>.note-list-panel,.mobile-editor>.editor-panel,.mobile-info>.knowledge-info-rail{display:flex}
   .editor-toolbar{height:auto;min-height:56px;flex-wrap:wrap;padding:8px;gap:8px}
   .mode-switch{order:2;flex-basis:100%;justify-content:space-between}
-  .mode-switch button{padding:6px}
+  .mode-switch button{padding:6px;font-size:12px}
   .note-fields{padding:16px}
   .property-row{gap:10px}
   .property-row label{flex:1;min-width:0}
@@ -692,4 +648,43 @@ async function openSearchHit(id) {
 @media(max-width:500px){
   .property-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+@container (min-width: 1180px) {
+  .notebook-shell { grid-template-columns: 260px minmax(0,1fr) 240px; }
+}
+@container (min-width: 880px) and (max-width: 1179px) {
+  .notebook-shell { grid-template-columns: 240px minmax(0,1fr); grid-template-rows: 40px minmax(0,1fr); }
+  .mobile-notebook-nav { display: flex; grid-column: 1 / -1; }
+  .notebook-shell > .note-list-panel { display: flex; grid-column: 1; grid-row: 2; min-height: 0; }
+  .notebook-shell > .editor-panel { display: flex; grid-column: 2; grid-row: 2; min-height: 0; }
+  .notebook-shell > .knowledge-info-rail { display: none; }
+  .notebook-shell.mobile-info > .editor-panel { display: none; }
+  .notebook-shell.mobile-info > .knowledge-info-rail { display: flex; grid-column: 2; grid-row: 2; }
+  .editor-toolbar { height: auto; min-height: 56px; flex-wrap: wrap; padding: 8px; }
+  .mode-switch { order: 2; flex-basis: 100%; justify-content: space-between; }
+}
+</style>
+
+<style scoped>
+.writing-focus-button { color: var(--c-text-secondary); background: transparent; border: 1px solid var(--c-border); border-radius: 5px; padding: 6px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.writing-focus-button[aria-pressed=true] { color: var(--c-primary); background: var(--c-primary-light); }
+.note-properties summary { cursor: pointer; font-size: 11px; color: var(--c-text-secondary); padding: 10px 0; }
+.note-properties summary span { margin-left: 12px; opacity: .8; }
+.note-properties .property-row { padding: 8px 0 12px; }
+.notebook-shell.writing-focus { grid-template-columns: minmax(0, 1fr); }
+.writing-focus .note-list-panel, .writing-focus .knowledge-info-rail, .writing-focus .mobile-notebook-nav, .writing-focus .case-chip { display: none !important; }
+.writing-focus .editor-panel { display: flex !important; grid-column: 1 !important; }
+.writing-focus .editor-document { width: min(900px, 100%); margin: 0 auto; padding-top: 20px; border: 0; box-shadow: none; }
+.writing-focus .editor-toolbar { justify-content: flex-end; }
+.writing-focus .save-state { margin-right: auto; }
+.writing-focus :deep(.editor-toolbar-shell) { opacity: .6; }
+.writing-focus :deep(.tiptap) { font-size: 17px; line-height: 1.95; }
+.note-related-work { padding: 0 16px 20px; min-width: 0; overflow: auto; }
+.note-related-work > p { font-size: 12px; color: var(--c-text-secondary); line-height: 1.8; }
+.note-related-work :deep(nav) { flex-wrap: wrap; }
+.info-tabs { flex-wrap: wrap; }
+</style>
+<style scoped>
+.writing-focus :deep(.document-toolbar) { display: none; }
+.writing-focus .mode-switch { max-width: 400px; }
+.writing-focus .title-editor { padding-top: 24px; }
 </style>

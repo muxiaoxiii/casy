@@ -21,6 +21,12 @@ export const useSettingsStore = defineStore('settings', {
     webdavUsername: '',
     webdavPassword: '',
     webdavAutoSync: false,
+    webdavPassword_configured: false,
+    smtp_pass_configured: false,
+    caldav_pass_configured: false,
+    feishu_app_secret: '',
+    feishu_app_secret_configured: false,
+    clearedSecrets: [] as string[],
     smtp_host: '',
     smtp_port: 465,
     smtp_user: '',
@@ -42,7 +48,7 @@ export const useSettingsStore = defineStore('settings', {
       const result = await casyContext.settings.get()
       if (result.ok && result.data) {
         // 防止历史脏数据里的 loading 等键覆盖本地状态
-        const { loading: _ignored, workspace_sync, quote_sources, ...settings } = result.data
+        const { loading: _ignored, clearedSecrets: _ignoredSecrets, workspace_sync, quote_sources, ...settings } = result.data
         Object.assign(this, settings)
         if (workspace_sync && typeof workspace_sync === 'object' && !Array.isArray(workspace_sync)) Object.assign(this.workspace_sync, workspace_sync)
         if (Array.isArray(quote_sources) && quote_sources.length === 4 && quote_sources.every(v => typeof v === 'string')) this.quote_sources = quote_sources as string[]
@@ -52,9 +58,16 @@ export const useSettingsStore = defineStore('settings', {
 
     async save() {
       // 只发送设置键，剔除 loading 等本地状态
-      const { loading, ...settings } = this.$state
+      const { loading, clearedSecrets, ...state } = this.$state
+      const settings: Record<string, any> = {...state}
+      for(const key of clearedSecrets)if(!settings[key])settings[key]=null
       const result = await casyContext.settings.save(settings)
+      if(result.ok){this.webdavPassword='';this.smtp_pass='';this.caldav_pass='';this.clearedSecrets=[];await this.load()}
       return result
+    },
+    clearSecret(key: 'webdavPassword' | 'smtp_pass' | 'caldav_pass') {
+      this[key]='';this[`${key}_configured`]=false
+      if(!this.clearedSecrets.includes(key))this.clearedSecrets.push(key)
     },
   },
 })

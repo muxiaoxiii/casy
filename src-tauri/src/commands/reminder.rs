@@ -6,7 +6,7 @@ use super::run_blocking;
 use crate::db;
 use anyhow::Result;
 use chrono::{NaiveDate, Timelike};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -232,7 +232,41 @@ fn check_deadline_rules(
         }
     }
 
+    // Procedural obligations use per-item receipts; two deadlines in one case
+    // must not suppress each other through the older per-case deduplication.
+    triggered.extend(check_procedure_deadline_rules(conn,rule,today)?);
     Ok(triggered)
+}
+
+fn check_procedure_deadline_rules(conn:&Connection,rule:&ReminderRule,today:NaiveDate)->Result<Vec<ReminderLogEntry>> {
+    let exists:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='procedure_events'",[],|r|r.get(0))?;
+    if exists==0{return Ok(vec![]);}
+    // Local reminders integrate without creating stale external calendar jobs when
+    // an event is revised/retracted. Existing task/calendar delivery remains separate.
+    let channels:Vec<String>=serde_json::from_str(&rule.channels).unwrap_or_default();
+    if !channels.iter().any(|c|c=="local"||c=="system"){return Ok(vec![]);}
+    let trigger=rule.trigger_value.unwrap_or(0);let mut result=vec![];
+    for case in db::cases::active_cases(conn)? {
+        if let Some(types)=&rule.case_types {let allowed:Vec<String>=serde_json::from_str(types)?;if !allowed.is_empty()&&!allowed.contains(&case.track){continue;}}
+        let (_,items)=crate::deadline::procedure::case_items(conn,&case)?;
+        for i in items.into_iter().filter(|i|i.status=="open") {
+            let Some(due)=i.due_on.as_deref().and_then(|s|NaiveDate::parse_from_str(s,"%Y-%m-%d").ok()) else {continue;};
+            let days=(due-today).num_days();
+            let applies=match rule.trigger_type.as_str(){"deadline_before"=>(0..=trigger).contains(&days),"deadline_on"=>days<=0,"deadline_after"=>days<=-trigger,_=>false};
+            if !applies {continue;}
+            let last:Option<String>=conn.query_row("SELECT sent_on FROM procedure_reminder_receipts WHERE item_id=?1 AND fingerprint=?2 AND rule_id=?3",params![i.id,i.fingerprint,rule.id],|r|r.get(0)).optional()?;
+            if last.and_then(|s|NaiveDate::parse_from_str(&s,"%Y-%m-%d").ok()).is_some_and(|last|last>=today-chrono::Duration::days(if rule.trigger_type=="deadline_before"{trigger}else{0})){continue;}
+            let level=compute_level(days,false);
+            let (start,end)=work_hours(conn);
+            if (level=="R1"||level=="R2")&&next_work_start(chrono::Local::now().naive_local(),start,end).is_some(){continue;}
+            let label=if i.needs_review{"待核对日期"}else if i.source=="internal"{"内部安排"}else if i.owner=="opponent"{"对方期限"}else{"程序期限"};
+            let message=format!("{} · {}\n{} · {}\n日期：{}\n{}",case.case_name,label,i.actor_role,i.title,due,i.explanation);
+            let entry=dispatch_reminder(conn,&rule.id,Some(&case.id),None,"local",&message,level,None)?;
+            if entry.status=="sent"{conn.execute("INSERT INTO procedure_reminder_receipts(item_id,fingerprint,rule_id,sent_on) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,fingerprint,rule_id) DO UPDATE SET sent_on=excluded.sent_on",params![i.id,i.fingerprint,rule.id,today.to_string()])?;}
+            result.push(entry);
+        }
+    }
+    Ok(result)
 }
 
 fn check_hearing_rules(
@@ -247,7 +281,7 @@ fn check_hearing_rules(
         "SELECT h.id, h.case_id, h.hearing_name, h.hearing_date, c.case_name
          FROM hearings h
          JOIN cases c ON c.id = h.case_id
-         WHERE h.hearing_date IS NOT NULL AND h.hearing_date != ''",
+         WHERE h.hearing_date IS NOT NULL AND h.hearing_date != '' AND h.lifecycle_status='scheduled' AND COALESCE(h.actual_status,'未开')!='已开'",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -262,7 +296,7 @@ fn check_hearing_rules(
 
     for row in rows {
         let (hearing_id, case_id, hearing_name, hearing_date_str, case_name) = row?;
-        let Ok(hearing_date) = NaiveDate::parse_from_str(&hearing_date_str, "%Y-%m-%d") else {
+        let Ok(hearing_date) = NaiveDate::parse_from_str(hearing_date_str.get(..10).unwrap_or(""), "%Y-%m-%d") else {
             continue;
         };
 
@@ -270,11 +304,6 @@ fn check_hearing_rules(
 
         // 区间触发（§11.2 补偿扫描）：开庭前 N 天内（含当天）均可触发，错过可补发
         if (0..=trigger_days).contains(&days_diff) {
-            // hearing_before 属区间触发：窗口去重，过去 trigger_days 天内已发则跳过
-            if already_sent(conn, &rule.id, Some(&case_id), None, Some(trigger_days))? {
-                continue;
-            }
-
             let hearing_label = hearing_name.unwrap_or_else(|| "开庭/口审".to_string());
             let message = format!(
                 "案件: {}\n庭审: {}\n日期: {}\n剩余: {} 天",
@@ -285,11 +314,14 @@ fn check_hearing_rules(
             let channels: Vec<String> = serde_json::from_str(&rule.channels).unwrap_or_default();
 
             for channel in &channels {
+                let sent:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM hearing_reminder_receipts WHERE hearing_id=?1 AND due_snapshot=?2 AND rule_id=?3 AND channel=?4)",params![hearing_id,hearing_date_str,rule.id,channel],|r|r.get(0))?;
+                if sent {continue;}
+
                 let cal_ctx = CalendarJobCtx {
                     entity_type: "hearing",
                     entity_id: hearing_id.clone(),
-                    due_date: hearing_date_str.clone(),
-                    due_time: None,
+                    due_date: hearing_date.to_string(),
+                    due_time: hearing_date_str.get(11..16).map(str::to_owned),
                     title: hearing_label.clone(),
                 };
                 let entry = dispatch_reminder(
@@ -302,6 +334,9 @@ fn check_hearing_rules(
                     level,
                     Some(&cal_ctx),
                 )?;
+                if entry.status=="sent" || entry.status=="deferred" {
+                    conn.execute("INSERT OR IGNORE INTO hearing_reminder_receipts VALUES(?1,?2,?3,?4)",params![hearing_id,hearing_date_str,rule.id,channel])?;
+                }
                 triggered.push(entry);
             }
         }
@@ -1282,7 +1317,12 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
 
         while running.load(Ordering::SeqCst) {
             match db::open_db() {
-                Ok(conn) => match engine.check_and_trigger(&conn) {
+                Ok(conn) => match {
+                    crate::processing::service("reminders","期限与开庭提醒检查","running","检查提醒规则",None);
+                    let result=engine.check_and_trigger(&conn);
+                    crate::processing::service("reminders","期限与开庭提醒检查",if result.is_ok(){"waiting"}else{"failed"},"按提醒引擎配置周期检查",result.as_ref().err().map(ToString::to_string).as_deref());
+                    result
+                } {
                     Ok(triggered) => {
                         if !triggered.is_empty() {
                             log::info!("提醒引擎触发 {} 条提醒", triggered.len());
@@ -1306,6 +1346,7 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
             std::thread::sleep(std::time::Duration::from_secs(interval));
         }
 
+        crate::processing::service("reminders","期限与开庭提醒检查","disabled","已停止检查",None);
         log::info!("提醒引擎已停止");
     });
 
@@ -1569,6 +1610,18 @@ pub async fn get_deadline_warnings_with_levels() -> Result<Vec<DeadlineWarning>,
             });
         }
 
+        for case in db::cases::active_cases(&conn)? {
+            let (_,items)=crate::deadline::procedure::case_items(&conn,&case)?;
+            for i in items.into_iter().filter(|i|i.status=="open") {
+                if let Some(due)=i.due_on {
+                    let days_left=i.days_left.unwrap_or(0);let level=compute_reminder_level(days_left);
+                    let prefix=if i.needs_review {"待核对"}else if i.source=="internal" {"内部安排"}else if i.owner=="opponent" {"对方"}else{"我方"};
+                    let name=format!("[{}] {} · {}",prefix,i.actor_role,i.title);
+                    warnings.push(DeadlineWarning{deadline_id:i.id,case_id:i.case_id,case_name:i.case_name,deadline_name:name.clone(),due_date:due,days_left,level:level.as_str().into(),level_label:level.label().into(),level_color:level.color().into(),message:format!("{}：{}",name,i.explanation)});
+                }
+            }
+        }
+        warnings.sort_by_key(|w|w.days_left);
         Ok(warnings)
     })
     .await
@@ -1678,8 +1731,8 @@ mod tests {
             name: "测试".to_string(),
             trigger_type: trigger_type.to_string(),
             trigger_value: Some(trigger_value),
-            // 未知通道：dispatch 只写日志，无外部副作用
-            channels: r#"["test_channel"]"#.to_string(),
+            // local 通道可在无桌面环境下安全写日志；未知通道会撞 reminder_logs 的 CHECK。
+            channels: r#"["local"]"#.to_string(),
             message_template: None,
             case_types: None,
             enabled: true,
@@ -2049,6 +2102,15 @@ mod tests {
             .unwrap();
         assert_eq!(job_count, 0, "时段内不应创建延迟作业");
     }
+    #[test]
+    fn hearing_receipts_do_not_hide_other_rounds_and_accept_time_of_day() {
+        let conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema::SCHEMA_SQL).unwrap();db::schema::run_migrations(&conn,1).unwrap();
+        conn.execute_batch("INSERT INTO cases(id,case_name,track,client_name) VALUES('c','测试','other','test'); INSERT INTO hearings(id,case_id,hearing_record,hearing_date,lifecycle_status) VALUES('h1','c','第一次','2026-09-09 09:00:00','scheduled'),('h2','c','第二次','2026-09-09 14:00:00','scheduled'),('h3','c','取消','2026-09-09','cancelled'); INSERT INTO reminder_rules(id,name,trigger_type,trigger_value,channels) VALUES('test-hearing_before','test','hearing_before',3,'[]'); INSERT INTO hearing_reminder_receipts VALUES('h1','2026-09-09 09:00:00','test-hearing_before','local');").unwrap();
+        let entries=check_hearing_rules(&conn,&test_rule("hearing_before",3),NaiveDate::from_ymd_opt(2026,9,8).unwrap()).unwrap();
+        assert_eq!(entries.len(),1);assert!(entries[0].message.contains("14:00:00"));
+    }
+
 }
 
 // ============================================================
@@ -2077,4 +2139,5 @@ fn push_inbox_notification(
         params![db::new_id(), title, message, payload],
     )?;
     Ok(())
+
 }

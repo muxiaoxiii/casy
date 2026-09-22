@@ -1,0 +1,26 @@
+[
+  {
+    "id": "h5-h6",
+    "unchangedFlushPreserved": true,
+    "afterUnrelatedEditMatchesProbe": true,
+    "saved": "五级标题\n\n六级标题\n\n正文\n\n追加核查"
+  },
+  {
+    "id": "footnote",
+    "unchangedFlushPreserved": true,
+    "afterUnrelatedEditMatchesProbe": true,
+    "saved": "主张依据[^law](%E7%AC%AC%E5%85%AD%E5%8D%81%E4%BA%94%E6%9D%A1%E3%80%82)。\n\n追加核查"
+  },
+  {
+    "id": "inline-math",
+    "unchangedFlushPreserved": true,
+    "afterUnrelatedEditMatchesProbe": true,
+    "saved": "损失为 $x\\_i + y\\_i$，以及 $a*b*c$。\n\n追加核查"
+  },
+  {
+    "id": "table-alignment",
+    "unchangedFlushPreserved": true,
+    "afterUnrelatedEditMatchesProbe": true,
+    "saved": "<table style=\"min-width: 50px;\"><colgroup><col style=\"min-width: 25px;\"><col style=\"min-width: 25px;\"></colgroup><tbody><tr><th colspan=\"1\" rowspan=\"1\" style=\"text-align: left;\"><p>名称</p></th><th colspan=\"1\" rowspan=\"1\" style=\"text-align: right;\"><p>金额</p></th></tr><tr><td colspan=\"1\" rowspan=\"1\" style=\"text-align: left;\"><p>费用</p></td><td colspan=\"1\" rowspan=\"1\" style=\"text-align: right;\"><p>100</p></td></tr></tbody></table>\n\n追加核查"
+  }
+]

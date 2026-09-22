@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { Refresh, ArrowRight, TrendCharts, PieChart, Histogram, Calendar } from '@element-plus/icons-vue'
+import { Refresh, ArrowRight, TrendCharts, PieChart, Histogram, Calendar } from '../../shared/icons'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../core/plugin/context'
 import type { MonthTrendPoint, NameCount, TodayKpis, UpcomingHearing } from '../../types/bindings'

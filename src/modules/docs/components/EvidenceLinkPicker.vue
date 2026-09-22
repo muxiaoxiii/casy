@@ -114,7 +114,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Folder, Collection, Checked, Briefcase } from '@element-plus/icons-vue'
+import { Search, Folder, Collection, Checked, Briefcase } from '../../../shared/icons'
 import { tauriCall } from '../../../core/tauriBridge'
 import type { EvidenceLinkAttrs, EvidenceTargetType } from '../extensions/EvidenceLink'
 

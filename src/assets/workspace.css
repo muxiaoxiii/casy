@@ -1,0 +1,112 @@
+/* Shared product surfaces. Module layouts and document typography stay local. */
+:root {
+  --sidebar-width: 232px;
+  --sidebar-width-expanded: 232px;
+}
+
+button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+button:disabled { cursor: not-allowed; }
+button, input, textarea, select { font-family: var(--font-family); }
+button { touch-action: manipulation; }
+::selection { background: var(--c-bg-selected); color: var(--c-text); }
+
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: -80px;
+  z-index: 10000;
+  padding: 10px 16px;
+  border-radius: var(--c-radius);
+  background: var(--c-primary);
+  color: var(--c-primary-contrast);
+}
+.skip-link:focus { top: 12px; }
+
+/* Consistent control feedback, including custom controls in module toolbars. */
+:is(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 3px;
+}
+.el-input__wrapper.is-focus, .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--c-primary) inset, 0 0 0 3px var(--focus-ring) !important;
+}
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--c-primary) inset, 0 0 0 3px var(--focus-ring);
+}
+.el-button { min-height: var(--control-height); }
+.el-button--small { min-height: 28px; }
+.el-button--large { min-height: 40px; }
+.el-button.is-text, .el-button.is-link { min-height: 28px; }
+.el-form-item__label { font-size: 13px; line-height: 1.6; }
+.el-form-item { margin-bottom: 20px; }
+.el-input__wrapper, .el-select__wrapper, .el-textarea__inner {
+  transition: box-shadow var(--motion-fast), background-color var(--motion-fast);
+}
+.el-dialog { padding: 24px; }
+.el-dialog__header { padding-bottom: 18px; margin-right: 24px; }
+.el-dialog__title { font-size: 18px; font-weight: 650; color: var(--c-text-heading); }
+.el-dialog__footer { padding-top: 20px; }
+.el-drawer__header { margin-bottom: 0; padding-bottom: 20px; border-bottom: 1px solid var(--c-border); }
+.el-drawer__title { font-weight: 650; color: var(--c-text-heading); }
+.el-table th.el-table__cell { font-size: 12px; letter-spacing: 0; text-transform: none; }
+.el-table td.el-table__cell { padding-block: 11px; }
+.el-table .cell { line-height: 1.6; }
+.el-tag { font-size: 12px; font-weight: 500; }
+.el-tabs__item { font-size: 13px; }
+.el-radio-button { --el-radio-button-checked-text-color: var(--c-primary-contrast); }
+.el-checkbox-button { --el-checkbox-button-checked-text-color: var(--c-primary-contrast); }
+.el-dropdown-menu__item { min-height: 34px; }
+.el-message { max-width: calc(100vw - 32px); }
+.el-message-box { max-width: calc(100vw - 32px); }
+
+/* Shared page rhythm, scoped to page roots so embedded editors are unaffected. */
+.content-scroll.content-scroll > :is(.today-page-container, .stitch-cases-view, .stitch-tasks-workspace, .stitch-calendar-workspace, .inbox-page, .dash-page, .client-page, .projects-page, .persons-page, .reminder-view, .sync-status-view) {
+  max-width: var(--page-width);
+  padding-inline: var(--page-padding);
+  padding-top: 28px;
+}
+.content-scroll :is(.tasks-heading, .month-display-title, .page-main-title) {
+  font-size: 24px;
+  line-height: 1.4;
+  letter-spacing: -.4px;
+}
+.content-scroll :is(.tasks-sub-hint, .eyebrow-kicker) {
+  font-family: var(--font-family);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--c-text-secondary);
+}
+.content-scroll :is(.tasks-top-header, .cases-topbar, .calendar-top-header) {
+  min-height: 48px;
+  margin-bottom: 6px;
+}
+.content-scroll :is(.btn-action-primary, .btn-action-ghost, .btn-action-filter, .btn-action-import, .btn-report-trigger) {
+  min-height: var(--control-height);
+  white-space: nowrap;
+  font-size: 13px;
+  border-radius: var(--c-radius);
+}
+.content-scroll :is(.search-real-input, .input-clean) { min-height: var(--control-height); font-size: 13px; }
+.content-scroll :is(.search-real-input, .input-clean):focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  :root, html[data-theme] { --app-topbar-height: 56px; }
+  .content-scroll.content-scroll > :is(.today-page-container, .stitch-cases-view, .stitch-tasks-workspace, .stitch-calendar-workspace, .inbox-page, .dash-page, .client-page, .projects-page, .persons-page, .reminder-view, .sync-status-view) {
+    padding-top: 20px;
+    padding-inline: 16px;
+  }
+  .el-dialog { padding: 20px 16px; }
+  .el-dialog__footer .el-button + .el-button { margin-left: 8px; }
+  .el-table td.el-table__cell { padding-block: 9px; }
+}
+
+@media (prefers-contrast: more) {
+  :root, html[data-theme] {
+    --c-text-secondary: var(--c-text-regular);
+    --c-text-placeholder: var(--c-text-regular);
+    --c-border: var(--c-border-strong);
+  }
+}

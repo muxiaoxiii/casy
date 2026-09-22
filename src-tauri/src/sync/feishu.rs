@@ -864,6 +864,7 @@ pub struct FeishuSyncReport {
 // ============================================================
 
 pub async fn sync_feishu_pull_inner(app_token: &str, table_id: &str) -> Result<FeishuSyncReport> {
+    crate::processing::tracked("sync","飞书拉取",async {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0); // 保守限流
     let client = Client::builder()
@@ -945,6 +946,8 @@ pub async fn sync_feishu_pull_inner(app_token: &str, table_id: &str) -> Result<F
     update_sync_metadata(&conn, "feishu_last_pull_count", &report.pulled.to_string())?;
 
     Ok(report)
+
+    }).await
 }
 
 /// 处理单条飞书记录的 pull
@@ -970,7 +973,7 @@ fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String
             .unwrap_or("")
             .to_string();
 
-        if old_remote_updated.as_deref() == Some(&new_remote_updated)
+        if old_remote_updated.as_deref() == Some(new_remote_updated.as_str())
             && !new_remote_updated.is_empty()
         {
             return Ok("skipped".to_string());
@@ -1163,6 +1166,7 @@ fn update_local_case(conn: &Connection, local_id: &str, fields: &serde_json::Val
 // ============================================================
 
 pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<FeishuSyncReport> {
+    crate::processing::tracked("sync","飞书推送",async {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0);
     let client = Client::builder()
@@ -1289,6 +1293,8 @@ pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<F
     update_sync_metadata(&conn, "feishu_last_push_count", &report.pushed.to_string())?;
 
     Ok(report)
+
+    }).await
 }
 
 /// Push 待处理项
@@ -1463,9 +1469,50 @@ pub async fn test_feishu_connection_inner(
     Ok("飞书自建应用鉴权成功！".to_string())
 }
 
-/// 检查是否已配置飞书凭证
+/// Passive status checks must not unlock Keychain. Credentials saved by Casy have
+/// a copy in the encrypted database; legacy Keychain-only entries are discovered
+/// when the user explicitly tests or starts a sync.
+pub fn feishu_configuration(conn: &Connection) -> Result<(bool, Option<String>)> {
+    let id = crate::db::get_setting(conn, "feishu_app_id")?
+        .map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let has_secret = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM settings WHERE key='feishu_app_secret' AND length(trim(value)) > 0)",
+        [], |row| row.get::<_, bool>(0),
+    )?;
+    Ok((id.is_some() && has_secret, id))
+}
+
+/// 检查本地配置是否齐全，不验证或读取系统凭据。
 pub fn is_feishu_configured() -> bool {
-    load_feishu_credentials().is_ok()
+    crate::db::open_db().and_then(|conn| feishu_configuration(&conn)).map(|s| s.0).unwrap_or(false)
+}
+
+/// Only allow SQL identifiers that are real columns of a known local table.
+/// Prevents IPC-controlled `local_table`/`local_column` from becoming SQL injection.
+fn validate_sync_identifier(conn: &rusqlite::Connection, table: &str, column: Option<&str>) -> Result<()> {
+    anyhow::ensure!(
+        !table.is_empty()
+            && table.len() <= 64
+            && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        "非法本地表名"
+    );
+    let allowed_tables = ["cases", "tasks", "hearings", "case_logs", "knowledge_items", "drafts", "projects", "persons"];
+    anyhow::ensure!(allowed_tables.contains(&table), "不允许同步到表 {table}");
+    if let Some(column) = column {
+        anyhow::ensure!(
+            !column.is_empty()
+                && column.len() <= 64
+                && column.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            "非法本地列名"
+        );
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let exists = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .any(|name| name == column);
+        anyhow::ensure!(exists, "表 {table} 不存在列 {column}");
+    }
+    Ok(())
 }
 
 // ============================================================
@@ -1489,6 +1536,7 @@ pub async fn sync_table_pull(
     local_table: &str,
     mappings: &[SyncMappingEntry],
 ) -> Result<FeishuSyncReport> {
+    crate::processing::tracked("sync","飞书关联表拉取",async {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0);
     let client = Client::builder()
@@ -1507,6 +1555,10 @@ pub async fn sync_table_pull(
     };
 
     let conn = crate::db::open_db()?;
+    validate_sync_identifier(&conn, local_table, None)?;
+    for mapping in mappings {
+        validate_sync_identifier(&conn, local_table, Some(&mapping.local_column))?;
+    }
     let mut page_token: Option<String> = None;
 
     loop {
@@ -1590,7 +1642,7 @@ pub async fn sync_table_pull(
                     .ok()
                     .flatten();
 
-                if old_remote.as_deref() == Some(&last_modified) && !last_modified.is_empty() {
+                if old_remote.as_deref() == Some(last_modified.as_str()) && !last_modified.is_empty() {
                     report.skipped += 1;
                     continue;
                 }
@@ -1749,6 +1801,8 @@ pub async fn sync_table_pull(
     update_sync_metadata(&conn, "feishu_last_pull_count", &report.pulled.to_string())?;
 
     Ok(report)
+
+    }).await
 }
 
 /// 通用 Push：将本地变更推送到飞书（基于映射配置）
@@ -1758,6 +1812,7 @@ pub async fn sync_table_push(
     local_table: &str,
     mappings: &[SyncMappingEntry],
 ) -> Result<FeishuSyncReport> {
+    crate::processing::tracked("sync","飞书关联表推送",async {
     let mut auth = FeishuAuth::new();
     let mut limiter = RateLimiter::new(5.0);
     let client = Client::builder()
@@ -1776,6 +1831,10 @@ pub async fn sync_table_push(
     };
 
     let conn = crate::db::open_db()?;
+    validate_sync_identifier(&conn, local_table, None)?;
+    for mapping in mappings {
+        validate_sync_identifier(&conn, local_table, Some(&mapping.local_column))?;
+    }
 
     // 查询需要 push 的记录
     let push_items = {
@@ -1928,6 +1987,8 @@ pub async fn sync_table_push(
     update_sync_metadata(&conn, "feishu_last_push_count", &report.pushed.to_string())?;
 
     Ok(report)
+
+    }).await
 }
 
 // ============================================================
@@ -1964,6 +2025,7 @@ impl AutoPushManager {
     /// 启用/禁用自动推送
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::SeqCst);
+        crate::processing::service("feishu","飞书自动推送",if enabled{"waiting"}else{"disabled"},"启用后等待案件变更，防抖 5 秒再推送",None);
         log::info!(
             "飞书自动推送: {}",
             if enabled { "已启用" } else { "已禁用" }
@@ -2016,6 +2078,7 @@ pub fn start_auto_push_watcher() {
 
     tauri::async_runtime::spawn(async move {
         log::info!("飞书自动推送 watcher 已启动");
+        crate::processing::service("feishu","飞书自动推送",if enabled.load(Ordering::SeqCst){"waiting"}else{"disabled"},"启用后等待案件变更，防抖 5 秒再推送",None);
 
         loop {
             // 等待变更信号

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Download, Upload, Check } from '@element-plus/icons-vue'
+import { Download, Upload, Check } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { isTauriRuntime } from '../../../core/mockData'
 import type { FeishuSnapshot, SnapshotReport } from '../../../types/feishuSnapshot'

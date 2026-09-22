@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import assert from 'node:assert/strict'
 
-const {chromium}=await import(process.env.CASY_PLAYWRIGHT_MODULE||'playwright')
+const playwright=await import(process.env.CASY_PLAYWRIGHT_MODULE||'playwright')
+const {chromium}=playwright.default||playwright
 const directory=await mkdtemp(join(process.env.CASY_QA_DIR||tmpdir(),'layout-qa-'))
 const browser=await chromium.launch({channel:'chrome',headless:true})
 const page=await browser.newPage()
@@ -39,7 +40,16 @@ for(const page of result.pages){
   for(const marker of ['LEFT COLUMN START','LEFT COLUMN END','RIGHT COLUMN START','RIGHT COLUMN END'])assert(text.includes(marker),`${marker} absent on page ${page.pageNumber}: ${directory}`)
   assert(text.indexOf('LEFT COLUMN END')<text.indexOf('RIGHT COLUMN START'),`Columns interleaved on page ${page.pageNumber}: ${directory}`)
   const layout=JSON.parse(await readFile(join(outputDir,`page-${page.pageNumber}.layout.json`),'utf8'))
-  assert(layout.length>2)
+  assert.equal(layout.model,'pp-doclayout-plus-l')
+  assert(layout.blocks.length>2)
+  assert.deepEqual(layout.blocks.map(block=>block.readingOrder),layout.blocks.map((_,index)=>index))
+  assert.deepEqual(page.layout,layout)
+  assert(page.timing.totalMs>=page.timing.ocrMs)
 }
+const progress=JSON.parse(await readFile(join(outputDir,'progress.json'),'utf8'))
+assert.equal(progress.phase,'completed')
+assert.equal(progress.currentPage,4)
+assert.equal(progress.totalPages,4)
+assert(result.elapsedMs>0)
 assert.equal(digest(await readFile(source)),sourceSha256)
 console.log(JSON.stringify({directory,pages:result.pages.length,elapsedSeconds:(Date.now()-start)/1000,sourceSha256}))

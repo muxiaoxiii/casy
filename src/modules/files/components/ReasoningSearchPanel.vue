@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { isTauriRuntime } from '../../../core/mockData'
-import { Search, Close, Document, FolderOpened } from '@element-plus/icons-vue'
+import { Search, Close, Document, FolderOpened } from '../../../shared/icons'
 import type { DocumentPassage } from '../../../types/documentRetrieval'
 import DocumentSourceViewer from './DocumentSourceViewer.vue'
 

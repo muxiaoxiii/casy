@@ -21,7 +21,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   User, Setting, Cpu, MagicStick, Folder, Bell,
   Cloudy, Link, Message, Connection, Briefcase, InfoFilled, AlarmClock, SetUp
-} from '@element-plus/icons-vue'
+} from '../../shared/icons'
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('profile')
@@ -90,74 +90,74 @@ onMounted(async () => {
 
       <div class="nav-group">
         <div class="nav-title">通用与账号</div>
-        <div class="nav-item" :class="{ active: activeTab === 'profile' }" @click="activeTab = 'profile'">
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'profile' }" @click="activeTab = 'profile'">
           <el-icon><User /></el-icon>
           <span>律师画像</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
           <el-icon><Setting /></el-icon>
           <span>{{ $t('settings.general') }}</span>
-        </div>
+        </button>
       </div>
 
       <div class="nav-group">
         <div class="nav-title">系统引擎</div>
-        <div class="nav-item" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
           <el-icon><Cpu /></el-icon>
           <span>{{ $t('settings.ai_model') }}</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'briefing-styles' }" @click="activeTab = 'briefing-styles'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'briefing-styles' }" @click="activeTab = 'briefing-styles'">
           <el-icon><MagicStick /></el-icon>
           <span>{{ $t('settings.briefing_style') }}</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'folder-template' }" @click="activeTab = 'folder-template'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'folder-template' }" @click="activeTab = 'folder-template'">
           <el-icon><Folder /></el-icon>
           <span>文件夹模板</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'reminder' }" @click="activeTab = 'reminder'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'reminder' }" @click="activeTab = 'reminder'">
           <el-icon><Bell /></el-icon>
           <span>智能提醒</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'deadline-rules' }" @click="activeTab = 'deadline-rules'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'deadline-rules' }" @click="activeTab = 'deadline-rules'">
           <el-icon><AlarmClock /></el-icon>
           <span>期限规则</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'smart-rules' }" @click="activeTab = 'smart-rules'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'smart-rules' }" @click="activeTab = 'smart-rules'">
           <el-icon><SetUp /></el-icon>
           <span>智能规则</span>
-        </div>
+        </button>
       </div>
 
       <div class="nav-group">
         <div class="nav-title">同步与连接</div>
-        <div class="nav-item" :class="{ active: activeTab === 'webdav' }" @click="activeTab = 'webdav'">
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'webdav' }" @click="activeTab = 'webdav'">
           <el-icon><Cloudy /></el-icon>
           <span>WebDAV 同步</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'feishu' }" @click="activeTab = 'feishu'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'feishu' }" @click="activeTab = 'feishu'">
           <el-icon><Link /></el-icon>
           <span>飞书集成</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'imap' }" @click="activeTab = 'imap'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'imap' }" @click="activeTab = 'imap'">
           <el-icon><Message /></el-icon>
           <span>邮件监听</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'smtp-mcp' }" @click="activeTab = 'smtp-mcp'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'smtp-mcp' }" @click="activeTab = 'smtp-mcp'">
           <el-icon><Connection /></el-icon>
           <span>SMTP / MCP</span>
-        </div>
+        </button>
       </div>
 
       <div class="nav-group">
         <div class="nav-title">维护与信息</div>
-        <div class="nav-item" :class="{ active: activeTab === 'backup' }" @click="activeTab = 'backup'">
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'backup' }" @click="activeTab = 'backup'">
           <el-icon><Briefcase /></el-icon>
           <span>数据备份</span>
-        </div>
-        <div class="nav-item" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
+        </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
           <el-icon><InfoFilled /></el-icon>
           <span>关于 Casy</span>
-        </div>
+        </button>
       </div>
     </div>
 
@@ -195,13 +195,13 @@ onMounted(async () => {
 <style scoped>
 .settings-page {
   display: flex;
-  height: calc(100vh - 64px);
+  height: calc(100dvh - var(--app-topbar-height));
   background: var(--c-bg-page);
   overflow: hidden;
 }
 
 .settings-sidebar {
-  width: 240px;
+  width: 216px;
   background: var(--c-bg-sidebar);
   border-right: 1px solid var(--c-border);
   padding: 20px 12px;
@@ -248,6 +248,11 @@ onMounted(async () => {
 }
 
 .nav-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -279,7 +284,7 @@ onMounted(async () => {
 .settings-content {
   flex: 1;
   min-width: 0;
-  padding: 28px 36px;
+  padding: 32px clamp(20px, 4cqi, 56px);
   overflow-y: auto;
   background: var(--c-bg-page);
 }

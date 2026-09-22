@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, ArrowRight, Refresh } from '@element-plus/icons-vue'
+import { Search, ArrowRight, Refresh } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import type { Case } from '../../../types'
 

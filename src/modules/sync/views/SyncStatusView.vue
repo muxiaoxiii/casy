@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useSettingsStore } from '../../../stores/settings'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -10,10 +11,11 @@ const syncStatus = ref({
 })
 const loading = ref(false)
 
+const settings = useSettingsStore()
 // WebDAV 配置
 const webdavForm = ref({
-  url: '',
-  username: '',
+  url: settings.webdavUrl,
+  username: settings.webdavUsername,
   password: '',
 })
 const webdavTesting = ref(false)
@@ -45,7 +47,13 @@ async function loadSyncStatus() {
   loading.value = true
   const result = await casyContext.sync.status()
   if (result.ok && result.data) {
-    syncStatus.value = result.data
+    syncStatus.value.webdav = {
+      connected: result.data.webdavConnected,
+      configured: result.data.configured,
+      state: result.data.connectionState,
+      lastSync: result.data.lastSyncAt,
+      error: result.data.lastError,
+    }
   }
   loading.value = false
 }
@@ -270,7 +278,7 @@ onMounted(() => {
                 :type="syncStatus.webdav?.connected ? 'success' : 'info'"
                 size="small"
               >
-                {{ syncStatus.webdav?.connected ? '已连接' : '未连接' }}
+                {{ syncStatus.webdav?.connected ? '最近检测成功' : syncStatus.webdav?.configured ? '尚未连接' : '未配置' }}
               </el-tag>
             </div>
           </template>
@@ -487,7 +495,7 @@ onMounted(() => {
 
       <el-row :gutter="16" v-else>
         <el-col :span="12">
-          <el-statistic title="WebDAV 状态" :value="syncStatus.webdav?.connected ? '已连接' : '未连接'" />
+          <el-statistic title="WebDAV 状态" :value="syncStatus.webdav?.connected ? '最近检测成功' : syncStatus.webdav?.configured ? '尚未连接' : '未配置'" />
         </el-col>
         <el-col :span="12">
           <el-statistic title="飞书状态" :value="feishuSyncInfo.configured ? '已配置' : '未配置'" />

@@ -34,6 +34,7 @@ export class InboxPlugin implements CasyPlugin {
   private createListInboxItemsTool(ctx: CasyContext): CasyTool {
     return defineTool<{ status?: string }>({
       name: 'list_inbox_items',
+      policy: { write: false, level: 'L1' },
       description: '获取收件箱列表（待处理/已归档/已忽略）',
       category: 'inbox',
       parameters: {

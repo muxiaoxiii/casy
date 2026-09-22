@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Delete, Link, Plus } from '@element-plus/icons-vue'
+import { Delete, Link, Plus } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import BacklinksPanel from './BacklinksPanel.vue'
 

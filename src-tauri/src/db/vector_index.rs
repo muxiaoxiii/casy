@@ -381,6 +381,7 @@ impl VectorIndex {
                 break;
             }
             let before = excluded.len();
+            let mut keys = Vec::new();
             for doc in candidates {
                 let Some((job, index)) = doc.get_pk().and_then(|pk| pk.rsplit_once('_')) else {
                     continue;
@@ -391,12 +392,18 @@ impl VectorIndex {
                 let Ok(index) = index.parse::<usize>() else {
                     continue;
                 };
-                let row: Option<(String,Vec<u8>,String)> = conn.query_row("SELECT j.item_id,c.embedding,c.content
-                    FROM knowledge_index_chunks c JOIN knowledge_index_jobs j ON j.id=c.job_id
-                    JOIN knowledge_items k ON k.id=j.item_id WHERE c.job_id=?1 AND c.chunk_index=?2
-                    AND j.status='completed' AND j.config_hash=?3 AND COALESCE(k.status,'current')='current'",
-                    params![job,index,fingerprint], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-                if let Some((item, bytes, content)) = row {
+                keys.push(serde_json::json!([job,index]));
+            }
+            let mut stmt = conn.prepare("SELECT j.item_id,c.embedding,c.content
+                FROM json_each(?1) candidate
+                JOIN knowledge_index_chunks c ON c.job_id=json_extract(candidate.value,'$[0]') AND c.chunk_index=json_extract(candidate.value,'$[1]')
+                JOIN knowledge_index_jobs j ON j.id=c.job_id JOIN knowledge_items k ON k.id=j.item_id
+                WHERE j.status='completed' AND j.config_hash=?2 AND COALESCE(k.status,'current')='current'")?;
+            let rows = stmt.query_map(params![serde_json::to_string(&keys)?,fingerprint], |r|Ok((r.get::<_,String>(0)?,r.get::<_,Vec<u8>>(1)?,r.get::<_,String>(2)?)))?;
+            for row in rows {
+                let (item,bytes,content)=row?;
+                {
+
                     let item_key = key(&item);
                     if !excluded.contains(&item_key) {
                         excluded.push(item_key);

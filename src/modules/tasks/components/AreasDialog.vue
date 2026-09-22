@@ -10,7 +10,7 @@
  */
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Edit, Delete, Collection, Check, Close } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Collection, Check, Close } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 
 interface AreaRow {

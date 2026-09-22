@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { Edit, Check, Close } from '@element-plus/icons-vue'
+import { Edit, Check, Close } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import { intakeSections, routeOptions, statusGroups, setIntakeRoute } from './caseIntake'
 import { normalizeCaseAttorneys } from '../../../core/caseNormalize'

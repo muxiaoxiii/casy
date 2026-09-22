@@ -1,138 +1,19 @@
 <template>
   <div class="notion-legal-editor-shell" ref="editorContainer">
-    <div v-if="editor" class="legal-quote-toolbar"><el-button :icon="RefreshLeft" text title="撤销" aria-label="撤销" :disabled="!editor.can().undo()" @click="editor.chain().focus().undo().run()" /><el-button :icon="RefreshRight" text title="重做" aria-label="重做" :disabled="!editor.can().redo()" @click="editor.chain().focus().redo().run()" /><QuoteSourceMenu :editor="editor" /></div>
-    <!-- 左侧悬浮块手柄 (Block Gutter Handle) -->
-    <BlockActionHandle
-      :editor="editor"
-      :top="hoverHandleTop"
-      :visible="hoverHandleVisible"
-      @open-slash="openSlashAtCurrent"
-    />
-
-    <!-- Tiptap 编辑器核心内容区 -->
-    <editor-content
-      :editor="editor"
-      class="editor-content-area"
-      @mousemove="handleEditorMouseMove"
-      @mouseleave="hoverHandleVisible = false"
-      @click="handleEditorClick"
-      @contextmenu="handleContextMenu"
-      @drop="handleDrop"
-    />
-
-    <!-- 选中文字浮动格式栏 (Bubble Menu) -->
-    <bubble-menu
-      v-if="editor"
-      :editor="editor"
-      :tippy-options="{ duration: 150, zIndex: 99 }"
-      class="notion-bubble-menu"
-    >
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive('bold') }"
-        title="加粗 (⌘B)"
-        @click="editor.chain().focus().toggleBold().run()"
-      >
-        <strong>B</strong>
-      </button>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive('italic') }"
-        title="斜体 (⌘I)"
-        @click="editor.chain().focus().toggleItalic().run()"
-      >
-        <em>I</em>
-      </button>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive('underline') }"
-        title="下划线 (⌘U)"
-        @click="editor.chain().focus().toggleUnderline().run()"
-      >
-        <u>U</u>
-      </button>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive('strike') }"
-        title="删除线"
-        @click="editor.chain().focus().toggleStrike().run()"
-      >
-        <s>S</s>
-      </button>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive('code') }"
-        title="行内代码"
-        @click="editor.chain().focus().toggleCode().run()"
-      >
-        <code>&lt;/&gt;</code>
-      </button>
-
-      <span class="bubble-divider"></span>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive({ textAlign: 'left' }) }"
-        title="居左对齐"
-        @click="editor.chain().focus().setTextAlign('left').run()"
-      >
-        <span>左</span>
-      </button>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive({ textAlign: 'center' }) }"
-        title="居中对齐"
-        @click="editor.chain().focus().setTextAlign('center').run()"
-      >
-        <span>中</span>
-      </button>
-
-      <button
-        type="button"
-        class="bubble-btn"
-        :class="{ active: editor.isActive({ textAlign: 'right' }) }"
-        title="居右对齐"
-        @click="editor.chain().focus().setTextAlign('right').run()"
-      >
-        <span>右</span>
-      </button>
-
-      <span class="bubble-divider"></span>
-
-      <button
-        type="button"
-        class="bubble-btn ai-btn"
-        title="AI 润色与术语转换"
-        @click="openAiCopilot('polish')"
-      >
-        <el-icon><MagicStick /></el-icon>
-        <span>AI 润色</span>
-      </button>
-    </bubble-menu>
-
-    <!-- 斜杠指令浮窗 (Notion Slash Commands) -->
+    <DocumentEditor ref="documentEditorRef" :model-value="modelValue" content-format="html" :extra-extensions="legalExtensions" :source-id="sourceId || undefined" source-type="doc" :case-id="caseId" placeholder="开始撰写，使用工具栏设置正文格式…" @ready="editorReady" @update:model-value="emit('update:modelValue',$event)" @save="emit('save')" @transaction="documentChanged" @active-block="emit('active-block',$event)" @click="handleEditorClick" @contextmenu="handleContextMenu" @drop="handleDrop" />
+    <!-- 文书专用建议 -->
     <SlashCommandMenu
       v-if="editor"
       :editor="editor"
       :visible="slashMenuVisible"
       :position="slashMenuPos"
       :case-data="caseData"
+      :trigger-range="slashRange"
       @close="slashMenuVisible = false"
       @open-ai="openAiCopilot"
       @open-law="insertLaw"
       @open-knowledge="insertKnowledge"
+      @open-table="documentEditorRef?.openTable()"
     />
 
     <!-- AI Copilot 弹窗 -->
@@ -242,10 +123,11 @@
 </template>
 
 <script setup>
+import { Selection } from '@tiptap/pm/state'
 import QuoteSourceMenu from '../../../shared/components/QuoteSourceMenu.vue'
-import { ref, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
+import { ref, shallowRef, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useEditor, EditorContent } from '@tiptap/vue-3'
+import DocumentEditor from '../../../shared/editor/DocumentEditor.vue'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -263,7 +145,7 @@ import { ElMessage } from 'element-plus'
 import {
   Collection, Opportunity, Memo, Reading, QuestionFilled,
   Medal, Document, MagicStick, Briefcase, RefreshLeft, RefreshRight
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import BlockActionHandle from './BlockActionHandle.vue'
 import EvidenceLinkPicker from './EvidenceLinkPicker.vue'
@@ -271,7 +153,7 @@ import { EvidenceLink } from '../extensions/EvidenceLink'
 import { CaseFieldSuggestion } from '../composables/caseFieldSuggestion.js'
 import { LegalProvisionSuggestion } from '../composables/legalProvisionSuggestion.js'
 import { PartyNameSuggestion } from '../composables/partyNameSuggestion.js'
-import { KnowledgeReferenceSuggestion } from '../composables/knowledgeReferenceSuggestion.js'
+
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -281,12 +163,13 @@ const props = defineProps({
   sourceId: { type: String, default: null },
 })
 
-const emit = defineEmits(['update:modelValue', 'save', 'knowledge-captured'])
+const emit = defineEmits(['update:modelValue', 'save', 'knowledge-captured', 'open-knowledge-drawer', 'document-change', 'active-block'])
 
-const editorContainer = ref<HTMLElement | null>(null)
+const editorContainer = ref(null)
 
 // ── 斜杠菜单状态 ──
 const slashMenuVisible = ref(false)
+const slashRange = ref(null)
 const slashMenuPos = reactive({ x: 0, y: 0 })
 
 // ── 悬浮手柄状态 ──
@@ -312,57 +195,31 @@ const captureDialog = reactive({
   tags: '',
 })
 
-const editor = useEditor({
-  content: props.modelValue,
-  extensions: [
-    StarterKit.configure({
-      heading: { levels: [1, 2, 3] },
-    }),
-    Typography,
-    TextAlign.configure({
-      types: ['heading', 'paragraph'],
-    }),
-    Image.configure({ allowBase64: true, inline: false }),
-    TaskList,
-    TaskItem.configure({
-      nested: true,
-    }),
-    Table.configure({
-      resizable: true,
-    }),
-    TableRow,
-    TableHeader,
-    TableCell,
-    Placeholder.configure({
-      placeholder: '按「/」唤出 Notion 块菜单，或直接输入 Markdown 快速起草...',
-    }),
-    CaseFieldSuggestion,
-    LegalProvisionSuggestion,
-    PartyNameSuggestion,
-    KnowledgeReferenceSuggestion,
-    EvidenceLink,
-  ],
-  onUpdate: ({ editor }) => {
-    const html = editor.getHTML()
-    emit('update:modelValue', html)
-    checkForSlashTrigger()
-  },
-})
+const documentEditorRef=ref(null)
+const editor=shallowRef(null)
+const legalExtensions=[CaseFieldSuggestion,LegalProvisionSuggestion,PartyNameSuggestion]
+function editorReady(instance){editor.value=instance;instance.storage.caseData=props.caseData;instance.storage.allCases=props.allCases; documentChanged()}
+function documentChanged(){ checkForSlashTrigger(); emit('document-change',editor.value?.getJSON() || null) }
 
 // 监听按键以激活 / 浮窗
 function checkForSlashTrigger() {
   if (!editor.value) return
-  const { state } = editor.value
-  const { from } = state.selection
-  const textBefore = state.doc.textBetween(Math.max(0, from - 2), from, '\n')
-  
-  if (textBefore.endsWith('/')) {
-    const view = editor.value.view
-    const coords = view.coordsAtPos(from)
-    slashMenuPos.x = coords.left
-    slashMenuPos.y = coords.top
-    slashMenuVisible.value = true
+  const { state, view } = editor.value
+  const { $from, from, empty } = state.selection
+  const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+  const triggered = empty && !editor.value.isActive('codeBlock') && /(?:^|\s)\/$/.test(before)
+  if (!triggered) {
+    slashMenuVisible.value = false
+    slashRange.value = null
+    return
   }
+  // A selection-only transaction must not reopen a menu dismissed with Escape.
+  if (slashRange.value?.from === from - 1) return
+  slashRange.value = { from: from - 1, to: from }
+  const coords = view.coordsAtPos(from)
+  slashMenuPos.x = coords.left
+  slashMenuPos.y = coords.top
+  slashMenuVisible.value = true
 }
 
 // 块悬浮手柄位置探测
@@ -494,10 +351,20 @@ function navigateEvidenceLink({ targetType, targetId, anchor, caseId }) {
 }
 
 function getDocumentJson() {
-  return editor.value?.getJSON() || { type: 'doc', content: [] }
+  return documentEditorRef.value?.getDocumentJson() || { type: 'doc', content: [] }
 }
 
-defineExpose({ openEvidenceLinkPicker, getDocumentJson })
+function scrollToBlock(index) {
+  const ed=editor.value; if(!ed || index<0 || index>=ed.state.doc.childCount)return
+  let pos=0; for(let i=0;i<index;i++)pos+=ed.state.doc.child(i).nodeSize
+  ed.commands.focus()
+  ed.view.dispatch(ed.state.tr.setSelection(Selection.near(ed.state.doc.resolve(Math.min(pos+1,ed.state.doc.content.size)))).scrollIntoView())
+  const dom=ed.view.nodeDOM(pos); dom?.scrollIntoView?.({block:'nearest'})
+}
+defineExpose({ openEvidenceLinkPicker, getDocumentJson, scrollToBlock,
+  hasSourceDraft:()=>documentEditorRef.value?.hasSourceDraft(),
+  hasPendingSerialize:()=>documentEditorRef.value?.hasPendingSerialize?.() ?? false,
+  getHtml:()=>documentEditorRef.value?.getHtml() || '' })
 
 // ── 右键知识入库 ──
 function handleContextMenu(e) {
@@ -575,13 +442,6 @@ async function doCapture() {
   }
 }
 
-// 外部内容同步
-watch(() => props.modelValue, (val) => {
-  if (editor.value && editor.value.getHTML() !== val) {
-    editor.value.commands.setContent(val, { emitUpdate: false })
-  }
-})
-
 // 将案件数据存入 storage
 watch(() => props.caseData, (data) => {
   if (editor.value) editor.value.storage.caseData = data
@@ -601,7 +461,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onGlobalClick)
-  editor.value?.destroy()
+
 })
 </script>
 

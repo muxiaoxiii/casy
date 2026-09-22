@@ -31,8 +31,8 @@ describe('mdBridge · mdToHtml', () => {
   it('GFM 表格与任务列表开启', () => {
     const html = mdToHtml('| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] 已完成\n- [ ] 未完成')
     expect(html).toContain('<table>')
-    expect(html).toContain('type="checkbox"')
-    expect(html).toContain('checked')
+    expect(html).toContain('data-type="taskItem"')
+    expect(html).toContain('data-checked="true"')
   })
 
   it('wiki 标题中的 HTML 特殊字符只转义一次', () => {
@@ -250,4 +250,33 @@ describe('mdBridge · sanitizePreviewHtml（文书模板渲染结果 HTML 预览
     expect(safe).not.toContain('javascript:')
     expect(safe).not.toContain('onerror')
   })
+})
+
+// Table topology is semantically important for OCR and evidence references.
+describe('OCR merged table preview', () => {
+  it('preserves spans and numerical comparison signs while removing executable attributes', () => {
+    const html = mdToSafeHtml('<table><tr><td rowspan="17" colspan="2" onclick="alert(1)"><span data-ocr-region="7">&lt;0.001</span></td></tr></table>')
+    const container = document.createElement('div'); container.innerHTML = html
+    expect(container.querySelector('td')?.getAttribute('rowspan')).toBe('17')
+    expect(container.querySelector('td')?.getAttribute('colspan')).toBe('2')
+    expect(container.textContent).toBe('<0.001')
+    expect(html).not.toContain('onclick')
+    expect(html).not.toContain('data-ocr-region')
+  })
+})
+
+
+describe('只读待办布局', () => {
+ it('普通列表与待办混排保持结构，标识不显示，长文字独立于勾选控件', () => {
+  const root=document.createElement('div')
+  root.innerHTML=mdToSafeHtml('- 普通\n- [ ] 长文字 <!--casy-task:test-id-->\n    - [x] 子项\n- [x] 已完成')
+  const rows=root.querySelectorAll('li[data-type="taskItem"]')
+  expect(rows.length).toBe(3)
+  expect(rows[0].children[0].tagName).toBe('LABEL')
+  expect(rows[0].children[1].tagName).toBe('DIV')
+  expect(rows[0].querySelector('input')?.disabled).toBe(true)
+  expect(rows[1].querySelector('input')?.checked).toBe(true)
+  expect(root.textContent).not.toContain('test-id')
+  expect(root.textContent).toContain('普通')
+ })
 })

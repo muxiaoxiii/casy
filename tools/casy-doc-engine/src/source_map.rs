@@ -41,19 +41,47 @@ fn span(
         height: p.height,
     }
 }
-pub fn build(pages: &[Page], source_sha256: &str) -> (String, SourceMap) {
-    let mut markdown = String::new();
+pub fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\"', "&quot;")
+        .replace('\n', "<br>")
+}
+pub fn tagged_region(index: usize, text: &str) -> String {
+    format!(
+        "<span data-ocr-region=\"{index}\">{}</span>",
+        escape_html(text)
+    )
+}
+/// Update only a uniquely identified source fragment; preserve table topology and other cells.
+pub fn corrected_markdown(markdown: &str, index: usize, old: &str, new: &str) -> Option<String> {
+    let tag = tagged_region(index, old);
+    (markdown.match_indices(&tag).count() == 1)
+        .then(|| markdown.replacen(&tag, &tagged_region(index, new), 1))
+}
+struct MarkdownWriter<W: std::io::Write> { writer: W, length: usize, hash: Sha256 }
+impl<W: std::io::Write> MarkdownWriter<W> {
+    fn push_str(&mut self, value: &str) -> std::io::Result<()> {
+        self.writer.write_all(value.as_bytes())?;
+        self.hash.update(value.as_bytes()); self.length += value.len(); Ok(())
+    }
+    fn len(&self) -> usize { self.length }
+}
+
+pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write) -> std::io::Result<SourceMap> {
+    let mut markdown = MarkdownWriter { writer, length: 0, hash: Sha256::new() };
     let mut text = String::new();
     let mut text_spans = Vec::new();
     let mut markdown_spans = Vec::new();
     for (i, p) in pages.iter().enumerate() {
         if i > 0 {
-            markdown.push_str("\n\n---\n\n");
+            markdown.push_str("\n\n---\n\n")?;
             text.push_str("\n");
         }
-        markdown.push_str(&format!("<!-- page {} -->\n", p.page_number));
+        markdown.push_str(&format!("<!-- page {} -->\n", p.page_number))?;
         let start = markdown.len();
-        markdown.push_str(&p.markdown);
+        markdown.push_str(&p.markdown)?;
         let region_text = p
             .regions
             .iter()
@@ -73,7 +101,28 @@ pub fn build(pages: &[Page], source_sha256: &str) -> (String, SourceMap) {
                 offset += r.text.len() + 1;
             }
         } else {
-            markdown_spans.push(span(p, start, markdown.len(), None, None));
+            let mut tagged_spans = Vec::new();
+            for (index, region) in p.regions.iter().enumerate() {
+                let tag = tagged_region(index, &region.text);
+                let matches: Vec<_> = p.markdown.match_indices(&tag).collect();
+                if matches.len() == 1 {
+                    let prefix = format!("<span data-ocr-region=\"{index}\">");
+                    let offset = start + matches[0].0 + prefix.len();
+                    tagged_spans.push(span(
+                        p,
+                        offset,
+                        offset + escape_html(&region.text).len(),
+                        Some(index),
+                        Some(region.bbox),
+                    ));
+                }
+            }
+            if tagged_spans.len() == p.regions.len() && !tagged_spans.is_empty() {
+                tagged_spans.sort_by_key(|s| s.start);
+                markdown_spans.extend(tagged_spans);
+            } else {
+                markdown_spans.push(span(p, start, markdown.len(), None, None));
+            }
         }
         if p.regions.is_empty() {
             let start = text.len();
@@ -94,13 +143,21 @@ pub fn build(pages: &[Page], source_sha256: &str) -> (String, SourceMap) {
         version: 1,
         offset_unit: "utf8-bytes".into(),
         source_sha256: source_sha256.into(),
-        markdown_sha256: hex::encode(Sha256::digest(markdown.as_bytes())),
+        markdown_sha256: hex::encode(markdown.hash.finalize()),
         text_sha256: hex::encode(Sha256::digest(text.as_bytes())),
         text,
         text_spans,
         markdown_spans,
     };
-    (markdown, map)
+    markdown.writer.flush()?;
+    Ok(map)
+}
+
+#[cfg(test)]
+pub fn build(pages: &[Page], source_sha256: &str) -> (String, SourceMap) {
+    let mut bytes = Vec::new();
+    let map = write_to(pages, source_sha256, &mut bytes).unwrap();
+    (String::from_utf8(bytes).unwrap(), map)
 }
 
 #[cfg(test)]
@@ -132,6 +189,28 @@ mod tests {
         assert_eq!(
             map.markdown_sha256,
             hex::encode(Sha256::digest(md.as_bytes()))
+        );
+    }
+    #[test]
+    fn table_markup_maps_escaped_values_and_corrections_preserve_grid() {
+        let mut p = page(1, "<0.001 & value");
+        p.markdown = format!(
+            "<table><tr><td rowspan=\"2\">{}</td></tr><tr></tr></table>",
+            tagged_region(0, &p.regions[0].text)
+        );
+        let (md, map) = build(&[p.clone()], "hash");
+        let mapped = &map.markdown_spans[0];
+        assert_eq!(&md[mapped.start..mapped.end], "&lt;0.001 &amp; value");
+        assert_eq!(mapped.region_index, Some(0));
+        let revised = corrected_markdown(&p.markdown, 0, "<0.001 & value", "<0.002").unwrap();
+        assert!(revised.contains("rowspan=\"2\""));
+        assert!(revised.contains("&lt;0.002"));
+        assert!(corrected_markdown(&revised, 0, "old text", "bad").is_none());
+        p.markdown.push_str(&tagged_region(0, &p.regions[0].text));
+        assert!(
+            build(&[p], "hash").1.markdown_spans[0]
+                .region_index
+                .is_none()
         );
     }
     #[test]

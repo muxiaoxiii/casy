@@ -11,10 +11,11 @@
  * - 案件/领域名称解析由父级注入（视图持有主数据）
  */
 import { computed } from 'vue'
+import { useLocalDay } from '../../../shared/useLocalDay'
 import {
   Check, Folder, Collection, Star, Calendar, Timer, Clock,
   Lock, More, Edit, ArrowRight, Delete, AlarmClock, RefreshLeft,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import {
   isOverdue, formatDate, getWaitingDays,
   getTaskTypeLabel, getTaskTypeColor,
@@ -76,21 +77,17 @@ const emit = defineEmits<{
 
 const done = computed(() => props.task.completed === 1)
 const dueText = computed(() => props.task.dueDate || props.task.deadline || '')
-const overdue = computed(() => !done.value && isOverdue(dueText.value))
+const overdue = computed(() => { todayStr.value; return !done.value && isOverdue(dueText.value) })
 const waitingDays = computed(() =>
-  props.task.taskType === 'waiting' ? getWaitingDays(props.task) : 0
+  (todayStr.value, props.task.taskType === 'waiting' ? getWaitingDays(props.task) : 0)
 )
 
 const focused = computed(() => props.task.isFocus === 1)
 
 /** W2：推迟中（deferUntil 晚于今天，本地日期字符串比较即可） */
-const todayStr = (() => {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-})()
+const todayStr = useLocalDay()
 const deferActive = computed(
-  () => !!props.task.deferUntil && props.task.deferUntil > todayStr
+  () => !!props.task.deferUntil && props.task.deferUntil > todayStr.value
 )
 
 function caseName(id: string | null | undefined): string {
@@ -135,7 +132,7 @@ function areaName(id: string | null | undefined): string {
     </button>
 
     <!-- 任务内容 -->
-    <div class="task-content" @click="emit('open', task)">
+    <div class="task-content" role="button" tabindex="0" :aria-label="'编辑任务：' + task.taskName" @keydown.enter.prevent="emit('open', task)" @keydown.space.prevent="emit('open', task)" @click="emit('open', task)">
       <div class="task-title">
         <span class="task-name-text" :class="{ struck: done }">{{ task.taskName }}</span>
         <el-tag
@@ -328,7 +325,7 @@ function areaName(id: string | null | undefined): string {
     opacity var(--motion-base) var(--ease-out);
 }
 .task-card:hover { box-shadow: var(--shadow-sm); border-color: var(--c-border-strong); }
-.task-card.overdue { border-left-color: var(--status-risk); background: color-mix(in srgb, var(--status-risk) 6%, var(--c-bg-card)); }
+.task-card.overdue { border-left-color: var(--status-risk); }
 .task-card.due-soon { border-left-color: var(--status-warning); }
 .task-card.flagged { background: var(--bg-warning-weak); }
 .task-card.blocked { border-left-color: var(--c-text-secondary); opacity: 0.85; }

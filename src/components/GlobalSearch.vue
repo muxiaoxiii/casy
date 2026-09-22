@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { tauriCallSafe } from '../core/tauriBridge'
 /**
  * GlobalSearch —— ⌘K 全局搜索面板（A1-6 · 对标 Linear/Raycast 命令面板）
  *
@@ -11,7 +12,7 @@
 import { ref, shallowRef, watch, nextTick, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Finished, Folder, Reading } from '@element-plus/icons-vue'
+import { Search, Finished, Folder, Reading } from '../shared/icons'
 import { casyContext } from '../core/plugin/context'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -24,6 +25,22 @@ watch(visible, v => emit('update:modelValue', v))
 
 const query = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+let returnFocus: HTMLElement | null = null
+function keepPanelFocus(event: KeyboardEvent) {
+  if (event.key !== 'Tab') return
+  const elements = [...(panelRef.value?.querySelectorAll<HTMLElement>('input, button, [tabindex="0"]') || [])]
+    .filter(element => element.tabIndex >= 0 && element.getClientRects().length)
+  const first = elements[0]
+  const last = elements[elements.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
 const listRef = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
 const semanticLoading = ref(false)
@@ -32,7 +49,7 @@ const mode = ref(localStorage.getItem('casy_global_search_mode') || 'keyword')
 
 interface ResultItem {
   key: string
-  group: '任务' | '案件' | '知识' | '项目'
+  group: '任务' | '案件' | '知识' | '项目' | '案卷'
   icon: typeof Finished
   title: string
   meta: string
@@ -47,7 +64,7 @@ const flatResults = computed(() => results.value)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let semanticTimer: ReturnType<typeof setTimeout> | null = null
 let sequence = 0
-const groupOrder = ['项目', '任务', '案件', '知识']
+const groupOrder = ['项目', '任务', '案件', '案卷', '知识']
 
 function publish(items: ResultItem[]) {
   const activeKey = flatResults.value[activeIndex.value]?.key
@@ -62,11 +79,12 @@ async function runSearch(q: string, request: number) {
     return
   }
   loading.value = true
-  const [tasksRes, casesRes, knRes, projRes] = await Promise.all([
+  const [tasksRes, casesRes, knRes, projRes, filesRes] = await Promise.all([
     casyContext.tasks.searchTasks(text),
     casyContext.cases.search(text),
     casyContext.knowledge.searchIndex(text, false),
     casyContext.projects.list(text),
+    tauriCallSafe('global_search', {query:text}),
   ])
   if (request !== sequence || !visible.value) return
   loading.value = false
@@ -110,6 +128,9 @@ async function runSearch(q: string, request: number) {
     }
   }
 
+  if(filesRes.ok && filesRes.data) {
+    for(const file of filesRes.data.filter(item=>item.itemType==='file'))out.push({key:'file-'+file.id,group:'案卷',icon:Folder,title:file.title,meta:(file.snippet || '').replace(/<[^>]+>/g,''),route:'/files/'+encodeURIComponent(file.caseId || '')+'?select='+encodeURIComponent(file.id)})
+  }
   if (projRes.ok && Array.isArray(projRes.data)) {
     for (const p of projRes.data as Array<{ id: string; name: string; kind: string; description: string | null }>) {
       // legal 项目只是案件兼容镜像；案件结果已单独出现，避免搜索重复。
@@ -172,10 +193,13 @@ watch(visible, v => {
   semanticLoading.value = false
   semanticWarning.value = ''
   if (v) {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     query.value = ''
     results.value = []
     activeIndex.value = 0
     void nextTick(() => inputRef.value?.focus())
+  } else {
+    void nextTick(() => returnFocus?.focus())
   }
 })
 onBeforeUnmount(() => { ++sequence; if (debounceTimer) clearTimeout(debounceTimer); if (semanticTimer) clearTimeout(semanticTimer) })
@@ -223,7 +247,7 @@ function onKeydown(e: KeyboardEvent) {
   <Teleport to="body">
     <Transition name="cmdk-fade">
       <div v-if="visible" class="cmdk-overlay" @mousedown.self="visible = false">
-        <div class="cmdk-panel" role="dialog" aria-label="全局搜索">
+        <div ref="panelRef" class="cmdk-panel" @keydown="keepPanelFocus" role="dialog" aria-modal="true" aria-label="全局搜索" @keydown.esc="visible = false">
           <div class="cmdk-input-row">
             <el-icon class="cmdk-search-icon"><Search /></el-icon>
             <input
@@ -251,17 +275,18 @@ function onKeydown(e: KeyboardEvent) {
           <div ref="listRef" class="cmdk-list">
             <template v-if="flatResults.length">
               <template
-                v-for="(group, gi) in ['项目', '任务', '案件', '知识']"
+                v-for="(group, gi) in ['项目', '任务', '案件', '案卷', '知识']"
                 :key="group"
               >
                 <div
                   v-if="flatResults.some(r => r.group === group)"
                   class="cmdk-group-label"
                 >
-                  {{ ['项目', '任务', '案件', '知识'][gi] }}
+                  {{ ['项目', '任务', '案件', '案卷', '知识'][gi] }}
                 </div>
                 <template v-for="r in flatResults.filter(x => x.group === group)" :key="r.key">
-                  <div
+                  <button
+                    type="button"
                     class="cmdk-item"
                     :data-active="flatResults[activeIndex]?.key === r.key"
                     @mouseenter="activeIndex = flatResults.findIndex(x => x.key === r.key)"
@@ -270,7 +295,7 @@ function onKeydown(e: KeyboardEvent) {
                     <el-icon class="cmdk-item-icon"><component :is="r.icon" /></el-icon>
                     <span class="cmdk-item-body"><span class="cmdk-item-title">{{ r.title }}</span><span class="cmdk-item-meta">{{ r.meta }}</span></span>
                     <span v-if="flatResults[activeIndex]?.key === r.key" class="cmdk-enter-hint">↵</span>
-                  </div>
+                  </button>
                 </template>
               </template>
             </template>
@@ -306,7 +331,8 @@ function onKeydown(e: KeyboardEvent) {
 
 .cmdk-panel {
   width: min(560px, calc(100vw - 48px));
-  background: #ffffff;
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border);
   border-radius: 12px;
   box-shadow:
     0 24px 64px rgba(0, 0, 0, 0.24),
@@ -331,6 +357,7 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 16px;
 }
 .cmdk-input {
+  min-width: 0;
   flex: 1;
   border: none;
   outline: none;
@@ -338,7 +365,7 @@ function onKeydown(e: KeyboardEvent) {
   color: var(--c-text);
   background: transparent;
 }
-.cmdk-input::placeholder { color: var(--gray-300); }
+.cmdk-input::placeholder { color: var(--c-text-placeholder); }
 .cmdk-esc {
   font-size: 10px;
   color: var(--c-text-secondary);
@@ -359,6 +386,11 @@ function onKeydown(e: KeyboardEvent) {
   font-weight: 600;
 }
 .cmdk-item {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  background: transparent;
+  font: inherit;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -367,7 +399,7 @@ function onKeydown(e: KeyboardEvent) {
   cursor: pointer;
 }
 .cmdk-item[data-active='true'] {
-  background: #F0F4FA;
+  background: var(--c-primary-light);
 }
 .cmdk-item-icon { color: var(--gray-500); flex-shrink: 0; }
 .cmdk-item-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
@@ -418,7 +450,7 @@ function onKeydown(e: KeyboardEvent) {
 .cmdk-footer-brand {
   margin-left: auto;
   font-weight: 600;
-  color: var(--gray-300);
+  color: var(--c-text-placeholder);
 }
 
 /* 出入场（M-UI-0 Motion Tokens） */

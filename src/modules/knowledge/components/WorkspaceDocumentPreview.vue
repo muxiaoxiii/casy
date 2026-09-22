@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, Refresh, EditPen, FolderOpened } from '@element-plus/icons-vue'
+import { Document, Refresh, EditPen, FolderOpened } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { casyContext } from '../../../core/plugin/context'
 import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'

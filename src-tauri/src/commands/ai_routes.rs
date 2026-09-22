@@ -546,3 +546,8 @@ pub async fn get_proposal_preview(proposal_id: String) -> Result<ProposalPreview
     })
     .await
 }
+
+#[tauri::command]
+pub async fn renew_ai_proposal(proposal_id:String)->Result<crate::ai::gateway::AiProposal,String>{
+    super::run_blocking(move||{let conn=db::open_db()?;crate::ai::gateway::renew_proposal(&conn,&proposal_id)}).await
+}

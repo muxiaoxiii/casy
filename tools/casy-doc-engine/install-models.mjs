@@ -11,6 +11,7 @@ const selected = process.argv[3] || 'medium'
 if (!['medium', '--dry-run'].includes(selected)) throw new Error('VL profiles are paused; use the PP-OCRv6 medium default.')
 const det = 'https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/61323801669c338b7891481ec7bac61ce31b576a/'
 const rec = 'https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/50c7eacafc52fa7bcf4194e8cd08e46f8558504b/'
+const korean = 'https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx/resolve/5c6f574b8e2230adf4287b33e736d71b9fabd28e/'
 const assets = [
   ['embedding-e5-base/model_int8.onnx', 'https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/onnx/model_int8.onnx', 'sha256', '9ddfd8b45086dabc59a7e1bb00463225dace8954962418b240840f2153bc87da', 278184162],
   ['embedding-e5-base/tokenizer.json', 'https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/tokenizer.json', 'sha256', '62c24cdc13d4c9952d63718d6c9fa4c287974249e16b7ade6d5a85e7bbb75626', 17082660],
@@ -18,10 +19,12 @@ const assets = [
   ['ppocrv6-medium/rec.onnx', rec + 'inference.onnx', 'sha256', '9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba', 76554979],
   ['ppocrv6-medium/det.yml', det + 'inference.yml', 'sha1', '1c5c05809877e4c7385f899019fff0ac9017ca80', 886],
   ['ppocrv6-medium/rec.yml', rec + 'inference.yml', 'sha1', 'c53a96fcd315a86cb4748d2746f3d90941e1c6d8', 150580],
+  ['korean-ppocrv5-mobile/rec.onnx', korean + 'inference.onnx', 'sha256', '92f0b7785e64fc9090106a241cf4c1eb97472824558272751b88a2a4476d3a08', 13418787],
+  ['korean-ppocrv5-mobile/rec.yml', korean + 'inference.yml', 'sha1', 'ba8f60f36464f8444b71301062ec6bf4f7b2d1e0', 96039],
   ['layout/pp-doclayout_plus-l.onnx', 'https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/feb74619326f634e0e883218598096a3733ad9f7/inference.onnx', 'sha256', '77afb2caa74dd13240d087d2eced91d7fcd2caebd16006a0a66162fc8707ff0e', 129736329],
   ['layout/inference.yml', 'https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/feb74619326f634e0e883218598096a3733ad9f7/inference.yml', 'sha1', '9a236587eae068a1e7906fd158f712dc41400563', 1838],
 ]
-console.log('OCR, layout and multilingual E5 embedding assets: ' + assets.reduce((sum, asset) => sum + asset[4], 0) + ' bytes. Licenses: Apache-2.0 (Paddle), MIT (E5).')
+console.log('OCR (including Korean), layout and multilingual E5 embedding assets: ' + assets.reduce((sum, asset) => sum + asset[4], 0) + ' bytes. Licenses: Apache-2.0 (Paddle), MIT (E5).')
 if (selected === '--dry-run') process.exit(0)
 
 async function verified(path, algorithm, expected, size) {

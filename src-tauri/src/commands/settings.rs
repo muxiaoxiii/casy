@@ -18,7 +18,13 @@ pub async fn get_settings() -> Result<HashMap<String, serde_json::Value>, String
         let mut map = HashMap::new();
         for row in rows {
             let (key, value_str) = row?;
-            if key == "ai_api_key" || key == "ai_profiles_v1" {
+            if key == "ai_api_key" || key == "ai_profiles_v1" || key == "mcp_auth_token" {
+                continue;
+            }
+            if crate::credentials::settings_secret_type(&key).is_some() {
+                map.insert(format!("{key}_configured"), (!value_str.is_empty()).into());
+                map.insert(format!("{key}_needs_migration"), (!value_str.is_empty() && !value_str.starts_with("keychain:v1:")).into());
+                map.insert(key, "".into());
                 continue;
             }
             // 尝试解析为 JSON，失败则存为字符串
@@ -36,15 +42,25 @@ pub async fn get_settings() -> Result<HashMap<String, serde_json::Value>, String
 #[tauri::command]
 pub async fn save_settings(settings: HashMap<String, serde_json::Value>) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let connection = db::open_db()?;
+        let conn = connection.unchecked_transaction()?;
         for (key, value) in &settings {
-            if key.starts_with("ai_") || key == "caseFolderBase" {
+            if key.starts_with("ai_") || key == "caseFolderBase" || key.ends_with("_configured") || key.ends_with("_needs_migration") {
                 continue;
             }
             if key == "workspace_sync" { serde_json::from_value::<crate::workspace_sync::Options>(value.clone())?; }
             if key == "quote_sources" {
                 let names = value.as_array().filter(|v|v.len()==4).ok_or_else(||anyhow::anyhow!("引用来源须为四项"))?;
                 if names.iter().any(|v|v.as_str().is_none_or(|s|s.chars().count()>24)) { anyhow::bail!("引用来源名称过长或格式错误"); }
+            }
+            if crate::credentials::settings_secret_type(key).is_some() {
+                // null explicitly clears; empty password inputs preserve (and migrate) the existing value.
+                let previous=db::get_setting(&conn,key)?.unwrap_or_default();
+                let candidate=if value.is_null() { "" } else { value.as_str().filter(|s|!s.is_empty()).unwrap_or(&previous) };
+                anyhow::ensure!(!value.as_str().is_some_and(|s|s.starts_with("keychain:v1:")), "不能从前端设置凭据引用");
+                let secure=crate::credentials::secure_settings_secret(key,candidate)?;
+                db::set_setting(&conn,key,&secure)?;
+                continue;
             }
             let value_str = match value {
                 serde_json::Value::String(s) => s.clone(),
@@ -56,6 +72,7 @@ pub async fn save_settings(settings: HashMap<String, serde_json::Value>) -> Resu
                 rusqlite::params![key, value_str],
             )?;
         }
+        conn.commit()?;
         Ok(())
     })
     .await
@@ -514,4 +531,9 @@ mod lawyer_profile_tests {
         assert!(store_lawyer_profile(&conn, &serde_json::json!("str")).is_err());
         assert!(store_lawyer_profile(&conn, &serde_json::json!(42)).is_err());
     }
+}
+
+#[tauri::command]
+pub async fn backup_database_key_to_keychain() -> Result<(), String> {
+    run_blocking(crate::db::backup_database_key_to_keychain).await
 }

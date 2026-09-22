@@ -1,6 +1,7 @@
 pub mod ai;
 mod app_log;
 pub mod background_jobs;
+pub mod processing;
 pub mod commands;
 mod credentials;
 pub mod db;
@@ -14,7 +15,7 @@ mod formula;
 mod mcp;
 mod parse;
 mod runtime_paths;
-mod sync;
+pub mod sync;
 mod tray;
 pub mod types;
 mod watcher;
@@ -167,9 +168,11 @@ pub fn run() {
             // 不再用 std::mem::forget 泄漏。
             match watcher::start_inbox_watcher() {
                 Ok(watcher) => {
+                    processing::service("inbox","收件箱目录监听","waiting","等待新文件",None);
                     app.manage(watcher::InboxWatcherState::new(watcher));
                 }
                 Err(e) => {
+                    processing::service("inbox","收件箱目录监听","failed","启动失败",Some(&e.to_string()));
                     log::warn!("收件箱文件夹监听启动失败: {}", e);
                 }
             }
@@ -185,35 +188,17 @@ pub fn run() {
                 if mcp_enabled {
                     tauri::async_runtime::spawn(async {
                         if let Err(e) = mcp::server::run().await {
+                            processing::service("mcp","本地 MCP 服务","failed","启动失败",Some(&e.to_string()));
                             log::error!("MCP server 未启动: {}", e);
                         }
                     });
                 } else {
+                    processing::service("mcp","本地 MCP 服务","disabled","设置已禁用",None);
                     log::info!("MCP server 已禁用（settings.mcp_server_enabled=false）");
                 }
             }
 
-            // IMAP 凭据迁移：base64 → OS keychain（best-effort，失败只记日志）
-            tauri::async_runtime::spawn(async {
-                let result = tauri::async_runtime::spawn_blocking(
-                    credentials::migrate_imap_passwords_to_keychain,
-                )
-                .await;
-                match result {
-                    Ok(Ok(r)) => {
-                        if r.migrated > 0 || r.failed > 0 {
-                            log::info!(
-                                "IMAP 凭据迁移完成：迁移 {}，跳过 {}，失败 {}",
-                                r.migrated,
-                                r.skipped,
-                                r.failed
-                            );
-                        }
-                    }
-                    Ok(Err(e)) => log::warn!("IMAP 凭据迁移失败: {}", e),
-                    Err(e) => log::warn!("IMAP 凭据迁移任务异常: {}", e),
-                }
-            });
+            // Credential migration is an explicit settings action, never a startup task.
 
             // 恢复飞书自动推送状态并启动后台 watcher
             {
@@ -324,10 +309,14 @@ async fn deadline_recalc_scheduler() {
             now + chrono::Duration::from_std(wait_duration).unwrap_or_default()
         );
 
+        processing::service("deadlines","每日期限重算","waiting",&format!("下次检查：{}",now + chrono::Duration::from_std(wait_duration).unwrap_or_default()),None);
         sleep(wait_duration).await;
 
         // 执行期限重算
-        match recalc_all_deadlines() {
+        let activity=processing::Activity::start("scheduled","每日期限重算");
+        let result=recalc_all_deadlines();
+        activity.finish(&result);
+        match result {
             Ok(count) => {
                 log::info!("每日期限重算完成，处理 {} 个案件", count);
             }
@@ -431,7 +420,9 @@ async fn daily_brief_scheduler() {
     loop {
         let wait = next_trigger_delay(None, 8, 0);
         log::info!("每日早报定时器已启动，下次运行: {:?}", wait);
+        processing::service("daily","每日早报","waiting",&format!("下次检查：{}",chrono::Local::now() + chrono::Duration::from_std(wait).unwrap_or_default()),None);
         sleep(wait).await;
+        let activity=processing::Activity::start("scheduled","每日早报");
 
         // 先规则版落库（确定性数据一定在），再尝试叙事层覆盖 content（§11.3 / §12.5）
         let result = db::open_db().and_then(|conn| {
@@ -439,15 +430,18 @@ async fn daily_brief_scheduler() {
             ai::reports::generate_daily_brief(&conn, &today)
         });
 
+        let mut activity_error=result.as_ref().err().map(ToString::to_string);
         match result {
             Ok(_) => {
                 log::info!("每日早报自动生成完成");
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                let _ = ai::reports::try_narrative_layer("daily", &today, "daily_brief_narrative")
+                let narrative = ai::reports::try_narrative_layer("daily", &today, "daily_brief_narrative")
                     .await;
+                if let Err(e)=narrative { activity_error=Some(e.to_string()); }
             }
             Err(e) => log::error!("每日早报自动生成失败: {}", e),
         }
+        activity.finish(&activity_error.map_or(Ok(()),Err));
     }
 }
 
@@ -458,23 +452,28 @@ async fn weekly_report_scheduler() {
     loop {
         let wait = next_trigger_delay(Some(chrono::Weekday::Sun), 21, 0);
         log::info!("每周总结定时器已启动，下次运行: {:?}", wait);
+        processing::service("weekly","每周总结","waiting",&format!("下次检查：{}",chrono::Local::now() + chrono::Duration::from_std(wait).unwrap_or_default()),None);
         sleep(wait).await;
+        let activity=processing::Activity::start("scheduled","每周总结");
 
         let result = db::open_db().and_then(|conn| ai::reports::generate_weekly_summary(&conn));
 
+        let mut activity_error=result.as_ref().err().map(ToString::to_string);
         match result {
             Ok(summary) => {
                 log::info!("每周总结自动生成完成");
                 // 先规则版落库，再尝试叙事层覆盖（§11.3 / §12.5）
-                let _ = ai::reports::try_narrative_layer(
+                let narrative = ai::reports::try_narrative_layer(
                     "weekly",
                     &summary.week_start,
                     "weekly_brief_narrative",
                 )
                 .await;
+                if let Err(e)=narrative { activity_error=Some(e.to_string()); }
             }
             Err(e) => log::error!("每周总结自动生成失败: {}", e),
         }
+        activity.finish(&activity_error.map_or(Ok(()),Err));
     }
 }
 
@@ -486,11 +485,14 @@ async fn decision_review_scheduler() {
     loop {
         let wait = next_trigger_delay(None, 8, 30);
         log::info!("决策复核定时器已启动，下次运行: {:?}", wait);
+        processing::service("decisions","决策复核","waiting",&format!("下次检查：{}",chrono::Local::now() + chrono::Duration::from_std(wait).unwrap_or_default()),None);
         sleep(wait).await;
+        let activity=processing::Activity::start("scheduled","决策复核");
 
         let result =
             db::open_db().and_then(|conn| commands::decisions::pending_decision_reviews(&conn));
 
+        activity.finish(&result);
         match result {
             Ok(pending) if !pending.is_empty() => {
                 log::info!("有 {} 条决策到期待复核", pending.len());
@@ -519,10 +521,13 @@ async fn distillation_scheduler() {
     loop {
         let wait = next_trigger_delay(Some(chrono::Weekday::Sun), 23, 0);
         log::info!("数据蒸馏定时器已启动，下次运行: {:?}", wait);
+        processing::service("distillation","数据蒸馏","waiting",&format!("下次检查：{}",chrono::Local::now() + chrono::Duration::from_std(wait).unwrap_or_default()),None);
         sleep(wait).await;
+        let activity=processing::Activity::start("scheduled","数据蒸馏");
 
         let result = db::open_db().and_then(|conn| ai::distillation::run_distillation(&conn));
 
+        activity.finish(&result);
         match result {
             Ok(r) => log::info!(
                 "数据蒸馏完成：清理 {} 条，新增候选 {} 条，合并 {} 条，陈旧 {} 条，归档 {} 条",
@@ -545,7 +550,9 @@ async fn insights_scheduler() {
     loop {
         let wait = next_trigger_delay(Some(chrono::Weekday::Sat), 22, 0);
         log::info!("隐性关联学习定时器已启动，下次运行: {:?}", wait);
+        processing::service("insights","关联洞察","waiting",&format!("下次检查：{}",chrono::Local::now() + chrono::Duration::from_std(wait).unwrap_or_default()),None);
         sleep(wait).await;
+        let activity=processing::Activity::start("scheduled","关联洞察");
 
         // generate_relation_insights 内部会起独立 runtime 调 async AI，
         // 必须放到阻塞线程执行（照 inbox.rs 的 Runtime::new().block_on 模式）
@@ -554,10 +561,11 @@ async fn insights_scheduler() {
         })
         .await;
 
+        let result=result.map_err(|e|anyhow::anyhow!(e)).and_then(|r|r);
+        activity.finish(&result);
         match result {
-            Ok(Ok(n)) => log::info!("隐性关联学习完成：新增洞察 {} 条", n),
-            Ok(Err(e)) => log::error!("隐性关联学习失败: {}", e),
-            Err(e) => log::error!("隐性关联学习任务异常: {}", e),
+            Ok(n) => log::info!("隐性关联学习完成：新增洞察 {} 条", n),
+            Err(e) => log::error!("隐性关联学习失败: {}", e),
         }
     }
 }

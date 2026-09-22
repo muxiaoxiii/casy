@@ -347,8 +347,9 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
             }
         };
 
-        // 更新收件项
-        conn.execute(
+        // 更新收件项 + 自动路由必须同事务，避免“已处理”却未落地副作用。
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
             "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2,
              ai_extracted = ?3, ai_suggested_case_id = ?4, status = 'pending', processed_at = ?5
              WHERE id = ?6",
@@ -364,7 +365,7 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
 
         // ── 自动路由：根据分类执行后续动作 ──────────────────────
         let route_actions = execute_auto_routes(
-            &conn,
+            &tx,
             &id,
             &category,
             confidence,
@@ -372,9 +373,9 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
             suggested_case_id.as_deref(),
             &content_text,
         );
-        if let Err(e) = &route_actions {
-            log::warn!("自动路由部分失败: {}", e);
-        }
+        // 路由失败回滚收件项更新；分类结果仍返回给 UI 供人工确认。
+        let actions = route_actions.unwrap_or_default();
+        tx.commit()?;
 
         Ok(ProcessedInboxResult {
             category,
@@ -382,7 +383,7 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
             suggested_case_id,
             case_no,
             extracted,
-            route_actions: route_actions.unwrap_or_default(),
+            route_actions: actions,
         })
     })
     .await
@@ -834,13 +835,14 @@ fn auto_create_hearing_tasks(
             .map(|d| d.format("%Y-%m-%d").to_string());
 
         let task_id = db::new_id();
-        let _ = conn.execute(
-            "INSERT INTO tasks (id, case_id, title, description, priority, deadline, completed, created_at)
-             VALUES (?1, ?2, ?3, ?4, 'important', ?5, 0, ?6)",
+        conn.execute(
+            "INSERT INTO tasks (id, case_id, task_name, description, priority, deadline, completed, created_date, created_at)
+             VALUES (?1, ?2, ?3, ?4, 'important', ?5, 0, ?6, ?6)",
             rusqlite::params![
                 task_id, case_id, title, desc, deadline, today.format("%Y-%m-%d").to_string(),
             ],
-        );
+        )
+        .map_err(|e| format!("创建庭审准备任务失败: {e}"))?;
         count += 1;
     }
 
@@ -997,7 +999,7 @@ pub async fn file_inbox_item(
             "SELECT status,linked_case_id,filed_as FROM inbox_items WHERE id=?1", [&item_id],
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
         if status == "filed" {
-            anyhow::ensure!(previous_case.as_deref() == Some(&case_id) && previous_category.as_deref().map(normalize_case_file_category) == Some(category), "此收件项已经处理");
+            anyhow::ensure!(previous_case.as_deref() == Some(case_id.as_str()) && previous_category.as_deref().map(normalize_case_file_category) == Some(category), "此收件项已经处理");
             return Ok(());
         }
         anyhow::ensure!(!matches!(status.as_str(), "ignored" | "dismissed"), "此收件项已忽略，请先恢复后再归档");
@@ -1281,7 +1283,7 @@ pub async fn quick_judge_inbox_item(id: String) -> Result<QuickJudgeResult, Stri
 
         // 有源文件 → 文件归档意图；纯文本 → 文本意图判断（设计哲学 §10）
         let mut result = if source_path.is_some() {
-            let file_name = title.as_deref().unwrap_or("");
+            let file_name = source_path.as_deref().and_then(|p|std::path::Path::new(p).file_name()).and_then(|p|p.to_str()).unwrap_or_else(||title.as_deref().unwrap_or(""));
             let file_size: u64 = source_path
                 .as_ref()
                 .and_then(|p| std::fs::metadata(p).ok())
@@ -2024,7 +2026,7 @@ fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::N
             if let (Ok(m), Ok(d)) = (caps[1].parse::<u32>(), caps[2].parse::<u32>()) {
                 if (1..=12).contains(&m) && (1..=31).contains(&d) {
                     if let Some(dt) = chrono::NaiveDate::from_ymd_opt(today.year(), m, d) {
-                        if dt >= today {
+                        if dt >= today || ["收到", "收悉", "已送达", "已接收", "已于"].iter().any(|word| text.contains(word)) {
                             return Some(dt);
                         } else if let Some(next_year_dt) =
                             chrono::NaiveDate::from_ymd_opt(today.year() + 1, m, d)
@@ -2045,7 +2047,7 @@ fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::N
             if let (Some(m), Some(d)) = (parse_zh_num(&caps[1]), parse_zh_num(&caps[2])) {
                 if (1..=12).contains(&m) && (1..=31).contains(&d) {
                     if let Some(dt) = chrono::NaiveDate::from_ymd_opt(today.year(), m, d) {
-                        if dt >= today {
+                        if dt >= today || ["收到", "收悉", "已送达", "已接收", "已于"].iter().any(|word| text.contains(word)) {
                             return Some(dt);
                         } else if let Some(next_year_dt) =
                             chrono::NaiveDate::from_ymd_opt(today.year() + 1, m, d)
@@ -2063,8 +2065,10 @@ fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::N
 
 /// 从文本提取完整自然语言日期与时间（支持所有相对日期、中文表达、周期、年月日及 N 天/周/月/年后）
 fn extract_date_hint(text: &str) -> Option<String> {
-    let today = chrono::Local::now().date_naive();
+    extract_date_hint_at(text, chrono::Local::now().date_naive())
+}
 
+fn extract_date_hint_at(text: &str, today: chrono::NaiveDate) -> Option<String> {
     // 1. 优先绝对日期
     if let Some(d) = parse_absolute_date(text, today) {
         return Some(d.format("%Y-%m-%d").to_string());
@@ -2314,7 +2318,10 @@ pub async fn capture_screenshot() -> Result<String, String> {
 /// 捕获剪贴板内容到收件箱（占位）
 #[tauri::command]
 pub async fn capture_clipboard() -> Result<String, String> {
-    Err("剪贴板捕获功能开发中，敬请期待".into())
+    let text=run_blocking(||Ok(arboard::Clipboard::new()?.get_text()?)).await?;
+    if text.trim().is_empty(){return Err("剪贴板没有可保存的文字".into());}
+    if text.len()>4*1024*1024{return Err("剪贴板文字超过 4 MiB".into());}
+    add_inbox_item("paste".into(),None,Some(text),None).await
 }
 
 /// 启动剪贴板监听（占位）
@@ -2323,13 +2330,25 @@ pub async fn start_clipboard_monitor() -> Result<(), String> {
     Err("剪贴板监听功能开发中，敬请期待".into())
 }
 
-/// 保存语音速记（占位）
+/// Save a recording before reporting success; transcription is a separate explicit capability.
 #[tauri::command]
-pub async fn save_voice_note(
-    _audio_data: Vec<u8>,
-    _duration_seconds: i32,
-) -> Result<String, String> {
-    Err("语音速记功能开发中，敬请期待".into())
+pub async fn save_voice_note(audio_base64: String, mime_type: String, duration_seconds: i32) -> Result<String,String> {
+    run_blocking(move||{
+        use base64::Engine;
+        use std::io::Write;
+        anyhow::ensure!(!audio_base64.is_empty() && audio_base64.len()<=28*1024*1024,"录音为空或超过 20 MiB");
+        anyhow::ensure!((0..=3600).contains(&duration_seconds),"录音时长无效");
+        let ext=match mime_type.split(';').next().unwrap_or(""){"audio/webm"=>"webm","audio/ogg"=>"ogg","audio/mp4"=>"m4a","audio/wav"=>"wav",_=>anyhow::bail!("不支持的录音格式")};
+        let bytes=base64::engine::general_purpose::STANDARD.decode(audio_base64)?;
+        anyhow::ensure!(!bytes.is_empty() && bytes.len()<=20*1024*1024,"录音为空或超过 20 MiB");
+        let directory=crate::runtime_paths::documents_root().join("inbox");std::fs::create_dir_all(&directory)?;
+        let owned=tempfile::Builder::new().prefix("voice-").tempdir_in(directory)?;
+        let path=owned.path().join(format!("录音.{ext}"));let mut file=std::fs::File::create(&path)?;file.write_all(&bytes)?;file.sync_all()?;
+        let conn=db::open_db()?;
+        conn.execute("INSERT INTO inbox_items(id,source_type,title,content_text,source_path,status,created_at) VALUES(?1,'note',?2,?3,?4,'pending',?5)",rusqlite::params![db::new_id(),format!("语音速记 · {}",db::now_local()),format!("录音 {duration_seconds} 秒；音频原件已保存，尚未转写。"),path.to_string_lossy(),db::now_local()])?;
+        let _ = owned.keep();
+        Ok(path.to_string_lossy().into_owned())
+    }).await
 }
 
 /// 语音转写（占位）
@@ -2590,8 +2609,9 @@ mod tests {
 
     #[test]
     fn test_all_natural_language_dates_recognition() {
-        use chrono::{Datelike, Duration, Local};
-        let today = Local::now().date_naive();
+        use chrono::{Datelike, Duration};
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let extract_date_hint = |text| super::extract_date_hint_at(text, today);
 
         // 1. 相对今天/明天/后天/大后天
         assert_eq!(

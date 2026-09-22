@@ -41,15 +41,15 @@ export class KnowledgeService extends Service {
   }
 
   async create(data: Partial<CreateKnowledgeInput>): Promise<{ ok: boolean; data?: string; error?: string }> {
-    return tauriCallSafe('create_knowledge', { data })
+    return this.mutation('knowledge', tauriCallSafe('create_knowledge', { data }))
   }
 
   async update(id: string, data: KnowledgePatchInput): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('update_knowledge', { id, data })
+    return this.mutation('knowledge', tauriCallSafe('update_knowledge', { id, data }))
   }
 
   async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('delete_knowledge', { id })
+    return this.mutation('knowledge', tauriCallSafe('delete_knowledge', { id }))
   }
 
   /** 获取条目及其块树（§8.2 块级引用；后端 get_knowledge_with_blocks 返回 { item, blocks }） */
@@ -73,7 +73,7 @@ export class KnowledgeService extends Service {
   }
 
   async restoreVersion(itemId: string, versionId: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('restore_knowledge_version', { itemId, versionId })
+    return this.mutation('knowledge', tauriCallSafe('restore_knowledge_version', { itemId, versionId }))
   }
 
   async documentSources(): Promise<{ ok: boolean; data?: KnowledgeDocumentSourceDto[]; error?: string }> {
@@ -81,7 +81,7 @@ export class KnowledgeService extends Service {
   }
 
   async importPageIndex(fileId: string): Promise<{ ok: boolean; data?: PageIndexImportResultDto; error?: string }> {
-    return tauriCallSafe('import_pageindex_to_knowledge', { fileId })
+    return this.mutation('knowledge', tauriCallSafe('import_pageindex_to_knowledge', { fileId }))
   }
 
   /** 导出单篇 Markdown；调用前必须先保存当前编辑态。 */

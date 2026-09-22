@@ -3,6 +3,7 @@
  * 截屏、剪贴板、语音速记
  */
 import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 
 export function useCapture() {
@@ -18,6 +19,7 @@ export function useCapture() {
       lastCapture.value = result.data ?? null
       return result.data
     }
+    ElMessage.error(result.error || '捕获失败，内容尚未存入收件箱')
     return null
   }
 
@@ -30,6 +32,7 @@ export function useCapture() {
       lastCapture.value = result.data ?? null
       return result.data
     }
+    ElMessage.error(result.error || '捕获失败，内容尚未存入收件箱')
     return null
   }
 

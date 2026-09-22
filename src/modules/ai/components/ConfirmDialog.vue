@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CircleCheck, CircleClose, Warning } from '@element-plus/icons-vue'
+import { CircleCheck, CircleClose, Warning } from '../../../shared/icons'
 
 const props = defineProps({
   visible: {

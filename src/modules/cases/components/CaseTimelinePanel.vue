@@ -53,7 +53,7 @@ function formatMonthLabel(ym) {
             <div class="timeline-header">
               <span class="timeline-date">{{ event.eventDate }}</span>
               <span class="timeline-title">{{ event.title }}</span>
-              <el-button size="small" text type="danger" @click="emit('deleteLog', event.id)">×</el-button>
+              <el-button v-if="event.sourceTable==='case_logs'" size="small" text type="danger" @click="emit('deleteLog', event.sourceId)">×</el-button>
             </div>
             <div v-if="event.detail" class="timeline-detail">{{ event.detail }}</div>
           </div>

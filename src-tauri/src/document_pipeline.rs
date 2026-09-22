@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use DocumentPage as Page;
 #[path = "../../tools/casy-doc-engine/src/source_map.rs"]
-mod source_map;
+pub(crate) mod source_map;
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +16,9 @@ pub struct DocumentEngineStatus {
     pub version: Option<String>,
     pub renderer_available: bool,
     pub coordinate_model_available: bool,
+    #[serde(default)]
+    pub korean_model_available: bool,
+    pub layout_model_available: bool,
     pub ovis_model_available: bool,
     pub searchable_pdf_available: bool,
     pub missing: Vec<String>,
@@ -30,6 +33,15 @@ pub struct DocumentRegion {
     pub confidence: Option<f32>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DocumentPageTiming {
+    pub render_ms: u64,
+    pub ocr_ms: u64,
+    pub layout_ms: u64,
+    pub total_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentPage {
@@ -41,6 +53,10 @@ pub struct DocumentPage {
     #[serde(default)]
     pub regions: Vec<DocumentRegion>,
     pub confidence: Option<f32>,
+    #[serde(default)]
+    pub layout: Option<serde_json::Value>,
+    #[serde(default)]
+    pub timing: Option<DocumentPageTiming>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,17 +84,40 @@ pub struct ProcessResult {
     #[serde(default)]
     pub source_map_path: Option<String>,
     pub pages: Vec<DocumentPage>,
+    #[serde(default)]
+    pub elapsed_ms: u64,
 }
 
 pub fn emit_conversion_progress(job_id: &str, source_path: &str, phase: &str, current: u32, total: u32, elapsed: f64) {
+    emit_progress_snapshot(job_id, source_path, phase, current, total, elapsed, None, None, true)
+}
+
+fn emit_progress_snapshot(
+    job_id: &str,
+    source_path: &str,
+    phase: &str,
+    current: u32,
+    total: u32,
+    elapsed: f64,
+    remaining: Option<f64>,
+    page_timing: Option<&serde_json::Value>,
+    persist_activity: bool,
+) {
     use tauri::Emitter;
-    let remaining = (current > 0 && current < total)
-        .then(|| elapsed / current as f64 * (total - current) as f64);
+    let remaining = remaining.or_else(|| (current > 0 && current < total)
+        .then(|| elapsed / current as f64 * (total - current) as f64));
     if let Some(app) = crate::get_app_handle() {
+        if persist_activity {
+            crate::processing::progress(
+                job_id, phase, current, total, (elapsed * 1000.0) as u64,
+                remaining.map(|value| (value * 1000.0) as u64), page_timing,
+            );
+        }
         let _ = app.emit("document-conversion-progress", serde_json::json!({
             "jobId": job_id, "sourcePath": source_path, "phase": phase,
             "currentPage": current, "totalPages": total,
             "elapsedSeconds": elapsed, "remainingSeconds": remaining,
+            "pageTiming": page_timing,
         }));
     }
 }
@@ -124,6 +163,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
                 version: None,
                 renderer_available: false,
                 coordinate_model_available: false,
+                korean_model_available: false,
+                layout_model_available: false,
                 ovis_model_available: false,
                 searchable_pdf_available: false,
                 missing: vec!["casy-doc-engine".into()],
@@ -153,6 +194,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
                 version: None,
                 renderer_available: false,
                 coordinate_model_available: false,
+                korean_model_available: false,
+                layout_model_available: false,
                 ovis_model_available: false,
                 searchable_pdf_available: false,
                 missing: vec![],
@@ -164,6 +207,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
             version: None,
             renderer_available: false,
             coordinate_model_available: false,
+            korean_model_available: false,
+            layout_model_available: false,
             ovis_model_available: false,
             searchable_pdf_available: false,
             missing: vec![],
@@ -175,6 +220,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
             version: None,
             renderer_available: false,
             coordinate_model_available: false,
+            korean_model_available: false,
+            layout_model_available: false,
             ovis_model_available: false,
             searchable_pdf_available: false,
             missing: vec![],
@@ -217,15 +264,16 @@ pub async fn run_engine(request: ProcessRequest) -> Result<ProcessResult> {
 }
 
 /// Standalone conversion has no document_processing_jobs row or database cancellation owner.
-pub async fn run_standalone_engine(mut request: ProcessRequest) -> Result<ProcessResult> {
-    request.markdown_only = true;
+pub async fn run_standalone_engine(request: ProcessRequest) -> Result<ProcessResult> {
     run_processing(request, false).await
 }
 
 async fn run_processing(request: ProcessRequest, tracked: bool) -> Result<ProcessResult> {
     if crate::parse::text_document::supports(Path::new(&request.source_path)) {
         return tokio::task::spawn_blocking(move || {
-            let result = crate::parse::text_document::process(&request)?;
+            let started = std::time::Instant::now();
+            let mut result = crate::parse::text_document::process(&request)?;
+            result.elapsed_ms = started.elapsed().as_millis() as u64;
             validate_result(&request, &result)?;
             Ok(result)
         })
@@ -276,7 +324,7 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
     let wait = async {
         let (status, stdout, stderr) = tokio::try_join!(
             async { child.wait().await.map_err(anyhow::Error::from) },
-            read_bounded(stdout, 128 * 1024 * 1024),
+            spool_engine_output(stdout),
             read_bounded(stderr, 1024 * 1024),
         )?;
         Ok::<_, anyhow::Error>((status, stdout, stderr))
@@ -286,10 +334,12 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
     let started = std::time::Instant::now();
     let mut last_progress = std::time::Instant::now();
     let mut current_page = 0;
+    let mut current_phase = String::new();
     let output = loop {
         tokio::select! {
             result = &mut wait => break result?,
             _ = interval.tick() => {
+                if !tracked { crate::processing::check_conversion_cancelled(&request.job_id)?; }
                 let conn = if tracked {
                     let conn = crate::db::open_db()?;
                     check_job_running(&conn, &request.job_id)?;
@@ -303,18 +353,19 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
                             tracing::info!(job_id = %request.job_id, current_page, total_pages = progress.total_pages, "Document engine progress");
                         }
                         if progress.total_pages > 0 && progress.current_page <= progress.total_pages {
-                            if !tracked {
-                                let phase = if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" };
-                                emit_conversion_progress(&request.job_id, &request.source_path, phase, progress.current_page, progress.total_pages, started.elapsed().as_secs_f64());
-                            }
-                            if let Some(conn) = &conn { conn.execute("UPDATE document_processing_jobs SET current_page=?1,total_pages=?2,progress=?3,updated_at=datetime('now','localtime') WHERE id=?4 AND status='running'",
-                                rusqlite::params![progress.current_page,progress.total_pages,0.01 + 0.94 * progress.current_page as f64 / progress.total_pages as f64,request.job_id])?;
+                            let phase = progress.phase.as_deref().unwrap_or_else(|| if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" });
+                            if current_phase != phase { current_phase = phase.to_string(); last_progress = std::time::Instant::now(); }
+                            let elapsed = if progress.elapsed_ms > 0 { progress.elapsed_ms as f64 / 1000.0 } else { started.elapsed().as_secs_f64() };
+                            let remaining = progress.remaining_ms.map(|value| value as f64 / 1000.0);
+                            emit_progress_snapshot(&request.job_id, &request.source_path, phase, progress.current_page, progress.total_pages, elapsed, remaining, progress.page_timing.as_ref(), !tracked);
+                            if let Some(conn) = &conn { conn.execute("UPDATE document_processing_jobs SET phase=?1,current_page=?2,total_pages=?3,progress=?4,elapsed_ms=?5,remaining_ms=?6,timing_json=COALESCE(?7,timing_json),updated_at=datetime('now','localtime') WHERE id=?8 AND status='running'",
+                                rusqlite::params![phase,progress.current_page,progress.total_pages,0.01 + 0.94 * progress.current_page as f64 / progress.total_pages as f64,progress.elapsed_ms,progress.remaining_ms,progress.page_timing.as_ref().map(serde_json::to_string).transpose()?,request.job_id])?;
                             }
                         }
                     }
                 }
                 if last_progress.elapsed() > std::time::Duration::from_secs(900) {
-                    return Err(anyhow!("DOC_ENGINE_TIMEOUT: 单页处理超过 15 分钟，已终止任务"));
+                    return Err(anyhow!("DOC_ENGINE_TIMEOUT: 当前阶段超过 15 分钟没有页数或阶段进展，已终止任务"));
                 }
             }
         }
@@ -326,10 +377,24 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
             String::from_utf8_lossy(&output.2).trim()
         ));
     }
-    let result: ProcessResult =
-        serde_json::from_slice(&output.1).context("文档引擎结果不是有效 JSON")?;
-    validate_result(&request, &result)?;
-    Ok(result)
+    tokio::task::spawn_blocking(move || {
+        let result: ProcessResult = serde_json::from_reader(std::io::BufReader::new(output.1.reopen()?))
+            .context("文档引擎结果不是有效 JSON")?;
+        validate_result(&request, &result)?;
+        Ok(result)
+    }).await?
+}
+
+/// Drain stdout incrementally so large documents do not require a second, contiguous
+/// JSON buffer or an arbitrary transport byte limit. Cancellation drops the temp file.
+async fn spool_engine_output(reader: impl tokio::io::AsyncRead + Unpin) -> Result<tempfile::NamedTempFile> {
+    use tokio::io::AsyncWriteExt;
+    let file = tempfile::NamedTempFile::new().context("无法创建 OCR 结果临时文件")?;
+    let mut reader = tokio::io::BufReader::with_capacity(256 * 1024, reader);
+    let mut writer = tokio::fs::File::from_std(file.reopen()?);
+    tokio::io::copy_buf(&mut reader, &mut writer).await.context("无法保存 OCR 结果，请检查磁盘空间")?;
+    writer.flush().await?;
+    Ok(file)
 }
 
 fn check_job_running(conn: &rusqlite::Connection, job_id: &str) -> Result<()> {
@@ -366,8 +431,16 @@ async fn read_bounded(reader: impl tokio::io::AsyncRead + Unpin, limit: usize) -
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EngineProgress {
+    #[serde(default)]
+    phase: Option<String>,
     current_page: u32,
     total_pages: u32,
+    #[serde(default)]
+    elapsed_ms: u64,
+    #[serde(default)]
+    remaining_ms: Option<u64>,
+    #[serde(default)]
+    page_timing: Option<serde_json::Value>,
 }
 
 pub fn supports_path(path: &Path) -> bool {
@@ -439,35 +512,52 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
                 return Err(anyhow!("INVALID_PAGE_IR: 文字区域坐标或置信度无效"));
             }
         }
+        if let Some(timing) = &page.timing {
+            if timing.total_ms < timing.render_ms
+                || timing.total_ms < timing.ocr_ms
+                || timing.total_ms < timing.layout_ms
+            {
+                return Err(anyhow!("INVALID_PAGE_IR: 页面耗时明细无效"));
+            }
+        }
+        if let Some(layout) = &page.layout {
+            let blocks = layout.get("blocks").and_then(serde_json::Value::as_array)
+                .ok_or_else(|| anyhow!("INVALID_PAGE_IR: Paddle 版面块缺失"))?;
+            for (order, block) in blocks.iter().enumerate() {
+                let bbox = block.get("bbox").and_then(serde_json::Value::as_array)
+                    .filter(|bbox| bbox.len() == 4)
+                    .ok_or_else(|| anyhow!("INVALID_PAGE_IR: 版面块坐标无效"))?;
+                let coords = bbox.iter().map(|value| value.as_f64()).collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| anyhow!("INVALID_PAGE_IR: 版面块坐标无效"))?;
+                if !coords.iter().all(|value| value.is_finite())
+                    || coords[0] < 0.0 || coords[1] < 0.0
+                    || coords[2] < coords[0] || coords[3] < coords[1]
+                    || coords[2] > w as f64 + 1.0 || coords[3] > h as f64 + 1.0
+                    || block.get("readingOrder").and_then(serde_json::Value::as_u64) != Some(order as u64)
+                {
+                    return Err(anyhow!("INVALID_PAGE_IR: 版面块顺序或边界无效"));
+                }
+            }
+        }
     }
-    let disk_pages: Vec<DocumentPage> =
-        serde_json::from_slice(&std::fs::read(&result.page_ir_path)?)?;
-    if disk_pages != result.pages {
-        return Err(anyhow!("INVALID_PAGE_IR: 落盘页面与返回数据不一致"));
+    validate_disk_pages(Path::new(&result.page_ir_path), &result.pages)?;
+    let mut expected_md = Sha256::new();
+    for (index, page) in result.pages.iter().enumerate() {
+        if !text_document {
+            if index > 0 { expected_md.update(b"\n\n---\n\n"); }
+            expected_md.update(format!("<!-- page {} -->\n", page.page_number));
+        }
+        expected_md.update(page.markdown.as_bytes());
     }
-    let expected_md = if text_document {
-        result
-            .pages
-            .iter()
-            .map(|p| p.markdown.as_str())
-            .collect::<String>()
-    } else {
-        result
-            .pages
-            .iter()
-            .map(|p| format!("<!-- page {} -->\n{}", p.page_number, p.markdown))
-            .collect::<Vec<_>>()
-            .join("\n\n---\n\n")
-    };
-    if std::fs::read_to_string(&result.markdown_path)? != expected_md {
+    if sha256_file(Path::new(&result.markdown_path))? != hex::encode(expected_md.finalize()) {
         return Err(anyhow!("INVALID_MARKDOWN: Markdown 备份与页面不一致"));
     }
     if result.engine.starts_with("paddle-onnx-") && result.source_map_path.is_none() {
         return Err(anyhow!("INVALID_SOURCE_MAP: 缺少来源映射"));
     }
     if let Some(path) = &result.source_map_path {
-        let map: source_map::SourceMap = serde_json::from_slice(&std::fs::read(path)?)?;
-        let (_, expected) = source_map::build(&result.pages, &result.source_sha256);
+        let map: source_map::SourceMap = serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(path)?))?;
+        let expected = source_map::write_to(&result.pages, &result.source_sha256, std::io::sink())?;
         if map != expected {
             return Err(anyhow!(
                 "INVALID_SOURCE_MAP: 来源映射与页面或 Markdown 不一致"
@@ -481,6 +571,28 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
             return Err(anyhow!("INVALID_PDF: 可搜索文件不是 PDF"));
         }
     }
+    Ok(())
+}
+
+fn validate_disk_pages(path: &Path, expected: &[DocumentPage]) -> Result<()> {
+    struct Pages<'a>(&'a [DocumentPage]);
+    impl<'de> serde::de::Visitor<'de> for Pages<'_> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("matching page array") }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut sequence: A) -> std::result::Result<(), A::Error> {
+            let mut count = 0;
+            while let Some(page) = sequence.next_element::<DocumentPage>()? {
+                if self.0.get(count) != Some(&page) { return Err(serde::de::Error::custom("INVALID_PAGE_IR: 落盘页面与返回数据不一致")); }
+                count += 1;
+            }
+            if count != self.0.len() { return Err(serde::de::Error::custom("INVALID_PAGE_IR: 落盘页面缺失")); }
+            Ok(())
+        }
+    }
+    use serde::Deserializer as _;
+    let mut decoder = serde_json::Deserializer::from_reader(std::io::BufReader::new(std::fs::File::open(path)?));
+    decoder.deserialize_seq(Pages(expected))?;
+    decoder.end()?;
     Ok(())
 }
 
@@ -504,6 +616,40 @@ pub fn process_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn engine_output_streams_past_128_mib_and_removes_temporary_files() {
+        use tokio::io::AsyncReadExt;
+        let length = 129 * 1024 * 1024;
+        let output = spool_engine_output(tokio::io::repeat(b'X').take(length)).await.unwrap();
+        let path = output.path().to_path_buf();
+        assert_eq!(output.as_file().metadata().unwrap().len(), length);
+        let mut reader = std::io::BufReader::new(output.reopen().unwrap());
+        let mut buffer = [0; 64 * 1024];
+        let mut count = 0;
+        loop {
+            let n = reader.read(&mut buffer).unwrap();
+            if n == 0 { break; }
+            assert!(buffer[..n].iter().all(|&b| b == b'X'));
+            count += n as u64;
+        }
+        assert_eq!(count, length);
+        drop(reader);
+        drop(output);
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn interrupted_engine_stream_propagates_the_read_error() {
+        struct Broken;
+        impl tokio::io::AsyncRead for Broken {
+            fn poll_read(self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>, _: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Err(std::io::Error::other("engine stream interrupted")))
+            }
+        }
+        let error = spool_engine_output(Broken).await.unwrap_err();
+        assert!(format!("{error:#}").contains("engine stream interrupted"));
+    }
 
     #[tokio::test]
     #[cfg(unix)]
@@ -556,6 +702,8 @@ mod tests {
             markdown: "# Evidence".into(),
             regions: vec![],
             confidence: None,
+            layout: None,
+            timing: None,
         }];
         let mut result = ProcessResult {
             source_sha256: request.source_sha256.clone(),
@@ -566,6 +714,7 @@ mod tests {
             markdown_path: root.join("source.md").display().to_string(),
             source_map_path: None,
             pages,
+            elapsed_ms: 0,
         };
         std::fs::write(
             result.searchable_pdf_path.as_ref().unwrap(),

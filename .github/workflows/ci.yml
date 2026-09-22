@@ -43,6 +43,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:unit
+      - run: node --test scripts/*.test.mjs
       - run: npm run build
       # rust 作业编译期 generate_context! 需要该目录存在（tauri.conf frontendDist=../dist）
       - uses: actions/upload-artifact@v4
@@ -103,9 +104,10 @@ jobs:
         with:
           node-version: 24
       - run: node ../scripts/prepare-zvec.mjs
-      - run: cargo test
+      - run: cargo test --locked
         env:
           CASY_TEST_DATA_DIR: ${{ runner.temp }}/casy-ci-tests
+      - run: cargo test --manifest-path ../tools/casy-doc-engine/Cargo.toml --locked --features models
       # 审计#6：Clippy 零警告门禁 + 依赖漏洞审计
       - if: runner.os == 'Linux'
         run: |
@@ -130,7 +132,7 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            bundles: 'src-tauri/target/release/bundle/dmg/*.dmg'
+            bundles: 'release/*'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -151,7 +153,12 @@ jobs:
       - run: npm ci
       - run: brew install poppler
       # Windows 打包前置同文件头注释；未签名产物仅供内测草稿
-      - run: npm run build:desktop -- --bundles dmg
+      - run: npm run release:validation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-validation-evidence
+          path: outputs/release-*
       - uses: softprops/action-gh-release@v2
         with:
           draft: true

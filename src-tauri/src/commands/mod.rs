@@ -1,3 +1,4 @@
+pub mod editor_tasks;
 pub mod ai_routes;
 pub mod areas;
 pub mod backup;
@@ -14,6 +15,8 @@ pub mod demo;
 pub mod docs;
 pub mod document_intelligence;
 pub mod conversion;
+mod markdown_export;
+pub mod processing;
 pub mod drafts;
 pub mod feishu_snapshot;
 pub mod files;
@@ -26,6 +29,7 @@ pub mod knowledge;
 pub mod linking;
 pub mod notifications;
 pub mod persons;
+pub mod procedure;
 pub mod projects;
 pub mod relations;
 pub mod reminder;
@@ -37,6 +41,8 @@ pub mod tasks;
 mod task_lifecycle;
 pub mod timeline;
 pub mod whiteboard;
+pub mod whiteboard_scene;
+pub mod whiteboard_document;
 
 // AI 和邮件命令直接在对应模块中定义
 
@@ -137,6 +143,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         tasks::defer_task,
         tasks::clear_task_defer,
         ai_routes::get_proposal_preview,
+        processing::get_processing_center,
+        processing::register_conversion_batch,
+        processing::cancel_queued_conversions,
+        processing::cancel_conversion,
         document_intelligence::get_document_engine_status,
         document_intelligence::get_document_page,
         document_intelligence::correct_document_region,
@@ -172,11 +182,26 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         smart_rules::ocr_all_pending,
         smart_rules::list_case_ocr_states,
         smart_rules::get_file_ocr_text,
+        whiteboard_document::get_whiteboard_document,
+            editor_tasks::get_editor_tasks,
+            editor_tasks::bind_editor_task,
+            editor_tasks::set_editor_task_completed,
+        whiteboard_document::save_whiteboard_document,
+        whiteboard_document::list_whiteboard_sources,
+        whiteboard_document::write_whiteboard_export,
+        whiteboard_scene::get_whiteboard_scene,
+        whiteboard_scene::save_whiteboard_scene,
+        whiteboard_scene::list_whiteboard_scene_history,
         whiteboard::list_whiteboards,
         whiteboard::create_whiteboard,
         whiteboard::rename_whiteboard,
         whiteboard::delete_whiteboard,
         whiteboard::list_fact_nodes,
+        whiteboard::list_fact_history,
+            procedure::get_procedure_board,
+            procedure::save_procedure_event,
+            procedure::set_procedure_item_state,
+            procedure::get_procedure_history,
         whiteboard::create_fact_node,
         whiteboard::update_fact_node,
         whiteboard::delete_fact_node,
@@ -343,6 +368,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         docs::render_docsy_template,
         docs::export_docx,
         docs::export_edited_docx,
+        docs::export_editor_document,
+        docs::preview_editor_document,
         conversion::convert_file_to_markdown,
         // 邮件监听命令
         crate::email::configure_imap,
@@ -365,6 +392,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         crate::ai::profiles::test_ai_profile,
         // 设置命令
         settings::get_settings,
+        settings::backup_database_key_to_keychain,
         settings::save_settings,
         settings::import_holidays_json,
         settings::get_holidays_summary,
@@ -454,6 +482,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         ai_routes::create_ai_proposal,
         ai_routes::get_ai_proposal,
         ai_routes::approve_ai_proposal,
+        ai_routes::renew_ai_proposal,
         ai_routes::reject_ai_proposal,
         // MCP Server 命令（设计哲学 §11.11）
         mcp_list_tools,

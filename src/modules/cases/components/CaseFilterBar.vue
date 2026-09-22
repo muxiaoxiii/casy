@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ArrowDown, Download, Search, Filter, FolderChecked, Plus } from '@element-plus/icons-vue'
+import { ArrowDown, Download, Search, Filter, FolderChecked, Plus } from '../../../shared/icons'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
 import { toLocalISODate } from '../../../shared/utils/date'

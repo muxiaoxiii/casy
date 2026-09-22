@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 33;
+pub const CURRENT_SCHEMA_VERSION: i64 = 41;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -133,7 +133,11 @@ CREATE TRIGGER IF NOT EXISTS trg_cases_ad AFTER DELETE ON cases BEGIN
   INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
   VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
 END;
-CREATE TRIGGER IF NOT EXISTS trg_cases_au AFTER UPDATE ON cases BEGIN
+CREATE TRIGGER IF NOT EXISTS trg_cases_au AFTER UPDATE OF case_name, case_no, client_name, opponent_name, patent_name, notes ON cases
+WHEN old.case_name IS NOT new.case_name OR old.case_no IS NOT new.case_no
+ OR old.client_name IS NOT new.client_name OR old.opponent_name IS NOT new.opponent_name
+ OR old.patent_name IS NOT new.patent_name OR old.notes IS NOT new.notes
+BEGIN
   INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
   VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
   INSERT INTO cases_fts(rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
@@ -706,7 +710,143 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("31", MIGRATION_V31_SQL),
     ("32", MIGRATION_V32_SQL),
     ("33", MIGRATION_V33_SQL),
+    ("34", MIGRATION_V34_SQL),
+    ("35", MIGRATION_V35_SQL),
+    ("36", MIGRATION_V36_SQL),
+    ("37", MIGRATION_V37_SQL),
+    ("38", MIGRATION_V38_SQL),
+    ("39", MIGRATION_V39_SQL),
+    ("40", MIGRATION_V40_SQL),
+    ("41", MIGRATION_V41_SQL),
 ];
+
+
+const MIGRATION_V37_SQL: &str = r#"
+-- Status-only writes must not delete an FTS row before its INSERT trigger runs.
+DROP TRIGGER IF EXISTS trg_cases_au;
+CREATE TRIGGER IF NOT EXISTS trg_cases_au AFTER UPDATE OF case_name, case_no, client_name, opponent_name, patent_name, notes ON cases
+WHEN old.case_name IS NOT new.case_name OR old.case_no IS NOT new.case_no
+ OR old.client_name IS NOT new.client_name OR old.opponent_name IS NOT new.opponent_name
+ OR old.patent_name IS NOT new.patent_name OR old.notes IS NOT new.notes
+BEGIN
+  INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
+  VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
+  INSERT INTO cases_fts(rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
+  VALUES (new.rowid, new.case_name, new.case_no, new.client_name, new.opponent_name, new.patent_name, new.notes);
+END;
+DROP TRIGGER IF EXISTS trg_cases_status_insert;
+DROP TRIGGER IF EXISTS trg_cases_status_update;
+CREATE TRIGGER trg_cases_status_insert AFTER INSERT ON cases FOR EACH ROW WHEN NEW.case_status IS NULL
+BEGIN
+ UPDATE cases SET case_status=CASE WHEN NEW.case_result IN ('结案','对方撤案','撤诉','解除委托') THEN '已完结' WHEN COALESCE(NEW.case_result,'')!='' THEN '进行中' ELSE '未知' END WHERE id=NEW.id;
+END;
+CREATE TRIGGER trg_cases_status_update AFTER UPDATE OF case_result ON cases FOR EACH ROW
+BEGIN
+ UPDATE cases SET case_status=CASE WHEN NEW.case_result IN ('结案','对方撤案','撤诉','解除委托') THEN '已完结' WHEN COALESCE(NEW.case_result,'')!='' THEN '进行中' ELSE '未知' END WHERE id=NEW.id;
+END;
+DROP VIEW IF EXISTS v_case_unified;
+CREATE VIEW v_case_unified AS
+SELECT c.id,c.case_name,c.case_no,c.client_name,c.cause_action,c.track,c.case_status AS status,c.court,c.case_level,c.attorneys AS operator,c.trial_date,c.filing_date,
+COALESCE(CASE WHEN c.cause_action LIKE '%无效%' THEN c.formula_petitioner_supp END,CASE WHEN c.cause_action LIKE '%侵权%' OR c.cause_action LIKE '%侵害%' THEN c.formula_defense_deadline END,CASE WHEN c.cause_action LIKE '%行政%' THEN c.relief_deadline END,c.formula_estimated_trial_limit) AS next_deadline,
+CASE WHEN EXISTS(SELECT 1 FROM hearings h WHERE h.case_id=c.id OR EXISTS(SELECT 1 FROM case_hearing_links l WHERE l.hearing_id=h.id AND l.case_id=c.id)) THEN
+      (SELECT MIN(h.hearing_date) FROM hearings h WHERE (h.case_id=c.id OR EXISTS(SELECT 1 FROM case_hearing_links l WHERE l.hearing_id=h.id AND l.case_id=c.id)) AND h.lifecycle_status='scheduled' AND COALESCE(h.actual_status,'未开')!='已开' AND substr(h.hearing_date,1,10)>=date('now','localtime'))
+    ELSE c.trial_date END AS next_hearing,c.updated_at FROM cases c;
+"#;
+
+const MIGRATION_V36_SQL: &str = r#"
+CREATE TABLE hearing_reminder_receipts (
+ hearing_id TEXT NOT NULL, due_snapshot TEXT NOT NULL, rule_id TEXT NOT NULL, channel TEXT NOT NULL,
+ PRIMARY KEY(hearing_id,due_snapshot,rule_id,channel)
+);
+CREATE TABLE whiteboard_scenes (
+ whiteboard_id TEXT PRIMARY KEY REFERENCES whiteboards(id) ON DELETE CASCADE,
+ scene_json TEXT NOT NULL CHECK(json_valid(scene_json)), revision INTEGER NOT NULL, preview TEXT
+);
+CREATE TABLE whiteboard_scene_history (
+ whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL, scene_json TEXT NOT NULL, preview TEXT,
+ PRIMARY KEY(whiteboard_id,revision)
+);
+ALTER TABLE hearings ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'scheduled' CHECK(lifecycle_status IN ('scheduled','held','postponed','cancelled'));
+ALTER TABLE hearings ADD COLUMN change_reason TEXT NOT NULL DEFAULT '';
+UPDATE hearings SET lifecycle_status='held' WHERE actual_status='已开';
+CREATE TRIGGER hearing_reminders_changed AFTER UPDATE ON hearings
+WHEN OLD.hearing_date IS NOT NEW.hearing_date OR OLD.lifecycle_status IS NOT NEW.lifecycle_status
+BEGIN
+ UPDATE reminder_jobs SET status='cancelled',last_error='庭审已改期或状态变化，请按最新记录核对',updated_at=datetime('now','localtime')
+ WHERE entity_type='hearing' AND entity_id=NEW.id AND executor='local' AND status IN ('pending','sync_failed');
+END;
+CREATE TRIGGER hearing_history_update AFTER UPDATE ON hearings
+WHEN OLD.hearing_date IS NOT NEW.hearing_date OR OLD.lifecycle_status IS NOT NEW.lifecycle_status OR OLD.venue IS NOT NEW.venue
+BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'case',NEW.case_id,'hearing_updated',
+ json_object('hearingId',NEW.id,'before',json_object('date',OLD.hearing_date,'status',OLD.lifecycle_status,'venue',OLD.venue),'after',json_object('date',NEW.hearing_date,'status',NEW.lifecycle_status,'venue',NEW.venue),'reason',NEW.change_reason),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+"#;
+
+// Fact history survives node deletion; database triggers cover UI and sync writes.
+pub const MIGRATION_V35_SQL: &str = r#"
+UPDATE deadline_rules SET offset_value=45,offset_unit='day',legal_basis='行政诉讼法第83条'
+WHERE id='rule-al-002' AND offset_value=3 AND offset_unit='calendar_month' AND legal_basis='行政诉讼法第84条';
+
+CREATE TABLE IF NOT EXISTS procedure_events (
+ id TEXT PRIMARY KEY,
+ case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+ payload TEXT NOT NULL CHECK(json_valid(payload)),
+ revision INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_procedure_events_case ON procedure_events(case_id);
+CREATE TABLE IF NOT EXISTS procedure_item_states (
+ item_id TEXT PRIMARY KEY,
+ fingerprint TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('open','done','not_applicable')),
+ note TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS procedure_reminder_receipts (
+ item_id TEXT NOT NULL, fingerprint TEXT NOT NULL, rule_id TEXT NOT NULL,
+ sent_on TEXT NOT NULL, PRIMARY KEY(item_id,fingerprint,rule_id)
+);
+CREATE TABLE IF NOT EXISTS procedure_audit (
+ id TEXT PRIMARY KEY,
+ case_id TEXT NOT NULL,
+ event_id TEXT NOT NULL,
+ action TEXT NOT NULL,
+ before_json TEXT,
+ after_json TEXT NOT NULL,
+ reason TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_procedure_audit_case ON procedure_audit(case_id,created_at);
+"#;
+
+const MIGRATION_V34_SQL: &str = r#"
+CREATE TRIGGER IF NOT EXISTS fact_history_insert AFTER INSERT ON fact_nodes BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',NEW.whiteboard_id,'fact_created',
+ json_object('nodeId',NEW.id,'before',NULL,'after',json_object('excerpt',NEW.excerpt,'note',NEW.note,'page',NEW.page,'fileId',NEW.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=NEW.file_id))),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER IF NOT EXISTS fact_history_update AFTER UPDATE ON fact_nodes
+WHEN OLD.excerpt IS NOT NEW.excerpt OR OLD.note IS NOT NEW.note OR OLD.page IS NOT NEW.page OR OLD.file_id IS NOT NEW.file_id
+BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',NEW.whiteboard_id,'fact_updated',
+ json_object('nodeId',NEW.id,'before',json_object('excerpt',OLD.excerpt,'note',OLD.note,'page',OLD.page,'fileId',OLD.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=OLD.file_id)),
+ 'after',json_object('excerpt',NEW.excerpt,'note',NEW.note,'page',NEW.page,'fileId',NEW.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=NEW.file_id))),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER IF NOT EXISTS fact_history_delete AFTER DELETE ON fact_nodes BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',OLD.whiteboard_id,'fact_deleted',
+ json_object('nodeId',OLD.id,'before',json_object('excerpt',OLD.excerpt,'note',OLD.note,'page',OLD.page,'fileId',OLD.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=OLD.file_id)),'after',NULL),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+"#;
 
 const MIGRATION_V33_SQL: &str = r#"
 CREATE TABLE knowledge_ann_state (id INTEGER PRIMARY KEY CHECK(id=1), revision TEXT NOT NULL);
@@ -3237,7 +3377,7 @@ CREATE TRIGGER IF NOT EXISTS trg_cases_status_insert
 AFTER INSERT ON cases FOR EACH ROW WHEN NEW.case_status IS NULL
 BEGIN
   UPDATE cases SET case_status = CASE
-    WHEN NEW.case_result IN ('结案','胜诉','败诉','对方撤案','撤诉','解除委托') THEN '已完结'
+    WHEN NEW.case_result IN ('结案','对方撤案','撤诉','解除委托') THEN '已完结'
     WHEN NEW.case_result IS NOT NULL AND NEW.case_result != '' THEN '进行中'
     ELSE '未知'
   END WHERE id = NEW.id;
@@ -3247,7 +3387,7 @@ CREATE TRIGGER IF NOT EXISTS trg_cases_status_update
 AFTER UPDATE OF case_result ON cases FOR EACH ROW
 BEGIN
   UPDATE cases SET case_status = CASE
-    WHEN NEW.case_result IN ('结案','胜诉','败诉','对方撤案','撤诉','解除委托') THEN '已完结'
+    WHEN NEW.case_result IN ('结案','对方撤案','撤诉','解除委托') THEN '已完结'
     WHEN NEW.case_result IS NOT NULL AND NEW.case_result != '' THEN '进行中'
     ELSE '未知'
   END WHERE id = NEW.id;
@@ -3273,7 +3413,11 @@ CREATE TRIGGER IF NOT EXISTS trg_cases_ad AFTER DELETE ON cases BEGIN
   INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
   VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
 END;
-CREATE TRIGGER IF NOT EXISTS trg_cases_au AFTER UPDATE ON cases BEGIN
+CREATE TRIGGER IF NOT EXISTS trg_cases_au AFTER UPDATE OF case_name, case_no, client_name, opponent_name, patent_name, notes ON cases
+WHEN old.case_name IS NOT new.case_name OR old.case_no IS NOT new.case_no
+ OR old.client_name IS NOT new.client_name OR old.opponent_name IS NOT new.opponent_name
+ OR old.patent_name IS NOT new.patent_name OR old.notes IS NOT new.notes
+BEGIN
   INSERT INTO cases_fts(cases_fts, rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
   VALUES ('delete', old.rowid, old.case_name, old.case_no, old.client_name, old.opponent_name, old.patent_name, old.notes);
   INSERT INTO cases_fts(rowid, case_name, case_no, client_name, opponent_name, patent_name, notes)
@@ -3291,7 +3435,9 @@ SELECT
         CASE WHEN c.cause_action LIKE '%行政%' THEN c.relief_deadline END,
         c.formula_estimated_trial_limit
     ) AS next_deadline,
-    c.trial_date AS next_hearing,
+    CASE WHEN EXISTS(SELECT 1 FROM hearings h WHERE h.case_id=c.id OR EXISTS(SELECT 1 FROM case_hearing_links l WHERE l.hearing_id=h.id AND l.case_id=c.id)) THEN
+      (SELECT MIN(h.hearing_date) FROM hearings h WHERE (h.case_id=c.id OR EXISTS(SELECT 1 FROM case_hearing_links l WHERE l.hearing_id=h.id AND l.case_id=c.id)) AND h.lifecycle_status='scheduled' AND COALESCE(h.actual_status,'未开')!='已开' AND substr(h.hearing_date,1,10)>=date('now','localtime'))
+    ELSE c.trial_date END AS next_hearing,
     c.updated_at
 FROM cases c;
 "#,
@@ -3640,6 +3786,14 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
         }
     }
 
+    // Backfill legacy index stages only after optional case-file columns exist.
+    tx.execute_batch(r#"UPDATE document_processing_jobs SET index_status=COALESCE((SELECT CASE f.index_status
+ WHEN 'processing' THEN 'running' WHEN 'pending' THEN 'running' WHEN 'completed' THEN 'completed'
+ WHEN 'failed' THEN 'failed' ELSE 'none' END FROM case_files f WHERE f.id=file_id),'none'),
+ index_error=(SELECT ocr_error FROM case_files WHERE id=file_id)
+ WHERE index_status='none' AND status='completed' AND rowid=(SELECT max(j.rowid) FROM document_processing_jobs j WHERE j.file_id=document_processing_jobs.file_id);
+"#)?;
+
     // v23：knowledge_items.category 旧 CHECK 枚举条件重建（sqlite_master 探测，幂等）。
     // 必须排在全部 knowledge_items 条件补列（law_name/parent_id/block_type）之后，
     // 保证 INSERT SELECT 的列清单在旧库上也已齐整。
@@ -3843,10 +3997,10 @@ pub fn seed_deadline_rules(conn: &Connection) -> Result<(), anyhow::Error> {
             "rule-al-002",
             "admin_litigation",
             "预估审限（简易）",
-            "行政诉讼法第84条",
+            "行政诉讼法第83条",
             "filing_date",
-            3,
-            "calendar_month",
+            45,
+            "day",
             "civil",
             "recommended",
             5,
@@ -3974,6 +4128,23 @@ pub fn seed_deadline_rules(conn: &Connection) -> Result<(), anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn case_status_migration_keeps_fts_consistent_on_insert_update_delete() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        run_migrations(&conn, 1).unwrap();
+        // Reapply just the latest migration to exercise trigger order on an existing DB.
+        conn.execute_batch(MIGRATION_V37_SQL).unwrap();
+        conn.execute_batch("INSERT INTO cases(id,case_name,client_name,case_result) VALUES('fts-check','Alpha','测试客户','胜诉');
+            UPDATE cases SET case_result='败诉' WHERE id='fts-check';
+            UPDATE cases SET case_name='Beta',notes='evidence' WHERE id='fts-check';").unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM cases_fts WHERE cases_fts MATCH 'Beta'", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+        conn.execute_batch("INSERT INTO cases_fts(cases_fts,rank) VALUES('integrity-check',1);
+            DELETE FROM cases WHERE id='fts-check';
+            INSERT INTO cases_fts(cases_fts,rank) VALUES('integrity-check',1);").unwrap();
+    }
 
     // ---------- 事务边界 / 失败回滚 / 幂等 ----------
 
@@ -4469,3 +4640,111 @@ mod tests {
         assert!(fk_enabled(&conn).unwrap());
     }
 }
+
+#[cfg(test)]
+mod fact_history_tests {
+    use super::*;
+    #[test]
+    fn fact_history_preserves_revisions_ignores_moves_and_rolls_back() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE case_files(id TEXT,file_name TEXT); INSERT INTO case_files VALUES('f','evidence.pdf'); CREATE TABLE fact_nodes(id TEXT PRIMARY KEY,whiteboard_id TEXT,file_id TEXT,page INTEGER,excerpt TEXT,note TEXT,x REAL,y REAL); CREATE TABLE audit_events(id TEXT PRIMARY KEY,aggregate_type TEXT,aggregate_id TEXT,event_type TEXT,payload TEXT,actor TEXT,created_at TEXT);").unwrap();
+        conn.execute_batch(MIGRATION_V34_SQL).unwrap();
+        conn.execute_batch(MIGRATION_V34_SQL).unwrap();
+        conn.execute_batch("INSERT INTO fact_nodes VALUES('n','b','f',1,'original',NULL,0,0); UPDATE fact_nodes SET x=20,y=30; UPDATE fact_nodes SET excerpt='revised',note='reviewed',page=2;").unwrap();
+        let count = || conn.query_row("SELECT count(*) FROM audit_events", [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count(), 2);
+        let payload: String = conn.query_row("SELECT payload FROM audit_events WHERE event_type='fact_updated'", [], |r| r.get(0)).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(payload["before"]["excerpt"], "original");
+        assert_eq!(payload["after"]["excerpt"], "revised");
+        assert_eq!(payload["after"]["page"], 2);
+        assert_eq!(payload["after"]["fileId"], "f");
+        conn.execute_batch("BEGIN; UPDATE fact_nodes SET excerpt='rollback'; ROLLBACK;").unwrap();
+        assert_eq!(count(), 2);
+        conn.execute_batch("DELETE FROM fact_nodes;").unwrap();
+        assert_eq!(count(), 3);
+        let preserved: String = conn.query_row("SELECT json_extract(payload,'$.before.excerpt') FROM audit_events WHERE event_type='fact_deleted'", [], |r| r.get(0)).unwrap();
+        assert_eq!(preserved, "revised");
+    }
+}
+
+/// Global processing history; existing durable queues remain their own source of truth.
+pub const MIGRATION_V38_SQL: &str = r#"
+ALTER TABLE document_processing_jobs ADD COLUMN index_status TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE document_processing_jobs ADD COLUMN index_error TEXT;
+CREATE TABLE processing_activities (
+ id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','cancelled','waiting','disabled')),
+ stage TEXT NOT NULL DEFAULT '', source_path TEXT, output_path TEXT,
+ current INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0,
+ error TEXT, is_service INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+ updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_processing_activities_status ON processing_activities(is_service,status,updated_at);
+"#;
+
+/// Facts remain the canonical data behind the drawing editor.
+pub const MIGRATION_V39_SQL: &str = r#"
+ALTER TABLE fact_nodes ADD COLUMN knowledge_id TEXT REFERENCES knowledge_items(id) ON DELETE SET NULL;
+ALTER TABLE fact_nodes ADD COLUMN source_title TEXT;
+DROP TRIGGER IF EXISTS fact_history_insert;
+DROP TRIGGER IF EXISTS fact_history_update;
+DROP TRIGGER IF EXISTS fact_history_delete;
+
+CREATE TRIGGER IF NOT EXISTS fact_history_insert AFTER INSERT ON fact_nodes BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',NEW.whiteboard_id,'fact_created',
+ json_object('nodeId',NEW.id,'before',NULL,'after',json_object('excerpt',NEW.excerpt,'note',NEW.note,'page',NEW.page,'knowledgeId',NEW.knowledge_id,'sourceTitle',NEW.source_title,'fileId',NEW.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=NEW.file_id))),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER IF NOT EXISTS fact_history_update AFTER UPDATE ON fact_nodes
+WHEN OLD.excerpt IS NOT NEW.excerpt OR OLD.note IS NOT NEW.note OR OLD.page IS NOT NEW.page OR OLD.file_id IS NOT NEW.file_id OR OLD.knowledge_id IS NOT NEW.knowledge_id OR OLD.source_title IS NOT NEW.source_title
+BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',NEW.whiteboard_id,'fact_updated',
+ json_object('nodeId',NEW.id,'before',json_object('excerpt',OLD.excerpt,'note',OLD.note,'page',OLD.page,'knowledgeId',OLD.knowledge_id,'sourceTitle',OLD.source_title,'fileId',OLD.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=OLD.file_id)),
+ 'after',json_object('excerpt',NEW.excerpt,'note',NEW.note,'page',NEW.page,'knowledgeId',NEW.knowledge_id,'sourceTitle',NEW.source_title,'fileId',NEW.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=NEW.file_id))),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER IF NOT EXISTS fact_history_delete AFTER DELETE ON fact_nodes BEGIN
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',OLD.whiteboard_id,'fact_deleted',
+ json_object('nodeId',OLD.id,'before',json_object('excerpt',OLD.excerpt,'note',OLD.note,'page',OLD.page,'knowledgeId',OLD.knowledge_id,'sourceTitle',OLD.source_title,'fileId',OLD.file_id,'fileName',(SELECT file_name FROM case_files WHERE id=OLD.file_id)),'after',NULL),
+ 'system',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+"#;
+
+/// Preserve structured Paddle layout output and use one timing source for storage and live UI.
+pub const MIGRATION_V40_SQL: &str = r#"
+ALTER TABLE document_processing_jobs ADD COLUMN phase TEXT NOT NULL DEFAULT 'preparing';
+ALTER TABLE document_processing_jobs ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE document_processing_jobs ADD COLUMN remaining_ms INTEGER;
+ALTER TABLE document_processing_jobs ADD COLUMN timing_json TEXT;
+ALTER TABLE document_pages ADD COLUMN layout_json TEXT;
+ALTER TABLE document_pages ADD COLUMN timing_json TEXT;
+ALTER TABLE processing_activities ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE processing_activities ADD COLUMN remaining_ms INTEGER;
+ALTER TABLE processing_activities ADD COLUMN timing_json TEXT;
+"#;
+
+/// Preserve independent records when removing their optional owner, without rebuilding legacy tables.
+pub const MIGRATION_V41_SQL: &str = r#"
+CREATE TRIGGER IF NOT EXISTS unlink_case_calendar BEFORE DELETE ON cases BEGIN
+ UPDATE calendar_events SET case_id=NULL WHERE case_id=OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS unlink_knowledge_tasks BEFORE DELETE ON knowledge_items BEGIN
+ UPDATE tasks SET knowledge_id=NULL WHERE knowledge_id=OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS unlink_task_calendar BEFORE DELETE ON tasks BEGIN
+ DELETE FROM calendar_events WHERE task_id=OLD.id;
+END;
+CREATE TABLE IF NOT EXISTS whiteboard_tombstones (id TEXT PRIMARY KEY, case_id TEXT, name TEXT NOT NULL, deleted_at TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS remember_whiteboard BEFORE DELETE ON whiteboards BEGIN
+ INSERT OR REPLACE INTO whiteboard_tombstones(id,case_id,name,deleted_at) VALUES(OLD.id,OLD.case_id,OLD.name,datetime('now','localtime'));
+ INSERT INTO audit_events(id,aggregate_type,aggregate_id,event_type,payload,actor,created_at)
+ VALUES(lower(hex(randomblob(16))),'whiteboard',OLD.id,'whiteboard_deleted',json_object('name',OLD.name,'caseId',OLD.case_id),'system',datetime('now','localtime'));
+END;
+CREATE INDEX IF NOT EXISTS idx_tasks_knowledge ON tasks(knowledge_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_task ON calendar_events(task_id);
+"#;

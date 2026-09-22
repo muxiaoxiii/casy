@@ -3,6 +3,8 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { AI_PROMPTS } from '../../../core/prompts'
 import { todayLocalISO } from '../../../shared/utils/date'
+import { useVoiceNote } from '../composables/useVoiceNote'
+import { useCapture } from '../composables/useCapture'
 import { isTauriRuntime } from '../../../core/mockData'
 import { ElMessage } from 'element-plus'
 import {
@@ -33,7 +35,13 @@ import {
   Clock,
   Warning,
   Refresh,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
+
+const {isRecording,isSaving:voiceSaving,recordingTime,startRecording,stopRecording,formatTime}=useVoiceNote()
+const {captureClipboard}=useCapture()
+async function captureText(){if(await captureClipboard())await loadItems()}
+async function toggleRecording(){if(isRecording.value)stopRecording();else try{await startRecording()}catch(error){ElMessage.error(`无法录音：${error}`)}}
+watch(voiceSaving,(saving,wasSaving)=>{if(wasSaving && !saving)void loadItems()})
 
 const items = ref([])
 const loading = ref(false)
@@ -162,6 +170,19 @@ async function loadCases() {
 // ============================================================
 // GTD 澄清处理 (Turn to Action)
 // ============================================================
+async function fileCurrentItem(action) {
+  const item=selectedItem.value
+  if(!item || processing.value)return
+  if(action==='file_to_case' && !clarifyCaseId.value)return ElMessage.warning('请先选择归属案件')
+  processing.value=true
+  try {
+    const result=await casyContext.inbox.confirmAction({inboxItemId:item.id,action,targetCaseId:clarifyCaseId.value || null,intent:{title:clarifyTitle.value || item.title,content:clarifyNotes.value || item.contentText || ''}})
+    if(!result.ok)throw new Error(result.error || '处理失败')
+    ElMessage.success(action==='file_to_case'?'已归卷至案件':'已保存到知识库')
+    await loadItems()
+  } catch(error){ElMessage.error(String(error))}finally{processing.value=false}
+}
+
 async function processCurrentItem(actionType = clarifyAction.value) {
   const item = selectedItem.value
   if (!item || processing.value) return
@@ -320,6 +341,8 @@ async function dismissItem(item) {
     </header>
     <form class="quick-capture" @submit.prevent="submitQuickCapture">
       <el-icon><Plus /></el-icon>
+      <el-button v-if="nativeFiles" :icon="Microphone" :type="isRecording?'danger':'default'" :disabled="voiceSaving" @click="toggleRecording">{{ isRecording ? `停止 ${formatTime(recordingTime)}` : voiceSaving ? '保存录音…' : '录音' }}</el-button>
+      <el-button v-if="nativeFiles" :disabled="processing" @click="captureText">粘贴文字</el-button>
       <input v-model="quickCaptureInputText" aria-label="快速记录" placeholder="记录一件待办或想法…" :disabled="processing" />
       <el-button :icon="Paperclip" text circle :disabled="!nativeFiles || processing" :title="nativeFiles ? '导入文件' : '请在桌面应用中导入文件'" aria-label="导入文件" @click="importFile" />
       <el-button :icon="ArrowRight" type="primary" native-type="submit" :disabled="!quickCaptureInputText.trim()" :loading="processing" aria-label="存入收件箱" title="存入收件箱" />
@@ -391,6 +414,8 @@ async function dismissItem(item) {
         </div>
         <footer v-if="selectedItem.status === 'pending'" class="clarify-footer">
           <span>{{ sourceLabel(selectedItem.sourceType) }}</span>
+          <el-button v-if="selectedItem.sourcePath" :disabled="processing || !clarifyCaseId" @click="fileCurrentItem('file_to_case')">归卷至案件</el-button>
+          <el-button :disabled="processing" @click="fileCurrentItem('save_knowledge')">沉淀知识库</el-button>
           <el-button type="primary" :loading="processing" :disabled="!clarifyTitle.trim()" @click="processCurrentItem()">{{ clarifyAction === 'delegate' ? '建立委派任务' : clarifyAction === 'wait' ? '转为等待任务' : clarifyAction === 'someday' ? '归入将来也许' : '转为任务' }}</el-button>
         </footer>
       </section>

@@ -45,7 +45,7 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
 
         // 庭审
         let mut stmt = conn.prepare(
-            "SELECT id, hearing_date, hearing_name, venue
+            "SELECT id, hearing_date, hearing_name, venue, lifecycle_status, change_reason
              FROM hearings WHERE case_id = ?1 OR EXISTS (SELECT 1 FROM case_hearing_links chl WHERE chl.hearing_id=hearings.id AND chl.case_id=?1)",
         )?;
         for row in stmt.query_map(rusqlite::params![case_id], |r| {
@@ -60,7 +60,7 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
                 title: r
                     .get::<_, Option<String>>(2)?
                     .unwrap_or_else(|| "开庭".into()),
-                detail: r.get::<_, Option<String>>(3)?,
+                detail: Some(format!("{} · {} · {}",r.get::<_,Option<String>>(3)?.unwrap_or_default(),match r.get::<_,String>(4)?.as_str(){"held"=>"已开庭","postponed"=>"延期待定","cancelled"=>"已取消",_=>"已排期"},r.get::<_,String>(5)?)),
             })
         })? {
             events.push(row?);
@@ -88,6 +88,20 @@ pub async fn get_case_timeline(case_id: String) -> Result<Vec<TimelineEvent>, St
             events.push(row?);
         }
 
+        // Each receipt/forwarding/summons remains an independent event, including retractions.
+        let mut stmt=conn.prepare("SELECT id,created_at,payload FROM procedure_events WHERE case_id=?1")?;
+        for row in stmt.query_map([&case_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))? {
+            let (id, created, payload) = row?;
+            let event:crate::deadline::procedure::ProcedureEvent=match serde_json::from_str(&payload) {
+                Ok(event) => event,
+                Err(error) => {
+                    log::warn!("Invalid procedure event {id}: {error}");
+                    events.push(TimelineEvent { id:format!("procedure:{id}"),source_table:"procedure_events".into(),source_id:id,event_date:created,event_type:"procedure".into(),title:"程序事件数据损坏，待核对".into(),detail:Some("原始记录仍保留，请从备份核对并修复此事件。".into()),icon:"⚠️".into(),color:"#b45309".into() });
+                    continue;
+                }
+            };
+            events.push(TimelineEvent{id:format!("procedure:{}",event.id),source_table:"procedure_events".into(),source_id:event.id,event_date:event.occurred_on,event_type:"procedure".into(),title:format!("{}{}",event.title,if event.retracted{"（已撤销）"}else{""}),detail:Some(format!("责任方：{}；转文：{}；有效起算／送达：{}；{}",event.actor_role,event.forwarded_on.as_deref().unwrap_or("未登记"),event.start_on.as_deref().unwrap_or("未核实"),event.source_note)),icon:"📥".into(),color:"#0f766e".into()});
+        }
         // 按日期倒序
         events.sort_by(|a, b| b.event_date.cmp(&a.event_date));
         Ok(events)

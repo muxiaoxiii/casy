@@ -257,8 +257,7 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     // 计算每个案件的期限紧急度
-    let case_ids: Vec<&str> = cases.iter().map(|c| c.id.as_str()).collect();
-    let urgency_map = compute_deadline_urgency(conn, &case_ids);
+    let urgency_map = compute_deadline_urgency(conn, &cases);
 
     let mut items = cases;
     for case in &mut items {
@@ -485,6 +484,27 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
 
 /// 删除案件
 pub fn delete_case(conn: &Connection, id: &str) -> Result<()> {
+    // links 无外键：先清双向孤儿行，避免案件删除后留下无法查阅的关联。
+    conn.execute(
+        "DELETE FROM links WHERE (source_type='case' AND source_id=?1)
+         OR (target_type='case' AND target_id=?1)",
+        params![id],
+    )?;
+    // CASCADE 会硬删该案 tasks/case_files；links 同样无 FK，需先清这些实体的双向引用。
+    conn.execute(
+        "DELETE FROM links WHERE
+         (source_type='task' AND source_id IN (SELECT id FROM tasks WHERE case_id=?1))
+         OR (target_type='task' AND target_id IN (SELECT id FROM tasks WHERE case_id=?1))
+         OR (source_type='file' AND source_id IN (SELECT id FROM case_files WHERE case_id=?1))
+         OR (target_type='file' AND target_id IN (SELECT id FROM case_files WHERE case_id=?1))",
+        params![id],
+    )?;
+    // 子任务自引用无 ON DELETE SET NULL：先断开父子链，避免 CASCADE 顺序撞 FK。
+    conn.execute(
+        "UPDATE tasks SET parent_task_id = NULL
+         WHERE case_id = ?1 AND parent_task_id IN (SELECT id FROM tasks WHERE case_id = ?1)",
+        params![id],
+    )?;
     conn.execute("DELETE FROM cases WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -548,9 +568,10 @@ pub fn case_counts_by_track(conn: &Connection) -> Result<Vec<(String, i64)>> {
 /// 计算案件期限紧急度：red=3天内到期, yellow=14天内到期
 fn compute_deadline_urgency(
     conn: &Connection,
-    case_ids: &[&str],
+    cases: &[Case],
 ) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
+    let case_ids: Vec<&str> = cases.iter().map(|c| c.id.as_str()).collect();
     if case_ids.is_empty() {
         return map;
     }
@@ -578,7 +599,7 @@ fn compute_deadline_urgency(
     );
 
     let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    for id in case_ids {
+    for id in &case_ids {
         params_vec.push(Box::new(id.to_string()));
     }
     params_vec.push(Box::new(today.clone()));
@@ -605,6 +626,18 @@ fn compute_deadline_urgency(
                         "green".to_string()
                     };
                     map.insert(case_id, urgency);
+                }
+            }
+        }
+    }
+
+    if let Ok(context) = crate::deadline::procedure::ProjectionContext::load(conn,cases) {
+        for case in cases {
+            if let Ok((_,items))=crate::deadline::procedure::case_items_with_context(case,&context) {
+                if let Some(days)=items.iter().filter(|i|i.status=="open").filter_map(|i|i.days_left).min() {
+                    let urgency=if days<=3 {"red"}else if days<=14 {"yellow"}else{"green"};
+                    let rank=|s:&str|match s {"red"=>0,"yellow"=>1,_=>2};
+                    if map.get(&case.id).is_none_or(|old|rank(urgency)<rank(old)) {map.insert(case.id.clone(),urgency.to_string());}
                 }
             }
         }

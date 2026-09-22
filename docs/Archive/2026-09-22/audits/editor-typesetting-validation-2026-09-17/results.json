@@ -1,0 +1,37 @@
+{
+  "pages": 3,
+  "calls": [
+    {
+      "command": "preview_editor_document",
+      "wallMs": 11484,
+      "elapsedMs": 1913,
+      "pages": 3
+    },
+    {
+      "command": "preview_editor_document",
+      "wallMs": 502,
+      "elapsedMs": 461,
+      "pages": 3
+    },
+    {
+      "command": "preview_editor_document",
+      "wallMs": 526,
+      "elapsedMs": 464,
+      "pages": 3
+    },
+    {
+      "command": "export_editor_document",
+      "wallMs": 452
+    }
+  ],
+  "errors": [],
+  "checks": [
+    "native SVG pages loaded",
+    "local math edit autosaved",
+    "page-to-block focus",
+    "block-to-page highlight",
+    "layout update",
+    "native PDF export",
+    "narrow layout"
+  ]
+}

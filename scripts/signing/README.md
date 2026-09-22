@@ -1,29 +1,20 @@
-# 签名与公证就绪包（R-2）
+# 签名、公证与更新交付状态
 
-> 前置：Apple Developer Program（$99/年）+ Windows Authenticode 证书（OV 级即可）。
-> 采购完成前，本目录脚本已就绪但不会在 CI 中启用。
+核对日期：2026-09-22。本目录目前只有本说明，没有旧文档提及的 `sign-win.ps1`。不能将历史准备计划描述为已就绪的签名流水线。
 
-## macOS
+## 当前状态
 
-```bash
-# 1. 导入证书到登录钥匙串后，设置环境变量
-export APPLE_CERT_ID="Developer ID Application: <你的名字> (TEAMID)"
-export APPLE_ID="your@apple.id"
-export APPLE_PASSWORD="@keychain:AC_PASSWORD"   # App 专用密码存钥匙串
-export APPLE_TEAM_ID="TEAMID"
+- 0.1.3 生产验证包为 macOS arm64、最低 macOS 26，ad-hoc 签名，未公证。
+- [tauri.full.conf.json](../../src-tauri/tauri.full.conf.json) 使用 `signingIdentity: "-"`，用于当前本地 beta。
+- [tauri.conf.json](../../src-tauri/tauri.conf.json) 有 updater 公钥与 endpoint，但 `createUpdaterArtifacts=false`。本轮未核验私钥存在或更新服务器可用，不能声明自动更新已交付。
+- CI 目前只打包 macOS；Windows/Linux 完整分发未验收。
 
-# 2. tauri.conf.json 已预留 updater；公证由 tauri build 自动走 notarytool
-npm run tauri build
-```
+## 正式发行前
 
-## Windows
+macOS 正式发行需配置有效 Developer ID 身份，签名嵌套二进制/库，提交公证并装订票据；随后在全新环境验证 Gatekeeper、启动、离线模型及升级。当前配置需要相应修改，单独设置环境变量不构成完成证明。
 
-```bash
-# signtool 路径加入 PATH 后
-scripts/signing/sign-win.ps1 -PfxPath <cert.pfx> -TimestampUrl http://timestamp.digicert.com
-```
+Windows 需先完成运行时分发和本地构建验证，再接入 Authenticode 与可信时间戳。实际脚本、证书存储和 CI 注入方式尚待实现。
 
-## 更新签名
+更新签名与系统代码签名是两个契约：前者验证更新产物，后者验证可执行应用。需核验公私钥匹配、更新清单、下载校验、安装失败恢复及版本路径。私钥、证书口令和服务凭据不得进入仓库、构建日志或普通文档。
 
-私钥已生成于 ~/.tauri/casy.updater.key（**勿入库**），构建时通过
-`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 注入。
+详细门禁见[开发与验证](../../docs/DEVELOPMENT.md)及[更新计划](../../docs/UPDATE_PLAN.md)。本说明不执行证书采购、密钥操作或发布。

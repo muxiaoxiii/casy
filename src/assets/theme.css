@@ -32,15 +32,15 @@
   --bg-success-weak: #EDF4F0;
   --status-success: #4C8067;
 
-  --c-warning: #B0823A;
+  --c-warning: #8B672E;
   --c-warning-light: #F6F3EA;
   --bg-warning-weak: #F6F3EA;
-  --status-warning: #B0823A;
+  --status-warning: #8B672E;
 
-  --c-danger: #B4554F;
+  --c-danger: #AB514B;
   --c-danger-light: #F7EFEE;
   --bg-risk-weak: #F7EFEE;
-  --status-risk: #B4554F;
+  --status-risk: #AB514B;
 
   --c-info: #6C6A9C;
   --c-info-light: #F0EFF6;
@@ -50,8 +50,8 @@
   /* ── 文字色 ───────────────────────────────────────── */
   --c-text: #191C1E;
   --c-text-regular: #444750;
-  --c-text-secondary: #747781;
-  --c-text-placeholder: #9BA2AF;
+  --c-text-secondary: #626B79;
+  --c-text-placeholder: #6D7583;
   --c-text-heading: #191C1E;
   --slate-gray-light: #9BA2AF;
 
@@ -78,7 +78,7 @@
   --c-radius-sm: 4px;
   --c-radius: 6px;
   --c-radius-md: 6px;
-  --c-radius-lg: 8px;
+  --c-radius-lg: 10px;
   --c-radius-xl: 12px;
   --c-radius-2xl: 16px;
   --c-radius-full: 9999px;
@@ -94,14 +94,14 @@
   --text-xs: 11px;
   --text-sm: 12.5px;
   --font-sm: 12.5px;
-  --text-base: 13.5px;
-  --font-base: 13.5px;
+  --text-base: 14px;
+  --font-base: 14px;
   --text-lg: 15px;
   --font-lg: 15px;
   --text-xl: 16px;
   --text-2xl: 20px;
   --text-3xl: 24px;
-  --font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
     'Noto Sans SC', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, monospace;
 
@@ -162,7 +162,7 @@
   --el-border-radius-small: 4px;
   --el-border-radius-round: 9999px;
 
-  --el-font-size-base: 13.5px;
+  --el-font-size-base: 14px;
   --el-font-size-small: 12px;
   --el-font-size-large: 15px;
 
@@ -187,15 +187,15 @@
   --bg-success-weak: #EDF4F0;
   --status-success: #4C8067;
 
-  --c-warning: #B0823A;
+  --c-warning: #8B672E;
   --c-warning-light: #F6F3EA;
   --bg-warning-weak: #F6F3EA;
-  --status-warning: #B0823A;
+  --status-warning: #8B672E;
 
-  --c-danger: #B4554F;
+  --c-danger: #AB514B;
   --c-danger-light: #F7EFEE;
   --bg-risk-weak: #F7EFEE;
-  --status-risk: #B4554F;
+  --status-risk: #AB514B;
 
   --c-info: #6C6A9C;
   --c-info-light: #F0EFF6;
@@ -204,8 +204,8 @@
 
   --c-text: #191C1E;
   --c-text-regular: #444750;
-  --c-text-secondary: #747781;
-  --c-text-placeholder: #9BA2AF;
+  --c-text-secondary: #626B79;
+  --c-text-placeholder: #6D7583;
   --c-text-heading: #191C1E;
 
   --c-bg: #F7F9FB;
@@ -270,7 +270,7 @@
   --c-text: #1C1C18;
   --c-text-regular: #414844;
   --c-text-secondary: #68716C;
-  --c-text-placeholder: #7E8882;
+  --c-text-placeholder: #6E7671;
   --c-text-heading: #1C1C18;
   --slate-gray-light: #8BA899;
 
@@ -319,15 +319,15 @@
   --bg-success-weak: #EFF4D2;
   --status-success: #6E8200;
 
-  --c-warning: #9A7200;
+  --c-warning: #8B6700;
   --c-warning-light: #FAF2D2;
   --bg-warning-weak: #FAF2D2;
-  --status-warning: #9A7200;
+  --status-warning: #8B6700;
 
-  --c-danger: #C43D3A;
+  --c-danger: #BE3B38;
   --c-danger-light: #FDE8E7;
   --bg-risk-weak: #FDE8E7;
-  --status-risk: #C43D3A;
+  --status-risk: #BE3B38;
 
   --c-info: #6469B0;
   --c-info-light: #EBEBFA;
@@ -336,8 +336,8 @@
 
   --c-text: #073642;
   --c-text-regular: #586E75;
-  --c-text-secondary: #697D80;
-  --c-text-placeholder: #7D8F91;
+  --c-text-secondary: #617376;
+  --c-text-placeholder: #667577;
   --c-text-heading: #073642;
   --slate-gray-light: #93A1A1;
 
@@ -404,7 +404,7 @@
   --c-text: #EEE8D5;
   --c-text-regular: #B8BEAE;
   --c-text-secondary: #8B9A98;
-  --c-text-placeholder: #6F8180;
+  --c-text-placeholder: #94A8A6;
   --c-text-heading: #FDF6E3;
   --slate-gray-light: #839496;
 
@@ -458,10 +458,10 @@
   --bg-warning-weak: #362912;
   --status-warning: #C49646;
 
-  --c-danger: #CF665F;
+  --c-danger: #D26F69;
   --c-danger-light: #381B1A;
   --bg-risk-weak: #381B1A;
-  --status-risk: #CF665F;
+  --status-risk: #D26F69;
 
   --c-info: #8683BC;
   --c-info-light: #26243D;
@@ -470,8 +470,8 @@
 
   --c-text: #F5F7FA;
   --c-text-regular: #C2C7D0;
-  --c-text-secondary: #7A8394;
-  --c-text-placeholder: #5C6474;
+  --c-text-secondary: #A2ABBB;
+  --c-text-placeholder: #98A2B3;
   --c-text-heading: #FFFFFF;
   --slate-gray-light: #7A8394;
 
@@ -490,13 +490,33 @@
   --c-border-light: #20242D;
   --c-border-lighter: #181B22;
   --c-border-strong: #495363;
-  --c-primary-contrast: #F8FAFD;
+  --c-primary-contrast: #101827;
   --c-overlay: rgba(3, 6, 12, 0.72);
 }
 
 /* ── 主题到 Element Plus 的统一语义映射 ────────────────────── */
 :root,
 html[data-theme] {
+  /* Compatibility aliases keep older modules on the active theme. */
+  --c-text-main: var(--c-text);
+  --c-text-primary: var(--c-text);
+  --c-text-tertiary: var(--c-text-secondary);
+  --c-text-inverse: var(--c-primary-contrast);
+  --c-bg-muted: var(--c-bg-subtle);
+  --c-bg-soft: var(--c-bg-subtle);
+  --c-primary-subtle: var(--c-primary-light);
+  --c-danger-lighter: var(--c-danger-light);
+  --c-success-lighter: var(--c-success-light);
+  --c-warning-lighter: var(--c-warning-light);
+  --c-warning-dark: color-mix(in srgb, var(--c-warning) 70%, var(--c-text));
+  --c-success-dark: color-mix(in srgb, var(--c-success) 70%, var(--c-text));
+  --c-radius-btn: var(--c-radius);
+  --shadow-xs: var(--shadow-sm);
+  --page-padding: clamp(16px, 2.5cqi, 36px);
+  --page-width: 1440px;
+  --app-topbar-height: 64px;
+  --control-height: 36px;
+  --focus-ring: color-mix(in srgb, var(--c-primary) 24%, transparent);
   --slate-gray-light: var(--c-text-secondary);
   --el-color-primary: var(--c-primary);
   --el-color-primary-light-3: color-mix(in srgb, var(--c-primary) 72%, var(--c-bg-card));
@@ -528,6 +548,9 @@ html[data-theme] {
   --el-border-color-extra-light: var(--c-border-lighter);
   --el-border-color-hover: var(--c-primary);
   --el-mask-color: var(--c-overlay);
+  --el-radio-button-checked-text-color: var(--c-primary-contrast);
+  --el-checkbox-button-checked-text-color: var(--c-primary-contrast);
+  --el-switch-on-color: var(--c-primary);
 }
 
 /* ── 全局基底 ─────────────────────────────────────────────── */

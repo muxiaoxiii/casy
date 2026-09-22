@@ -1,0 +1,70 @@
+# 开发、验证与交付
+
+核对日期：2026-09-22。当前版本 0.1.3，生产验证版；验收结果见 RELEASE_0.1.3.md。
+
+## 环境
+
+- Node.js 24 与 npm；CI 使用 `npm ci`。以 package-lock.json 为唯一提交的锁文件；不要混用 pnpm node_modules。
+- Rust manifest 要求至少 1.95。本机本次使用 rustc 1.96.0。
+- macOS 需要 Xcode command line tools；完整运行时准备需要 Homebrew Poppler。
+- Zvec 原生库由固定版本脚本准备；`.cargo/config.toml` 指向 `src-tauri/runtime/zvec`。
+- Linux/Windows 有平台依赖，但当前没有已验证的完整 OCR 分发包。
+
+```bash
+npm ci
+node scripts/prepare-zvec.mjs
+npm run tauri -- dev
+```
+
+`npm run dev` 只是浏览器前端，部分操作走 mock，不会证明桌面命令、数据库或 OCR 可用。
+
+## 隔离资料
+
+debug 构建支持绝对路径 `CASY_TEST_DATA_DIR`；应用还支持显式 `--profile-dir <绝对路径>`。测试不要使用真实资料库。需要保留验收产物时给独立目录并记录路径，结束后再按需清理。
+
+```bash
+CASY_TEST_DATA_DIR=/private/tmp/casy-review-profile \
+  cargo test --manifest-path src-tauri/Cargo.toml --locked
+```
+
+运行时可用 `CASY_DOC_ENGINE`、`CASY_PPOCR_MODEL_DIR`、`CASY_KOREAN_MODEL_DIR`、`CASY_PDFTOPPM`、`CASY_OCR_FONT` 覆盖具体工具/资源。完整包应在清除这些覆盖后仍可通过验证。
+
+## 验证分层
+
+```bash
+npm run typecheck
+npm run test:unit
+npm run build
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+cargo test --manifest-path tools/casy-doc-engine/Cargo.toml --locked --features models
+node --test scripts/binary-architecture.test.mjs scripts/license-policy.test.mjs scripts/runtime-components.test.mjs
+```
+
+`tests/e2e/` 包含 17 个本地脚本，通常需要桥接 example、前端服务、浏览器和隔离资料目录；它们没有被普通 `npm run test:unit` 自动运行。真实模型用例中带 `#[ignore]` 的项目也必须按各文件说明单独运行。
+
+完整回归、真实样本和忽略项见 [验收记录](RELEASE_0.1.3.md)。本机同时运行多个重型编译时建议 `npx vitest run --maxWorkers=2`，避免测试资源竞争。
+
+## 完整包
+
+```bash
+npm run release:validation
+```
+
+`build:desktop` 使用 `tauri.full.conf.json`，先准备 runtime 再构建前端。`tauri.dmg-only.conf.json` 跳过 beforeBuild，只能在资源和 dist 已明确更新时使用；普通 `tauri build` 不自动包含完整 runtime 资源配置。
+
+`scripts/package-validation.mjs` 使用 app bundle，再验证版本、资源/许可/架构/签名、包内真实 OCR、E5 与 Zvec，最后通过 hdiutil 生成和校验 DMG，同时输出 SHA-256 和构建元数据。已有同名 DMG 不覆盖。`--skip-build` 只用于已确认当前源码构建完成的应用，仍运行全部包内核验。
+
+发布完成标准：
+
+1. 冻结源码和锁文件状态，保留版本与构建证据。
+2. 完成相关测试与真实样本验收，记录失败/跳过，不以局部测试代替全套。
+3. 准备模型/动态库/字体/许可，生成 manifest 并校验。
+4. 构建主应用；检查 Info.plist、架构、签名和实际引擎能力。
+5. 生成 DMG，校验镜像与 SHA-256，再挂载核验包内应用。
+6. 更新项目状态与发布说明；源码版本和安装包版本一致后才宣布交付。
+
+## CI 实际情况
+
+[ci.yml](../.github/workflows/ci.yml) 的 frontend 跑类型、单测、构建；Rust 矩阵为 Ubuntu/macOS，Windows 已暂停。tag 打包仅 macOS。CI 还声明 Clippy/audit 和 bindings 漂移检查，但本次没有远端运行证据。
+
+0.1.3 已加入引擎/脚本测试，tag 构建调用完整生产验证打包流程并上传证据；本轮未触发远端 CI。既有 Clippy/audit 门禁仍需远端或专门本地运行确认，公证与发行证书未完成。

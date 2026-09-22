@@ -1,0 +1,593 @@
+{
+  "date": "2026-09-22",
+  "files": [
+    {
+      "original": "docs/knowledge-trilium-codemirror-pageindex-walkthrough-2026-09-02.md",
+      "archived": "docs/Archive/2026-09-22/knowledge-trilium-codemirror-pageindex-walkthrough-2026-09-02.md",
+      "bytes": 6312,
+      "sha256": "683ab4898a601111496dfe19dbb03b1a01cf823b6ff9657a25ea94ee431be5d4"
+    },
+    {
+      "original": "docs/ui/ui-optimization-2026-09-13.md",
+      "archived": "docs/Archive/2026-09-22/ui/ui-optimization-2026-09-13.md",
+      "bytes": 3906,
+      "sha256": "a587f3fd159e22a6593873631e7edb4e54097df7587097f1479bcf2ecfabef4a"
+    },
+    {
+      "original": "docs/searchable-pdf-pageindex-ovisocr2-walkthrough-2026-09-01.md",
+      "archived": "docs/Archive/2026-09-22/searchable-pdf-pageindex-ovisocr2-walkthrough-2026-09-01.md",
+      "bytes": 8693,
+      "sha256": "39658d55f2ae291ce94a5eae45d8fe39c82ef207dfc37ba1bf59a7a4de76d786"
+    },
+    {
+      "original": "docs/wysiwyg-everything-plan-2026-09-02.md",
+      "archived": "docs/Archive/2026-09-22/wysiwyg-everything-plan-2026-09-02.md",
+      "bytes": 2648,
+      "sha256": "1ab3e310c6f54d132b500ab50f730ff8b4c975a97ec3ac4a93eff89317bccf5a"
+    },
+    {
+      "original": "docs/runtime-distribution-plan.md",
+      "archived": "docs/Archive/2026-09-22/runtime-distribution-plan.md",
+      "bytes": 4018,
+      "sha256": "7d5dc42aa67a147846526345a5dab529012a3c620a32fe9adc771ffe2de8fc46"
+    },
+    {
+      "original": "docs/security-audit-r4.md",
+      "archived": "docs/Archive/2026-09-22/security-audit-r4.md",
+      "bytes": 1445,
+      "sha256": "deda13556fd9723ca0c76e0b8cf4a75a841491f73f25cc794fcb0765dc451c9d"
+    },
+    {
+      "original": "docs/devlog/2026-08-24.md",
+      "archived": "docs/Archive/2026-09-22/devlog/2026-08-24.md",
+      "bytes": 18822,
+      "sha256": "39f8c6431ec305b2280880c9fee21f86e7556e0a13829a20fbf25c2a5d12a2a9"
+    },
+    {
+      "original": "docs/global-benchmark-inspirations-plan-2026-09-01.md",
+      "archived": "docs/Archive/2026-09-22/global-benchmark-inspirations-plan-2026-09-01.md",
+      "bytes": 7445,
+      "sha256": "ed63f831e143b3d97b86cdf7e6d1d5014afa7834c1b97f70517a53fbf835cffb"
+    },
+    {
+      "original": "docs/refactoring-plan.md",
+      "archived": "docs/Archive/2026-09-22/refactoring-plan.md",
+      "bytes": 34958,
+      "sha256": "ff27f6a279a9f9ff0cf72d05a7157074fb0c7e4ef72008d91f399d6fba895033"
+    },
+    {
+      "original": "docs/case-workflow-whiteboard-walkthrough-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/case-workflow-whiteboard-walkthrough-2026-09-08.md",
+      "bytes": 10513,
+      "sha256": "78f27347bb82894eaa065c7c544ff5311962c420063c8431f39223189ec77c3f"
+    },
+    {
+      "original": "docs/audits/case-analysis-redesign-work-plan-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/case-analysis-redesign-work-plan-2026-09-08.md",
+      "bytes": 6304,
+      "sha256": "f8d9f8cb851dabb50944749b8021cc23f24a5cd7c23ac50a88d3083a1c993d65"
+    },
+    {
+      "original": "docs/audits/casy-ai-usage-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-ai-usage-validation-2026-09-06.md",
+      "bytes": 4291,
+      "sha256": "6bd5a1e9d4dd71e11b038fdf178749c73eca8b01b2b1c0a684a9bac8e75cff2c"
+    },
+    {
+      "original": "docs/audits/casy-capture-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-capture-validation-2026-09-06.md",
+      "bytes": 5288,
+      "sha256": "88a5fe3079810c0720764c8da3527a91b0729e53c7521344cda47f76e6f03518"
+    },
+    {
+      "original": "docs/audits/casy-code-review-2026-09-03.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-code-review-2026-09-03.md",
+      "bytes": 14553,
+      "sha256": "9917d02393fba6b84b378c33e62757f951ae61fe17c8867253816a2ddca2316e"
+    },
+    {
+      "original": "docs/audits/casy-code-review-2026-09-04-full.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-code-review-2026-09-04-full.md",
+      "bytes": 35076,
+      "sha256": "0b7e8dd3a0418f9409b4e6154b640624dd68b53d4e4850a603e335c37e0b1b0c"
+    },
+    {
+      "original": "docs/audits/casy-code-review-2026-09-17-modular.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-code-review-2026-09-17-modular.md",
+      "bytes": 75646,
+      "sha256": "50082f7caf6379e36be3a8d61ebfff3715b74d3737e15bebf59c8bbb666cae60"
+    },
+    {
+      "original": "docs/audits/casy-dashboard-validation-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-dashboard-validation-2026-09-07.md",
+      "bytes": 2986,
+      "sha256": "53ea088c18424eefa170466ecde3e374dcbba222020bb0fcc7cb8e746cbded9c"
+    },
+    {
+      "original": "docs/audits/casy-delivery-completion-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-delivery-completion-2026-09-07.md",
+      "bytes": 5263,
+      "sha256": "8f51e23dedc6be235ad80bdf415c415f2206f34b98e3216728c32baeb82b4163"
+    },
+    {
+      "original": "docs/audits/casy-delivery-review-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-delivery-review-2026-09-06.md",
+      "bytes": 15007,
+      "sha256": "5ad9e89833cd24a487104ffed02883df3e71bc6c7ef53f8ce98efa5e035cbec5"
+    },
+    {
+      "original": "docs/audits/casy-document-retrieval-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-document-retrieval-validation-2026-09-06.md",
+      "bytes": 5744,
+      "sha256": "d3d119701add89f5d778ca1af208378e958c65983ec54eb1920e6c11a7bd3473"
+    },
+    {
+      "original": "docs/audits/casy-feishu-intake-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-feishu-intake-validation-2026-09-06.md",
+      "bytes": 8618,
+      "sha256": "71ce699fa14b0aa8a00fa0aed272b67aea3e9cf7008ec71ca46b5d6165e89db8"
+    },
+    {
+      "original": "docs/audits/casy-file-lifecycle-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-file-lifecycle-validation-2026-09-06.md",
+      "bytes": 6555,
+      "sha256": "98775f6f25747fd7a635ce8fb91e09b905b23f11ae15afe631489eae862c0179"
+    },
+    {
+      "original": "docs/audits/casy-ipc-strict-review-2026-09-04.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-ipc-strict-review-2026-09-04.md",
+      "bytes": 6902,
+      "sha256": "e3d79c2b27f814c860561f1c5d39f9c2342ee1a0a8da4427ef8b90180ca38d31"
+    },
+    {
+      "original": "docs/audits/casy-knowledge-index-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-knowledge-index-validation-2026-09-06.md",
+      "bytes": 5191,
+      "sha256": "234f75e89a616e6d34021a519d5bb4deac452b7097374cd19be9327b965ec5f1"
+    },
+    {
+      "original": "docs/audits/casy-notebook-editing-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-notebook-editing-validation-2026-09-06.md",
+      "bytes": 5174,
+      "sha256": "ac88c52102767591279f2e537338fa93133943501f28314045a449a8c523b552"
+    },
+    {
+      "original": "docs/audits/casy-ocr-source-binding-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-ocr-source-binding-2026-09-07.md",
+      "bytes": 5477,
+      "sha256": "a700264f91fa0cca4d7f836c11f3fd29547dd47e0fd11db15d84e2aaede86c46"
+    },
+    {
+      "original": "docs/audits/casy-ocr-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-ocr-validation-2026-09-06.md",
+      "bytes": 5218,
+      "sha256": "70abdea0aac4ab08829395690f6b084d3c0fa9ea669b64dba8e644facb2cd75d"
+    },
+    {
+      "original": "docs/audits/casy-real-case-readiness-review-2026-09-04.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-real-case-readiness-review-2026-09-04.md",
+      "bytes": 6490,
+      "sha256": "ead46372c54b7c273b7e59375a015d81b30187c1a8b69f7f1198c5da50f2979a"
+    },
+    {
+      "original": "docs/audits/casy-task-lifecycle-validation-2026-09-06.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-task-lifecycle-validation-2026-09-06.md",
+      "bytes": 4178,
+      "sha256": "9de78401af5570ec8d243d09edf6f5b5bf350896e9cb8720d9ff77b95fd2ef18"
+    },
+    {
+      "original": "docs/audits/casy-v4-code-audit-2026-08-29.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-v4-code-audit-2026-08-29.md",
+      "bytes": 32732,
+      "sha256": "b10c8a140f66ea6366fbf55944c13da75d38ae89e9c40b9212c57924190e9887"
+    },
+    {
+      "original": "docs/audits/casy-v4-review-brief-2026-08-29.md",
+      "archived": "docs/Archive/2026-09-22/audits/casy-v4-review-brief-2026-08-29.md",
+      "bytes": 3642,
+      "sha256": "493a42b12053af95ab89931cdcb0f2a7f644e14a3d226123c0f69dd49af4650b"
+    },
+    {
+      "original": "docs/audits/desktop-platform-audit-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/desktop-platform-audit-2026-09-08.md",
+      "bytes": 3433,
+      "sha256": "6a2456dbc8cfd6b8db7acc91f8eb4940b216e9ce3eccbe9e02ada293c9c66897"
+    },
+    {
+      "original": "docs/audits/document-capability-audit-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/document-capability-audit-2026-09-08.md",
+      "bytes": 5322,
+      "sha256": "0bb9cdf8f17554c74399867b6cea3e96495fd73c6482f7b6ff25d855125eb045"
+    },
+    {
+      "original": "docs/audits/document-conversion-cancel-fix-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/document-conversion-cancel-fix-2026-09-07.md",
+      "bytes": 3786,
+      "sha256": "6d94c45f1e8cc4bbf2313fff5325e75f77955fd8c5ad3edbd964542db60f4d7e"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/a4-desktop.png",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/a4-desktop.png",
+      "bytes": 207276,
+      "sha256": "4c76663781ea4cf4a3787997586c6dc847f90cf00731cbee2cb8b7b5ae0ebbbc"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/a4-narrow.png",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/a4-narrow.png",
+      "bytes": 75879,
+      "sha256": "084c5d2bbcb98511ccaacf05d6ca2139506fd94ca23bf972182fc9ef7a8c521f"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/frontend-build.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/frontend-build.log",
+      "bytes": 42007,
+      "sha256": "480a6f01114f4f8d4cac98589ba21bac1a1cb44e82db319dc3a3c937d559c712"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/frontend-tests.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/frontend-tests.log",
+      "bytes": 277,
+      "sha256": "ac3956b86757f8620ae9ed0ea168896b3dc31cadff76ed24b463c37f1d9c3ef1"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/notices.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/notices.log",
+      "bytes": 51,
+      "sha256": "e184b71ff29b37a657426cc239ef311916226c8f8f96b0690f2c9ce153eb60c4"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/page-1.svg",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/page-1.svg",
+      "bytes": 99010,
+      "sha256": "bb1d512e62af38006e1b466aa3300ab2e552cb54f53ffe76d46fe47b2204b054"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/pdf-page-1.png",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/pdf-page-1.png",
+      "bytes": 127607,
+      "sha256": "4d5a4dd83bedcc218a96d7e71e2924822d7fa40a6f53c51ee8225d62085e2859"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/results.json",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/results.json",
+      "bytes": 692,
+      "sha256": "f0726ec0326bf7a7009bbd82a28bf16629c98e9b83d9d5dccbd59de0608292b8"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/rust-full-tests.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/rust-full-tests.log",
+      "bytes": 25740,
+      "sha256": "0380e27b7d76a2e8072b8ed878943d07f5b40784a1dfff599da7ea545376a6e9"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/rust-mcp-recheck.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/rust-mcp-recheck.log",
+      "bytes": 2250,
+      "sha256": "3c918ba04f30ab69027d806d56e3f3325afccf7fb75c0be836ee82be35d76788"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/rust-typesetting-tests.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/rust-typesetting-tests.log",
+      "bytes": 2498,
+      "sha256": "773ea6aa95ca391503a3241600a46d39ff39467a51eb43087c6bd51dc578e2f6"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/save-boundary-tests.log",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/save-boundary-tests.log",
+      "bytes": 374,
+      "sha256": "a01f0835fdee29f1fb17e1796317e29e8a395fb9e03b390c0424d6dd2a33333b"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-validation-2026-09-17/typeset-sample.pdf",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-validation-2026-09-17/typeset-sample.pdf",
+      "bytes": 30563,
+      "sha256": "2a3872b6cce23c632d01542f6e11dd222a2178d1994019a17541eee2f6d67caf"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-walkthrough-2026-09-17.md",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-walkthrough-2026-09-17.md",
+      "bytes": 10077,
+      "sha256": "21da5a535b46016ada82b99474d802ceb2dcb646e4c6258998fcb0b569b25dba"
+    },
+    {
+      "original": "docs/audits/editor-typesetting-workplan-2026-09-17.md",
+      "archived": "docs/Archive/2026-09-22/audits/editor-typesetting-workplan-2026-09-17.md",
+      "bytes": 4015,
+      "sha256": "c09ba155fa948eb551dcf5919315ca9831b106c498c6c65aa7c86c885746ee33"
+    },
+    {
+      "original": "docs/audits/local-retrieval-beta-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/local-retrieval-beta-2026-09-07.md",
+      "bytes": 8002,
+      "sha256": "f26916bc855fa90831712eb131c7a89f23697ffb9bc66707bde9527ce52675f9"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17/casy-baseline.json",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17/casy-baseline.json",
+      "bytes": 626,
+      "sha256": "9674eb3875a8a9376f2b3e0417e24d5b54bfd0c259355a95d45fa2ae4e0acfa8"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17/component-observations.json",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17/component-observations.json",
+      "bytes": 1216,
+      "sha256": "543747ca26c3e84e78b12b979749fc3892f2e08034a7bdcb1a0a45529704ba87"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17/observations.json",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17/observations.json",
+      "bytes": 29315,
+      "sha256": "67110a5450eee30995e9d40a955f4313da0ec0f2a2b438e548fcd81fbffa8e61"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17/probe.test.ts",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17/probe.test.ts",
+      "bytes": 3893,
+      "sha256": "405e5ccf330f016044e3758c630c176e6a6aef6b489d397341800ec924facfd3"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17/upstream-test-summary.json",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17/upstream-test-summary.json",
+      "bytes": 2143,
+      "sha256": "fb43353640af9794fd449994c08e254e429a528e25a0503fc2ed4738080d4bc8"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17/vitest.config.ts",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17/vitest.config.ts",
+      "bytes": 454,
+      "sha256": "62b5fb0a3ae54db8a0afc789b3b6d1b7eb61857a703f7a5c876808dff1d39669"
+    },
+    {
+      "original": "docs/audits/markdown-editor-reference-study-2026-09-17.md",
+      "archived": "docs/Archive/2026-09-22/audits/markdown-editor-reference-study-2026-09-17.md",
+      "bytes": 19495,
+      "sha256": "5810db30e5396bb171c8a955b3b140c9003d59a3ee1668395bca674d913526ad"
+    },
+    {
+      "original": "docs/audits/modular-review-fixes-workplan-2026-09-17.md",
+      "archived": "docs/Archive/2026-09-22/audits/modular-review-fixes-workplan-2026-09-17.md",
+      "bytes": 9778,
+      "sha256": "5e847f547cc24b3a4a546822c35e531f1850661cbf4232ca33d425e7855a20fa"
+    },
+    {
+      "original": "docs/audits/ocr-markdown-export-fix-2026-09-22.md",
+      "archived": "docs/Archive/2026-09-22/audits/ocr-markdown-export-fix-2026-09-22.md",
+      "bytes": 3368,
+      "sha256": "723f6ff707e6d6fa18e4266a219447a41b601d856d61406fc5f907422c43dffc"
+    },
+    {
+      "original": "docs/audits/ocr-speed-progress-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/ocr-speed-progress-2026-09-07.md",
+      "bytes": 4034,
+      "sha256": "6dc91e795ac431c4c22353ef249469f83950b48080b00812d744927a2be302eb"
+    },
+    {
+      "original": "docs/audits/ocr-tables-walkthrough-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/ocr-tables-walkthrough-2026-09-08.md",
+      "bytes": 10464,
+      "sha256": "de183c7e8a367d0ac7f3806714155d879f1a91f08529de4c5850eeb014f465bf"
+    },
+    {
+      "original": "docs/audits/ocr-tables-work-plan-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/ocr-tables-work-plan-2026-09-08.md",
+      "bytes": 2297,
+      "sha256": "cb5d8dda0ccadd0be8ef9f8bc9778f426b16d86af2bc017f34f2581d0089c36e"
+    },
+    {
+      "original": "docs/audits/paddle-layout-pipeline-walkthrough-2026-09-09.md",
+      "archived": "docs/Archive/2026-09-22/audits/paddle-layout-pipeline-walkthrough-2026-09-09.md",
+      "bytes": 2306,
+      "sha256": "c91bc78b3a44eb73d0c0af7e1a71994e7fcc32c0617abf857b27ee50081f0d47"
+    },
+    {
+      "original": "docs/audits/processing-center-walkthrough-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/processing-center-walkthrough-2026-09-08.md",
+      "bytes": 6772,
+      "sha256": "6be10bf05998391b66fd228dc4978858e187004316b4700cb57682f4fdc4ee52"
+    },
+    {
+      "original": "docs/audits/processing-center-work-plan-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/processing-center-work-plan-2026-09-08.md",
+      "bytes": 1486,
+      "sha256": "4b9922539062b4576370304fc72e800f0de4f3f64bbc11a30dd6e87a664ca833"
+    },
+    {
+      "original": "docs/audits/unified-editor-work-plan-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/unified-editor-work-plan-2026-09-08.md",
+      "bytes": 3196,
+      "sha256": "a988ff83617587f39cd62f74ab78f23914ed1d9851853d754ba5afab7688d818"
+    },
+    {
+      "original": "docs/audits/visual-experience-2026-09-05.md",
+      "archived": "docs/Archive/2026-09-22/audits/visual-experience-2026-09-05.md",
+      "bytes": 4829,
+      "sha256": "fd7035bc61ce9a704d0e0a959f79e2929b109db7a6f58613f82f5cda8a09199e"
+    },
+    {
+      "original": "docs/audits/whiteboard-integration-work-plan-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/audits/whiteboard-integration-work-plan-2026-09-08.md",
+      "bytes": 3161,
+      "sha256": "6fb8accb19a49ec88048f3c0de4976b66d2f839a96c8997d4c9271cf0356a212"
+    },
+    {
+      "original": "docs/audits/workspace-retrieval-editing-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/workspace-retrieval-editing-2026-09-07.md",
+      "bytes": 7069,
+      "sha256": "bc8c527d33e26817690ceaf5d1c9f17076c7f9bc384339bff4bc86f2b8e4a6b1"
+    },
+    {
+      "original": "docs/audits/zvec-global-search-beta-2026-09-07.md",
+      "archived": "docs/Archive/2026-09-22/audits/zvec-global-search-beta-2026-09-07.md",
+      "bytes": 7249,
+      "sha256": "d422442023bd1126724562bf03f5cf37ddd6b62142504b04f4cdcc5ad50c711f"
+    },
+    {
+      "original": "docs/casy-product-design-v3.md",
+      "archived": "docs/Archive/2026-09-22/casy-product-design-v3.md",
+      "bytes": 25333,
+      "sha256": "fa8680cca25d5ef5b4cbe2ffa3988ed1ea239231e5cf2cd14c3cbbe2237d0d9f"
+    },
+    {
+      "original": "docs/case-workflow-whiteboard-work-plan-2026-09-08.md",
+      "archived": "docs/Archive/2026-09-22/case-workflow-whiteboard-work-plan-2026-09-08.md",
+      "bytes": 5799,
+      "sha256": "db6dc16ccfbe06b398fc0977e5635bcefcf93db832745d99c1f1028b5c4734c1"
+    },
+    {
+      "original": "docs/wysiwyg-native-remediation-plan-2026-09-02.md",
+      "archived": "docs/Archive/2026-09-22/wysiwyg-native-remediation-plan-2026-09-02.md",
+      "bytes": 17090,
+      "sha256": "69f52e85d3d6c4ec48c63905685791c8bc7abd4a3ca04347db902edcd8a237fe"
+    },
+    {
+      "original": "docs/casy-design-philosophy.md",
+      "archived": "docs/Archive/2026-09-22/casy-design-philosophy.md",
+      "bytes": 107157,
+      "sha256": "3dc3cb5bfff01cc71d743e3cd43405f628b441595b0f8f27b48c7f1383c43ad0"
+    },
+    {
+      "original": "docs/compliance/E5-MIT-LICENSE.txt",
+      "archived": "docs/Archive/2026-09-22/compliance/E5-MIT-LICENSE.txt",
+      "bytes": 1083,
+      "sha256": "b5cb7ff7859e7d282d98fc43ab081b0dda5dc659dc3385cf65740c759a7e6a6c"
+    },
+    {
+      "original": "docs/compliance/EULA.md",
+      "archived": "docs/Archive/2026-09-22/compliance/EULA.md",
+      "bytes": 2344,
+      "sha256": "4c825976d74a28e19b9cc18e272469ccd619a5cb007ac4b3e64203c1b8888276"
+    },
+    {
+      "original": "docs/compliance/LICENSES.md",
+      "archived": "docs/Archive/2026-09-22/compliance/LICENSES.md",
+      "bytes": 1832,
+      "sha256": "9b8137de68b281728b1b6668d8fc07506ae3af2d4ecee0e420cf9b24190800d8"
+    },
+    {
+      "original": "docs/compliance/MinerU-Popo-LICENSE.txt",
+      "archived": "docs/Archive/2026-09-22/compliance/MinerU-Popo-LICENSE.txt",
+      "bytes": 1084,
+      "sha256": "8b52126965965795e32605287d0977abde94a825c41163346b2bee5d7491bc0a"
+    },
+    {
+      "original": "docs/compliance/PRIVACY.md",
+      "archived": "docs/Archive/2026-09-22/compliance/PRIVACY.md",
+      "bytes": 1798,
+      "sha256": "49da492949736687f0fed2bc3a8a0ba633fae8be8fa0104a6124f21ec5e634e1"
+    },
+    {
+      "original": "docs/ui-recovery-knowledge-notebook-walkthrough-2026-09-02.md",
+      "archived": "docs/Archive/2026-09-22/ui-recovery-knowledge-notebook-walkthrough-2026-09-02.md",
+      "bytes": 5730,
+      "sha256": "e424756613c9318d1bd9fd4f7322f8744bd99203cb7be2ffe8b274eba5c786c1"
+    },
+    {
+      "original": "docs/doco-benchmark-optimization-plan-2026-09-03.md",
+      "archived": "docs/Archive/2026-09-22/doco-benchmark-optimization-plan-2026-09-03.md",
+      "bytes": 26493,
+      "sha256": "70045a05ecc12b3b06f367f6e21815f8395761179aefbe6328ca2b4e2c523585"
+    },
+    {
+      "original": "docs/procedure-deadline-rules.md",
+      "archived": "docs/Archive/2026-09-22/procedure-deadline-rules.md",
+      "bytes": 6709,
+      "sha256": "55c3a14ea123e040b57d36b0f6a6a2b80a60e45f910846e9682b136fc9d394e4"
+    },
+    {
+      "original": "docs/specta-adoption-report.md",
+      "archived": "docs/Archive/2026-09-22/specta-adoption-report.md",
+      "bytes": 6569,
+      "sha256": "fe209671e00596e87b8df217cc0a1772826bafd7308b7c86d797d89be71f43b7"
+    },
+    {
+      "original": "docs/global-benchmark-inspirations-walkthrough-2026-09-01.md",
+      "archived": "docs/Archive/2026-09-22/global-benchmark-inspirations-walkthrough-2026-09-01.md",
+      "bytes": 19393,
+      "sha256": "d7bd05cace4735ee0066809b41708143ef261d1bbc905912df1bd30726253367"
+    },
+    {
+      "original": "docs/anti-gravity/casy-design-philosophy-v3.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/casy-design-philosophy-v3.md",
+      "bytes": 8383,
+      "sha256": "9e3ef65e39c11e74f1cac6c1341bd5a094b2eb5de0744f8abb31cb4b3ff85087"
+    },
+    {
+      "original": "docs/anti-gravity/casy-design-philosophy-v4.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/casy-design-philosophy-v4.md",
+      "bytes": 95949,
+      "sha256": "60157b4d4c4f99851ea9f8619c4c3700a63c7e13dcd6e060b59369a989d1d65e"
+    },
+    {
+      "original": "docs/anti-gravity/casy-design-philosophy-v5.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/casy-design-philosophy-v5.md",
+      "bytes": 29649,
+      "sha256": "53a6c66d02d47f7ca2945562023babb544dd4c5f2fd6848ffaebc40c862b6073"
+    },
+    {
+      "original": "docs/anti-gravity/casy-v5-improvement-plan-2026-08-29.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/casy-v5-improvement-plan-2026-08-29.md",
+      "bytes": 20359,
+      "sha256": "d35648e82c8346442c7b72f95ad9f743c4936dc58e7052b2bc8e90cd379363f3"
+    },
+    {
+      "original": "docs/anti-gravity/optimization_directions.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/optimization_directions.md",
+      "bytes": 5756,
+      "sha256": "54ed3c82dfe91815cd150454d2a4b5d2b9592d84aa11e5cc9be2611157b21ec9"
+    },
+    {
+      "original": "docs/anti-gravity/recovery-case-liist.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/recovery-case-liist.md",
+      "bytes": 1449,
+      "sha256": "c98332c6c6d9f4468a6c4e60583193d96040887de040ab122d6d0ec1e44a0e19"
+    },
+    {
+      "original": "docs/anti-gravity/v4_deep_dive_audit.md",
+      "archived": "docs/Archive/2026-09-22/anti-gravity/v4_deep_dive_audit.md",
+      "bytes": 7146,
+      "sha256": "97f4cf2c6533e86143611978b441a766f5737549d24078a96d4f50e7733cc7de"
+    },
+    {
+      "original": "docs/dogfooding-round1.md",
+      "archived": "docs/Archive/2026-09-22/dogfooding-round1.md",
+      "bytes": 3888,
+      "sha256": "8b433e7d7f6e66119a270eb3c474c6a0fac05105675fc92a30c78d2c7980c88f"
+    },
+    {
+      "original": "docs/searchable-pdf-pageindex-ovisocr2-plan-2026-09-01.md",
+      "archived": "docs/Archive/2026-09-22/searchable-pdf-pageindex-ovisocr2-plan-2026-09-01.md",
+      "bytes": 6239,
+      "sha256": "bdbc7f8eb948ea82d00cbf2da66beec2f295add72b3a5f2eb685d493afbf336a"
+    },
+    {
+      "original": "docs/wysiwyg-native-remediation-walkthrough-2026-09-02.md",
+      "archived": "docs/Archive/2026-09-22/wysiwyg-native-remediation-walkthrough-2026-09-02.md",
+      "bytes": 12929,
+      "sha256": "8f5bc4cc54a0e607933c9d288f3402861d1101585f5c668dd1ba13be42fd23c5"
+    },
+    {
+      "original": "README.md",
+      "archived": "docs/Archive/2026-09-22/repository/README.md",
+      "bytes": 10196,
+      "sha256": "d3ef4c9e127e03fd5f09a32186b98de53ac3a7aecbe7823fdaed9e6b34942275"
+    },
+    {
+      "original": "Casy-STATUS.md",
+      "archived": "docs/Archive/2026-09-22/repository/Casy-STATUS.md",
+      "bytes": 7511,
+      "sha256": "5312a2e3648fcf8cc091b1b913d986873a355903b3e1cc769eafbb33648dd31d"
+    },
+    {
+      "original": "tools/casy-doc-engine/README.md",
+      "archived": "docs/Archive/2026-09-22/repository/tools/casy-doc-engine/README.md",
+      "bytes": 4113,
+      "sha256": "0c65808b6681b00f2b9e24e42cbdba33cbdd12543c498fce394574d0320f99ff"
+    },
+    {
+      "original": "scripts/signing/README.md",
+      "archived": "docs/Archive/2026-09-22/repository/scripts/signing/README.md",
+      "bytes": 938,
+      "sha256": "88b392554ed9636fdb8c0359b327cd541b9aa961fce6bc4f2125d685c7d26226"
+    }
+  ]
+}

@@ -30,6 +30,7 @@ export class FilesPlugin implements CasyPlugin {
   private createListCaseFilesTool(ctx: CasyContext): CasyTool {
     return defineTool<{ caseId: string }>({
       name: 'list_case_files',
+      policy: { write: false, level: 'L1' },
       description: '获取案件文件列表',
       category: 'files',
       parameters: {

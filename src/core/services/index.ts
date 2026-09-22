@@ -10,6 +10,7 @@
  */
 
 import { casyContext } from '../plugin/context'
+import { WorkspaceService } from './workspace'
 import { CasesService } from './cases'
 import { TasksService } from './tasks'
 import { KnowledgeService } from './knowledge'
@@ -34,6 +35,7 @@ import { createTodayBriefingSkill } from '../skills/todayBriefing'
  * 新增服务 = 在此加一行 + registerServices 注册一次，其余全部自动获得类型。
  */
 export interface ServicesMap {
+  workspace: WorkspaceService
   settings: SettingsService
   cases: CasesService
   tasks: TasksService
@@ -73,6 +75,8 @@ export async function registerServices(): Promise<void> {
   casyContext.provide('projects', new ProjectsService(casyContext), ['settings'])
   casyContext.provide('backup', new BackupService(casyContext), [])
   casyContext.provide('dashboard', new DashboardService(casyContext), [])
+
+  casyContext.provide('workspace', new WorkspaceService(casyContext), ['cases', 'tasks', 'calendar', 'knowledge', 'docs', 'files'])
 
   // ── K-3 事件层真实消费者（活性证明 + 归因）──
   // ① task:completed → 提醒引擎立即重算当日（不等周期）

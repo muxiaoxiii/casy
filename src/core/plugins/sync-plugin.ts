@@ -32,6 +32,7 @@ export class SyncPlugin implements CasyPlugin {
   private createGetSyncStatusTool(ctx: CasyContext): CasyTool {
     return defineTool<{}>({
       name: 'get_sync_status',
+      policy: { write: false, level: 'L1' },
       description: '获取同步状态（WebDAV/飞书）',
       category: 'sync',
       parameters: { type: 'object', properties: {} },

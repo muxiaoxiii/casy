@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Avatar, User, Suitcase, OfficeBuilding, Postcard } from '@element-plus/icons-vue'
+import { Avatar, User, Suitcase, OfficeBuilding, Postcard } from '../../shared/icons'
 
 /** 实体类型（与后端 persons.kind CHECK 约束一致） */
 export type PersonKind = 'judge' | 'client' | 'opposing_counsel' | 'court' | 'contact'

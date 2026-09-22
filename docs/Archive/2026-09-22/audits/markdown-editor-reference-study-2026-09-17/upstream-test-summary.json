@@ -1,0 +1,59 @@
+{
+  "repository": "https://github.com/kuku-mom/kuku",
+  "commit": "ea07b629ead912ada70442e8c87ae90359742d33",
+  "environment": "Casy existing Vitest 4.1.11 + jsdom; source/test files unchanged, copied to temporary directory; type-only imports erased; no native WebKit or real IME involved",
+  "suites": [
+    {
+      "name": "__tests__/code_block_preview_scheduler.test.ts",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "code block preview scheduler uses the editor scroll viewport as observer root",
+          "status": "passed"
+        },
+        {
+          "name": "code block preview scheduler detects previews near the editor scroll viewport",
+          "status": "passed"
+        },
+        {
+          "name": "code block preview scheduler observes deferred previews until they enter the near viewport",
+          "status": "passed"
+        },
+        {
+          "name": "code block preview scheduler does not render many deferred previews before intersection",
+          "status": "passed"
+        },
+        {
+          "name": "code block preview scheduler cancels stale observed previews without rendering",
+          "status": "passed"
+        },
+        {
+          "name": "code block preview scheduler cancels observer lifecycle through its disposer",
+          "status": "passed"
+        },
+        {
+          "name": "code block preview scheduler falls back to eager frame scheduling when IntersectionObserver is unavailable",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "name": "__tests__/ime_composition_workaround.test.ts",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "WebKit IME composition workaround blocks broken composition text events and lets the final commit through",
+          "status": "passed"
+        },
+        {
+          "name": "WebKit IME composition workaround leaves normal composition updates alone",
+          "status": "passed"
+        },
+        {
+          "name": "WebKit IME composition workaround suppresses ProseMirror DOM selection resets while composing",
+          "status": "passed"
+        }
+      ]
+    }
+  ]
+}

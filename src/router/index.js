@@ -76,7 +76,7 @@ const routes = [
     props: true,
   },
   {
-    path: '/files/:caseId',
+    path: '/files/:caseId?',
     name: 'files',
     component: () => import('../modules/files/views/CaseFilesView.vue'),
     meta: { title: '案件文件' },

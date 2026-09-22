@@ -51,8 +51,8 @@ export class SettingsService extends Service {
     const url = (s.webdav_url || s.webdavUrl) as string | undefined
     const username = (s.webdav_username || s.webdavUsername) as string | undefined
     const password = (s.webdav_password || s.webdavPassword) as string | undefined
-    if (!url || !username || !password) return null
-    return { url, username, password }
+    if (!url || !username || !(password || s.webdavPassword_configured || s.webdav_password_configured)) return null
+    return { url, username, password: password || '' }
   }
 
   // ── 保存的筛选器（filters store 使用） ──

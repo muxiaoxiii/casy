@@ -8,6 +8,7 @@ use std::path::Path;
 /// 智能 PDF 极速提取：
 /// 尝试抽取 PDF 自带的文本层。如果抽取出的有效字符少于一定阈值，
 /// 说明是纯图片扫描件，则返回特定错误供上层标记为需要 OCR。
+#[allow(dead_code)] // Retained as the optional electronic-PDF extraction path.
 pub async fn extract_pdf_to_markdown<P: AsRef<Path>>(file_path: P) -> Result<String, String> {
     let path_str = file_path.as_ref().to_string_lossy().to_string();
     info!("Starting PDF fast text extraction for: {}", path_str);

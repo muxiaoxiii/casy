@@ -5,13 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useNotebookSave, type NotebookDraft } from '../../src/modules/knowledge/composables/useNotebookSave'
 
 const wrappers: ReturnType<typeof mount>[] = []
-afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()) })
+afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.useRealTimers() })
 const draftData = (): NotebookDraft => ({ id: 'a', title: '研究', content: '原文', category: 'reference', tags: '', linkedCaseId: '', parentId: '' })
-function setup(update: ReturnType<typeof vi.fn>) {
+function setup(update: ReturnType<typeof vi.fn>, syncEditor: (commitSources?:boolean)=>void = () => {}) {
   const draft = ref(draftData()), onError = vi.fn(), onSaved = vi.fn()
   let save!: ReturnType<typeof useNotebookSave>
   wrappers.push(mount(defineComponent({ setup() {
-    save = useNotebookSave({ draft, update, onError, onSaved, syncEditor: () => {} })
+    save = useNotebookSave({ draft, update, onError, onSaved, syncEditor })
     return () => null
   } })))
   return { save, draft, onError, onSaved }
@@ -22,6 +22,19 @@ function deferred() {
   return { resolve, promise }
 }
 describe('notebook save drain', () => {
+  it('does not commit or close source drafts on autosave but flushes them on explicit save',async()=>{
+    vi.useFakeTimers();const sync=vi.fn();
+    const {save,draft}=setup(vi.fn().mockResolvedValue({ok:true}),sync);
+    draft.value.content='普通正文修改';await vi.advanceTimersByTimeAsync(901);
+    expect(sync).toHaveBeenCalledWith(false);expect(sync).not.toHaveBeenCalledWith(true);
+    await save.flush();expect(sync).toHaveBeenCalledWith(true);
+  });
+  it('blocks explicit switching during source composition and keeps the draft available',async()=>{
+    const update=vi.fn().mockResolvedValue({ok:true});let composing=true;
+    const {save,draft,onError}=setup(update,commit=>{if(commit && composing)throw new Error('请完成输入法选字后再保存')});
+    draft.value.content='修改';expect(await save.flush()).toBe(false);expect(update).not.toHaveBeenCalled();expect(onError).toHaveBeenCalled();
+    composing=false;expect(await save.flush()).toBe(true);
+  });
   it('waits for edits made during a pending save before allowing a switch', async () => {
     const first = deferred(), second = deferred()
     const update = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)

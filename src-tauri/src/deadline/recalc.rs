@@ -81,6 +81,7 @@ mod tests {
             .filter(|c| !engine.evaluate_case(&conn, c).is_empty())
             .count() as i64;
 
-        assert_eq!(affected, 1);
+        // Legacy dates with unknown procedure/notice are shown for review, not counted as a dated obligation.
+        assert_eq!(affected, 0);
     }
 }

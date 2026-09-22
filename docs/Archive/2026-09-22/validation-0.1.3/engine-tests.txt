@@ -1,0 +1,31 @@
+   Compiling casy-doc-engine v0.1.0 (/Users/only/Documents/PythonProgram/Casy/tools/casy-doc-engine)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.43s
+     Running unittests src/main.rs (tools/casy-doc-engine/target/debug/deps/casy_doc_engine-906439314ee3c647)
+
+running 24 tests
+test table::tests::private_gds_grid_review ... ignored, private report; set CASY_TABLE_FIXTURE_DIR explicitly
+test table::tests::private_report_grid_review ... ignored, private report; set CASY_TABLE_FIXTURE_DIR explicitly
+test source_map::tests::multilingual_offsets_bind_exact_bytes_and_both_pages ... ok
+test source_map::tests::divergent_markdown_never_invents_coordinates ... ok
+test layout::tests::an_inset_vertical_title_does_not_precede_the_page_continuation ... ok
+test layout::tests::column_order_keeps_all_lines_and_their_coordinates ... ok
+test source_map::tests::table_markup_maps_escaped_values_and_corrections_preserve_grid ... ok
+test tests::korean_candidate_requires_script_evidence_and_confidence ... ok
+test layout::tests::aligned_paragraphs_read_down_each_column ... ok
+test tests::real_chinese_scanned_pdf ... ignored, requires local verified model assets, font and CASY_OCR_QA_DIR
+test tests::real_korean_scan_uses_script_matched_recognizer ... ignored, requires local verified OCR, Korean and layout models
+test tests::real_multilingual_and_forged_text_pdf ... ignored, requires local medium models and a multilingual font
+test tests::direct_image_keeps_pixels_and_composites_transparency_on_white ... ok
+test visual::tests::crops_are_clamped_and_duplicates_do_not_repeat_ocr ... ok
+test visual::tests::image_roundtrip_preserves_pixels_and_formula_text_is_only_auxiliary ... ok
+test tests::image_input_preserves_original_pixels_in_derived_pdf ... ok
+test tests::dual_stream_enhances_korean_and_rejects_forged_and_corrupt ... ok
+test table::tests::text_columns_do_not_become_tables_and_uncertain_layout_is_explicit ... ok
+test table::tests::faint_partial_dividers_are_not_silently_merged ... ok
+test table::tests::content_stays_in_its_cell_and_large_overlapping_marks_are_retained_separately ... ok
+test table::tests::ruled_cells_preserve_blank_cells_rowspan_colspan_and_scan_skew ... ok
+test tests::searchable_pdf_is_derived_and_source_is_unchanged ... ok
+test tests::page_renderer_handles_double_digit_pages_without_accumulating_images ... ok
+test tests::derived_pdf_discards_forged_hidden_text ... ok
+
+test result: ok. 19 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 5.06s

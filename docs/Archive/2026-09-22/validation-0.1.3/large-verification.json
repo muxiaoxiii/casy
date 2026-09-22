@@ -1,0 +1,13 @@
+{
+  "inputBytes": 67196767,
+  "outputMarkdownBytes": 224,
+  "imageBytes": 50397455,
+  "imageSha256": "3bbdf9dceb94f7c36475e4f9baa91d6d7d9cba6526f44cde96df5917857e9fa3",
+  "noInlineBase64": true,
+  "imageBytesIdentical": true,
+  "wallSeconds": 149.78,
+  "reportedProcessingSeconds": 48.4,
+  "build": "debug bridge",
+  "peakRss": null,
+  "measurementNote": "Conversion succeeded. /usr/bin/time -l could not query kern.clockrate under sandbox; its exit 1 is not a conversion failure."
+}

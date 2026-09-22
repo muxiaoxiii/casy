@@ -52,10 +52,12 @@ import {
   Reading,
   Close,
   Upload,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import CaseFilterBar from '../components/CaseFilterBar.vue'
 import CaseWizard from '../components/CaseWizard.vue'
 import CaseAttributes from '../components/CaseAttributes.vue'
+import ProcedureBoard from '../components/ProcedureBoard.vue'
+import WhiteboardEntry from '../../whiteboard/components/WhiteboardEntry.vue'
 import CaseImportDialog from '../components/CaseImportDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
 import {
@@ -86,6 +88,7 @@ const activeCategory = ref('all')
 const fileSortOrder = ref('added') // 'added' | 'recent' | 'name'
 const fileSearchQuery = ref('')
 // 时间轴状态与过滤器
+const domainTimeline = ref([])
 const timelineFilter = ref('all') // 'all' | 'task' | 'event' | 'deadline' | 'doc' | 'memo'
 const calendarEvents = ref([])
 // 办案笔记/备忘列表
@@ -162,7 +165,6 @@ const STANDARD_PROCEEDING_NODES = {
 }
 const selectedCase = computed(() => {
   return casesStore.cases.find((item) => item.id === selectedCaseId.value)
-    || casesStore.cases[0]
     || null
 })
 const selectedThirdParties = computed(() => {
@@ -260,12 +262,15 @@ const fullTimelineItems = computed(() => {
     })
   })
   // 3. 客观法庭事件与日历排期
-  calendarEvents.value.forEach((ev) => {
+  domainTimeline.value.filter(ev=>ev.sourceTable!=='tasks').forEach((ev) => {
+    items.push({id:`domain-${ev.id}`,type:'event',title:ev.title,date:ev.eventDate,content:ev.detail,sourceTable:ev.sourceTable})
+  })
+  calendarEvents.value.filter(ev=>ev.type==='event').forEach((ev) => {
     items.push({
       id: `event-${ev.id}`,
       type: 'event',
       title: ev.title,
-      date: ev.eventDate,
+      date: ev.eventDate || ev.date,
       time: ev.startTime || '全天',
       content: ev.location ? `地点: ${ev.location}` : ev.notes || '法庭审理与日程',
       raw: ev,
@@ -285,16 +290,16 @@ const fullTimelineItems = computed(() => {
     items.push({
       id: 'stat-relief',
       type: 'deadline',
-      title: '法定举证 / 答辩 / 救济绝限',
+      title: '旧字段救济期限 · 待核对',
       date: c.reliefDeadline,
-      content: '法定最后截止期限，需前置完成文书归卷与提交',
+      content: '原始字段保留供核对；具体责任方、起算与期限依据请查看程序事项',
     })
   }
-  if (c.trialDate) {
+  if (c.trialDate && !domainTimeline.value.some(e=>e.sourceTable==='hearings')) {
     items.push({
       id: 'stat-trial',
       type: 'event',
-      title: '法庭开庭 / 口头审理',
+      title: '旧字段开庭 / 口审 · 待核对',
       date: c.trialDate,
       content: `合议组: ${c.judgePanel || '未填写'} · 书记员: ${c.clerk || '未填写'}`,
     })
@@ -306,9 +311,9 @@ const fullTimelineItems = computed(() => {
     items.push({
       id: `file-${f.id}`,
       type: 'doc',
-      title: isSummons ? `【收文】${f.fileName}` : isSubmitted ? `【发文】${f.fileName}` : `【存卷】${f.fileName}`,
+      title: isSummons ? `【归卷·收文】${f.fileName}` : isSubmitted ? `【归卷·发文】${f.fileName}` : `【存卷】${f.fileName}`,
       date: f.createdAt ? f.createdAt.slice(0, 10) : '',
-      content: `大小: ${formatFileSize(f.fileSize)} · 分类: ${f.category || '卷宗材料'}`,
+      content: `入库日期不代表实际收文或送达日。大小: ${formatFileSize(f.fileSize)} · 分类: ${f.category || '卷宗材料'}`,
       raw: f,
     })
   })
@@ -343,6 +348,7 @@ function statusBadgeClass(status) {
 }
 function selectCase(item) {
   selectedCaseId.value = item.id
+  router.replace({ query: { ...route.query, caseId: item.id } })
   selectedDirRel.value = ''
   loadCaseMemos(item)
   loadCaseFiles()
@@ -359,7 +365,11 @@ function loadCaseMemos(item) {
   caseMemos.value = parseMemosFromNotes(item?.notes)
 }
 // 加载案件文件与目录
+let filesRequest = 0
 async function loadCaseFiles() {
+  const request = ++filesRequest
+  const id = selectedCaseId.value
+  caseFiles.value = []; caseDirs.value = []
   if (!selectedCase.value) {
     caseFiles.value = []
     caseDirs.value = []
@@ -370,6 +380,7 @@ async function loadCaseFiles() {
     casyContext.files.list(selectedCase.value.id),
     casyContext.files.listCaseDirs(selectedCase.value.id),
   ])
+  if (request !== filesRequest || id !== selectedCaseId.value) return
   if (filesRes.ok && Array.isArray(filesRes.data)) {
     caseFiles.value = filesRes.data
   } else {
@@ -383,12 +394,17 @@ async function loadCaseFiles() {
   filesLoading.value = false
 }
 // 加载案件日历事件
+let eventsRequest = 0
 async function loadCaseEvents() {
+  const request = ++eventsRequest; const id = selectedCaseId.value
+  calendarEvents.value = [];domainTimeline.value=[]
   if (!selectedCase.value) return
   const now = new Date()
-  const res = await casyContext.calendar.events(now.getFullYear(), now.getMonth() + 1)
+  const [res,domain] = await Promise.all([casyContext.calendar.events(now.getFullYear(), now.getMonth() + 1),casyContext.cases.timeline(id)])
+  if (request !== eventsRequest || id !== selectedCaseId.value) return
+  if(domain.ok)domainTimeline.value=domain.data || []
   if (res.ok && Array.isArray(res.data)) {
-    calendarEvents.value = res.data.filter((ev) => ev.caseId === selectedCase.value.id)
+    calendarEvents.value = res.data.filter((ev) => ev.caseId === id)
   }
 }
 // 快速完成/取消待办
@@ -649,9 +665,13 @@ onMounted(async () => {
     casesStore.loadCases(),
     tasksStore.loadTasks(),
   ])
-  selectedCaseId.value = casesStore.cases[0]?.id || ''
-  if (casesStore.cases[0]) {
-    loadCaseMemos(casesStore.cases[0])
+  const wanted = typeof route.query.caseId === 'string' ? route.query.caseId : ''
+  if (wanted && !casesStore.cases.some(c => c.id === wanted)) {
+    await router.replace({ name: 'case-detail', params: { id: wanted } }); return
+  }
+  selectedCaseId.value = wanted || casesStore.cases[0]?.id || ''
+  if (selectedCase.value) {
+    loadCaseMemos(selectedCase.value)
     await loadCaseFiles()
     await loadCaseEvents()
   }
@@ -668,14 +688,21 @@ watch(
       caseFiles.value = []
       return
     }
+    if (route.query.caseId && route.query.caseId !== selectedCaseId.value) return
     if (!items.some((item) => item.id === selectedCaseId.value)) {
-      selectedCaseId.value = items[0].id
-      loadCaseMemos(items[0])
-      loadCaseFiles()
-      loadCaseEvents()
+      selectCase(items[0])
     }
   }
 )
+watch(() => route.query.caseId, id => {
+  if (typeof id !== 'string' || id === selectedCaseId.value) return
+  const found = casesStore.cases.find(c => c.id === id)
+  if (found) selectCase(found)
+  else router.replace({name:'case-detail', params:{id}})
+})
+watch(selectedCaseId, () => {
+  showEditOverviewDialog.value = false
+})
 function onSearch() {
   casesStore.page = 1
   casesStore.loadCases()
@@ -879,10 +906,11 @@ async function handleCreateCase(formData) {
           </div>
         </div>
         <!-- 2. 详情 Tabs 栏 (最左侧放置进入/退出完整工作区纯文字链接，随后是各标签) -->
-        <div class="matter-detail-tabs-bar">
-          <div class="tabs-group-left">
+        <div class="matter-tools" aria-label="案件工作区快捷操作">
+            <el-button text @click="router.push(`/whiteboard/${selectedCase.id}`)">事实白板</el-button>
+            <el-button text @click="router.push({name: 'case-detail', params: {id: selectedCase.id}, query: {tab: 'hearings'}})">历次开庭 / 口审</el-button>
             <!-- 进入/退出完整案件工作区纯文字链接 (无框、无分割线) -->
-            <a
+            <button type="button"
               v-if="!isFullWorkspace"
               class="link-jump-workspace-head"
               @click="enterFullWorkspace"
@@ -890,21 +918,24 @@ async function handleCreateCase(formData) {
             >
               <span>进入案件完整工作区</span>
               <el-icon :size="13"><FullScreen /></el-icon>
-            </a>
-            <a
+            </button>
+            <button type="button"
               v-else
               class="link-jump-workspace-head"
               @click="exitFullWorkspace"
             >
               <span>返回列表模式</span>
               <el-icon :size="13"><ArrowLeft /></el-icon>
-            </a>
+            </button>
+        </div>
+        <div class="matter-detail-tabs-bar">
+          <div class="tabs-group-left">
             <button
               class="tab-btn"
               :class="{ active: selectedTab === 'overview' }"
               @click="selectedTab = 'overview'"
             >
-              案件要素 (Overview)
+              案件要素
             </button>
             <!-- 🌟 本案全景时间轴 Tab -->
             <button
@@ -912,7 +943,7 @@ async function handleCreateCase(formData) {
               :class="{ active: selectedTab === 'timeline' }"
               @click="selectedTab = 'timeline'"
             >
-              本案时间轴 (Timeline)
+              本案时间轴
             </button>
             <!-- 🌟 写记录与备忘输入口 Tab -->
             <button
@@ -920,27 +951,28 @@ async function handleCreateCase(formData) {
               :class="{ active: selectedTab === 'record' }"
               @click="selectedTab = 'record'"
             >
-              写记录与备忘 (Capture)
+              记录与备忘
             </button>
             <button
               class="tab-btn"
               :class="{ active: selectedTab === 'tracks' }"
               @click="selectedTab = 'tracks'"
             >
-              并行程序 (Proceedings)
+              程序期限与统筹
             </button>
             <button
               class="tab-btn"
               :class="{ active: selectedTab === 'files' }"
               @click="selectedTab = 'files'; loadCaseFiles()"
             >
-              卷宗文件 (Files · {{ caseFiles.length }})
+              卷宗文件 · {{ caseFiles.length }}
             </button>
           </div>
         </div>
         <!-- 3. Tab 内容区 -->
         <!-- A. 案件要素全景 (Overview) -->
         <div v-if="selectedTab === 'overview'" class="tab-pane-card">
+          <WhiteboardEntry :key="selectedCase.id" :case-id="selectedCase.id" />
           <div class="overview-pane-header">
             <div>
               <h3 class="pane-title">案件核心事实与要素全景</h3>
@@ -1089,7 +1121,7 @@ async function handleCreateCase(formData) {
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'all' }" @click="timelineFilter = 'all'">全部 ({{ fullTimelineItems.length }})</button>
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'task' }" @click="timelineFilter = 'task'">待办任务</button>
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'event' }" @click="timelineFilter = 'event'">诉讼事件</button>
-              <button class="t-filter-btn" :class="{ active: timelineFilter === 'deadline' }" @click="timelineFilter = 'deadline'">法定绝限</button>
+              <button class="t-filter-btn" :class="{ active: timelineFilter === 'deadline' }" @click="timelineFilter = 'deadline'">期限记录</button>
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'doc' }" @click="timelineFilter = 'doc'">收发文书</button>
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'memo' }" @click="timelineFilter = 'memo'">备忘随笔</button>
             </div>
@@ -1119,9 +1151,10 @@ async function handleCreateCase(formData) {
               <div class="timeline-card-body">
                 <div class="t-card-header">
                   <span class="t-type-tag" :class="item.type">
-                    {{ item.type === 'task' ? '行动待办' : item.type === 'event' ? '诉讼事件' : item.type === 'deadline' ? '法定绝限' : item.type === 'doc' ? '收发文书' : '办案备忘' }}
+                    {{ item.type === 'task' ? '行动待办' : item.type === 'event' ? '诉讼事件' : item.type === 'deadline' ? '期限记录' : item.type === 'doc' ? '收发文书' : '办案备忘' }}
                   </span>
                   <strong class="t-card-title">{{ item.title }}</strong>
+                  <el-button v-if="item.sourceTable==='hearings'" text @click="router.push({name:'case-detail',params:{id:selectedCase.id},query:{tab:'hearings'}})">维护排期</el-button><el-button v-else-if="item.sourceTable==='procedure_events'" text @click="selectedTab='tracks'">核对原事件</el-button>
                   <!-- 任务专有打勾操作与编辑 -->
                   <div v-if="item.type === 'task'" class="t-task-ops">
                     <button class="btn-check-sm" :class="{ checked: item.completed }" @click.stop="toggleCaseTask(item.raw)">
@@ -1278,42 +1311,8 @@ async function handleCreateCase(formData) {
         </div>
         <!-- D. 通用并行程序 (Parallel Proceedings) -->
         <div v-else-if="selectedTab === 'tracks'" class="tab-pane-card">
-          <div class="pane-header-flex">
-            <div>
-              <h3 class="pane-title">并行程序与阶段推进 (Parallel Proceedings)</h3>
-              <p class="pane-sub">支持多轨程序并行调度，诉讼程序自动呈现标准节点推荐，非诉业务灵活推进。</p>
-            </div>
-          </div>
-          <div class="proceedings-list-stack">
-            <div
-              v-for="proc in proceedingsList"
-              :key="proc.id"
-              class="proceeding-track-box"
-            >
-              <div class="proc-header-line">
-                <div class="proc-name-badge">
-                  <strong class="proc-title">{{ proc.name }}</strong>
-                  <span class="proc-status-tag">{{ proc.statusLabel }}</span>
-                </div>
-                <span class="proc-pct-num">节点尚未确认</span>
-              </div>
-              <div v-if="proc.isStandard && proc.nodes.length" class="standard-nodes-flow">
-                <div
-                  v-for="(node, nIdx) in proc.nodes"
-                  :key="node.key"
-                  class="proc-step-node"
-                  :class="node.state"
-                >
-                  <div class="step-bullet-circle">
-                    <el-icon v-if="node.state === 'completed'" :size="11"><Check /></el-icon>
-                    <span v-else>{{ nIdx + 1 }}</span>
-                  </div>
-                  <span class="step-node-label">{{ node.label }}</span>
-                  <div v-if="nIdx < proc.nodes.length - 1" class="step-node-connector" />
-                </div>
-              </div>
-            </div>
-          </div>
+          <WhiteboardEntry :key="selectedCase.id" :case-id="selectedCase.id" />
+          <ProcedureBoard :key="selectedCase.id" :case-id="selectedCase.id" @changed="loadCaseEvents" @open-case="router.push({name: 'case-detail', params: {id: $event}, query: {tab: 'tracks'}})" />
         </div>
         <!-- E. 卷宗文件 (Files Tab · 唯一的二级入口指向卷宗工作台) -->
         <div v-else-if="selectedTab === 'files'" class="tab-pane-card files-workbench-card">
@@ -1702,7 +1701,7 @@ async function handleCreateCase(formData) {
    ═══════════════════════════════════════════════════════════ */
 .cases-master-detail {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 290px minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
   flex: 1;
@@ -1720,7 +1719,7 @@ async function handleCreateCase(formData) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: calc(100vh - 160px);
+  height: calc(100dvh - 166px);
   box-shadow: var(--shadow-sm);
 }
 .search-input-box {
@@ -2044,9 +2043,13 @@ async function handleCreateCase(formData) {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 .tab-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
   border: none;
   background: transparent;
   padding: 8px 12px;
@@ -3099,5 +3102,17 @@ async function handleCreateCase(formData) {
   .files-workbench-layout { grid-template-columns: 1fr; }
   .facts-grid-three, .facts-grid-four { grid-template-columns: 1fr; }
   .rec-grid-two { grid-template-columns: 1fr; }
+}
+.matter-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.matter-tools .el-button { margin-left: 0; }
+.matter-tools .link-jump-workspace-head { margin-left: auto; }
+.overview-pane-header { gap: 16px; flex-wrap: wrap; }
+@container (max-width: 800px) {
+  .cases-topbar { flex-wrap: wrap; }
+  .topbar-actions { flex-wrap: wrap; gap: 8px; }
+  .cases-master-detail { grid-template-columns: minmax(0, 1fr); }
+  .cases-sidebar-index { height: auto; max-height: 350px; }
+  .tab-pane-card { padding: 18px 16px; }
+  .matter-tools .link-jump-workspace-head { margin-left: 0; }
 }
 </style>

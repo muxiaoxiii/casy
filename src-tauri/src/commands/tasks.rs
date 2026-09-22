@@ -1250,12 +1250,12 @@ pub async fn generate_hearing_prep_tasks(
     hearing_date: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let connection = db::open_db()?;
+        let conn = connection.unchecked_transaction()?;
         let now = db::now_local();
 
         // 解析庭审日期，计算截止日期（庭审前 3 天、1 天等）
-        let hearing_dt = chrono::NaiveDate::parse_from_str(&hearing_date, "%Y-%m-%d")
-            ?;
+        let hearing_dt = parse_hearing_date(&hearing_date)?;
 
         let mut created_tasks = Vec::new();
 
@@ -1307,6 +1307,7 @@ pub async fn generate_hearing_prep_tasks(
             }));
         }
 
+        conn.commit()?;
         Ok(created_tasks)
     })
     .await
@@ -1803,7 +1804,7 @@ mod tests {
     /// list_tasks 的默认查询（deleted_at IS NULL）将软删任务过滤掉。
     #[test]
     fn test_soft_delete_preserves_row_and_associated_records() {
-        let mut conn = test_conn();
+        let conn = test_conn();
         let now = "2026-09-01 12:00:00";
 
         // 一个主任务 + 关联的事件、提醒作业、子任务（软删后都应存活）
@@ -1956,7 +1957,7 @@ mod tests {
     /// v24：重复删除已软删任务 → 幂等成功（不重复写审计）；行不被二次变更。
     #[test]
     fn test_idempotent_soft_delete_no_duplicate_event() {
-        let mut conn = test_conn();
+        let conn = test_conn();
         let now = "2026-09-01 12:00:00";
         conn.execute(
             "INSERT INTO tasks (id, task_name, created_date, completed) VALUES ('t-d2', '任务', '2026-09-01', 0)",
@@ -1987,7 +1988,7 @@ mod tests {
     /// 对**显示/统计**应被过滤（by-id 显示查询返回空、聚合计数为 0）。
     #[test]
     fn test_soft_deleted_task_hidden_from_mutations_and_display() {
-        let mut conn = test_conn();
+        let conn = test_conn();
         let now = "2026-09-01 12:00:00";
 
         // 先建领域以满足 tasks.area_id 外键约束
@@ -2062,5 +2063,27 @@ mod tests {
             )
             .unwrap();
         assert_eq!(exists, 0, "软删任务应被视为不存在（entity_exists=false）");
+    }
+}
+
+fn parse_hearing_date(value: &str) -> anyhow::Result<chrono::NaiveDate> {
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") { return Ok(date); }
+    if let Ok(date) = chrono::DateTime::parse_from_rfc3339(value) { return Ok(date.date_naive()); }
+    for format in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"] {
+        if let Ok(date) = chrono::NaiveDateTime::parse_from_str(value, format) { return Ok(date.date()); }
+    }
+    anyhow::bail!("庭审日期无效，请使用 YYYY-MM-DD 或完整日期时间")
+}
+
+#[cfg(test)]
+mod hearing_date_tests {
+    #[test]
+    fn accepts_dates_and_valid_timestamps_only() {
+        for input in ["2026-09-17", "2026-09-17 09:30", "2026-09-17T09:30:00+08:00"] {
+            assert_eq!(super::parse_hearing_date(input).unwrap().to_string(), "2026-09-17");
+        }
+        for input in ["2026-09-17garbage", "2026-09-17 99:99", "错误日期"] {
+            assert!(super::parse_hearing_date(input).is_err());
+        }
     }
 }

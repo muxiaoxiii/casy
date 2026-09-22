@@ -12,7 +12,7 @@ export interface NotebookDraft {
 
 export function useNotebookSave(options: {
   draft: Ref<NotebookDraft>
-  syncEditor: () => void
+  syncEditor: (commitSources?: boolean) => void
   update: (id: string, data: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>
   onSaved: (id: string, data: Record<string, unknown>) => void
   onError: (message: string) => void
@@ -59,7 +59,7 @@ export function useNotebookSave(options: {
     error.value = ''
     checkpoint(options.draft.value)
     clearTimeout(timer)
-    timer = setTimeout(flush, 900)
+    timer = setTimeout(() => { void flush(false) }, 900)
   }
   watch(options.draft, changed, { deep: true, flush: 'sync' })
 
@@ -73,15 +73,20 @@ export function useNotebookSave(options: {
     hydrating = false
   }
 
-  function flush(): Promise<boolean> {
+  function flush(commitSources = true): Promise<boolean> {
     clearTimeout(timer)
+    // Autosave must not close a source panel while the user is typing in it.
+    if(commitSources) {
+      try { options.syncEditor(true) }
+      catch(cause) { error.value=String(cause); options.onError(error.value); return Promise.resolve(false) }
+    }
     if (pending) return pending
     // All callers await the entire drain, including edits made during a write.
     pending = (async () => {
       try {
         await nextTick()
         while (!disposed) {
-          options.syncEditor()
+          options.syncEditor(false)
           await nextTick()
           if (!dirty.value || !options.draft.value.id) return true
           const draft = options.draft.value

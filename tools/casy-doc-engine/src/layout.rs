@@ -1,4 +1,4 @@
-use crate::Region;
+use crate::{LayoutBlock, Region};
 use oar_ocr::{
     domain::{structure::LayoutElementType, tasks::layout_detection::LayoutDetectionElement},
     processors::{
@@ -126,6 +126,49 @@ pub fn order_regions(
     }
 }
 
+/// Preserve the detector's semantic blocks after OCR lines have been put in reading order.
+pub fn describe_blocks(
+    regions: &[Region],
+    elements: &[LayoutDetectionElement],
+) -> Vec<LayoutBlock> {
+    let assignments = regions.iter().map(|region| {
+        let bbox = BoundingBox::from_coords(
+            region.bbox[0], region.bbox[1], region.bbox[2], region.bbox[3],
+        );
+        elements.iter().enumerate()
+            .filter(|(_, element)| bbox.ioa(&element.bbox) > 0.6)
+            .min_by(|(_, a), (_, b)| a.bbox.area().total_cmp(&b.bbox.area()))
+            .map(|(index, _)| index)
+    }).collect::<Vec<_>>();
+    let mut blocks: Vec<_> = elements
+        .iter()
+        .enumerate()
+        .map(|(index, element)| {
+            let region_indices = assignments
+                .iter()
+                .enumerate()
+                .filter_map(|(region_index, assigned)| (*assigned == Some(index)).then_some(region_index))
+                .collect::<Vec<_>>();
+            LayoutBlock {
+                id: format!("block-{index}"),
+                kind: element.element_type.clone(),
+                bbox: [
+                    element.bbox.x_min(), element.bbox.y_min(),
+                    element.bbox.x_max(), element.bbox.y_max(),
+                ],
+                confidence: element.score,
+                reading_order: region_indices.first().copied().unwrap_or(usize::MAX) as u32,
+                region_indices,
+            }
+        })
+        .collect();
+    blocks.sort_by_key(|block| block.reading_order);
+    for (order, block) in blocks.iter_mut().enumerate() {
+        block.reading_order = order as u32;
+    }
+    blocks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +197,11 @@ mod tests {
             vec!["left one", "left two", "right one", "right two"]
         );
         assert_eq!(regions[1].bbox, [10., 90., 110., 110.]);
+        let described = describe_blocks(&regions, &blocks);
+        assert_eq!(described.len(), 2);
+        assert_eq!(described[0].reading_order, 0);
+        assert_eq!(described[0].region_indices, vec![0, 1]);
+        assert_eq!(described[1].region_indices, vec![2, 3]);
     }
 
     #[test]

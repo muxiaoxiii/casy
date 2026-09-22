@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Refresh, EditPen, Check, Close } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Refresh, EditPen, Check, Close } from '../../../shared/icons'
 import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
+import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
 import type { DocumentPageView, SourceLocation } from '../../../types/documentRetrieval'
 
 const props = defineProps<{ modelValue:boolean; fileId:string; jobId:string; initialPage?:number; locations?:SourceLocation[] }>()
 const emit=defineEmits<{(e:'update:modelValue',value:boolean):void}>()
 const view=ref<DocumentPageView|null>(null), page=ref(1), busy=ref(false), error=ref(''), zoom=ref(100)
-const mode=ref('text'), selected=ref<number|null>(null)
+const mode=ref('preview'), selected=ref<number|null>(null)
 const currentJob = ref(props.jobId), correcting=ref(false), correction=ref(''), savingCorrection=ref(false)
 let revision=0
 const marked=computed(()=> new Set<number>((props.locations||[]).flatMap(l=>l.pageNumber===page.value && l.regionIndex!==null?[l.regionIndex]:[])))
+const renderedMarkdown=computed(()=>mdToSafeHtml(view.value?.markdown || ''))
 const hitPages=computed(()=> [...new Set((props.locations||[]).map(l=>l.pageNumber))])
 watch(()=>[props.modelValue,props.fileId,props.jobId,props.initialPage],()=>{
   revision++; view.value=null; error.value=''; busy.value=false; selected.value=null; zoom.value=100
@@ -84,7 +86,7 @@ function focusRegion(index:number){
         </div>
       </div>
       <div class="source-text-pane">
-        <el-radio-group v-model="mode" size="small"><el-radio-button value="text">识别文字</el-radio-button><el-radio-button value="markdown">Markdown</el-radio-button></el-radio-group>
+        <el-radio-group v-model="mode" size="small"><el-radio-button value="preview">排版预览</el-radio-button><el-radio-button value="text">识别文字</el-radio-button><el-radio-button value="markdown">Markdown 源码</el-radio-button></el-radio-group>
         <el-button v-if="selected!==null&&view.regions.length&&!correcting" :icon="EditPen" title="校订选中区域" aria-label="校订选中区域" @click="editRegion" />
         <div v-if="correcting" class="source-correction">
           <el-input v-model="correction" type="textarea" :rows="5" :disabled="savingCorrection" aria-label="校订文字" />
@@ -94,6 +96,7 @@ function focusRegion(index:number){
         <div v-if="mode==='text'&&view.regions.length" class="source-text-lines">
           <button v-for="(region,index) in view.regions" :key="index" :class="{marked:marked.has(index),selected:selected===index}" @click="focusRegion(index)">{{ region.text }}</button>
         </div>
+        <div v-else-if="mode==='preview'" class="source-markdown" v-html="renderedMarkdown" />
         <pre v-else>{{ view.markdown }}</pre>
       </div>
     </div>
@@ -106,5 +109,6 @@ function focusRegion(index:number){
 .source-correction{margin:12px 0}.source-correction .el-textarea{margin-bottom:8px}
 .source-panes{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);height:72vh;min-height:0;border-top:1px solid var(--c-border)}.source-panes.text-only{grid-template-columns:1fr}.source-image-pane{overflow:auto;background:#e5e7eb;padding:16px}.source-page-image{position:relative;margin:0 auto;min-width:50%;line-height:0}.source-page-image img{width:100%;height:auto;display:block}.source-region{position:absolute;border:1px solid transparent;background:transparent;cursor:pointer;padding:0}.source-region:hover,.source-region:focus-visible{border-color:#0284c7;background:#0ea5e922}.source-region.marked{background:#eab30844;border-color:#ca8a04}.source-region.selected{background:#0ea5e944;border:2px solid #0284c7}
 .source-text-pane{overflow:auto;padding:16px;min-width:0}.source-text-lines{display:flex;flex-direction:column;gap:4px;margin-top:14px}.source-text-lines button{text-align:left;padding:6px 8px;background:transparent;border:0;border-left:3px solid transparent;color:var(--c-text);font:inherit;line-height:1.65;overflow-wrap:anywhere;cursor:pointer}.source-text-lines button.marked{background:#eab30822;border-left-color:#ca8a04}.source-text-lines button.selected{background:#0ea5e922;border-left-color:#0284c7}.source-text-pane pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.7}.source-loading{height:72vh;display:grid;place-items:center;color:var(--c-text-secondary)}
+.source-markdown{line-height:1.7;overflow-x:auto;margin-top:14px}.source-markdown :deep(table){border-collapse:collapse;width:100%;margin:12px 0;font-variant-numeric:tabular-nums}.source-markdown :deep(td),.source-markdown :deep(th){border:1px solid var(--c-border,#cbd5e1);padding:7px 10px;min-width:65px;vertical-align:middle}.source-markdown :deep(blockquote){margin:12px 0;padding:8px 12px;border-left:3px solid #d97706;background:#f59e0b12}.source-markdown :deep(img){max-width:100%}
 @media(max-width:700px){.source-panes{grid-template-columns:1fr;grid-template-rows:minmax(230px,1fr) minmax(170px,0.7fr)}.source-panes.text-only{grid-template-rows:1fr}.source-image-pane,.source-text-pane{padding:8px}.hit-pages{width:100%;margin-left:0}}
 </style>

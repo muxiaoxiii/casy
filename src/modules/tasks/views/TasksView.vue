@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
 import { deleteTaskOptimistic, completeTaskOptimistic, restoreTaskOptimistic, snoozeTaskWithUndo, canUndo, undoLast } from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -11,9 +12,10 @@ import {
   Box, List, Timer, Files, Check, Search,
   Menu, Grid, Collection, Select, Close, Location,
   Opportunity, Warning, TrendCharts, CircleCheck, AlarmClock, RefreshLeft
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
+import TaskQuickEditor from '../components/TaskQuickEditor.vue'
 import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
 import TodayResetDialog from '../components/TodayResetDialog.vue'
@@ -31,6 +33,7 @@ import {
   buildGtdStats,
   buildMatrixQuadrants,
   tasksForPerspective,
+  topLevelPerspectiveTasks,
 } from '../utils/taskFilter'
 
 // ============================================================
@@ -47,7 +50,10 @@ const undoBusy = ref(false)
 
 // 当前激活的标签页/透视
 // 'all' | 'inbox' | 'today' | 'upcoming' | 'multiday' | 'next' | 'waiting' | 'matrix' | 'bycase' | 'completed' | (customId)
-const activePerspective = ref('all')
+const activePerspective = ref('today')
+const inspectedTaskId = ref('')
+const quickEditors = ref([])
+const showAllPerspectives = ref(false)
 
 // 任务搜索与过滤
 const searchQuery = ref('')
@@ -112,11 +118,22 @@ const perspectives = [
 watch(() => route.query.tab, tab => {
   if (typeof tab === 'string' && perspectives.some(p => p.key === tab)) activePerspective.value = tab
 }, { immediate: true })
-const metricLabel = computed(() => ({ dueToday: '今日到期', waitingOverdue: '等待超时' }[route.query.metric] || ''))
+const metricLabel = computed(() => ({ dueOrOverdue: '到期与逾期', dueToday: '今日到期', waitingOverdue: '等待超时' }[route.query.metric] || ''))
 function clearMetric() {
   const { metric, ...query } = route.query
   router.replace({ query })
 }
+
+const primaryPerspectiveKeys = ['inbox', 'today', 'upcoming', 'next', 'waiting', 'completed']
+const primaryPerspectives = computed(() => primaryPerspectiveKeys.map(key => perspectives.find(p => p.key === key)))
+const secondaryPerspectives = computed(() => perspectives.filter(p => !primaryPerspectiveKeys.includes(p.key)))
+const currentPerspective = computed(() => perspectives.find(p => p.key === activePerspective.value) || { label: customPerspectives.value.find(p => p.id === activePerspective.value)?.name || '任务', desc: '按你的方式组织工作' })
+const capturePreview = computed(() => parseWhen(captureInput.value))
+async function flushQuickEditor() { return (await quickEditors.value?.[0]?.saveIfDirty()) !== false }
+onBeforeRouteLeave(flushQuickEditor)
+async function inspectTask(task) { if (await flushQuickEditor()) inspectedTaskId.value = inspectedTaskId.value === task.id ? '' : task.id }
+async function selectCase(id) { if (!(await flushQuickEditor())) return; selectedCaseFilter.value = id; await switchPerspective('all') }
+function advancedTask(task) { inspectedTaskId.value = ''; openDrawer(tasks.value.find(t => t.id === task.id) || task) }
 
 const priorityOptions = [
   { value: 'urgent_important', label: '重要且紧急', color: '#f56c6c' },
@@ -158,7 +175,7 @@ const gtdStats = computed(() => buildGtdStats(tasks.value, todayStr.value))
 // ============================================================
 // 4. 当前透视任务流过滤 (Dynamic Filtering)
 // ============================================================
-const gtdTasks = computed(() => applyTaskCardFilters(
+const filteredTasks = computed(() => applyTaskCardFilters(
   tasksForPerspective(tasks.value, activePerspective.value, {
     todayStr: todayStr.value,
     getCustomTasks: (id) => tasksStore.getTasksByCustomPerspective(id),
@@ -172,6 +189,12 @@ const gtdTasks = computed(() => applyTaskCardFilters(
     todayStr: todayStr.value,
   },
 ))
+
+// Preserve independently actionable children when their parent is outside this perspective/filter.
+const gtdTasks = computed(() => {
+  if(activePerspective.value==='bycase')return filteredTasks.value
+  return topLevelPerspectiveTasks(filteredTasks.value)
+})
 
 // 案件分组视图
 const caseGroupSections = computed(() => buildCaseGroupSections(gtdTasks.value, getCaseName))
@@ -226,12 +249,14 @@ async function loadData() {
   ])
   loading.value = false
 }
-onUnmounted(casyContext.on('inbox:confirmed', () => { loadTasks(); loadCases() }))
+onUnmounted(observeChanges(casyContext, ['task', 'case', 'inbox'], loadData))
 
+let tasksRequest = 0
 async function loadTasks() {
+  const request = ++tasksRequest
   // 加载包含已完成在内的全量任务以支持已完成归档透视
   const result = await casyContext.tasks.list({})
-  if (result.ok && Array.isArray(result.data)) {
+  if (request === tasksRequest && result.ok && Array.isArray(result.data)) {
     tasks.value = result.data
   }
 }
@@ -265,9 +290,11 @@ function getAreaName(areaId) {
 }
 
 // 切换透视
-function switchPerspective(key) {
+async function switchPerspective(key) {
+  if (!(await flushQuickEditor())) return
   if (metricLabel.value) clearMetric()
   activePerspective.value = key
+  inspectedTaskId.value = ''
   tasksStore.activePerspective = key
 }
 
@@ -280,6 +307,7 @@ async function quickCapture(isTodayOnly = false) {
   const { taskName, date, time } = parseWhen(text)
   const data = {
     taskName: taskName || text,
+    caseId: selectedCaseFilter.value === 'all' ? null : selectedCaseFilter.value,
     startDate: date || (isTodayOnly ? todayStr.value : null),
     dueDate: date || (isTodayOnly ? todayStr.value : null),
     dueTime: time || null,
@@ -301,6 +329,7 @@ async function quickCapture(isTodayOnly = false) {
 }
 
 function onCaptureKeydown(e) {
+  if (e.isComposing) return
   if (e.metaKey || e.ctrlKey) {
     quickCapture(true)
   } else {
@@ -589,10 +618,35 @@ function getCustomPerspectiveCount(perspectiveId) {
 
 <template>
   <div class="stitch-tasks-workspace">
+    <aside class="task-navigation" aria-label="任务导航">
+      <div class="task-nav-brand"><span class="task-nav-mark">✓</span><div><strong>行动</strong><small>给重要的事留出空间</small></div></div>
+      <nav class="task-primary-nav" aria-label="常用清单">
+        <button v-for="p in primaryPerspectives" :key="p.key" type="button" :class="{ selected: activePerspective === p.key }" :aria-pressed="activePerspective === p.key" @click="switchPerspective(p.key)">
+          <el-icon :style="{ color: p.color }"><component :is="p.icon" /></el-icon><span>{{ p.label }}</span><small>{{ gtdStats[p.key] || '' }}</small>
+        </button>
+      </nav>
+      <button class="task-nav-section" type="button" :aria-expanded="showAllPerspectives" @click="showAllPerspectives = !showAllPerspectives">更多视角 <span>{{ showAllPerspectives ? '−' : '+' }}</span></button>
+      <nav v-if="showAllPerspectives || secondaryPerspectives.some(p => p.key === activePerspective)" class="task-primary-nav" aria-label="更多视角">
+        <button v-for="p in secondaryPerspectives" :key="p.key" type="button" :class="{ selected: activePerspective === p.key }" @click="switchPerspective(p.key)"><el-icon><component :is="p.icon" /></el-icon><span>{{ p.label }}</span><small>{{ gtdStats[p.key] || '' }}</small></button>
+      </nav>
+      <div class="task-nav-section">案件 <button type="button" @click="showAreasDialog = true" title="管理领域">管理领域</button></div>
+      <nav class="task-primary-nav task-case-nav" aria-label="按案件筛选">
+        <button type="button" :class="{ selected: selectedCaseFilter === 'all' }" @click="selectCase('all')"><el-icon><Folder /></el-icon><span>全部案件</span></button>
+        <button v-for="c in cases" :key="c.id" type="button" :class="{ selected: selectedCaseFilter === c.id }" @click="selectCase(c.id)"><span class="case-dot"/><span>{{ c.caseName || c.caseNo }}</span></button>
+      </nav>
+      <div v-if="customPerspectives.length" class="task-nav-section">我的清单</div>
+      <nav class="task-primary-nav" aria-label="自定义清单">
+        <div v-for="cp in customPerspectives" :key="cp.id" class="custom-nav-row"><button type="button" :class="{ selected: activePerspective === cp.id }" @click="switchPerspective(cp.id)"><el-icon><Files /></el-icon><span>{{ cp.name }}</span></button><el-dropdown trigger="click" @command="cmd => handlePerspectiveCommand(cmd, cp)"><button type="button" :aria-label="'管理' + cp.name">···</button><template #dropdown><el-dropdown-menu><el-dropdown-item command="edit">编辑</el-dropdown-item><el-dropdown-item command="delete">删除</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
+      </nav>
+      <button type="button" class="task-new-list" @click="openCreatePerspective">＋ 新建自定义清单</button>
+      <button type="button" class="task-nav-calendar" @click="router.push('/calendar')"><el-icon><Calendar /></el-icon> 在日历中安排时间 <span>↗</span></button>
+    </aside>
+    <main class="task-focus-pane">
+      <div class="task-mobile-filters"><select :value="activePerspective" aria-label="选择任务视角" @change="switchPerspective($event.target.value)"><option v-for="p in perspectives" :key="p.key" :value="p.key">{{ p.label }}</option><option v-for="p in customPerspectives" :key="p.id" :value="p.id">{{ p.name }}</option></select><select :value="selectedCaseFilter" aria-label="筛选关联案件" @change="selectCase($event.target.value)"><option value="all">全部案件</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option></select></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
     <div class="tasks-top-header">
       <div class="header-titles">
-        <h1 class="tasks-heading">任务管理工作台</h1>
+        <p class="task-page-eyebrow">{{ new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }) }}</p><h1 class="tasks-heading">{{ currentPerspective.label }}</h1><p class="task-page-description">{{ currentPerspective.desc }}</p>
       </div>
 
       <div class="header-actions">
@@ -618,54 +672,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 
     <!-- ═══ 2. 丰富全景透视标签栏 (Full Dynamic Perspective Tabs) ═══ -->
     <el-tag v-if="metricLabel" class="metric-filter" closable @close="clearMetric">{{ metricLabel }}</el-tag>
-    <div class="perspective-tabs-scroll-bar">
-      <!-- 基础内置与全景标签 -->
-      <button
-        v-for="p in perspectives"
-        :key="p.key"
-        class="perspective-tab-pill"
-        :class="{ active: activePerspective === p.key }"
-        @click="switchPerspective(p.key)"
-        :title="p.desc"
-      >
-        <el-icon :size="14" class="tab-icon"><component :is="p.icon" /></el-icon>
-        <span class="tab-title">{{ p.label }}</span>
-        <span class="tab-badge" :style="{ backgroundColor: p.color }">
-          {{ gtdStats[p.key] ?? 0 }}
-        </span>
-      </button>
-
-      <!-- 自定义透视 -->
-      <div
-        v-for="cp in customPerspectives"
-        :key="cp.id"
-        class="perspective-tab-pill custom"
-        :class="{ active: activePerspective === cp.id }"
-        @click="switchPerspective(cp.id)"
-      >
-        <el-icon :size="14"><Files /></el-icon>
-        <span class="tab-title">{{ cp.name }}</span>
-        <span class="tab-badge" :style="{ backgroundColor: cp.color || '#409eff' }">
-          {{ getCustomPerspectiveCount(cp.id) }}
-        </span>
-        <el-dropdown trigger="click" @command="(cmd) => handlePerspectiveCommand(cmd, cp)" @click.stop>
-          <el-icon class="more-icon"><More /></el-icon>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="edit"><el-icon><Edit /></el-icon> 编辑</el-dropdown-item>
-              <el-dropdown-item command="delete" divided><el-icon><Delete /></el-icon> 删除</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-
-      <!-- 新建自定义透视 -->
-      <button class="perspective-tab-pill create-btn" @click="openCreatePerspective">
-        <el-icon :size="14"><Plus /></el-icon>
-        <span>新建透视</span>
-      </button>
-    </div>
-
     <!-- ═══ 3. 快速自然语言捕获栏 ═══ -->
     <div class="capture-bar-wrapper">
       <div class="capture-real-box">
@@ -673,17 +679,21 @@ function getCustomPerspectiveCount(perspectiveId) {
         <input
           ref="captureInputRef"
           v-model="captureInput"
-          placeholder="记下新待办… (Enter 快速保存，⌘+Enter 直达今日，支持“明天下午3点 @法庭 #张三案”)"
+          placeholder="记下下一步… 例如：明天下午3点 核对证据目录"
+          aria-label="快速添加任务"
+          :disabled="capturing"
           class="cap-input"
           @keydown.enter="onCaptureKeydown"
         />
-        <div class="cap-right-btns">
+        <div class="cap-right-btns"><kbd v-if="!captureInput">↵</kbd>
           <button v-if="captureInput.trim()" class="btn-cap-submit" @click="quickCapture(false)">
             添加待办
           </button>
         </div>
       </div>
     </div>
+
+    <div v-if="captureInput.trim()" class="capture-interpretation"><span>{{ capturePreview.taskName }}</span><small>{{ capturePreview.date || '收件箱' }} {{ capturePreview.time || '' }}</small><small>⌘ / Ctrl + Enter 放入今天</small></div>
 
     <!-- ═══ 4. 主工作区分发渲染 (根据当前激活 Tab 渲染专属视图) ═══ -->
 
@@ -744,9 +754,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         </div>
 
         <div class="cg-tasks-list">
-          <TaskRow
-            v-for="task in cg.tasks"
-            :key="task.id"
+          <template v-for="task in cg.tasks" :key="task.id"><TaskRow
             :task="task"
             :perspective="activePerspective"
             :snooze-options="snoozeOptions"
@@ -755,7 +763,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             :has-children="childrenMap.has(task.id)"
             :expanded="expandedParents.has(task.id)"
             @toggle="toggleComplete"
-            @open="openDrawer"
+            @open="inspectTask"
             @delete="deleteTask"
             @triage="triageTask"
             @move-today="moveTaskToday"
@@ -767,6 +775,8 @@ function getCustomPerspectiveCount(perspectiveId) {
             @reviewed="markReviewed"
             @follow-up="openDrawer"
           />
+          <TaskQuickEditor ref="quickEditors" v-if="inspectedTaskId === task.id" :key="'edit-' + task.id" :task="task" :cases="cases" @close="inspectedTaskId = ''" @saved="loadTasks" @advanced="advancedTask(task)" />
+          </template>
         </div>
       </div>
       <StateFeedback
@@ -799,7 +809,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             :has-children="childrenMap.has(task.id)"
             :expanded="expandedParents.has(task.id)"
             @toggle="toggleComplete"
-            @open="openDrawer"
+            @open="inspectTask"
             @delete="deleteTask"
             @triage="triageTask"
             @move-today="moveTaskToday"
@@ -811,6 +821,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             @reviewed="markReviewed"
             @follow-up="openDrawer"
           />
+          <TaskQuickEditor ref="quickEditors" v-if="inspectedTaskId === task.id" :key="'edit-' + task.id" :task="task" :cases="cases" @close="inspectedTaskId = ''" @saved="loadTasks" @advanced="advancedTask(task)" />
 
           <!-- 展开子任务 -->
           <div v-if="expandedParents.has(task.id)" class="subtasks-container">
@@ -844,6 +855,8 @@ function getCustomPerspectiveCount(perspectiveId) {
         />
       </div>
     </div>
+
+    </main>
 
     <!-- ═══ 5. 任务编辑详情抽屉 (Task Detail Drawer) ═══ -->
     <el-drawer
@@ -1172,13 +1185,15 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 .tab-badge {
+  background: var(--c-bg-subtle);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 10px;
-  color: #fff;
+  border-radius: 6px;
+  color: var(--c-text-regular);
 }
+.perspective-tab-pill.active .tab-badge { background: var(--c-primary); color: var(--c-primary-contrast); }
 
 .perspective-tab-pill.create-btn {
   border: 1px dashed var(--c-border);
@@ -1703,4 +1718,75 @@ function getCustomPerspectiveCount(perspectiveId) {
   .btn-action-ghost { justify-self: start; }
   .btn-action-ghost, .btn-action-primary { white-space: nowrap; }
 }
+@container (max-width: 700px) {
+  .header-actions { flex-wrap: wrap; width: 100%; gap: 8px; }
+  .task-search-box { flex: 1; min-width: 140px; width: auto; }
+  .filter-toolbar-row { flex-wrap: wrap; }
+}
+</style>
+
+<style scoped>
+.stitch-tasks-workspace { display: grid; grid-template-columns: 214px minmax(0, 1fr); padding: 0; gap: 0; height: 100%; min-height: 0; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 12px; overflow: hidden; }
+.task-navigation { display: flex; flex-direction: column; gap: 3px; padding: 26px 14px 18px; background: var(--c-bg); border-right: 1px solid var(--c-border); overflow-y: auto; }
+.task-nav-brand { display: flex; gap: 12px; align-items: center; padding: 2px 12px 26px; }
+.task-nav-mark { display: grid; place-items: center; width: 30px; height: 30px; color: var(--c-primary); background: var(--c-primary-light); border-radius: 9px; font-size: 20px; }
+.task-nav-brand strong { display: block; font-size: 18px; letter-spacing: .08em; }
+.task-nav-brand small { display: block; font-size: 10px; color: var(--c-text-secondary); margin-top: 5px; }
+.task-navigation button { font: inherit; color: var(--c-text); background: transparent; border: 0; cursor: pointer; border-radius: 6px; }
+.task-primary-nav { display: flex; flex-direction: column; gap: 3px; }
+.task-primary-nav button { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; font-size: 13px; min-width: 0; }
+.task-primary-nav button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+.task-primary-nav button > small { color: var(--c-text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.task-primary-nav button:hover { background: var(--c-bg-hover); }
+.task-primary-nav button.selected { background: var(--c-primary-light); color: var(--c-primary); font-weight: 600; }
+.task-navigation .task-nav-section { display: flex; justify-content: space-between; padding: 22px 12px 8px; color: var(--c-text-secondary); font-size: 11px; text-align: left; }
+.task-nav-section button { font-size: 10px; color: var(--c-text-secondary); }
+.task-primary-nav .case-dot { flex: 0 0 6px; height: 6px; border-radius: 50%; background: var(--c-primary); margin: 0 4px; opacity: .6; }
+.task-case-nav { max-height: 260px; overflow: auto; }
+.custom-nav-row { display: flex; align-items: center; }
+.custom-nav-row > button { flex: 1; }
+.task-navigation .task-new-list { font-size: 12px; text-align: left; padding: 14px 12px; color: var(--c-text-secondary); }
+.task-navigation .task-nav-calendar { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 18px 6px 0; font-size: 11px; color: var(--c-text-secondary); border-radius: 0; border-top: 1px solid var(--c-border); }
+.task-focus-pane { padding: 40px clamp(24px, 4vw, 64px) 32px; overflow-y: auto; min-width: 0; }
+.tasks-top-header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 32px; flex-wrap: wrap; }
+.task-page-eyebrow { margin: 0 0 12px; font-size: 11px; color: var(--c-text-secondary); letter-spacing: .08em; }
+.tasks-heading { font-size: 30px; font-weight: 650; letter-spacing: -.04em; line-height: 1.2; }
+.task-page-description { font-size: 12px; color: var(--c-text-secondary); margin: 12px 0 0; }
+.header-actions { gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.header-actions > .btn-action-ghost { display: none; }
+.task-search-box { width: 160px; }
+.capture-bar-wrapper { padding: 0 0 18px; margin: 0; }
+.capture-real-box { background: var(--c-bg); border: 1px solid var(--c-border); box-shadow: none; border-radius: 8px; min-height: 48px; }
+.cap-input { font-size: 13px; }
+.cap-right-btns kbd { color: var(--c-text-secondary); font-size: 15px; }
+.capture-interpretation { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 0 4px 20px; color: var(--c-primary); font-size: 12px; }
+.capture-interpretation small { color: var(--c-text-secondary); font-size: 11px; }
+.tasks-main-list-card { background: transparent; border: 0; box-shadow: none; border-radius: 0; margin-top: 8px; }
+.list-section-header { padding: 12px 0; border-bottom: 1px solid var(--c-border); }
+.lsh-title { font-size: 12px; font-weight: 600; }
+.lsh-sub { display: none; }
+.lsh-badge { background: transparent; font-size: 11px; }
+.task-rows-stack { padding: 8px 0; gap: 0; }
+.task-focus-pane :deep(.task-card) { border: 0; border-bottom: 1px solid var(--c-border); border-radius: 0; box-shadow: none; padding: 15px 4px; background: transparent; }
+.task-focus-pane :deep(.task-card:hover) { background: var(--c-bg-hover); transform: none; }
+.task-focus-pane :deep(.task-name-text) { font-size: 14px; font-weight: 450; }
+.task-focus-pane :deep(.task-check) { width: 18px; height: 18px; border-radius: 6px; border-width: 1.5px; }
+.task-focus-pane :deep(.task-meta) { font-size: 11px; margin-top: 5px; }
+.task-navigation button:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+@media (max-width: 1050px) { .stitch-tasks-workspace { grid-template-columns: 184px minmax(0, 1fr); } .task-focus-pane { padding: 28px 24px; } .header-actions { margin-left: 0; } }
+@media (max-width: 650px) {
+  .stitch-tasks-workspace { display: flex; flex-direction: column; overflow: auto; }
+  .task-navigation { flex: 0 0 auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--c-border); overflow: visible; }
+  .task-nav-brand, .task-nav-section, .task-case-nav, .task-new-list, .task-nav-calendar, .custom-nav-row { display: none !important; }
+  .task-primary-nav { flex-direction: row; overflow-x: auto; }
+  .task-primary-nav button { flex: 0 0 auto; width: auto; padding: 9px 12px; }
+  .task-primary-nav:has(.custom-nav-row) { display: none; }
+  .task-focus-pane { padding: 22px 16px; overflow: visible; }
+  .tasks-top-header { margin-bottom: 20px; }
+  .tasks-heading { font-size: 25px; }
+}
+</style>
+<style scoped>
+.task-mobile-filters { display: none; }
+@media (max-width:650px) { .task-mobile-filters { display: flex; gap: 8px; margin-bottom: 20px; } .task-mobile-filters select { width: 50%; min-width: 0; color: var(--c-text); background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 6px; padding: 8px; } }
 </style>

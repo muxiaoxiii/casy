@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onUnmounted, watch } from 'vue'
 import {
   Document, Edit, Finished, List, Grid,
   Reading, Collection, MagicStick, Minus,
   Opportunity, User, ChatSquare
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 
 interface CommandItem {
   id: string
@@ -21,6 +21,7 @@ const props = defineProps<{
   visible: boolean
   position: { x: number; y: number }
   caseData?: Record<string, any>
+  triggerRange?: { from: number; to: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   (e: 'open-ai', promptType?: string): void
   (e: 'open-law'): void
   (e: 'open-knowledge'): void
+  (e: 'open-table'): void
 }>()
 
 const search = ref('')
@@ -132,11 +134,7 @@ const commands = computed<CommandItem[]>(() => [
     icon: Opportunity,
     keywords: ['callout', 'tishi', 'box', 'card', '卡片', '警告', '提示'],
     action: () => {
-      props.editor.chain().focus().insertContent(`
-        <blockquote class="callout-box">
-          <p>💡 <strong>重要法庭提示：</strong>在此输入需要重点注意的诉讼策略或合议庭倾向...</p>
-        </blockquote>
-      `).run()
+      props.editor.chain().focus().toggleBlockquote().run()
     },
   },
   {
@@ -152,13 +150,13 @@ const commands = computed<CommandItem[]>(() => [
   },
   {
     id: 'table',
-    title: '表格 (3x3)',
+    title: '表格',
     subtitle: '用于事实比对、质证清单或损失赔偿计算',
     category: 'basic',
     icon: Grid,
     keywords: ['table', 'grid', 'biaoge', '表格', '质证表'],
     action: () => {
-      props.editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+      emit('open-table')
     },
   },
 
@@ -198,8 +196,8 @@ const commands = computed<CommandItem[]>(() => [
   },
   {
     id: 'knowledge-vault',
-    title: '智库知识双链',
-    subtitle: '搜索并插入知识库沉淀的胜诉要点与法理备忘',
+    title: '引用知识库',
+    subtitle: '打开知识侧栏，搜索并选择要引用的内容',
     category: 'legal',
     icon: Collection,
     keywords: ['vault', 'knowledge', 'zhishi', '智库', '知识库', '双链'],
@@ -258,21 +256,27 @@ const groupedCommands = computed(() => {
 })
 
 function executeCommand(cmd: CommandItem) {
-  cmd.action()
+  const range = props.triggerRange
   emit('close')
+  if (range && props.editor.state.doc.textBetween(range.from, range.to) === '/') {
+    props.editor.chain().focus().deleteRange(range).run()
+  }
+  cmd.action()
 }
 
 function handleKeydown(e: KeyboardEvent) {
   if (!props.visible) return
 
+  if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(e.key) || e.isComposing) return
+  e.stopPropagation()
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    selectedIndex.value = (selectedIndex.value + 1) % filteredCommands.value.length
+    selectedIndex.value = (selectedIndex.value + 1) % (filteredCommands.value.length || 1)
     scrollSelectedIntoView()
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     selectedIndex.value =
-      (selectedIndex.value - 1 + filteredCommands.value.length) % filteredCommands.value.length
+      (selectedIndex.value - 1 + filteredCommands.value.length) % (filteredCommands.value.length || 1)
     scrollSelectedIntoView()
   } else if (e.key === 'Enter') {
     e.preventDefault()
@@ -283,6 +287,7 @@ function handleKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Escape') {
     e.preventDefault()
     emit('close')
+    props.editor.commands.focus()
   }
 }
 
@@ -298,25 +303,38 @@ watch(() => props.visible, (val) => {
     search.value = ''
     selectedIndex.value = 0
     window.addEventListener('keydown', handleKeydown, true)
+    nextTick(() => menuRef.value?.querySelector<HTMLInputElement>('input')?.focus())
   } else {
     window.removeEventListener('keydown', handleKeydown, true)
   }
+}, { immediate: true })
+watch(search, () => { selectedIndex.value = 0 })
+function outside(event: PointerEvent) {
+  if (props.visible && !menuRef.value?.contains(event.target as Node)) emit('close')
+}
+window.addEventListener('pointerdown', outside)
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown, true)
+  window.removeEventListener('pointerdown', outside)
 })
 
 const menuStyle = computed(() => {
   const maxW = typeof window !== 'undefined' ? window.innerWidth - 340 : 800
   return {
-    left: Math.min(props.position.x, maxW) + 'px',
-    top: props.position.y + 24 + 'px',
+    left: Math.max(8, Math.min(props.position.x, maxW)) + 'px',
+    top: Math.max(8, Math.min(props.position.y + 24, window.innerHeight - 396)) + 'px',
   }
 })
 </script>
 
 <template>
+  <Teleport to="body">
   <div
     v-if="visible"
     ref="menuRef"
-    class="notion-slash-menu"
+    class="document-slash-menu"
+    role="dialog"
+    aria-label="插入内容"
     :style="menuStyle"
     @click.stop
   >
@@ -400,10 +418,12 @@ const menuStyle = computed(() => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
-.notion-slash-menu {
+.document-slash-menu {
+  max-width: calc(100vw - 16px);
   position: fixed;
   width: 320px;
   max-height: 380px;

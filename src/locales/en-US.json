@@ -22,9 +22,9 @@
     "settings": "Settings"
   },
   "home": {
-    "greeting_morning": "☀️ Morning Planning",
-    "greeting_evening": "🌙 Evening Summary",
-    "greeting_week_start": "🚀 Weekly Planning",
+    "greeting_morning": "Morning Planning",
+    "greeting_evening": "Evening Summary",
+    "greeting_week_start": "Weekly Planning",
     "greeting_week_end": "🏆 Weekend Review",
     "calendar_shortcut": "Calendar",
     "hard_schedule": "Hard Schedule",
@@ -93,5 +93,22 @@
     "insert_field": "Field",
     "insert_law": "Law",
     "insert_party": "Party"
+  },
+  "calendar": {
+    "timeline": "Timeline",
+    "month": "Month",
+    "week": "Week",
+    "day": "Day",
+    "forecast": "Forecast",
+    "today": "Today",
+    "previous": "Previous period",
+    "next": "Next period",
+    "capture": "Enter an event, press Enter to schedule…",
+    "deadlines": "Deadlines",
+    "workload": "Workload",
+    "workdays": "Workdays",
+    "holidays": "Holidays",
+    "taskPool": "Holding Tank",
+    "globalTimeline": "Global Timeline"
   }
 }

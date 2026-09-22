@@ -25,7 +25,26 @@ async fn main() -> Result<()> {
         }
     }
     let result: Result<Value, String> = match request["command"].as_str().unwrap_or("") {
-        "convert_file_to_markdown" => casy_lib::commands::conversion::convert_file_to_markdown(args["sourcePath"].as_str().unwrap_or("").into(),args["outputDir"].as_str().unwrap_or("").into()).await,
+        "preview_editor_document" => casy_lib::commands::docs::preview_editor_document(args["document"].clone(),serde_json::from_value(args["layout"].clone())?).await.map(|v|json!(v)),
+        "export_editor_document" => casy_lib::commands::docs::export_editor_document(args["document"].clone(),args["markdown"].as_str().unwrap_or("").into(),args["title"].as_str().unwrap_or("编辑器验收").into(),args["format"].as_str().unwrap_or("pdf").into(),args["outputPath"].as_str().unwrap_or("").into(),args.get("layout").cloned().map(serde_json::from_value).transpose()?).await.map(|v|json!(v)),
+        "qa_seed_unified_editor" => {
+            conn.execute_batch("INSERT INTO knowledge_items(id,title,content,category,status,block_type,updated_at) VALUES('editor-qa','统一编辑验收','# 编辑器往返检查\n\n- [ ] 核对原件\n- [x] 确认送达\n\n| 证据 | 日期 |\n| --- | --- |\n| 转文通知 | 2026-09-08 |','reference','current','page','2099-01-01'); INSERT INTO knowledge_items(id,title,content,category,status,block_type) VALUES('editor-empty','空白笔记','','reference','current','page'); INSERT INTO drafts(id,title,content) VALUES('editor-draft','统一文书验收','<h1>案情整理</h1><p>核对转文与送达日期。</p>');")?;
+            Ok(json!(true))
+        }
+        "get_whiteboard_document" => casy_lib::commands::whiteboard_document::get_whiteboard_document(args["caseId"].as_str().unwrap_or("qa-whiteboard-case").into(),args["whiteboardId"].as_str().unwrap_or("qa-whiteboard").into()).await.map(|v|json!(v)),
+        "list_whiteboard_sources" => casy_lib::commands::whiteboard_document::list_whiteboard_sources(args["caseId"].as_str().unwrap_or("qa-whiteboard-case").into(),args["scope"].as_str().unwrap_or("case").into(),args["query"].as_str().unwrap_or("").into(),args["offset"].as_i64().unwrap_or(0)).await.map(|v|json!(v)),
+        "qa_seed_whiteboard" => {
+            conn.execute_batch("INSERT INTO cases(id,case_name,client_name,case_no) VALUES('qa-whiteboard-case','白板完整接线验收案','验收客户','2026-WB'); INSERT INTO whiteboards(id,case_id,name) VALUES('qa-whiteboard','qa-whiteboard-case','事实与证据验收'); INSERT INTO fact_nodes(id,whiteboard_id,excerpt,note,x,y) VALUES('qa-legacy','qa-whiteboard','期限应从转文日起算','旧版事实迁移验收',0,0); INSERT INTO knowledge_items(id,title,content,category,status,block_type) VALUES('qa-whiteboard-knowledge','答复期限研究','专利权人的答复期限以转文通知指定日期为准，需要记录实际送达及顺延依据。','reference','current','page');")?;
+            let dirs=casy_lib::commands::files::list_case_dirs("qa-whiteboard-case".into()).await.map_err(anyhow::Error::msg)?;
+            let path=std::path::PathBuf::from(&dirs[0].absolute_path).join("转文通知验收.md");
+            std::fs::write(&path,"# 转文通知\n\n收到补充意见后核对答复期限。")?;
+            casy_lib::commands::files::add_case_file("qa-whiteboard-case".into(),"转文通知验收.md".into(),path.to_string_lossy().into(),"other".into()).await.map_err(anyhow::Error::msg)?;
+            Ok(json!(true))
+        }
+        "get_processing_center" => casy_lib::commands::processing::get_processing_center(args["filter"].as_str().unwrap_or("all").into(),args["offset"].as_i64().unwrap_or(0),args["limit"].as_i64().unwrap_or(30)).await.map(|v|json!(v)),
+        "register_conversion_batch" => casy_lib::commands::processing::register_conversion_batch(serde_json::from_value(args["sourcePaths"].clone())?).await.map(|v|json!(v)),
+        "cancel_queued_conversions" => casy_lib::commands::processing::cancel_queued_conversions(serde_json::from_value(args["jobIds"].clone())?).await.map(|v|json!(v)),
+        "convert_file_to_markdown" => casy_lib::commands::conversion::convert_file_to_markdown(args["sourcePath"].as_str().unwrap_or("").into(),args["outputDir"].as_str().unwrap_or("").into(),args["jobId"].as_str().map(str::to_string),args["targetFormat"].as_str().map(str::to_string)).await,
         "export_edited_docx" => casy_lib::commands::docs::export_edited_docx(args["document"].clone(),args["title"].as_str().unwrap_or("导出").into(),args["outputPath"].as_str().map(str::to_string)).await.map(|v|json!(v)),
         "qa_seed_workspace" => {
             conn.execute("INSERT INTO cases(id,case_name,client_name,case_no) VALUES('workspace-case','本地同步验收案','本地客户','2026-QA')",[])?;

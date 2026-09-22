@@ -8,6 +8,7 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import {
   Tools,
   Right,
@@ -15,7 +16,7 @@ import {
   CircleClose,
   Clock,
   Warning,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import { aiToolCaller } from '../../../core/ai/tool-caller'
 import {
   getProposalPreview,
@@ -38,7 +39,7 @@ const emit = defineEmits<{
 // ============================================================
 const preview = ref<ProposalPreviewDto | null>(null)
 const loading = ref(true)
-const acting = ref<'' | 'approve' | 'reject'>('')
+const acting = ref<'' | 'approve' | 'reject' | 'renew'>('')
 const nowTick = ref(Date.now())
 
 let tickTimer: ReturnType<typeof setInterval> | null = null
@@ -119,6 +120,13 @@ function formatValue(v: unknown): string {
     text = String(v)
   }
   return text.length > 160 ? text.slice(0, 160) + '…' : text
+}
+
+async function onRenew(){
+  if(acting.value)return
+  acting.value='renew'
+  try {const result=await tauriCallSafe('renew_ai_proposal',{proposalId:props.proposalId});if(!result.ok)throw new Error(result.error);await load();ElMessage.success('已重新核对当前数据，请检查新的差异后再确认变更。')}
+  catch(error){ElMessage.error(String(error))}finally{acting.value=''}
 }
 
 async function onApprove() {
@@ -236,6 +244,7 @@ onBeforeUnmount(() => {
           {{ statusMeta.label }}
         </span>
 
+        <el-button v-if="status==='pending' || status==='expired'" size="small" :disabled="!!acting" @click="onRenew">重新核对并续期（不执行）</el-button>
         <div v-if="status === 'pending'" class="pdc-actions">
           <el-button size="small" :loading="acting === 'reject'" @click="onReject">
             拒绝

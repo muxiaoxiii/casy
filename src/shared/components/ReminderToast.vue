@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { safeListen } from '../../core/tauriEvents'
 import { casyContext } from '../../core/plugin/context'
 import { ElMessage } from 'element-plus'
-import { Bell, Check, Clock } from '@element-plus/icons-vue'
+import { Bell, Check, Clock } from '../icons'
 
 const visible = ref(false)
 const queue = ref([]) // 提醒队列（后端可能一次触发多条）
@@ -31,7 +31,7 @@ function showNext() {
 
 async function setupListener() {
   try {
-    unlisten = await safeListen('reminder:triggered', (event) => {
+    unlisten = safeListen('reminder:triggered', (event) => {
       const payload = event.payload
       const msg = typeof payload === 'string' ? payload : payload?.message
       if (!msg) return

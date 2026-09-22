@@ -18,7 +18,7 @@ import {
   Promotion,
   Files,
   Plus,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import { ElMessage } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
 import { isTauriRuntime } from '../../../core/mockData'

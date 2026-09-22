@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete } from '../../../shared/icons'
 defineProps({ form: { type: Object, required: true } })
 const tab = ref('hearings')
 const groups = [

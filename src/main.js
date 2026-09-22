@@ -6,6 +6,8 @@ import router from './router/index.js'
 import App from './App.vue'
 import './style.css'
 import './assets/theme.css'
+import './assets/workspace.css'
+import './assets/docket.css'
 import i18n from './locales/index.ts'
 
 // ============================================================

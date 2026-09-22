@@ -206,6 +206,12 @@ pub async fn delete_project(id: String) -> Result<(), String> {
                     format!("「{name}」下仍有 {linked} 个未完成任务，请先处理"),
                 )));
             }
+            // Personal projects reuse tasks.case_id; clear residual (completed/soft-deleted) rows
+            // so they do not dangle against a deleted project id.
+            conn.execute(
+                "UPDATE tasks SET case_id = NULL WHERE case_id = ?1",
+                rusqlite::params![id],
+            )?;
             conn.execute("DELETE FROM projects WHERE id = ?1", rusqlite::params![id])?;
             Ok(())
         })

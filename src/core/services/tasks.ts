@@ -55,6 +55,7 @@ export class TasksService extends Service {
   async update(data: UpdateTaskPayload): Promise<{ ok: boolean; error?: string }> {
     // id 必须在 data 内（后端 update_task 只收 data）
     const result = await tauriCallSafe('update_task', { data })
+    if (result.ok) this.ctx.emit('task:changed', { id: data.id })
     if (result.ok && (data.completed === 1 || data.completed === true)) {
       this.ctx.emit('task:completed', { id: data.id })
     }
@@ -62,7 +63,7 @@ export class TasksService extends Service {
   }
 
   async remove(id: string, aiAuth?: AiAuthCtx): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('delete_task', { id, ...(aiAuth ?? {}) })
+    return this.mutation('task', tauriCallSafe('delete_task', { id, ...(aiAuth ?? {}) }))
   }
 
   /**
@@ -71,7 +72,7 @@ export class TasksService extends Service {
    * 避免仅满足 TaskLike 的瘦对象让后端静默丢列。后端返回还原后的完整 TaskDto 供前端对账。
    */
   async restore(snapshot: RestoreTaskSnapshot): Promise<{ ok: boolean; data?: TaskDto; error?: string }> {
-    return tauriCallSafe('restore_task', { snapshot })
+    return this.mutation('task', tauriCallSafe('restore_task', { snapshot }))
   }
 
   /** GTD 领域列表 */
@@ -82,7 +83,7 @@ export class TasksService extends Service {
   /** 新建领域（A1-2：name 必填，description/icon 可选） */
   async createArea(data: { name: string; description?: string | null; icon?: string | null }):
     Promise<{ ok: boolean; data?: CreateAreaOutput; error?: string }> {
-    return tauriCallSafe('create_area', { data })
+    return this.mutation('task', tauriCallSafe('create_area', { data }))
   }
 
   /**
@@ -91,14 +92,14 @@ export class TasksService extends Service {
    */
   async updateArea(id: string, data: { name?: string; description?: string | null; icon?: string | null }):
     Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('update_area', { id, data })
+    return this.mutation('task', tauriCallSafe('update_area', { id, data }))
   }
 
   /**
    * 删除领域。后端保护：领域下仍有任务时拒绝（错误信息含任务数，UI 直接透出）
    */
   async removeArea(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('delete_area', { id })
+    return this.mutation('task', tauriCallSafe('delete_area', { id }))
   }
 
   /** 领域统计（任务总数/完成数/案件数），供管理界面展示 */
@@ -108,7 +109,7 @@ export class TasksService extends Service {
 
   /** 稍后提醒（写 snoozed 行为事件，支撑"懂你的节奏"学习） */
   async snooze(id: string, option: string, newDueDate?: string | null): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('snooze_task', { id, option, newDueDate: newDueDate ?? null })
+    return this.mutation('task', tauriCallSafe('snooze_task', { id, option, newDueDate: newDueDate ?? null }))
   }
 
   /** ⌘K 全局搜索：任务域（LIKE，本地规模足够；FTS 升级待 tasks_fts） */

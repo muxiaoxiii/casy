@@ -3,7 +3,7 @@
 // 匹配语义：对匹配字段做大小写不敏感的子串匹配；OCR 文本类规则在 OCR 完成后自动生效。
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, VideoPlay } from '@element-plus/icons-vue'
+import { Plus, Refresh, VideoPlay } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 
 interface SmartRule {

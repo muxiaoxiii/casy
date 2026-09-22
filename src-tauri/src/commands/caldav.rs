@@ -109,6 +109,13 @@ fn update_job_status(job_id: &str, status: &str, etag: Option<&str>, error: Opti
 /// 先 get_event_etag 对账确认存在性。
 /// 返回最终状态（"synced" / "sync_failed" / "delivery_unknown"）。
 pub async fn execute_calendar_job(p: CalendarJobPayload) -> &'static str {
+    let activity=crate::processing::Activity::start("calendar","同步日历提醒");
+    let status=execute_calendar_job_inner(p).await;
+    let result=if matches!(status,"synced"|"cancelled") {Ok(())}else{Err(status)};
+    activity.finish(&result);
+    status
+}
+async fn execute_calendar_job_inner(p: CalendarJobPayload) -> &'static str {
     let _operation = CALENDAR_OPERATIONS.lock().await;
     let state = db::open_db().ok().and_then(|conn|conn.query_row("SELECT status FROM reminder_jobs WHERE id=?1",[&p.job_id],|r|r.get::<_,String>(0)).ok());
     match state.as_deref() {
@@ -305,7 +312,9 @@ async fn retry_cancelled_calendar_jobs() -> Result<(), String> {
         let rows = stmt.query_map([], |r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }).await?;
-    for uid in jobs { finish_calendar_deletion(&uid).await.map_err(|error|error.to_string())?; }
+    let mut failures=Vec::new();
+    for uid in jobs { if let Err(error)=finish_calendar_deletion(&uid).await {failures.push(format!("{uid}: {error}"));} }
+    if !failures.is_empty(){return Err(format!("日历清理状态保存失败：{}",failures.join("；")));}
     Ok(())
 }
 
@@ -360,7 +369,7 @@ pub async fn get_calendar_sync_status() -> Result<serde_json::Value, String> {
     run_blocking(|| {
         let conn = db::open_db()?;
         let enabled = caldav::calendar_sync_enabled(&conn);
-        let configured = caldav::load_caldav_config(&conn)?.is_some();
+        let configured = caldav::caldav_configured(&conn)?;
 
         let count = |statuses: &[&str]| -> Result<i64> {
             let placeholders = statuses.iter().map(|_| "?").collect::<Vec<_>>().join(",");

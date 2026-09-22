@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Warning, Loading, Refresh, Check, InfoFilled, Connection } from '@element-plus/icons-vue'
+import { Warning, Loading, Refresh, Check, InfoFilled, Connection } from '../icons'
 
 export type DataState = 'loading' | 'empty' | 'degraded' | 'error' | 'verified'
 
@@ -24,7 +24,7 @@ const showSlot = computed(() => {
 <template>
   <div class="state-feedback-wrapper">
     <!-- State 1: Loading -->
-    <div v-if="state === 'loading'" class="state-panel loading-state">
+    <div v-if="state === 'loading'" class="state-panel loading-state" role="status" aria-live="polite">
       <el-icon class="spin-icon" :size="32"><Loading /></el-icon>
       <p class="state-text">正在加载数据...</p>
     </div>
@@ -36,7 +36,7 @@ const showSlot = computed(() => {
     </div>
 
     <!-- State 4: Error -->
-    <div v-else-if="state === 'error'" class="state-panel error-state">
+    <div v-else-if="state === 'error'" class="state-panel error-state" role="alert">
       <el-icon class="error-icon" :size="48"><Warning /></el-icon>
       <p class="state-text">{{ errorText || '数据加载失败' }}</p>
       <button class="btn-retry" @click="emit('retry')">

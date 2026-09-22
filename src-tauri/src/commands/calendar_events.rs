@@ -74,6 +74,7 @@ pub async fn list_calendar_events(
         let mut stmt = conn.prepare(&format!(
             "SELECT {EVENT_COLS} FROM calendar_events
                  WHERE event_date BETWEEN ?1 AND ?2
+                 AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id=calendar_events.task_id AND tasks.deleted_at IS NOT NULL)
                  ORDER BY CASE WHEN all_day = 1 THEN 1 ELSE 0 END, start_time, event_date"
         ))?;
         let rows = stmt
@@ -136,12 +137,12 @@ pub(super) fn create_event_in_transaction(conn: &rusqlite::Connection, data: ser
 #[tauri::command]
 pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Result<(), String> {
     run_blocking(move || {
-        validate_event(&data)?;
         let mut connection = db::open_db()?;
         let conn = connection.transaction()?;
         let existing = conn.query_row(&format!("SELECT {EVENT_COLS} FROM calendar_events WHERE id=?1"), [&id], row_to_event)?;
         let mut merged = serde_json::to_value(existing)?;
         for (key, value) in data.as_object().ok_or_else(|| anyhow::anyhow!("日程数据无效"))? {
+            anyhow::ensure!(["title", "eventDate", "startTime", "endTime", "allDay", "color", "location", "notes", "caseId", "taskId"].contains(&key.as_str()), "不支持的日程字段：{key}");
             merged[key] = value.clone();
         }
         if data.get("startTime").is_some() && data.get("allDay").is_none() {
@@ -165,7 +166,7 @@ pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Resul
             "UPDATE calendar_events SET
                 title = ?1, event_date = ?2, start_time = ?3, end_time = ?4,
                 all_day = ?5, color = ?6, location = ?7, notes = ?8,
-                case_id = ?9, updated_at = ?10
+                case_id = ?9, updated_at = ?10, task_id = ?12
              WHERE id = ?11",
             rusqlite::params![
                 title,
@@ -179,6 +180,7 @@ pub async fn update_calendar_event(id: String, data: serde_json::Value) -> Resul
                 data["caseId"].as_str(),
                 now,
                 id,
+                data["taskId"].as_str(),
             ],
         )?;
         if changed == 0 {

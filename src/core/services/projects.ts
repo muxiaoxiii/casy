@@ -21,17 +21,17 @@ export class ProjectsService extends Service {
     areaId?: string | null
     color?: string | null
   }): Promise<{ ok: boolean; data?: ProjectRow; error?: string }> {
-    return tauriCallSafe('create_personal_project', { data })
+    return this.mutation('project', tauriCallSafe('create_personal_project', { data }))
   }
 
   async updatePersonal(
     id: string,
     data: { name?: string; description?: string | null; status?: string; areaId?: string | null; color?: string | null }
   ): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('update_personal_project', { id, data })
+    return this.mutation('project', tauriCallSafe('update_personal_project', { id, data }))
   }
 
   async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('delete_project', { id })
+    return this.mutation('project', tauriCallSafe('delete_project', { id }))
   }
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { todayLocalISO } from '../../../shared/utils/date'
@@ -11,7 +11,7 @@ import {
   DataBoard,
   Setting,
   Warning
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import AIChatPanel from '../components/AIChatPanel.vue'
 import AIAuditView from './AIAuditView.vue'
 import DecisionsView from './DecisionsView.vue'
@@ -33,15 +33,19 @@ const toolStats = computed(() => {
 })
 
 function refreshTools() {
-  tools.value = casyContext.getTools()
+  tools.value = casyContext.getTools().filter(tool => typeof tool.policy?.write === 'boolean')
 }
 
+let stopTools = () => {}
+let refreshTimer
 onMounted(() => {
   refreshTools()
-  casyContext.on('plugins:ready', () => refreshTools())
+  stopTools = casyContext.on('plugins:ready', () => refreshTools())
   // 防御：插件可能已在挂载前就绪（事件已错过），延迟兜底刷新一次
-  setTimeout(refreshTools, 600)
+  refreshTimer = setTimeout(refreshTools, 600)
 })
+
+onBeforeUnmount(() => { stopTools(); clearTimeout(refreshTimer) })
 
 // 支持从外部跳转定位 tab（如决策复核横幅 → /ai?tab=decisions）
 // 工具系统未接入（getTools 恒空）时不开放 tools tab

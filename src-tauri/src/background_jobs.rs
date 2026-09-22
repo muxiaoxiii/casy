@@ -57,9 +57,9 @@ pub(crate) fn persist_success(
     }
     tx.execute("DELETE FROM document_pages WHERE job_id=?1", [&job.id])?;
     for page in &result.pages {
-        tx.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json,confidence) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",rusqlite::params![job.id,job.file_id,page.page_number,page.width,page.height,page.plain_text,page.markdown,serde_json::to_string(&page.regions)?,page.confidence])?;
+        tx.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",rusqlite::params![job.id,job.file_id,page.page_number,page.width,page.height,page.plain_text,page.markdown,serde_json::to_string(&page.regions)?,page.confidence,page.layout.as_ref().map(serde_json::to_string).transpose()?,page.timing.as_ref().map(serde_json::to_string).transpose()?])?;
     }
-    tx.execute("UPDATE document_processing_jobs SET status='completed',engine=?1,model_version=?2,current_page=?3,total_pages=?3,progress=1,searchable_pdf_path=?4,page_ir_path=?5,markdown_path=?6,error_code=NULL,error_message=NULL,completed_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=?7",rusqlite::params![result.engine,result.model_version,result.pages.len() as i64,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,job.id])?;
+    tx.execute("UPDATE document_processing_jobs SET status='completed',phase='completed',elapsed_ms=?1,remaining_ms=0,index_status='running',index_error=NULL,engine=?2,model_version=?3,current_page=?4,total_pages=?4,progress=1,searchable_pdf_path=?5,page_ir_path=?6,markdown_path=?7,error_code=NULL,error_message=NULL,completed_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=?8",rusqlite::params![result.elapsed_ms,result.engine,result.model_version,result.pages.len() as i64,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,job.id])?;
     tx.execute("UPDATE case_files SET source_sha256=?1,searchable_pdf_path=?2,document_ir_path=?3,ocr_markdown_path=?4,ocr_engine=?5,ocr_error=NULL,ocr_status='completed',index_status='processing' WHERE id=?6",rusqlite::params![job.source_sha256,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,result.engine,job.file_id])?;
     let text = result
         .pages
@@ -127,6 +127,7 @@ async fn process_one(job: ClaimedJob) {
             {
                 Ok(()) => {
                     if let Ok(conn) = crate::db::open_db() {
+                        let _ = conn.execute("UPDATE document_processing_jobs SET index_status='completed',updated_at=datetime('now','localtime') WHERE id=?1", [&job.id]);
                         let _ = conn.execute(
                             "UPDATE case_files SET index_status='completed' WHERE id=?1",
                             [&job.file_id],
@@ -136,6 +137,7 @@ async fn process_one(job: ClaimedJob) {
                 Err(message) => {
                     error!("PageIndex build failed {}: {}", job.id, message);
                     if let Ok(conn) = crate::db::open_db() {
+                        let _ = conn.execute("UPDATE document_processing_jobs SET index_status='failed',index_error=?2,updated_at=datetime('now','localtime') WHERE id=?1", rusqlite::params![job.id,message]);
                         let _ = conn.execute(
                             "UPDATE case_files SET index_status='failed',ocr_error=?1 WHERE id=?2",
                             rusqlite::params![format!("PAGE_INDEX_FAILED: {message}"), job.file_id],
@@ -164,6 +166,10 @@ pub async fn process_next_document_job() -> anyhow::Result<bool> {
 }
 
 pub fn start_background_worker(_app: AppHandle) {
+    if let Ok(conn)=crate::db::open_db() {
+        if let Err(error)=crate::processing::recover(&conn) { log::error!("处理中心恢复失败: {error}"); }
+    }
+    crate::processing::service("email","邮件监听","disabled","等待手动启用",None);
     crate::workspace_sync::start();
     tauri::async_runtime::spawn(async move {
         if let Ok(conn) = crate::db::open_db() {
@@ -172,14 +178,29 @@ pub fn start_background_worker(_app: AppHandle) {
                 return;
             }
         }
+        // Idle vector cache checks must back off; a fixed 3s loop caused perpetual
+        // SQLite write transactions even when the queue and fingerprint were unchanged.
+        let mut idle_secs: u64 = 3;
         loop {
             match crate::db::knowledge_index::process_next().await {
-                Ok(true) => {}
+                Ok(true) => {
+                    idle_secs = 3;
+                }
                 Ok(false) => {
-                    if let Ok(Err(error)) = tokio::task::spawn_blocking(crate::db::vector_index::prepare).await {
+                    let result = tokio::task::spawn_blocking(|| {
+                        crate::processing::service("vectors","向量检索缓存","running","检查索引变化",None);
+                        let result=crate::db::vector_index::prepare();
+                        crate::processing::service("vectors","向量检索缓存",if result.is_ok(){"waiting"}else{"failed"},"空闲时退避检查；有变化立即重建",result.as_ref().err().map(ToString::to_string).as_deref());
+                        result
+                    }).await;
+                    if let Ok(Err(error)) = result {
                         log::warn!("Vector cache synchronization failed: {error}");
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        idle_secs = 3;
+                        continue;
                     }
-                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    tokio::time::sleep(Duration::from_secs(idle_secs)).await;
+                    idle_secs = (idle_secs * 2).min(60);
                 }
                 Err(error) => {
                     error!("knowledge index worker failed: {}", error);

@@ -22,16 +22,16 @@ export class FilesService extends Service {
   }
 
   async add(caseId: string, filePath: string, category?: string): Promise<{ ok: boolean; data?: CaseFile; error?: string }> {
-    return tauriCallSafe('add_case_file', {
+    return this.mutation('file', tauriCallSafe('add_case_file', {
       caseId,
       fileName: filePath.replaceAll('\\', '/').split('/').pop() || '',
       filePath,
       category: category || 'other',
-    })
+    }))
   }
 
   async remove(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('delete_case_file', { id })
+    return this.mutation('file', tauriCallSafe('delete_case_file', { id }))
   }
 
   /** 打开文件/目录（open_file_with_default，供导出 DOCX 后打开文件等场景） */
@@ -53,13 +53,13 @@ export class FilesService extends Service {
 
   /** 系统拖入/选择文件 → 复制进子目录并登记 */
   async importToCase(caseId: string, dirRel: string | null, paths: string[], category?: string): Promise<{ ok: boolean; data?: ImportedCaseFile[]; error?: string }> {
-    return tauriCallSafe('import_files_to_case', { caseId, dirRel: dirRel ?? null, paths, category })
+    return this.mutation('file', tauriCallSafe('import_files_to_case', { caseId, dirRel: dirRel ?? null, paths, category }))
   }
 
   async removed(caseId: string) { return tauriCallSafe('list_removed_case_files', { caseId }) }
-  async restore(id: string) { return tauriCallSafe('restore_case_file', { id }) }
-  async move(caseId: string, ids: string[], dirRel: string | null) { return tauriCallSafe('move_case_files', { caseId, ids, dirRel }) }
-  async setCategory(id: string, category: string) { return tauriCallSafe('set_case_file_category', { id, category }) }
+  async restore(id: string) { return this.mutation('file', tauriCallSafe('restore_case_file', { id })) }
+  async move(caseId: string, ids: string[], dirRel: string | null) { return this.mutation('file', tauriCallSafe('move_case_files', { caseId, ids, dirRel })) }
+  async setCategory(id: string, category: string) { return this.mutation('file', tauriCallSafe('set_case_file_category', { id, category })) }
 
   /** 扫描磁盘未登记文件（既有卷宗导入） */
   async scanUnregistered(caseId: string): Promise<{ ok: boolean; data?: UnregisteredCaseFile[]; error?: string }> {

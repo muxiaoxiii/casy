@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Plus, Delete, Connection, Check, RefreshLeft } from '@element-plus/icons-vue'
+import { Plus, Delete, Connection, Check, RefreshLeft } from '../../../shared/icons'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAiSettingsStore } from '../../../stores/aiSettings'
 import { AI_PROMPTS } from '../../../core/prompts'

@@ -85,9 +85,9 @@ pub fn export_rich_docx(
         }
     }
 
-    let mut docx = Docx::new();
+    let mut docx = Docx::new().page_size(11906,16838).page_margin(docx_rs::PageMargin::new().top(1134).bottom(1134).left(1134).right(1134));
     if blocks.is_empty() {
-        docx = docx.add_paragraph(Paragraph::new());
+        docx = docx.add_paragraph(styled_paragraph());
     } else {
         for block in blocks {
             docx = match block {
@@ -149,7 +149,7 @@ fn convert_block(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Re
         }
         "codeBlock" => {
             let text = collect_plain_text(node)?;
-            let mut paragraph = Paragraph::new();
+            let mut paragraph = styled_paragraph();
             for (index, line) in text.split('\n').enumerate() {
                 if index > 0 {
                     paragraph = paragraph.add_run(Run::new().add_break(BreakType::TextWrapping));
@@ -243,7 +243,7 @@ fn convert_table(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Re
         let mut next_spans = Vec::new();
         for cell in &row.content {
             while let Some(&(_, width, remaining)) = spans.iter().find(|(start, _, _)| *start == column) {
-                cells.push(TableCell::new().grid_span(width).vertical_merge(VMergeType::Continue).add_paragraph(Paragraph::new()));
+                cells.push(TableCell::new().grid_span(width).vertical_merge(VMergeType::Continue).add_paragraph(styled_paragraph()));
                 if remaining > 1 { next_spans.push((column, width, remaining - 1)); }
                 column += width;
             }
@@ -265,7 +265,7 @@ fn convert_table(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Re
             }
             column += colspan;
             if cell.content.is_empty() {
-                target = target.add_paragraph(Paragraph::new());
+                target = target.add_paragraph(styled_paragraph());
             }
             for child in &cell.content {
                 match child.node_type.as_str() {
@@ -298,7 +298,7 @@ fn convert_table(node: &RichNode, references: &mut Vec<EvidenceReference>) -> Re
             cells.push(target);
         }
         while let Some(&(_, width, remaining)) = spans.iter().find(|(start, _, _)| *start == column) {
-            cells.push(TableCell::new().grid_span(width).vertical_merge(VMergeType::Continue).add_paragraph(Paragraph::new()));
+            cells.push(TableCell::new().grid_span(width).vertical_merge(VMergeType::Continue).add_paragraph(styled_paragraph()));
             if remaining > 1 { next_spans.push((column, width, remaining - 1)); }
             column += width;
         }
@@ -371,7 +371,7 @@ fn paragraph_from_node(
     force_size: Option<usize>,
     references: &mut Vec<EvidenceReference>,
 ) -> Result<Paragraph> {
-    let mut paragraph = Paragraph::new();
+    let mut paragraph = styled_paragraph();
     if !prefix.is_empty() {
         paragraph = paragraph.add_run(base_run().add_text(prefix));
     }
@@ -465,7 +465,7 @@ fn append_inline(
 }
 
 fn image_paragraph(node: &RichNode) -> Result<Paragraph> {
-    Ok(Paragraph::new().add_run(image_run(node)?))
+    Ok(styled_paragraph().add_run(image_run(node)?))
 }
 
 fn image_run(node: &RichNode) -> Result<Run> {
@@ -473,10 +473,13 @@ fn image_run(node: &RichNode) -> Result<Run> {
     let bytes = load_image_bytes(source)?;
     let pic = std::panic::catch_unwind(|| Pic::new(&bytes))
         .map_err(|_| anyhow::anyhow!("图片无法解析，DOCX 未生成"))?;
-    Ok(base_run().add_image(pic))
+    let dimensions=image::load_from_memory(&bytes).context("无法读取图片尺寸")?;
+    let width=(attr_u64(node,"width").unwrap_or(dimensions.width() as u64) as f64).min(642.);
+    let height=width*dimensions.height() as f64/dimensions.width() as f64;
+    Ok(base_run().add_image(pic.size((width*9525.) as u32,(height*9525.) as u32)))
 }
 
-fn load_image_bytes(source: &str) -> Result<Vec<u8>> {
+pub(super) fn load_image_bytes(source: &str) -> Result<Vec<u8>> {
     if source.starts_with("data:image/") {
         let (metadata, encoded) = source
             .split_once(',')
@@ -512,31 +515,26 @@ fn collect_plain_text(node: &RichNode) -> Result<String> {
     Ok(output)
 }
 
+fn styled_paragraph()->Paragraph {Paragraph::new().line_spacing(docx_rs::LineSpacing::new().line((super::style::current().line_height*240.) as i32).after(120))}
+
 fn base_run() -> Run {
-    Run::new().fonts(
+    Run::new().size((super::style::current().body_size*2.) as usize).fonts(
         RunFonts::new()
-            .ascii("Aptos")
-            .hi_ansi("Aptos")
-            .east_asia("宋体"),
+            .ascii(&super::style::current().font_family)
+            .hi_ansi(&super::style::current().font_family)
+            .east_asia(&super::style::current().font_family),
     )
 }
 
 fn text_paragraph(text: &str) -> Paragraph {
-    Paragraph::new().add_run(base_run().add_text(text))
+    styled_paragraph().add_run(base_run().add_text(text))
 }
 
 fn heading_paragraph(text: &str, level: u8) -> Paragraph {
-    Paragraph::new().add_run(base_run().add_text(text).bold().size(heading_size(level)))
+    styled_paragraph().add_run(base_run().add_text(text).bold().size(heading_size(level)))
 }
 
-fn heading_size(level: u8) -> usize {
-    match level {
-        1 => 32,
-        2 => 28,
-        3 => 24,
-        _ => 22,
-    }
-}
+fn heading_size(level:u8)->usize {(super::style::current().heading_sizes[(level.clamp(1,4)-1) as usize]*2.) as usize}
 
 fn attr_str<'a>(node: &'a RichNode, key: &str) -> Option<&'a str> {
     node.attrs.get(key).and_then(Value::as_str)
@@ -607,7 +605,7 @@ mod tests {
                     ]}
                 ]},
                 {"type": "image", "attrs": {
-                    "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4OQAAAAASUVORK5CYII=",
+                    "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQKt8NAAITAVXMpdPnAAAAAElFTkSuQmCC",
                     "alt": "证据截图"
                 }},
                 {"type": "table", "content": [
@@ -636,7 +634,7 @@ mod tests {
         assert!(xml.contains("page:12"));
         assert!(xml.contains("（2026）示例"));
         assert!(xml.contains("核对原件"));
-        assert!(xml.contains("宋体"));
+        assert!(xml.contains("Noto Sans CJK SC"));
         assert!(xml.contains("w:highlight"));
         assert!(archive.file_names().any(|name| name.starts_with("word/media/")));
     }
@@ -685,4 +683,52 @@ mod tests {
             fs::copy(path, std::path::Path::new(&directory).join("cross-page-table.docx")).unwrap();
         }
     }
+}
+
+/// Explicitly requested compatibility copy. Every downgraded object retains its source and a label.
+pub fn annotated_document(mut document: Value) -> Value {
+    fn plain(text:String,block:bool)->Value {
+        let text=serde_json::json!({"type":"text","text":text});
+        if block {serde_json::json!({"type":"paragraph","content":[text]})}else{text}
+    }
+    fn visit(node:&mut Value) {
+        let kind=node["type"].as_str().unwrap_or("").to_owned();
+        let source=node["attrs"]["source"].as_str().or(node["attrs"]["latex"].as_str()).unwrap_or("").to_owned();
+        match kind.as_str(){
+            "inlineMath"|"mathInline" => *node=plain(format!("〔公式源码：${source}$〕"),false),
+            "blockMath"|"mathBlock" => *node=plain(format!("〔公式源码〕\n$${source}$$"),true),
+            "footnoteReference" => *node=plain(format!("[^{}]",node["attrs"]["label"].as_str().unwrap_or("")),false),
+            "footnoteDefinition" => {
+                let body=node["attrs"]["source"].as_str().unwrap_or("");
+                *node=plain(format!("〔脚注源码〕[^{}]: {}",node["attrs"]["label"].as_str().unwrap_or(""),body),true);
+            },
+            "image" => {
+                let src=node["attrs"]["src"].as_str().unwrap_or("");
+                if load_image_bytes(src).and_then(|b|image::load_from_memory(&b).map(|_|()).map_err(Into::into)).is_err(){
+                    *node=plain(format!("〔图片未嵌入，请核对原件〕{}\n来源：{src}",node["attrs"]["alt"].as_str().unwrap_or("")),true);
+                }
+            },
+            "codeBlock" if node["attrs"]["language"].as_str()==Some("mermaid")=>{
+                if let Some(content)=node["content"].as_array_mut(){content.insert(0,serde_json::json!({"type":"text","text":"〔Mermaid 图表源码，未渲染〕\n"}));}
+            },
+            _=>{},
+        }
+        // IndexMut on a missing key inserts null; use get_mut so text/image leaves stay valid.
+        if let Some(children)=node.get_mut("content").and_then(|c| c.as_array_mut()){for child in children{visit(child);}}
+    }
+    visit(&mut document);
+    if let Some(content)=document.get_mut("content").and_then(|c| c.as_array_mut()){content.insert(0,plain("【带标注的 Word 兼容副本】公式、脚注和图表可能以源码呈现，缺失图片保留来源标记。请与原文或 PDF 核对后使用。".into(),true));}
+    document
+}
+
+#[cfg(test)] mod compatibility_tests {
+ use super::*;
+ #[test] fn explicit_compatibility_copy_keeps_sources_and_a_visible_notice(){
+  let root=serde_json::json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"mathInline","attrs":{"source":"x_i*a"}},{"type":"footnoteReference","attrs":{"label":"law"}}]},{"type":"footnoteDefinition","attrs":{"label":"law","source":"第六十五条"}},{"type":"image","attrs":{"src":"https://example.invalid/evidence.png"}}]});
+  let converted=annotated_document(root);let dir=tempfile::tempdir().unwrap();let path=dir.path().join("copy.docx");
+  export_rich_docx(converted,"兼容副本",path.to_str()).unwrap();
+  let mut zip=zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();let mut xml=String::new();
+  std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(),&mut xml).unwrap();
+  for text in ["兼容副本","x_i*a","[^law]","第六十五条","https://example.invalid/evidence.png","图片未嵌入"]{assert!(xml.contains(text),"missing {text}");}
+ }
 }

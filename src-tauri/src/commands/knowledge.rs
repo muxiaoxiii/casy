@@ -697,7 +697,14 @@ fn export_knowledge_markdown_inner(
     } else {
         format!("{}\n", content.trim_end())
     };
-    std::fs::write(&path, markdown.as_bytes())?;
+    let destination = path.parent().ok_or_else(|| anyhow::anyhow!("导出目录无效"))?;
+    let (markdown, assets) = super::markdown_export::externalize_images(&markdown, destination)?;
+    use std::io::Write;
+    let mut stage = tempfile::NamedTempFile::new_in(destination)?;
+    stage.write_all(markdown.as_bytes())?;
+    stage.as_file().sync_all()?;
+    stage.persist(&path)?;
+    if let Some(assets) = assets { let _ = assets.keep(); }
     let metadata = std::fs::metadata(&path)?;
     Ok(KnowledgeExportDto {
         output_path: path.to_string_lossy().into_owned(),
@@ -919,9 +926,12 @@ pub async fn list_knowledge_versions(item_id: String) -> Result<Vec<KnowledgeVer
 /// 对比两个版本的差异
 #[tauri::command]
 pub async fn diff_knowledge_versions(
-    version_id_1: String,
-    version_id_2: String,
+    // Tauri camelCase mapping: versionId1 → version_id1 (not version_id_1).
+    version_id1: String,
+    version_id2: String,
 ) -> Result<KnowledgeDiffVersionsResult, String> {
+    let version_id_1 = version_id1;
+    let version_id_2 = version_id2;
     run_blocking(move || {
         let conn = db::open_db()?;
 
@@ -937,32 +947,7 @@ pub async fn diff_knowledge_versions(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         ).map_err(|e| anyhow::anyhow!("版本2不存在: {}", e))?;
 
-        // 简单逐行差异对比
-        let lines1: Vec<&str> = content1.lines().collect();
-        let lines2: Vec<&str> = content2.lines().collect();
-        let mut diffs: Vec<DiffLineDto> = Vec::new();
-
-        let max_len = lines1.len().max(lines2.len());
-        for i in 0..max_len {
-            let old_line = lines1.get(i).copied();
-            let new_line = lines2.get(i).copied();
-            match (old_line, new_line) {
-                (Some(o), Some(n)) if o == n => {
-                    diffs.push(DiffLineDto { diff_type: "equal".into(), line: i + 1, text: o.to_string() });
-                }
-                (Some(o), Some(n)) => {
-                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
-                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
-                }
-                (Some(o), None) => {
-                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
-                }
-                (None, Some(n)) => {
-                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
-                }
-                _ => {}
-            }
-        }
+        let diffs = line_diff(&content1,&content2);
 
         Ok(KnowledgeDiffVersionsResult {
             version1: VersionMetaDto { id: id1, changed_at: changed_at1, change_reason: reason1 },
@@ -1329,32 +1314,7 @@ pub async fn diff_knowledge_with_current(
             |r| r.get(0),
         ).map_err(|e| anyhow::anyhow!("知识条目不存在: {}", e))?;
 
-        // 逐行差异对比
-        let lines_old: Vec<&str> = version_content.lines().collect();
-        let lines_new: Vec<&str> = current_content.lines().collect();
-        let mut diffs: Vec<DiffLineDto> = Vec::new();
-
-        let max_len = lines_old.len().max(lines_new.len());
-        for i in 0..max_len {
-            let old_line = lines_old.get(i).copied();
-            let new_line = lines_new.get(i).copied();
-            match (old_line, new_line) {
-                (Some(o), Some(n)) if o == n => {
-                    diffs.push(DiffLineDto { diff_type: "equal".into(), line: i + 1, text: o.to_string() });
-                }
-                (Some(o), Some(n)) => {
-                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
-                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
-                }
-                (Some(o), None) => {
-                    diffs.push(DiffLineDto { diff_type: "removed".into(), line: i + 1, text: o.to_string() });
-                }
-                (None, Some(n)) => {
-                    diffs.push(DiffLineDto { diff_type: "added".into(), line: i + 1, text: n.to_string() });
-                }
-                _ => {}
-            }
-        }
+        let diffs = line_diff(&version_content,&current_content);
 
         Ok(KnowledgeDiffCurrentResult {
             version: VersionMetaDto { id: vid, changed_at, change_reason: reason },
@@ -1875,5 +1835,62 @@ mod tests {
             temp.path().join("bad.txt").to_str().unwrap(),
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_export_knowledge_markdown_externalizes_ocr_images() {
+        let conn = test_conn();
+        let content = "# 原图\n<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQKt8NAAITAVXMpdPnAAAAAElFTkSuQmCC\">";
+        insert_note(&conn, "ocr-export", "原图", content);
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("原图.md");
+        export_knowledge_markdown_inner(&conn, "ocr-export", output.to_str().unwrap()).unwrap();
+        let md = std::fs::read_to_string(&output).unwrap();
+        assert!(!md.contains("base64"));
+        let relative = md.split("src=\"").nth(1).unwrap().split('"').next().unwrap();
+        assert!(temp.path().join(relative).is_file());
+        let saved: String = conn.query_row("SELECT content FROM knowledge_items WHERE id='ocr-export'", [], |r| r.get(0)).unwrap();
+        assert_eq!(saved, content);
+    }
+}
+
+fn line_diff(old: &str, new: &str) -> Vec<DiffLineDto> {
+    fn emit(out:&mut Vec<DiffLineDto>,kind:&str,line:usize,text:&str){out.push(DiffLineDto{diff_type:kind.into(),line,text:text.into()});}
+    fn compare(a:&[&str],b:&[&str],old_at:usize,new_at:usize,out:&mut Vec<DiffLineDto>){
+        let prefix=a.iter().zip(b).take_while(|(x,y)|x==y).count();
+        for (i,text) in a[..prefix].iter().enumerate(){emit(out,"equal",new_at+i,text);}
+        let a=&a[prefix..];let b=&b[prefix..];let old_at=old_at+prefix;let new_at=new_at+prefix;
+        let suffix=a.iter().rev().zip(b.iter().rev()).take_while(|(x,y)|x==y).count();
+        let aa=&a[..a.len()-suffix];let bb=&b[..b.len()-suffix];
+        if (aa.len()+1).saturating_mul(bb.len()+1)<=2_000_000 {
+            let width=bb.len()+1;let mut lcs=vec![0u32;(aa.len()+1)*width];
+            for i in (0..aa.len()).rev(){for j in (0..bb.len()).rev(){lcs[i*width+j]=if aa[i]==bb[j]{1+lcs[(i+1)*width+j+1]}else{lcs[(i+1)*width+j].max(lcs[i*width+j+1])};}}
+            let(mut i,mut j)=(0,0);
+            while i<aa.len() || j<bb.len(){
+                if i<aa.len() && j<bb.len() && aa[i]==bb[j]{emit(out,"equal",new_at+j,aa[i]);i+=1;j+=1;}
+                else if i<aa.len() && (j==bb.len() || lcs[(i+1)*width+j]>=lcs[i*width+j+1]){emit(out,"removed",old_at+i,aa[i]);i+=1;}
+                else{emit(out,"added",new_at+j,bb[j]);j+=1;}
+            }
+        }else{
+            // Large unrelated revisions: find a unique shared anchor without allocating a quadratic matrix.
+            let mut positions=std::collections::HashMap::new();
+            for (j,text) in bb.iter().enumerate(){positions.entry(*text).and_modify(|v:&mut Option<usize>|*v=None).or_insert(Some(j));}
+            if let Some((i,j))=aa.iter().enumerate().filter_map(|(i,t)|positions.get(t).copied().flatten().map(|j|(i,j))).min_by_key(|(i,_)|i.abs_diff(aa.len()/2)){
+                compare(&aa[..i],&bb[..j],old_at,new_at,out);emit(out,"equal",new_at+j,aa[i]);compare(&aa[i+1..],&bb[j+1..],old_at+i+1,new_at+j+1,out);
+            }else{
+                for(i,t)in aa.iter().enumerate(){emit(out,"removed",old_at+i,t);}
+                for(j,t)in bb.iter().enumerate(){emit(out,"added",new_at+j,t);}
+            }
+        }
+        for(i,t)in a[a.len()-suffix..].iter().enumerate(){emit(out,"equal",new_at+bb.len()+i,t);}
+    }
+    let mut out=Vec::new();compare(&old.lines().collect::<Vec<_>>(),&new.lines().collect::<Vec<_>>(),1,1,&mut out);out
+}
+#[cfg(test)] mod line_diff_tests {
+    #[test] fn inserted_and_deleted_lines_do_not_shift_the_entire_document(){
+        let diff=super::line_diff("甲\n乙\n丙","前言\n甲\n乙\n丙");
+        assert_eq!(diff.iter().filter(|d|d.diff_type=="added").count(),1);
+        assert_eq!(diff.iter().filter(|d|d.diff_type=="equal").count(),3);
+        assert_eq!(super::line_diff("甲\n删去\n乙","甲\n乙").iter().filter(|d|d.diff_type=="removed").count(),1);
     }
 }

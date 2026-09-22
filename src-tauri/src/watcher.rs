@@ -83,6 +83,7 @@ fn spawn_event_processing_thread(rx: mpsc::Receiver<notify::Result<Event>>, inbo
                     }
                 }
                 Err(e) => {
+                    crate::processing::service("inbox","收件箱目录监听","failed","监听异常",Some(&e.to_string()));
                     log::error!("文件监听错误: {}", e);
                 }
             }
@@ -152,6 +153,7 @@ fn import_file_to_inbox(path: &Path) {
         .to_string();
     let source_path = path.to_string_lossy().to_string();
 
+    let activity=crate::processing::Activity::start("inbox",&format!("收件箱导入：{file_name}"));
     // 读取文件内容用于分类（仅文本文件）
     let content_text = read_file_preview(path);
 
@@ -177,6 +179,7 @@ fn import_file_to_inbox(path: &Path) {
                 ],
             ) {
                 Ok(_) => {
+                    activity.finish(&Ok::<(),String>(()));
                     log::info!("自动导入收件箱: {}", file_name);
                     // 通知前端刷新
                     if let Some(handle) = get_app_handle() {
@@ -184,11 +187,13 @@ fn import_file_to_inbox(path: &Path) {
                     }
                 }
                 Err(e) => {
+                    activity.finish(&Err::<(),_>(&e));
                     log::error!("导入收件箱失败 {}: {}", file_name, e);
                 }
             }
         }
         Err(e) => {
+            activity.finish(&Err::<(),_>(&e));
             log::error!("数据库连接失败: {}", e);
         }
     }
@@ -205,6 +210,11 @@ fn read_file_preview(path: &Path) -> Option<String> {
     match ext.as_str() {
         "txt" | "md" | "csv" | "json" | "xml" | "html" | "eml" => {
             std::fs::read_to_string(path).ok()
+        }
+        "pdf" => {
+            pdf_extract::extract_text(path).ok().map(|text| {
+                text.chars().take(2000).collect::<String>()
+            })
         }
         _ => None,
     }

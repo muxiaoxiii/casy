@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Close, Refresh, Search, Setting } from '@element-plus/icons-vue'
+import { Close, Refresh, Search, Setting } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import type { KnowledgeIndexJob, KnowledgeIndexStatus, KnowledgeSearchResponse } from '../../../types/knowledgeIndex'
 

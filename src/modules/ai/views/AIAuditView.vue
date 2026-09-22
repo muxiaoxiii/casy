@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
-import { Refresh, View, Filter } from '@element-plus/icons-vue'
+import { Refresh, View, Filter } from '../../../shared/icons'
 
 const loading = ref(false)
 const aiRuns = ref([])

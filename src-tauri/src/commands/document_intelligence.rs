@@ -15,6 +15,10 @@ pub struct DocumentJobDto {
     pub current_page: i64,
     pub total_pages: i64,
     pub progress: f64,
+    pub phase: String,
+    pub elapsed_seconds: f64,
+    pub remaining_seconds: Option<f64>,
+    pub page_timing: Option<document_pipeline::DocumentPageTiming>,
     pub searchable_pdf_path: Option<String>,
     pub page_ir_path: Option<String>,
     pub markdown_path: Option<String>,
@@ -34,16 +38,20 @@ fn map_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentJobDto> {
         current_page: row.get(6)?,
         total_pages: row.get(7)?,
         progress: row.get(8)?,
-        searchable_pdf_path: row.get(9)?,
-        page_ir_path: row.get(10)?,
-        markdown_path: row.get(11)?,
-        error_code: row.get(12)?,
-        error_message: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
+        phase: row.get(9)?,
+        elapsed_seconds: row.get(10)?,
+        remaining_seconds: row.get(11)?,
+        page_timing: row.get::<_,Option<String>>(12)?.map(|value|serde_json::from_str(&value)).transpose().map_err(|error|rusqlite::Error::FromSqlConversionFailure(12,rusqlite::types::Type::Text,Box::new(error)))?,
+        searchable_pdf_path: row.get(13)?,
+        page_ir_path: row.get(14)?,
+        markdown_path: row.get(15)?,
+        error_code: row.get(16)?,
+        error_message: row.get(17)?,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
-const JOB_COLUMNS:&str="id,file_id,source_sha256,status,engine,model_version,current_page,total_pages,progress,searchable_pdf_path,page_ir_path,markdown_path,error_code,error_message,created_at,updated_at";
+const JOB_COLUMNS:&str="id,file_id,source_sha256,status,engine,model_version,current_page,total_pages,progress,phase,elapsed_ms/1000.0,remaining_ms/1000.0,timing_json,searchable_pdf_path,page_ir_path,markdown_path,error_code,error_message,created_at,updated_at";
 
 #[tauri::command]
 pub async fn get_document_engine_status() -> Result<document_pipeline::DocumentEngineStatus, String>
@@ -162,13 +170,13 @@ pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow
     let changed = tx.execute(
         "INSERT INTO document_processing_jobs(id,file_id,source_sha256)
          SELECT ?2,file_id,source_sha256 FROM document_processing_jobs
-         WHERE id=?1 AND status IN ('failed','cancelled') AND NOT EXISTS
+         WHERE id=?1 AND status IN ('failed','cancelled','completed') AND NOT EXISTS
          (SELECT 1 FROM document_processing_jobs newer WHERE newer.file_id=document_processing_jobs.file_id
           AND (newer.rowid>document_processing_jobs.rowid OR newer.status IN ('queued','running')))",
         rusqlite::params![job_id,db::new_id()],
     )?;
     if changed != 1 {
-        anyhow::bail!("仅可重试最新的失败或已取消任务");
+        anyhow::bail!("仅可重新处理最新的已完成、失败或已取消任务；不能重复启动正在处理的文件");
     }
     tx.execute("UPDATE case_files SET ocr_status='pending',index_status='pending',ocr_error=NULL WHERE id=(SELECT file_id FROM document_processing_jobs WHERE id=?1)", [job_id])?;
     tx.commit()?;
@@ -204,6 +212,8 @@ pub struct DocumentPageView {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub regions: Vec<document_pipeline::DocumentRegion>,
+    pub layout: Option<serde_json::Value>,
+    pub timing: Option<document_pipeline::DocumentPageTiming>,
 }
 
 #[tauri::command]
@@ -219,17 +229,18 @@ pub async fn correct_document_region(file_id: String, job_id: String, page_numbe
         let running:bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running'))",[&file_id],|r|r.get(0))?;
         anyhow::ensure!(!running, "此文档正在处理，请完成后校订");
         anyhow::ensure!(document_pipeline::sha256_file(std::path::Path::new(&source))? == hash,"SOURCE_CHANGED: 原文件已变化，请重新处理");
-        let mut stmt = tx.prepare("SELECT page_number,width,height,plain_text,markdown,regions_json,confidence FROM document_pages WHERE job_id=?1 ORDER BY page_number")?;
-        let raw = stmt.query_map([&job_id], |r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<f32>>(6)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut stmt = tx.prepare("SELECT page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json FROM document_pages WHERE job_id=?1 ORDER BY page_number")?;
+        let raw = stmt.query_map([&job_id], |r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<f32>>(6)?,r.get::<_,Option<String>>(7)?,r.get::<_,Option<String>>(8)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         drop(stmt);
-        let mut pages = raw.into_iter().map(|(page_number,width,height,plain_text,markdown,regions,confidence)| Ok(document_pipeline::DocumentPage {page_number,width,height,plain_text,markdown,regions:serde_json::from_str(&regions)?,confidence})).collect::<anyhow::Result<Vec<_>>>()?;
+        let mut pages = raw.into_iter().map(|(page_number,width,height,plain_text,markdown,regions,confidence,layout,timing)| Ok(document_pipeline::DocumentPage {page_number,width,height,plain_text,markdown,regions:serde_json::from_str(&regions)?,confidence,layout:layout.map(|value|serde_json::from_str(&value)).transpose()?,timing:timing.map(|value|serde_json::from_str(&value)).transpose()?})).collect::<anyhow::Result<Vec<_>>>()?;
         let page = pages.iter_mut().find(|p|p.page_number==page_number).ok_or_else(||anyhow::anyhow!("页码不存在"))?;
         let region = page.regions.get_mut(region_index).ok_or_else(||anyhow::anyhow!("区域不存在"))?;
         anyhow::ensure!(region.text == expected_text,"OCR_VERSION_CHANGED: 区域文字已变化");
+        let structured_markdown = document_pipeline::source_map::corrected_markdown(&page.markdown, region_index, &region.text, &text);
         region.text = text;
         region.confidence = None;
         page.plain_text = page.regions.iter().map(|r|r.text.as_str()).collect::<Vec<_>>().join("\n");
-        page.markdown = page.plain_text.clone();
+        page.markdown = structured_markdown.unwrap_or_else(|| page.plain_text.clone());
         let id = db::new_id();
         let output = document_pipeline::artifact_dir(&file_id,&hash)?.join(&id);
         std::fs::create_dir_all(&output)?;
@@ -332,13 +343,15 @@ fn load_document_page(
 ) -> anyhow::Result<(DocumentPageView, String, String, Option<String>)> {
     let (view,source,hash,engine,searchable) = conn.query_row(r#"
         SELECT f.file_name,f.file_path,j.source_sha256,j.engine,j.searchable_pdf_path,j.total_pages,
-               p.markdown,p.width,p.height,p.regions_json
+               p.markdown,p.width,p.height,p.regions_json,p.layout_json,p.timing_json
         FROM case_files f JOIN document_processing_jobs j ON j.file_id=f.id
         JOIN document_pages p ON p.job_id=j.id AND p.file_id=f.id
         WHERE f.id=?1 AND j.id=?2 AND p.page_number=?3 AND j.status='completed' AND f.deleted_at IS NULL
     "#,rusqlite::params![file,job,number],|r|Ok((DocumentPageView {
         file_id:file.into(),job_id:job.into(),file_name:r.get(0)?,page_number:number,total_pages:r.get(5)?,
-        markdown:r.get(6)?,width:r.get(7)?,height:r.get(8)?,regions:vec![],image_data:None
+        markdown:r.get(6)?,width:r.get(7)?,height:r.get(8)?,regions:vec![],image_data:None,
+        layout:r.get::<_,Option<String>>(10)?.map(|value|serde_json::from_str(&value)).transpose().map_err(|error|rusqlite::Error::FromSqlConversionFailure(10,rusqlite::types::Type::Text,Box::new(error)))?,
+        timing:r.get::<_,Option<String>>(11)?.map(|value|serde_json::from_str(&value)).transpose().map_err(|error|rusqlite::Error::FromSqlConversionFailure(11,rusqlite::types::Type::Text,Box::new(error)))?
     },r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,
       (r.get::<_,Option<String>>(4)?,r.get::<_,String>(9)?))))?;
     if document_pipeline::sha256_file(std::path::Path::new(&source))? != hash {
@@ -415,6 +428,21 @@ mod tests {
             .unwrap(),
             "cancelled"
         );
+    }
+
+    #[test]
+    fn completed_job_can_be_explicitly_reprocessed_without_erasing_previous_result() {
+        let (mut conn, _temp, _path) = fixture();
+        let original = queue_file(&mut conn, "f").unwrap();
+        conn.execute("UPDATE document_processing_jobs SET status='completed',markdown_path='old-result.md' WHERE id=?1", [&original.id]).unwrap();
+        retry_job(&mut conn, &original.id).unwrap();
+        let next = queue_file(&mut conn, "f").unwrap();
+        assert_ne!(original.id, next.id);
+        assert_eq!(next.status, "queued");
+        assert!(retry_job(&mut conn, &original.id).is_err());
+        assert!(retry_job(&mut conn, &next.id).is_err());
+        let old:(String,String)=conn.query_row("SELECT status,markdown_path FROM document_processing_jobs WHERE id=?1",[&original.id],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(old,("completed".into(),"old-result.md".into()));
     }
 
     #[test]

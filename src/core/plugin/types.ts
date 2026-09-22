@@ -142,6 +142,13 @@ export abstract class Service {
 
   constructor(public readonly ctx: CasyContext) {}
 
+  /** Successful mutations invalidate projections without copying domain records. */
+  protected async mutation<T extends { ok: boolean }>(domain: string, operation: Promise<T>): Promise<T> {
+    const result = await operation
+    if (result.ok) this.ctx.emit(`${domain}:changed`)
+    return result
+  }
+
   /** 服务初始化（可选覆写） */
   async setup(): Promise<void> {}
 

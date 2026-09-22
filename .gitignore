@@ -51,3 +51,12 @@ baoyu-design/
 # 工具链构建产物
 tools/**/target/
 src-tauri/runtime/
+
+# Generated offline drawing fonts (copied from npm package by Vite).
+/public/excalidraw-assets/
+
+# Local caches and release/QA artifacts (source and curated evidence are committed).
+.pnpm-store/
+pnpm-lock.yaml
+release/
+outputs/

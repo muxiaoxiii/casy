@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAiSettingsStore } from '../../stores/aiSettings'
-import { Cpu, ArrowRight } from '@element-plus/icons-vue'
+import { Cpu, ArrowRight } from '../icons'
 import { tauriCallSafe } from '../../core/tauriBridge'
 
 const router = useRouter()

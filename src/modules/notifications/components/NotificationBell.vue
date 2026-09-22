@@ -11,7 +11,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Bell, AlarmClock, InfoFilled, Check, Delete, CircleCheck } from '@element-plus/icons-vue'
+import { Bell, AlarmClock, InfoFilled, Check, Delete, CircleCheck } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 
 // ── 本地类型契约（对齐后端 AppNotification DTO，serde camelCase）──

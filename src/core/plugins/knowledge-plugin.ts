@@ -45,6 +45,7 @@ export class KnowledgePlugin implements CasyPlugin {
   private createListKnowledgeTool(ctx: CasyContext): CasyTool {
     return defineTool<ListKnowledgeToolParams>({
       name: 'list_knowledge',
+      policy: { write: false, level: 'L1' },
       description: '获取知识库列表，支持按职能分类筛选',
       category: 'knowledge',
       parameters: {
@@ -72,6 +73,7 @@ export class KnowledgePlugin implements CasyPlugin {
   private createSearchKnowledgeTool(ctx: CasyContext): CasyTool {
     return defineTool<{ query: string; limit?: number }>({
       name: 'search_knowledge',
+      policy: { write: false, level: 'L1' },
       description: '搜索知识库（支持全文搜索和混合检索）',
       category: 'knowledge',
       parameters: {

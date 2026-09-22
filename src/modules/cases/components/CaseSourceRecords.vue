@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import type { SourceRecord } from '../../../types/feishuSnapshot'
-import { Download } from '@element-plus/icons-vue'
+import { Download } from '../../../shared/icons'
 import { isTauriRuntime } from '../../../core/mockData'
 const props = defineProps<{caseId: string}>()
 const records = ref<SourceRecord[]>([])

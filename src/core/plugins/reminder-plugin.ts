@@ -32,6 +32,7 @@ export class ReminderPlugin implements CasyPlugin {
   private createListReminderRulesTool(ctx: CasyContext): CasyTool {
     return defineTool<{}>({
       name: 'list_reminder_rules',
+      policy: { write: false, level: 'L1' },
       description: '获取提醒规则列表',
       category: 'reminder',
       parameters: { type: 'object', properties: {} },
@@ -76,6 +77,7 @@ export class ReminderPlugin implements CasyPlugin {
   private createGetReminderLogTool(ctx: CasyContext): CasyTool {
     return defineTool<{ limit?: number }>({
       name: 'get_reminder_log',
+      policy: { write: false, level: 'L1' },
       description: '获取提醒日志（R1-R4 分级）',
       category: 'reminder',
       parameters: {

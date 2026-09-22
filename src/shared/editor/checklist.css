@@ -1,0 +1,48 @@
+/* The live TaskItem NodeView and read-only preview share this exact structure. */
+:is(.md-wysiwyg-body .tiptap, .markdown-preview) ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin: 8px 0;
+}
+:is(.md-wysiwyg-body .tiptap, .markdown-preview) li[data-type="taskItem"] {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+  margin: 4px 0;
+  list-style: none;
+}
+:is(.md-wysiwyg-body .tiptap, .markdown-preview)
+  li[data-type="taskItem"]
+  > label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1lh;
+  margin: 0;
+  padding: 0;
+}
+:is(.md-wysiwyg-body .tiptap, .markdown-preview)
+  li[data-type="taskItem"]
+  > label
+  > input {
+  appearance: auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--c-primary);
+  cursor: pointer;
+}
+:is(.md-wysiwyg-body .tiptap, .markdown-preview)
+  li[data-type="taskItem"]
+  > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:is(.md-wysiwyg-body .tiptap, .markdown-preview)
+  li[data-type="taskItem"]
+  > div
+  > p {
+  margin: 0;
+}

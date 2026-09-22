@@ -6,6 +6,7 @@
  * - 全项目唯一的边界断言点集中在本文件（raw as P），
  *   未来引入运行时校验（specta/zod）时只改这一处
  */
+import { validateParams } from './validateParams'
 import type { CasyTool, ToolParameterSchema, ToolPolicy } from './types'
 
 /** 与 tauriCallSafe / CasyTool.execute 一致的返回契约 */
@@ -32,7 +33,10 @@ export function defineTool<P extends object>(
     category: def.category,
     parameters: def.parameters,
     ...(def.policy ? { policy: def.policy } : {}),
-    // 唯一的边界断言：schema 声明即参数契约（见文件头注释）
-    execute: (raw: Record<string, unknown>) => def.execute(raw as P),
+    // 在运行时校验 schema，再进入类型化工具实现。
+    execute: async (raw: Record<string, unknown>) => {
+      const error = validateParams(def.parameters, raw)
+      return error ? { ok: false, error } : def.execute(raw as P)
+    },
   }
 }

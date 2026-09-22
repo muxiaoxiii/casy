@@ -225,7 +225,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, View, Download, EditPen } from '@element-plus/icons-vue'
+import { Document, View, Download, EditPen } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import { useDocsyBridge } from '../composables/useDocsyBridge.js'
 import {

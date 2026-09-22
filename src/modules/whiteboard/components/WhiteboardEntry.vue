@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Right, Grid } from '@element-plus/icons-vue'
+import { Plus, Right, Grid } from '../../../shared/icons'
 import { tauriCall } from '../../../core/tauriBridge'
 import type { WhiteboardDto } from '../types'
 
@@ -20,12 +20,18 @@ const router = useRouter()
 const whiteboards = ref<WhiteboardDto[]>([])
 const loading = ref(false)
 
+let loadSequence = 0
 async function reload() {
-  if (!props.caseId) return
+  const sequence=++loadSequence; const id=props.caseId
+  whiteboards.value=[]
+  if (!id) return
   loading.value = true
-  const list = await tauriCall('list_whiteboards', { caseId: props.caseId })
-  loading.value = false
-  whiteboards.value = Array.isArray(list) ? list : []
+  try {
+    const list = await tauriCall('list_whiteboards', { caseId: id })
+    if(sequence!==loadSequence)return
+    whiteboards.value = Array.isArray(list) ? list : []
+  } catch {if(sequence===loadSequence)ElMessage.error('白板列表读取失败')}
+  finally {if(sequence===loadSequence)loading.value=false}
 }
 
 defineExpose({ reload })
@@ -38,6 +44,7 @@ function openBoard(board?: WhiteboardDto) {
 }
 
 async function quickCreate() {
+  const idCase = props.caseId
   let name = ''
   try {
     const res = await ElMessageBox.prompt('请输入白板名称', '新建白板', {
@@ -50,7 +57,9 @@ async function quickCreate() {
   } catch {
     return
   }
-  const id = await tauriCall('create_whiteboard', { caseId: props.caseId, name })
+  if(idCase!==props.caseId)return
+  const id = await tauriCall('create_whiteboard', { caseId: idCase, name })
+  if(idCase!==props.caseId)return
   if (!id) return
   ElMessage.success('白板已创建')
   await reload()
@@ -80,6 +89,7 @@ watch(() => props.caseId, reload)
     <ul v-else class="whiteboard-entry__list">
       <li v-for="board in whiteboards" :key="board.id">
         <button class="whiteboard-entry__row" type="button" @click="openBoard(board)">
+          <img v-if="board.preview" :src="board.preview" class="board-preview" alt="事实白板预览" />
           <span class="whiteboard-entry__name">{{ board.name }}</span>
           <span class="whiteboard-entry__count">{{ board.nodeCount }} 节点</span>
           <el-icon class="whiteboard-entry__arrow"><Right /></el-icon>
@@ -96,6 +106,7 @@ watch(() => props.caseId, reload)
 </template>
 
 <style scoped>
+.board-preview{width:180px;height:100px;object-fit:contain;background:white;border:1px solid var(--c-border);border-radius:4px}
 .whiteboard-entry {
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);

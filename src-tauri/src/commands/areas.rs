@@ -184,7 +184,8 @@ pub async fn update_area(id: String, data: UpdateAreaInput) -> Result<(), String
 #[tauri::command]
 pub async fn delete_area(id: String) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let connection = db::open_db()?;
+        let conn = connection.unchecked_transaction()?;
 
         // 检查是否有**活跃**任务关联到此领域（软删任务不阻断删除）。
         let count: i32 = conn.query_row(
@@ -199,11 +200,20 @@ pub async fn delete_area(id: String) -> Result<(), String> {
 
         // 软删任务仍引用此领域，删除前先解除关联，避免 FOREIGN KEY 约束阻断。
         conn.execute(
-            "UPDATE tasks SET area_id = NULL WHERE area_id = ?1 AND deleted_at IS NOT NULL",
+            "UPDATE tasks SET area_id = NULL WHERE area_id = ?1",
+            rusqlite::params![id],
+        )?;
+        conn.execute(
+            "UPDATE cases SET area_id = NULL WHERE area_id = ?1",
+            rusqlite::params![id],
+        )?;
+        conn.execute(
+            "UPDATE projects SET area_id = NULL WHERE area_id = ?1",
             rusqlite::params![id],
         )?;
 
         conn.execute("DELETE FROM areas WHERE id = ?1", rusqlite::params![id])?;
+        conn.commit()?;
         Ok(())
     })
     .await

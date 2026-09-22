@@ -1,0 +1,14 @@
+{
+  "build": {
+    "beforeBuildCommand": ""
+  },
+  "bundle": {
+    "targets": ["dmg"],
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "26.0",
+      "entitlements": "entitlements.beta.plist"
+    },
+    "resources": { "runtime/": "runtime/" }
+  }
+}

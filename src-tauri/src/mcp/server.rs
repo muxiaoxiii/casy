@@ -70,6 +70,7 @@ pub async fn run() -> Result<()> {
         MCP_BIND_ADDR
     );
 
+    crate::processing::service("mcp","本地 MCP 服务","waiting","等待本机请求",None);
     loop {
         match listener.accept().await {
             Ok((stream, _peer)) => {
@@ -251,8 +252,8 @@ async fn write_response(
 
 /// 获取 MCP server 信息（供设置页展示 / 用户配置外部工具）
 ///
-/// 返回 { port, token, enabled }；token 即 HTTP 鉴权所需的 Bearer token
-///（持久化在 settings.mcp_auth_token，外部 MCP 客户端请求头需带 Authorization: Bearer <token>）。
+/// 返回 { port, tokenHint, enabled }；完整 token 不经 IPC 回传，避免 webview 侧泄露。
+/// 外部客户端仍使用 settings.mcp_auth_token 中的 Bearer token。
 #[tauri::command]
 pub async fn get_mcp_server_info() -> Result<serde_json::Value, String> {
     crate::commands::run_blocking(|| {
@@ -263,9 +264,14 @@ pub async fn get_mcp_server_info() -> Result<serde_json::Value, String> {
             .map(|v| v != "false")
             .unwrap_or(true);
         let token = auth_token();
+        let hint = if token.len() <= 4 {
+            "****".to_string()
+        } else {
+            format!("…{}", &token[token.len() - 4..])
+        };
         Ok(serde_json::json!({
             "port": MCP_PORT,
-            "token": token,
+            "tokenHint": hint,
             "enabled": enabled,
         }))
     })

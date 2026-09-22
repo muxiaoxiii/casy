@@ -50,7 +50,7 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Link, Delete, Document, Collection, Checked, Briefcase, Folder } from '@element-plus/icons-vue'
+import { Link, Delete, Document, Collection, Checked, Briefcase, Folder } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 
 // ── 本地 DTO（双链后端，commandMap 未收录，动态泛型调用） ──

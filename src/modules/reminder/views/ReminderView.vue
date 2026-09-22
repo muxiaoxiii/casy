@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Bell, Warning, CircleCheck, View, Hide, RefreshRight, Timer, AlarmClock, Notification } from '@element-plus/icons-vue'
+import { Bell, Warning, CircleCheck, View, Hide, RefreshRight, Timer, AlarmClock, Notification } from '../../../shared/icons'
 
 // ============================================================
 // 数据

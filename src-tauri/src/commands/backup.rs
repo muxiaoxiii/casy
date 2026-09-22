@@ -82,6 +82,7 @@ pub fn verify_db_file_integrity(path: &Path, key: &str) -> Result<()> {
 /// 创建全量加密快照备份
 #[tauri::command]
 pub async fn create_backup() -> Result<BackupFile, String> {
+    crate::processing::tracked("backup","创建并校验数据库备份",async {
     run_blocking(move || {
         let dir = backups_dir();
         std::fs::create_dir_all(&dir).map_err(|e| anyhow!("创建备份目录失败: {e}"))?;
@@ -121,6 +122,8 @@ pub async fn create_backup() -> Result<BackupFile, String> {
         })
     })
     .await
+
+    }).await
 }
 
 /// 列出所有备份文件

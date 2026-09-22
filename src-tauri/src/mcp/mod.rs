@@ -733,7 +733,7 @@ async fn execute_calendar_events(args: serde_json::Value) -> Result<serde_json::
         .get("month")
         .and_then(|v| v.as_i64())
         .ok_or("缺少 month")? as u32;
-    let events = crate::commands::calendar::get_calendar_events(year, month).await?;
+    let events = crate::commands::calendar::get_calendar_events(year, month, None).await?;
     serde_json::to_value(events).map_err(|e| e.to_string())
 }
 

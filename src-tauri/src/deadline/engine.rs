@@ -86,18 +86,25 @@ impl DeadlineEngine {
             if rule.track != case.track {
                 continue;
             }
+            if rule.deadline_source=="recommended" && case.stay_date.is_some(){continue;}
             if !rule.auto_calculate {
                 continue;
             }
 
+            // These legacy seeds cannot express service, party or notice conditions.
+            // Their fields remain visible as unconfirmed projections in the procedure board.
+            if matches!(rule.id.as_str(), "rule-pi-001"|"rule-pi-002"|"rule-pi-003"|"rule-pi-004"|"rule-al-001"|"rule-al-004"|"rule-al-005"|"rule-ct-001"|"rule-ct-004"|"rule-ct-005") { continue; }
+            if rule.offset_value < 1 || rule.offset_value > 3650 || (rule.offset_unit == "calendar_month" && rule.offset_value > 120) { continue; }
             // 检查适用程序
             if let Some(proc_types) = &rule.procedure_types {
-                if let Ok(types) = serde_json::from_str::<Vec<String>>(proc_types) {
-                    if let Some(case_proc) = &case.procedure_type {
-                        if !types.contains(case_proc) {
-                            continue;
-                        }
+                match serde_json::from_str::<serde_json::Value>(proc_types) {
+                    Ok(serde_json::Value::Array(types)) => {
+                        if !case.procedure_type.as_ref().is_some_and(|p| types.iter().any(|t|t.as_str()==Some(p.as_str()))) { continue; }
                     }
+                    Ok(serde_json::Value::Object(condition)) => {
+                        if condition.len()!=1 || !condition.get("verdict_type").is_some_and(|t| t.as_str()==case.verdict_type.as_deref() && t.is_string()) {continue;}
+                    }
+                    _ => continue,
                 }
             }
 
@@ -135,7 +142,7 @@ impl DeadlineEngine {
                 due_date: due.format("%Y-%m-%d").to_string(),
                 days_left,
                 urgency: classify_urgency(days_left),
-                deadline_source: "statutory".to_string(),
+                deadline_source: rule.deadline_source.clone(),
                 legal_basis: Some(rule.legal_basis.clone()),
                 case_id: case.id.clone(),
                 case_name: case.case_name.clone(),
@@ -165,6 +172,16 @@ impl DeadlineEngine {
             }
         }
 
+        match super::procedure::case_items(conn, case) {
+            Ok((_,items)) => for i in items.into_iter().filter(|i| i.status=="open") {
+                if let Some(due_date)=i.due_on {
+                    let days_left=i.days_left.unwrap_or(0);
+                    let prefix=if i.needs_review { "[待核对] " } else if i.owner=="opponent" { "[对方] " } else if i.source=="internal" { "[内部] " } else { "" };
+                    results.push(DeadlineResult{rule_id:Some(i.id),rule_name:format!("{}{} · {}",prefix,i.actor_role,i.title),due_date,days_left,urgency:classify_urgency(days_left),deadline_source:i.source,legal_basis:Some(format!("{}；{}",i.legal_basis,i.explanation)),case_id:case.id.clone(),case_name:case.case_name.clone()});
+                }
+            },
+            Err(err)=>results.push(DeadlineResult{rule_id:None,rule_name:"程序期限读取失败，请检查案件程序面板".into(),due_date:today.to_string(),days_left:0,urgency:"red".into(),deadline_source:"unconfirmed".into(),legal_basis:Some(err.to_string()),case_id:case.id.clone(),case_name:case.case_name.clone()}),
+        }
         results.sort_by(|a, b| a.due_date.cmp(&b.due_date));
         results
     }

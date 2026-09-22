@@ -9,6 +9,7 @@
  * - §原则六：AI 提供商 = 模型适配器；确定性执行仍在 Rust 命令
  */
 
+import { WorkspacePlugin } from '../plugins/workspace-plugin'
 import { casyContext } from './context'
 import { registerServices } from '../services'
 import {
@@ -58,6 +59,7 @@ export async function initializePluginSystem(): Promise<void> {
     new FilesPlugin(),
     new SyncPlugin(),
     new SettingsPlugin(),
+    new WorkspacePlugin(),
   ]
   for (const plugin of plugins) {
     await casyContext.use(plugin)

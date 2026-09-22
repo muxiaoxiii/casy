@@ -128,7 +128,7 @@ async fn compatible_api_sends_model_key_and_messages() {
         &format!("{url}/v1/"),
         "synthetic-test-key",
         "custom-legal-model",
-    );
+    ).unwrap();
     let messages = vec![ChatMessage {
         role: "user".into(),
         content: "Synthetic question".into(),
@@ -152,7 +152,7 @@ async fn compatible_api_sends_model_key_and_messages() {
 async fn local_ollama_does_not_require_a_key() {
     let (url, rx) = server("200 OK", r#"{"message":{"content":"Local response"}}"#);
     assert_eq!(
-        OllamaBackend::new(&url, "local-model")
+        OllamaBackend::new(&url, "local-model").unwrap()
             .chat_completion("", "Test")
             .await
             .unwrap(),
@@ -171,7 +171,7 @@ async fn empty_and_http_error_responses_are_not_success() {
         ("401 Unauthorized", "secret-echo"),
     ] {
         let (url, rx) = server(status, body);
-        let error = OpenAiBackend::new(&url, "secret-echo", "model")
+        let error = OpenAiBackend::new(&url, "secret-echo", "model").unwrap()
             .chat_completion("", "test")
             .await
             .unwrap_err()

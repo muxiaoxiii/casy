@@ -125,6 +125,18 @@ export function tasksForPerspective(
   return list
 }
 
+/**
+ * 顶级透视只渲染顶级任务：父任务已在列表中时，子任务仅在展开区出现；
+ * 父任务不在当前透视时，子任务提升为独立可行动项。
+ */
+export function topLevelPerspectiveTasks(tasks: Task[]): Task[] {
+  const visible = new Map(tasks.map(t => [t.id, t]))
+  return tasks.filter(t => {
+    const parentId = (t as Task & { parentTaskId?: string | null }).parentTaskId ?? t.parentId
+    return !parentId || !visible.has(parentId)
+  })
+}
+
 // ============================================================
 // 卡片过滤三连（搜索 / 上下文 / 案件）
 // ============================================================
@@ -145,7 +157,9 @@ export interface TaskCardFilterOpts {
 export function applyTaskCardFilters(list: Task[], opts: TaskCardFilterOpts = {}): Task[] {
   const q = (opts.searchQuery ?? '').trim().toLowerCase()
   let result = list
-  if (opts.metric === 'dueToday') {
+  if (opts.metric === 'dueOrOverdue') {
+    result = result.filter(t => !t.completed && t.dueDate && opts.todayStr && t.dueDate <= opts.todayStr)
+  } else if (opts.metric === 'dueToday') {
     result = result.filter(t => !t.completed && (t.dueDate === opts.todayStr || t.deadline === opts.todayStr))
   } else if (opts.metric === 'waitingOverdue') {
     result = result.filter(t => !t.completed && (t.taskType === 'waiting' || !!t.waitingFor) && t.followUpDate && t.followUpDate < (opts.todayStr || ''))

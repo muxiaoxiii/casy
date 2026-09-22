@@ -16,7 +16,11 @@ const release = releases[`${process.platform}-${process.arch}`]
 if (!release) throw new Error('No pinned Zvec SDK for this platform; provide ZVEC_LIB_DIR with a compatible v0.7.0 SDK')
 const destination = join(root, 'src-tauri/runtime/zvec')
 await mkdir(destination, { recursive: true })
-const archive = join(destination, 'sdk-' + release[0])
+const cache = join(root, 'src-tauri/target/runtime-cache/zvec')
+await mkdir(cache, { recursive: true })
+const archive = join(cache, 'sdk-' + release[0])
+const legacyArchive = join(destination, 'sdk-' + release[0])
+if (await readFile(legacyArchive).then(() => true, () => false)) await copyFile(legacyArchive, archive)
 const valid = async () => createHash('sha256').update(await readFile(archive).catch(() => Buffer.alloc(0))).digest('hex') === release[1]
 if (!await valid()) {
   execFileSync('curl', ['--fail', '--location', '--retry', '2', '--max-time', '180', '--output', archive,
@@ -31,7 +35,9 @@ try {
       const source = join(directory, entry.name)
       if (entry.isDirectory()) await collect(source)
       else if (/^(libzvec_c_api\.(dylib|so)|zvec_c_api\.(dll|lib))$/.test(entry.name) || /^(LICENSE|NOTICE)/.test(entry.name)) {
-        await copyFile(source, join(destination, entry.name))
+        const target = /^(LICENSE|NOTICE)/.test(entry.name) ? join(destination, 'notices', source.slice(temporary.length + 1)) : join(destination, entry.name)
+        await mkdir(dirname(target), { recursive: true })
+        await copyFile(source, target)
       }
     }
   }
@@ -51,5 +57,6 @@ if (createHash('sha256').update(license).digest('hex') !== licenseHash) {
   await writeFile(join(destination, 'LICENSE'), license)
 }
 await copyFile(fileURLToPath(import.meta.url), join(destination, 'sdk-source.mjs'))
-// The verified archive also records the complete redistributable SDK and its notices.
+// Nested notices are retained; the download archive is build cache only.
+await rm(legacyArchive, { force: true })
 console.log(`Zvec 0.7.0 verified: ${destination}`)

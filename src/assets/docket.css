@@ -1,0 +1,120 @@
+/* Judicial Docket: product tokens derived from designs/casy-ui-upgrade.
+   Alternative reading themes retain their palettes; all share the same geometry. */
+:root, html[data-theme="slate"] {
+  --c-primary: #1a4fd6; --c-primary-hover: #123fab; --c-primary-light: #edf2ff;
+  --c-primary-lighter: #d6e1fc; --c-primary-soft: #edf2ff;
+  --c-primary-container: #1a4fd6; --c-on-primary-container: #fff;
+  --c-text: #0c1526; --c-text-heading: #0c1526; --c-text-regular: #344158;
+  --c-text-secondary: #5b6b7f; --c-text-placeholder: #68788d;
+  --c-bg: #f4f6fa; --c-bg-page: #f4f6fa; --c-bg-card: #fff;
+  --c-bg-sidebar: #edf1f7; --c-bg-subtle: #f4f6fa; --c-bg-elevated: #fff;
+  --c-bg-hover: #edf1f7; --c-bg-selected: #e7eefb; --c-surface: #fff;
+  --c-bg-topbar: #f4f6fa; --c-border: #dce3ed; --c-border-light: #e8edf4;
+  --c-border-lighter: #f0f3f8; --c-border-strong: #b5c2d4;
+  --c-danger: #c93636; --c-danger-light: #fff0ef; --status-risk: #c93636;
+  --c-warning: #906000; --c-warning-light: #fff6df; --status-warning: #906000;
+  --c-waiting: #2f7a8c; --c-waiting-light: #e8f4f6;
+  --c-success: #277858; --c-success-light: #eaf5ef; --status-success: #277858;
+  --c-info: #5b6b7f; --c-info-light: #edf1f7;
+  --focus-ring: #1a4fd622; --c-primary-contrast: #fff;
+}
+html[data-theme="dark"] {
+  --c-primary: #8aafff; --c-primary-hover: #a9c4ff; --c-primary-light: #1a2946;
+  --c-primary-lighter: #304e80; --c-primary-soft: #1a2946;
+  --c-primary-container: #264b96; --c-on-primary-container: #e7edf5;
+  --c-text: #e7edf5; --c-text-heading: #f2f5fa; --c-text-regular: #c1cddd;
+  --c-text-secondary: #9dacbf; --c-text-placeholder: #8c9bb0;
+  --c-bg: #0b1220; --c-bg-page: #0b1220; --c-bg-card: #111c2e;
+  --c-bg-sidebar: #0f192a; --c-bg-subtle: #152238; --c-bg-elevated: #1b2940;
+  --c-bg-hover: #1a2a44; --c-bg-selected: #203659; --c-surface: #111c2e;
+  --c-bg-topbar: #0b1220; --c-border: #2a3a52; --c-border-light: #213149;
+  --c-border-lighter: #1b2940; --c-border-strong: #4b6282;
+  --c-danger: #ff9292; --c-danger-light: #3e232c; --status-risk: #ff9292;
+  --c-warning: #f1c76e; --c-warning-light: #342d1f; --status-warning: #f1c76e;
+  --c-waiting: #7bc5d6; --c-waiting-light: #18323e;
+  --c-success: #83d3ae; --c-success-light: #18372e; --status-success: #83d3ae;
+  --c-info: #a2b5d0; --c-info-light: #22314a;
+  --focus-ring: #8aafff30; --c-primary-contrast: #0c1526;
+}
+:root, html[data-theme] {
+  --sidebar-width: 216px; --sidebar-width-expanded: 216px;
+  --c-radius: 8px; --c-radius-md: 8px; --c-radius-lg: 12px; --radius-card: 12px;
+  --el-border-radius-base: 8px; --control-height: 36px;
+  --el-color-primary-light-3: color-mix(in srgb, var(--c-primary), var(--c-bg-card) 25%);
+  --el-color-primary-light-5: color-mix(in srgb, var(--c-primary), var(--c-bg-card) 45%);
+  --el-color-primary-light-7: color-mix(in srgb, var(--c-primary), var(--c-bg-card) 70%);
+  --el-color-primary-light-8: var(--c-primary-lighter);
+  --el-color-primary-light-9: var(--c-primary-light);
+  --shadow-sm: 0 1px 3px #0c152605; --shadow-md: 0 5px 18px #0c152608;
+  --page-padding: 28px; --page-width: 1760px;
+}
+.app-shell .app-sidebar { border-right: 1px solid var(--c-border-light); background: var(--c-bg-sidebar); }
+.app-shell .sidebar-brand { height: 90px; padding: 20px 24px; gap: 12px; }
+.app-shell .brand-badge { width: 36px; height: 36px; border: 0; background: #0c1526; border-radius: 10px; color: #e7edf5; display: grid; place-items: center; box-shadow: none; }
+.app-shell .brand-seal { width: 28px; height: 28px; }
+.app-shell .brand-title { font-size: 25px; font-weight: 750; letter-spacing: -.8px; color: var(--c-text-heading); }
+.app-shell .brand-subtitle { color: var(--c-text-secondary); font-size: 10px; letter-spacing: .12em; }
+.app-shell .sidebar-nav { padding-inline: 12px; }
+.app-shell .nav-item { min-height: 44px; border-radius: 8px; padding-inline: 14px; position: relative; }
+.app-shell .nav-item.active { background: var(--c-bg-selected); color: var(--c-primary); box-shadow: none; }
+.app-shell .nav-item.active::before { content: ""; width: 3px; height: 20px; border-radius: 2px; background: var(--c-primary); position: absolute; left: 0; }
+.app-shell .nav-label-main { font-size: 14px; font-weight: 500; }
+.app-shell .nav-label-sub { display: none; }
+.app-shell .nav-group-label { font-size: 10px; letter-spacing: .1em; margin-block: 14px 6px; color: var(--c-text-secondary); }
+.app-shell .topbar { background: var(--c-bg-page); border-bottom: 1px solid var(--c-border); padding-inline: 28px; min-height: 72px; }
+.app-shell .topbar-left { flex: 1; }
+.app-shell .search-trigger { width: min(620px, 100%); max-width: none; min-height: 38px; border: 1px solid var(--c-border); border-radius: 9px; background: var(--c-bg-card); box-shadow: none; }
+.app-shell .topbar-right { gap: 8px; }
+.app-shell .content-scroll { background: var(--c-bg-page); }
+.app-shell .content-scroll :is(.page-main-title, .tasks-heading, .month-display-title) { font-size: 28px; font-weight: 650; letter-spacing: -.5px; }
+.app-shell .content-scroll :is(.today-page-container, .stitch-cases-view, .inbox-page, .stitch-calendar-workspace) { padding-bottom: 24px; }
+.app-shell .content-scroll .today-hero-header { padding-bottom: 18px; }
+.app-shell .content-scroll .header-date-title { font-family: 'Songti SC', 'Noto Serif SC', serif; font-size: clamp(25px, 2.5vw, 38px); font-weight: 400; letter-spacing: .02em; line-height: 1.4; }
+.app-shell .content-scroll .today-date { font-size: 12px; color: var(--c-text-secondary); margin-bottom: 8px; }
+.app-shell .content-scroll .today-summary { display: flex; gap: 24px; padding: 0 0 22px; border: 0; background: none; }
+.app-shell .content-scroll .summary-item { flex: 0 1 auto; border: 0; padding: 0; background: none; gap: 8px; box-shadow: none; }
+.app-shell .content-scroll .summary-icon { width: 24px; height: 24px; background: none; color: var(--c-primary); }
+.app-shell .content-scroll .summary-value { font-size: 16px; order: -1; }
+.app-shell .content-scroll :is(.summary-hint, .summary-arrow) { display: none; }
+.app-shell .content-scroll .today-grid-layout { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
+.app-shell .content-scroll .section-block { background: transparent; border: 0; box-shadow: none; }
+.app-shell .content-scroll .sec-heading { font-size: 16px; font-weight: 600; }
+.app-shell .content-scroll :is(.hard-schedule-card, .task-row, .waiting-card) { box-shadow: none; border-radius: 6px; }
+.app-shell .content-scroll .cases-master-detail:not(.full-workspace-mode) { grid-template-columns: minmax(360px, 1.2fr) minmax(360px, 1fr); gap: 20px; }
+.app-shell .content-scroll .cases-sidebar-index { width: auto; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 12px; overflow: hidden; }
+.app-shell .content-scroll .case-index-card { margin: 0; border: 0; border-bottom: 1px solid var(--c-border-light); border-radius: 0; padding: 18px 20px; box-shadow: none; }
+.app-shell .content-scroll .case-index-card.active { border-left: 3px solid var(--c-primary); background: var(--c-bg-selected); padding-left: 17px; }
+.app-shell .content-scroll .case-card-title { font-size: 15px; line-height: 1.6; }
+.app-shell .content-scroll .case-card-client { font-size: 12px; color: var(--c-text-secondary); }
+.app-shell .content-scroll .matter-summary-header-card { padding: 20px; flex-wrap: wrap; gap: 12px; border: 1px solid var(--c-border); box-shadow: none; }
+.app-shell .content-scroll .stitch-tasks-workspace { border: 0; background: transparent; border-radius: 0; }
+.app-shell .content-scroll .task-focus-pane { background: var(--c-bg-page); padding: 26px; }
+.app-shell .content-scroll .task-navigation { background: var(--c-bg-sidebar); }
+.app-shell .content-scroll .quick-capture { min-height: 66px; padding: 14px 18px; border-color: var(--c-border); border-radius: 12px; background: var(--c-bg-card); }
+.app-shell .content-scroll .inbox-layout { gap: 20px; border: 0; }
+.app-shell .content-scroll .inbox-list, .app-shell .content-scroll .clarify-panel { background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 12px; padding: 0 18px; }
+.app-shell .content-scroll .clarify-footer { background: var(--c-bg-card); flex-wrap: wrap; }
+.app-shell .content-scroll .calendar-main-stage { border-radius: 12px; border: 1px solid var(--c-border); box-shadow: none; }
+.app-shell .content-scroll .notebook-shell { background: var(--c-bg-page); gap: 14px; padding: 18px; }
+.app-shell .content-scroll .note-list-panel { background: transparent; border: 0; }
+.app-shell .content-scroll .editor-panel, .app-shell .content-scroll .note-info-panel { background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 12px; min-width: 0; }
+.app-shell .content-scroll .note-card.active { background: var(--c-bg-selected); border-color: transparent; }
+.app-shell .content-scroll .dossier-case-picker { width: min(420px, 40vw); }
+.app-shell .content-scroll .workspace-title-row { flex-wrap: wrap; }
+.app-shell .content-scroll .inspector-preview { background: var(--c-bg-subtle); border-radius: 8px; }
+@media (max-width: 1200px) {
+  .app-shell .content-scroll .today-grid-layout { grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; }
+  .app-shell .content-scroll .cases-master-detail:not(.full-workspace-mode) { grid-template-columns: minmax(240px, .85fr) minmax(320px, 1.15fr); gap: 14px; }
+  .app-shell .topbar { padding-inline: 20px; }
+}
+@media (max-width: 900px) {
+  .app-shell .content-scroll .today-grid-layout, .app-shell .content-scroll .cases-master-detail:not(.full-workspace-mode), .app-shell .content-scroll .inbox-layout { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .content-scroll .cases-sidebar-index { max-height: 360px; }
+  .app-shell .content-scroll .today-summary { flex-wrap: wrap; gap: 16px; }
+  .app-shell .content-scroll .notebook-shell { padding: 8px; gap: 0; }
+  .app-shell .content-scroll .dossier-case-picker { width: min(420px, 65vw); }
+  .app-shell .topbar { min-height: 56px; padding-inline: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

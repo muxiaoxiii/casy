@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Edit, Delete, Phone, Message, User } from '@element-plus/icons-vue'
+import { Plus, Search, Edit, Delete, Phone, Message, User } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import PersonFormDrawer from '../components/PersonFormDrawer.vue'

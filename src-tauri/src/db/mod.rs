@@ -5,7 +5,7 @@ pub mod schema;
 pub mod search;
 pub mod vector_index;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,16 +22,17 @@ static ENCRYPTION_KEY: OnceLock<String> = OnceLock::new();
 /// 数据库维护模式标识（排他维护锁，用于备份恢复/重建期间阻止并发读写）
 static MAINTENANCE_MODE: AtomicBool = AtomicBool::new(false);
 
-/// 共享连接（B1 连接池底座）：SQLCipher 每次开连接都要重做 PBKDF2 密钥推导，
-/// 逐命令开关的开销随命令数线性放大；共享单连接 + 互斥串行化是当前规模下
-/// 最小侵入的池化形态。存量 open_db() 调用点不受影响，按域逐步迁移。
-static SHARED_CONN: std::sync::Mutex<Option<Connection>> = std::sync::Mutex::new(None);
+// Connections are leased exclusively; no mutex is held while SQL or network work runs.
+// Keep only a bounded number of idle encrypted connections (and their derived keys).
+static IDLE_CONNECTIONS: std::sync::Mutex<Vec<(PathBuf, Connection)>> = std::sync::Mutex::new(Vec::new());
+const MAX_IDLE_CONNECTIONS: usize = 4;
 static ACTIVE_CONNECTIONS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 static CONNECTIONS_CLOSED: std::sync::Condvar = std::sync::Condvar::new();
 
 #[derive(Debug)]
 pub struct ManagedConnection {
     connection: Option<Connection>,
+    path: PathBuf,
 }
 
 impl std::ops::Deref for ManagedConnection {
@@ -45,9 +46,16 @@ impl std::ops::DerefMut for ManagedConnection {
 
 impl Drop for ManagedConnection {
     fn drop(&mut self) {
-        // Close SQLite before allowing a restore to replace its files.
-        drop(self.connection.take());
         let mut count = ACTIVE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(conn) = self.connection.take() {
+            // Never return an unfinished transaction or a connection with disabled constraints.
+            let clean = conn.is_autocommit() && conn.query_row("PRAGMA foreign_keys", [], |r| r.get::<_, bool>(0)).unwrap_or(false);
+            let mut idle = IDLE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+            if clean && !is_maintenance_mode() && idle.len() < MAX_IDLE_CONNECTIONS {
+                idle.push((self.path.clone(), conn));
+            }
+            // Other connections close here, before active count reaches zero.
+        }
         *count -= 1;
         CONNECTIONS_CLOSED.notify_all();
     }
@@ -60,9 +68,8 @@ pub fn is_maintenance_mode() -> bool {
 
 /// 重置/清空共享连接（关闭底层句柄以释放磁盘文件锁定）
 pub fn reset_shared_conn() {
-    if let Ok(mut guard) = SHARED_CONN.lock() {
-        *guard = None;
-    }
+    let _count = ACTIVE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    IDLE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 /// 维护模式 RAII 守卫：退出作用域时自动解除维护模式
@@ -105,39 +112,29 @@ pub fn open_db() -> Result<ManagedConnection> {
     if is_maintenance_mode() {
         anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
     }
+    let path = db_path();
+    let cached = {
+        let mut idle = IDLE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        // A restored or switched profile must never reuse the previous database handle.
+        idle.retain(|(key, _)| key == &path);
+        idle.pop().map(|(_, conn)| conn)
+    };
     *count += 1;
     drop(count);
-    let mut managed = ManagedConnection { connection: None };
-    managed.connection = Some(open_db_encrypted()?);
+    let mut managed = ManagedConnection { connection: cached, path };
+    if managed.connection.is_none() { managed.connection = Some(open_db_encrypted()?); }
     Ok(managed)
 }
 
-/// 在共享连接上执行一个数据库操作单元（B1 底座，新代码优先使用）
-///
-/// - 连接懒初始化且进程内复用（密钥推导只发生一次）
-/// - `Mutex` 串行化：同一时刻仅一个命令持有连接，天然规避写冲突
-/// - 错误类型与既有 anyhow 链路一致
+/// Borrow an exclusive pooled connection for one synchronous unit of work.
 pub fn with_conn<T>(f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
-    if is_maintenance_mode() {
-        anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
-    }
-    let mut guard = SHARED_CONN
-        .lock()
-        .map_err(|e| anyhow::anyhow!("数据库连接锁中毒: {e}"))?;
-    if is_maintenance_mode() {
-        anyhow::bail!("数据库处于维护模式（正在进行备份恢复），暂不可用");
-    }
-    if guard.is_none() {
-        let conn = open_db_encrypted()?;
-        *guard = Some(conn);
-    }
-    let conn_ref = guard.as_ref().unwrap();
-    f(conn_ref)
+    let conn = open_db()?;
+    f(&conn)
 }
 
 /// 获取或生成数据库加密密钥
 ///
-/// 优先尝试 OS Keychain（正式发布环境），失败则回退到本地密钥文件。
+/// 优先使用已验证的本地密钥；仅既有加密库缺少可用本地密钥时读取钥匙串。
 /// 本地密钥文件与数据库同目录（`~/Library/Application Support/Casy/casy.db.key`），权限 0600。
 pub fn get_or_create_encryption_key() -> Result<String> {
     if let Some(key) = ENCRYPTION_KEY.get() {
@@ -160,32 +157,60 @@ pub fn get_or_create_encryption_key() -> Result<String> {
         return Ok(key);
     }
 
-    // 1. 尝试 keychain（发布环境优先）
-    if let Ok(key) = keychain_get() {
-        let _ = ENCRYPTION_KEY.set(key.clone());
-        return Ok(key);
-    }
-
-    // 2. 回退：本地密钥文件
-    let key = if let Some(k) = read_key_file()? {
-        k
-    } else {
-        let mut buf = [0u8; 32];
-        getrandom::getrandom(&mut buf)
-            .map_err(|error| anyhow::anyhow!("生成数据库密钥失败: {error}"))?;
-        let key = hex::encode(buf);
-        write_key_file(&key)?;
-        log::info!("Generated new database encryption key (file storage)");
-        key
+    let path = db_path();
+    let encrypted = path.exists() && std::fs::metadata(&path)?.len() > 0 && {
+        use std::io::Read;
+        let mut header = [0u8; 16];
+        std::fs::File::open(&path)?.read_exact(&mut header)?;
+        &header != b"SQLite format 3\0"
     };
-
-    // 3. 尝试把新密钥同步到 keychain（尽力而为，失败不阻塞）
-    if let Err(e) = keychain_set(&key) {
-        log::warn!("Keychain save failed, using file storage: {}", e);
-    }
-
+    let local = read_key_file()?;
+    let key = select_database_key(local, encrypted, |key| {
+        if !encrypted { return true; }
+        let Ok(conn) = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) else { return false; };
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key)).is_ok()
+            && conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0)).is_ok()
+    }, keychain_get, write_key_file, || {
+        let mut bytes = [0u8; 32];
+        getrandom::getrandom(&mut bytes).map_err(|e| anyhow::anyhow!("生成数据库密钥失败: {e}"))?;
+        let key = hex::encode(bytes);
+        write_key_file(&key)?;
+        Ok(key)
+    })?;
     let _ = ENCRYPTION_KEY.set(key.clone());
     Ok(key)
+}
+
+// Existing encrypted databases must never receive a replacement key on access denial.
+fn select_database_key(
+    local: Option<String>, encrypted: bool,
+    validate: impl Fn(&str) -> bool,
+    keychain: impl FnOnce() -> Result<String>,
+    persist_recovered: impl FnOnce(&str) -> Result<()>,
+    generate: impl FnOnce() -> Result<String>,
+) -> Result<String> {
+    if let Some(key) = local {
+        if key.len() == 64 && key.bytes().all(|b| b.is_ascii_hexdigit()) && validate(&key) { return Ok(key); }
+        if !encrypted { anyhow::bail!("本地数据库密钥文件无效，请从备份恢复密钥"); }
+    }
+    if encrypted {
+        let key = keychain().map_err(|_| anyhow::anyhow!("此资料库的密钥需要从系统钥匙串读取。请允许 Casy 读取自己的 encryption-key 条目，或恢复原密钥文件；资料库未被修改。"))?;
+        anyhow::ensure!(key.len() == 64 && key.bytes().all(|b| b.is_ascii_hexdigit()) && validate(&key), "钥匙串密钥无法打开此资料库，请恢复原密钥或完整备份");
+        // Only cache a key after it successfully opens the existing database.
+        // Otherwise every launch asks macOS for the same legacy key again.
+        persist_recovered(&key).context("旧密钥已验证，但本地恢复副本保存失败")?;
+        return Ok(key);
+    }
+    generate()
+}
+
+/// Explicit settings action; never called during startup. Preserve the local recovery copy.
+pub fn backup_database_key_to_keychain() -> Result<()> {
+    anyhow::ensure!(crate::runtime_paths::isolated_data_root().is_none(), "隔离测试资料库不访问系统钥匙串");
+    let key = get_or_create_encryption_key()?;
+    keychain_set(&key)?;
+    anyhow::ensure!(keychain_get()? == key, "钥匙串读回校验失败，本地密钥未改变");
+    Ok(())
 }
 
 /// 从 keychain 读取密钥
@@ -227,12 +252,19 @@ fn read_key_file() -> Result<Option<String>> {
 /// 写入本地密钥文件（Unix 权限 0600；Windows 无该 API，依赖目录 ACL）
 #[cfg(unix)]
 fn write_key_file_impl(path: &std::path::Path, key: &str) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::io::Write;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, key)?;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    if std::fs::symlink_metadata(path).is_ok_and(|m|m.file_type().is_symlink()) {
+        anyhow::bail!("密钥文件不能是符号链接");
+    }
+    let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(false).mode(0o600).open(path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.set_len(0)?;
+    file.write_all(key.as_bytes())?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -313,7 +345,7 @@ pub(crate) fn open_db_encrypted() -> Result<Connection> {
             } else {
                 // 数据库已加密但密钥不对——可能是 keychain 里的密钥过期
                 anyhow::bail!(
-                    "数据库已加密但密钥不匹配，请检查 keychain 或删除数据库文件: {:?}",
+                    "数据库已加密但密钥不匹配，请恢复原密钥或完整备份，原数据库未被修改: {:?}",
                     path
                 );
             }
@@ -463,4 +495,37 @@ pub fn row_get_string_or(row: &rusqlite::Row, col: &str) -> rusqlite::Result<Str
 #[allow(dead_code)]
 pub fn row_get_i32(row: &rusqlite::Row, col: &str) -> rusqlite::Result<i32> {
     row.get::<_, Option<i32>>(col).map(|v| v.unwrap_or(0))
+}
+
+#[cfg(test)]
+mod key_selection_tests {
+    use super::*;
+    #[test]
+    fn fresh_install_does_not_access_keychain() {
+        let key = "a".repeat(64);
+        assert_eq!(select_database_key(None, false, |_| true, || panic!("unexpected keychain access"), |_| panic!("unexpected recovery write"), || Ok(key.clone())).unwrap(), key);
+    }
+    #[test]
+    fn valid_local_key_avoids_startup_prompt() {
+        let key = "a".repeat(64);
+        assert_eq!(select_database_key(Some(key.clone()), true, |_| true, || panic!("unexpected keychain access"), |_| panic!("unexpected recovery write"), || panic!("replacement key")).unwrap(), key);
+    }
+    #[test]
+    fn encrypted_database_recovers_legacy_key_without_replacement() {
+        let key = "b".repeat(64);
+        assert_eq!(select_database_key(Some("a".repeat(64)), true, |k| k == key, || Ok(key.clone()), |recovered| { assert_eq!(recovered, key); Ok(()) }, || panic!("replacement key")).unwrap(), key);
+        assert!(select_database_key(None, true, |_| true, || anyhow::bail!("denied"), |_| panic!("must not persist denied key"), || panic!("replacement key")).is_err());
+    }
+    #[test]
+    fn invalid_local_key_is_not_interpolated_or_replaced() {
+        assert!(select_database_key(Some("bad'key".into()), false, |_| panic!("invalid key validation"), || panic!("keychain"), |_| panic!("recovery"), || panic!("replacement")).is_err());
+    }
+    #[test]
+    fn recovered_key_is_persisted_once_and_invalid_key_never_is() {
+        let key = "c".repeat(64);
+        let recovered = std::cell::RefCell::new(None);
+        select_database_key(None, true, |k| k == key, || Ok(key.clone()), |k| { *recovered.borrow_mut() = Some(k.to_string()); Ok(()) }, || panic!("replacement")).unwrap();
+        assert_eq!(select_database_key(recovered.into_inner(), true, |k| k == key, || panic!("second launch must not unlock keychain"), |_| panic!("second write"), || panic!("replacement")).unwrap(), key);
+        assert!(select_database_key(None, true, |_| false, || Ok(key.clone()), |_| panic!("unverified key must not be persisted"), || panic!("replacement")).is_err());
+    }
 }

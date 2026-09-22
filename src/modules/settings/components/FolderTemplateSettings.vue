@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Lock, Edit, Delete, Top, Bottom } from '@element-plus/icons-vue'
+import { Plus, Lock, Edit, Delete, Top, Bottom } from '../../../shared/icons'
 
 const templates = ref([])
 const loading = ref(false)

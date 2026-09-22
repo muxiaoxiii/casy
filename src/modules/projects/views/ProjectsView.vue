@@ -79,7 +79,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 

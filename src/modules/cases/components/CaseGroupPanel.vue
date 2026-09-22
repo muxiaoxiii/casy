@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading } from '../../../shared/icons'
 
 const props = defineProps({
   cases: { type: Array, default: () => [] },

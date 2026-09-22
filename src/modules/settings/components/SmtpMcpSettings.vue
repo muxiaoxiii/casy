@@ -143,9 +143,12 @@ async function saveMcpConfig() {
 // 凭据状态（Keychain）
 const keychainStatus = ref(null)
 const keychainError = ref(false)
+const keychainChecking = ref(false)
 
-onMounted(async () => {
+async function checkKeychain() {
+  keychainChecking.value = true
   const result = await casyContext.settings.keychainStatus()
+  keychainChecking.value = false
   if (result.ok && result.data) {
     keychainStatus.value = result.data
     keychainError.value = false
@@ -153,11 +156,12 @@ onMounted(async () => {
     keychainStatus.value = null
     keychainError.value = true
   }
-})
+}
 
 const keychainSummary = computed(() => {
   if (keychainError.value) return '系统钥匙串不可用'
-  if (!keychainStatus.value) return '检测中…'
+  if (keychainChecking.value) return '检测中…'
+  if (!keychainStatus.value) return '尚未检测；主动检测时可能弹出 macOS 授权提示'
   const accounts = keychainStatus.value.accounts || []
   const migrated = accounts.filter(a => a.hasKeychainPassword).length
   if (accounts.length === 0) return '钥匙串可用 · 暂无邮箱账号'
@@ -279,8 +283,8 @@ onMounted(loadPendingWrites)
             v-model="settingsStore.smtp_pass"
             type="password"
             show-password
-            placeholder="密码或客户端授权码"
-          />
+            :placeholder="settingsStore.smtp_pass_configured ? '已保存；留空保留' : '未设置密码'"
+          /><el-button v-if="settingsStore.smtp_pass_configured" link type="danger" @click="settingsStore.clearSecret('smtp_pass')">清除密码（保存后生效）</el-button>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="smtpSaving" @click="saveSmtpConfig">保存配置</el-button>
@@ -316,8 +320,8 @@ onMounted(loadPendingWrites)
             v-model="settingsStore.caldav_pass"
             type="password"
             show-password
-            placeholder="密码或应用专用密码（优先存入系统钥匙串）"
-          />
+            :placeholder="settingsStore.caldav_pass_configured ? '已保存；留空保留' : '未设置密码'"
+          /><el-button v-if="settingsStore.caldav_pass_configured" link type="danger" @click="settingsStore.clearSecret('caldav_pass')">清除密码（保存后生效）</el-button>
         </el-form-item>
         <el-form-item label="启用同步">
           <el-switch v-model="calendarSyncEnabled" />
@@ -380,6 +384,7 @@ onMounted(loadPendingWrites)
         </el-form-item>
         <el-form-item label="凭据状态">
           <span class="field-hint" :class="{ 'text-warning': keychainError }">{{ keychainSummary }}</span>
+          <el-button :loading="keychainChecking" @click="checkKeychain">检测钥匙串</el-button>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="mcpSaving" @click="saveMcpConfig">保存</el-button>

@@ -3,7 +3,7 @@ use crate::sync;
 
 #[tauri::command]
 pub async fn get_sync_status() -> Result<sync::SyncStatus, String> {
-    Ok(sync::get_sync_status())
+    run_blocking(|| sync::get_sync_status(&*crate::db::open_db()?)).await
 }
 
 #[tauri::command]
@@ -12,12 +12,13 @@ pub async fn test_webdav_connection(
     username: String,
     password: String,
 ) -> Result<String, String> {
+    let password = webdav_password(&url,&username,password)?;
     let client =
         sync::webdav::WebDavClient::new(&url, &username, &password).map_err(|e| e.to_string())?;
-    client
-        .head("")
-        .await
-        .map_err(|e| format!("连接失败: {}", e))?;
+    let result = client.head("").await;
+    let error = result.as_ref().err().map(|_| "连接失败，请检查服务器地址、网络和凭据");
+    sync::record_webdav_status(&mut *crate::db::open_db().map_err(|e| e.to_string())?, &url, &username, error, false, None).map_err(|e| e.to_string())?;
+    result.map_err(|e| format!("连接失败: {e}"))?;
     Ok("连接成功".into())
 }
 
@@ -28,16 +29,16 @@ pub async fn webdav_startup_sync(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
+    let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
     let local_etag = {
         let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        crate::db::get_setting(&conn, "webdav_last_etag")
-            .ok()
-            .flatten()
+        sync::get_sync_status(&conn).map_err(|e| e.to_string())?.remote_etag
     };
-    sync::startup_sync(&url, &username, &password, &db_path, local_etag.as_deref())
-        .await
-        .map_err(|e| e.to_string())
+    let result = sync::startup_sync(&url, &username, &password, &db_path, local_etag.as_deref()).await;
+    let error = result.as_ref().err().map(|_| "版本检查失败，请检查服务器地址、网络和凭据");
+    sync::record_webdav_status(&mut *crate::db::open_db().map_err(|e| e.to_string())?, &url, &username, error, false, None).map_err(|e| e.to_string())?;
+    result.map_err(|e| e.to_string())
 }
 
 /// WebDAV 同步：手动推送
@@ -47,22 +48,15 @@ pub async fn webdav_push(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
+    let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
     let result = sync::manual_sync_push(&url, &username, &password, &db_path)
         .await
-        .map_err(|e| e.to_string())?;
+;
+    record_sync_result(&url, &username, &result)?;
+    let result = result.map_err(|e| e.to_string())?;
 
     // 保存同步后的 ETag
-    if let Some(etag) = &result.remote_etag {
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
-        crate::db::set_setting(
-            &conn,
-            "webdav_last_sync_at",
-            &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
 
     Ok(result)
 }
@@ -74,22 +68,15 @@ pub async fn webdav_pull(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
+    let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
     let result = sync::manual_sync_pull(&url, &username, &password, &db_path)
         .await
-        .map_err(|e| e.to_string())?;
+;
+    record_sync_result(&url, &username, &result)?;
+    let result = result.map_err(|e| e.to_string())?;
 
     // 保存同步后的 ETag
-    if let Some(etag) = &result.remote_etag {
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
-        crate::db::set_setting(
-            &conn,
-            "webdav_last_sync_at",
-            &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
 
     Ok(result)
 }
@@ -101,15 +88,14 @@ pub async fn webdav_resolve_keep_local(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
+    let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
     let result = sync::resolve_keep_local(&url, &username, &password, &db_path)
         .await
-        .map_err(|e| e.to_string())?;
+;
+    record_sync_result(&url, &username, &result)?;
+    let result = result.map_err(|e| e.to_string())?;
 
-    if let Some(etag) = &result.remote_etag {
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
-    }
 
     Ok(result)
 }
@@ -121,17 +107,23 @@ pub async fn webdav_resolve_keep_remote(
     username: String,
     password: String,
 ) -> Result<sync::SyncResult, String> {
+    let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
     let result = sync::resolve_keep_remote(&url, &username, &password, &db_path)
         .await
-        .map_err(|e| e.to_string())?;
+;
+    record_sync_result(&url, &username, &result)?;
+    let result = result.map_err(|e| e.to_string())?;
 
-    if let Some(etag) = &result.remote_etag {
-        let conn = crate::db::open_db().map_err(|e| e.to_string())?;
-        crate::db::set_setting(&conn, "webdav_last_etag", etag).map_err(|e| e.to_string())?;
-    }
 
     Ok(result)
+}
+
+fn record_sync_result(url: &str, username: &str, result: &anyhow::Result<sync::SyncResult>) -> Result<(), String> {
+    let error = match result { Ok(value) if value.success => None, Ok(_) => Some("同步未完成，请核对版本冲突"), Err(_) => Some("同步失败，请检查网络、凭据与处理中心") };
+    let value = result.as_ref().ok();
+    sync::record_webdav_status(&mut *crate::db::open_db().map_err(|e| e.to_string())?, url, username, error,
+        error.is_none(), value.and_then(|v| v.remote_etag.as_deref())).map_err(|e| e.to_string())
 }
 
 // ============================================================
@@ -186,10 +178,7 @@ pub async fn sync_feishu_push(
 pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
-        let configured = sync::feishu::is_feishu_configured();
-        let app_id = sync::feishu::load_feishu_credentials()
-            .ok()
-            .map(|(id, _)| id);
+        let (configured, app_id) = sync::feishu::feishu_configuration(&conn)?;
         let last_pull_at = sync::feishu::get_sync_metadata(&conn, "feishu_last_pull_at")
             .ok()
             .flatten();
@@ -862,8 +851,10 @@ pub async fn feishu_import_incremental(
     table_id: String,
     local_table: String,
     since_timestamp: String,
-    mappings: Vec<MappingEntry>,
+    // Frontend sends mappingsJson → snake_case mappings_json (not mappings).
+    mappings_json: Vec<MappingEntry>,
 ) -> Result<ImportResult, String> {
+    let mappings = mappings_json;
     // 解析时间
     let since_dt = chrono::NaiveDateTime::parse_from_str(&since_timestamp, "%Y-%m-%d %H:%M:%S")
         .map_err(|e| format!("时间格式错误: {}", e))?;
@@ -1202,12 +1193,23 @@ pub async fn feishu_sync_push(
 /// Future Implementation: Maps `persons` table to standardized vCards.
 #[tauri::command]
 pub async fn sync_export_persons_to_vcard() -> Result<String, String> {
-    Ok("NOT_IMPLEMENTED: Sync mapping for persons to vCard is planned for a future release.".to_string())
+    Err("persons→vCard 导出尚未实现".into())
 }
 
 /// (V5 Design) Export whiteboards and connections to WebDAV compatible JSON blocks.
 /// Future Implementation: Maps `whiteboards`, `fact_nodes`, and `whiteboard_edges` to `.casy-whiteboard` custom blobs.
 #[tauri::command]
 pub async fn sync_export_whiteboards_to_blob() -> Result<String, String> {
-    Ok("NOT_IMPLEMENTED: Sync mapping for whiteboards to WebDAV JSON blob is planned for a future release.".to_string())
+    Err("白板 WebDAV 导出尚未实现".into())
+}
+
+fn webdav_password(url: &str, user: &str, supplied: String) -> Result<String,String> {
+    if !supplied.is_empty() {return Ok(supplied)}
+    (|| -> anyhow::Result<String> {
+        let conn=crate::db::open_db()?;
+        let get=|camel,legacy| -> anyhow::Result<Option<String>> {Ok(crate::db::get_setting(&conn,camel)?.filter(|s|!s.is_empty()).or(crate::db::get_setting(&conn,legacy)?))};
+        anyhow::ensure!(get("webdavUrl","webdav_url")?.as_deref()==Some(url) && get("webdavUsername","webdav_username")?.as_deref()==Some(user),"服务器或用户名已变化，请先重新保存密码");
+        crate::credentials::resolve_settings_secret(&conn,"webdavPassword")?
+            .or(crate::credentials::resolve_settings_secret(&conn,"webdav_password")?).ok_or_else(||anyhow::anyhow!("请配置 WebDAV 密码"))
+    })().map_err(|e|e.to_string())
 }

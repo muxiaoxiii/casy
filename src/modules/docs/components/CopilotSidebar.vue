@@ -240,7 +240,7 @@
 
 <script setup>
 import { reactive, ref, watch } from 'vue'
-import { Search, ArrowDown, Loading } from '@element-plus/icons-vue'
+import { Search, ArrowDown, Loading } from '../../../shared/icons'
 
 const props = defineProps({
   /** 搜索查询 */

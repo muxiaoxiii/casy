@@ -8,7 +8,7 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowRight, Check, Close } from '@element-plus/icons-vue'
+import { ArrowRight, Check, Close } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 

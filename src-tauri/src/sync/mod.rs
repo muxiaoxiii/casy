@@ -8,12 +8,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
+    pub configured: bool,
+    pub connection_state: String,
+    pub last_checked_at: Option<String>,
+    pub last_error: Option<String>,
     pub webdav_connected: bool,
     pub webdav_url: String,
     pub last_sync_at: Option<String>,
-    pub device_version: u64,
+    pub device_version: Option<u64>,
     pub remote_etag: Option<String>,
-    pub pending_changes: bool,
+    pub pending_changes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, specta::Type)]
@@ -29,24 +33,44 @@ pub struct SyncResult {
 }
 
 /// 获取当前同步状态
-pub fn get_sync_status() -> SyncStatus {
-    // TODO: 从 settings 表读取配置
-    SyncStatus {
-        webdav_connected: false,
-        webdav_url: String::new(),
-        last_sync_at: None,
-        device_version: 0,
-        remote_etag: None,
-        pending_changes: false,
-    }
+pub fn get_sync_status(conn: &rusqlite::Connection) -> Result<SyncStatus> {
+    let get = |name: &str| crate::db::get_setting(conn, name);
+    let url = get("webdavUrl")?.filter(|s| !s.is_empty()).or(get("webdav_url")?).unwrap_or_default();
+    let username = get("webdavUsername")?.filter(|s| !s.is_empty()).or(get("webdav_username")?).unwrap_or_default();
+    let configured = !url.is_empty() && !username.is_empty();
+    let matches_config = configured && get("webdav_status_url")?.as_deref() == Some(url.as_str())
+        && get("webdav_status_username")?.as_deref() == Some(username.as_str());
+    let state = if matches_config { get("webdav_connection_state")?.unwrap_or_else(|| "unknown".into()) }
+        else if configured { "unknown".into() } else { "unconfigured".into() };
+    Ok(SyncStatus {
+        configured,
+        webdav_connected: state == "connected",
+        connection_state: state,
+        last_checked_at: if matches_config { get("webdav_last_checked_at")? } else { None },
+        last_error: if matches_config { get("webdav_last_error")?.filter(|s| !s.is_empty()) } else { None },
+        webdav_url: url,
+        last_sync_at: if matches_config { get("webdav_last_sync_at")? } else { None },
+        device_version: None, // No device revision protocol exists yet.
+        remote_etag: if matches_config { get("webdav_last_etag")? } else { None },
+        pending_changes: None, // Unknown is not the same as a clean, synchronized database.
+    })
 }
 
-/// VACUUM INTO 安全拷贝数据库
-/// 创建数据库的一致性快照，避免并发读写问题
-fn vacuum_into(db_path: &std::path::Path, output_path: &std::path::Path) -> Result<()> {
-    let conn = rusqlite::Connection::open(db_path)?;
-    let output_str = output_path.to_string_lossy().replace('\'', "''");
-    conn.execute_batch(&format!("VACUUM INTO '{}'", output_str))?;
+pub fn record_webdav_status(conn: &mut rusqlite::Connection, url: &str, username: &str, error: Option<&str>, synced: bool, etag: Option<&str>) -> Result<()> {
+    let tx = conn.transaction()?;
+    let now = crate::db::now_local();
+    if crate::db::get_setting(&tx, "webdav_status_url")?.as_deref() != Some(url)
+        || crate::db::get_setting(&tx, "webdav_status_username")?.as_deref() != Some(username) {
+        tx.execute("DELETE FROM settings WHERE key IN ('webdav_last_sync_at','webdav_last_etag')", [])?;
+    }
+    for (name, value) in [("webdav_status_url", url), ("webdav_status_username", username),
+        ("webdav_connection_state", if error.is_some() { "failed" } else { "connected" }),
+        ("webdav_last_checked_at", now.as_str()), ("webdav_last_error", error.unwrap_or(""))] {
+        crate::db::set_setting(&tx, name, value)?;
+    }
+    if synced { crate::db::set_setting(&tx, "webdav_last_sync_at", &now)?; }
+    if let Some(etag) = etag { crate::db::set_setting(&tx, "webdav_last_etag", etag)?; }
+    tx.commit()?;
     Ok(())
 }
 
@@ -63,6 +87,7 @@ pub async fn startup_sync(
     _db_path: &std::path::Path,
     local_etag: Option<&str>,
 ) -> Result<SyncResult> {
+    crate::processing::tracked("sync","WebDAV 启动同步",async {
     let client = webdav::WebDavClient::new(webdav_url, username, password)?;
 
     // 检查远程文件
@@ -89,7 +114,7 @@ pub async fn startup_sync(
             Ok(SyncResult {
                 direction: "none".into(),
                 success: true,
-                message: "数据库已是最新".into(),
+                message: "远程版本未变化；本地是否有新修改尚未判断".into(),
                 conflict: false,
                 local_etag: Some(local.to_string()),
                 remote_etag: Some(remote_etag),
@@ -118,6 +143,8 @@ pub async fn startup_sync(
             })
         }
     }
+
+    }).await
 }
 
 /// 手动同步：PUSH 本地到远程
@@ -132,29 +159,17 @@ pub async fn manual_sync_push(
     password: &str,
     db_path: &std::path::Path,
 ) -> Result<SyncResult> {
-    // VACUUM INTO 安全拷贝
-    let temp_local = db_path.with_extension("db.upload");
-    vacuum_into(db_path, &temp_local)?;
-
+    crate::processing::tracked("sync","WebDAV 上传",async {
+    anyhow::ensure!(db_path == crate::db::get_db_path(), "同步仅支持当前资料库");
+    // Use the encrypted, verified snapshot path. Never upload the database key.
+    let snapshot = crate::commands::backup::create_backup().await.map_err(anyhow::Error::msg)?;
+    let temp_local = crate::commands::backup::backups_dir().join(&snapshot.filename);
     let client = webdav::WebDavClient::new(webdav_url, username, password)?;
     let data = std::fs::read(&temp_local)?;
-
-    // PUT 到临时路径
-    let etag = client.put("casy.db.uploading", &data).await?;
-
-    // 上传密钥（如果存在）
-    if let Ok(key) = crate::db::get_or_create_encryption_key() {
-        let _ = client.put("casy.db.key.uploading", key.as_bytes()).await;
-        let _ = client
-            .move_resource("casy.db.key.uploading", "casy.db.key")
-            .await;
-    }
-
-    // MOVE 到正式路径（原子操作）
-    client.move_resource("casy.db.uploading", "casy.db").await?;
-
-    // 清理本地临时文件
-    let _ = std::fs::remove_file(&temp_local);
+    let remote_temp = format!("casy.db.{}.uploading", uuid::Uuid::new_v4());
+    client.put(&remote_temp, &data).await?;
+    client.move_resource(&remote_temp, "casy.db").await?;
+    let etag = client.head("casy.db").await?.unwrap_or_default();
 
     Ok(SyncResult {
         direction: "push".into(),
@@ -164,6 +179,8 @@ pub async fn manual_sync_push(
         local_etag: Some(etag.clone()),
         remote_etag: Some(etag),
     })
+
+    }).await
 }
 
 /// 手动同步：PULL 远程到本地
@@ -179,58 +196,32 @@ pub async fn manual_sync_pull(
     password: &str,
     db_path: &std::path::Path,
 ) -> Result<SyncResult> {
+    crate::processing::tracked("sync","WebDAV 下载",async {
+    anyhow::ensure!(db_path == crate::db::get_db_path(), "同步仅支持当前资料库");
     let client = webdav::WebDavClient::new(webdav_url, username, password)?;
-
-    // GET 下载远程数据库
     let (data, etag) = client.get("casy.db").await?;
-
-    // GET 下载远程密钥（如果不报错，覆盖本地）
-    if let Ok((key_data, _)) = client.get("casy.db.key").await {
-        if let Ok(key_str) = String::from_utf8(key_data) {
-            let key = key_str.trim();
-            // 写入本地文件
-            let key_path = db_path
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."))
-                .join("casy.db.key");
-            let _ = std::fs::write(&key_path, key);
-
-            // 写入 keychain，避免系统优先读取旧随机密钥
-            // (注意：这里直接调用 db::keychain_set 可能需要 pub)
-            let _ = keyring::Entry::new("com.casy.db", "encryption-key")
-                .and_then(|e| e.set_password(key));
-        }
-    }
-
-    // 写入临时文件
-    let temp_local = db_path.with_extension("db.download");
-    std::fs::write(&temp_local, &data)?;
-
-    // 验证数据库完整性
-    {
-        let conn = rusqlite::Connection::open(&temp_local)?;
-        let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
-        if integrity != "ok" {
-            let _ = std::fs::remove_file(&temp_local);
-            anyhow::bail!("Downloaded database failed integrity check: {}", integrity);
-        }
-    }
-
-    // 备份原数据库
-    let backup_path = db_path.with_extension("db.bak");
-    let _ = std::fs::copy(db_path, &backup_path);
-
-    // 替换本地数据库
-    std::fs::rename(&temp_local, db_path)?;
+    let dir = crate::commands::backup::backups_dir();
+    std::fs::create_dir_all(&dir)?;
+    let mut downloaded = tempfile::Builder::new().prefix("casy-backup-webdav-").suffix(".db").tempfile_in(&dir)?;
+    use std::io::Write;
+    downloaded.write_all(&data)?;
+    downloaded.as_file().sync_all()?;
+    let key = crate::db::get_or_create_encryption_key()?;
+    crate::commands::backup::verify_db_file_integrity(downloaded.path(), &key)
+        .map_err(|_| anyhow::anyhow!("远程数据库损坏或密钥不匹配；本地数据和密钥未更改。新设备请先通过完整加密备份迁移。"))?;
+    let filename = downloaded.path().file_name().unwrap().to_string_lossy().into_owned();
+    crate::commands::backup::restore_backup(filename).await.map_err(anyhow::Error::msg)?;
 
     Ok(SyncResult {
         direction: "pull".into(),
         success: true,
-        message: "拉取完成".into(),
+        message: "拉取完成，请重启应用刷新资料库".into(),
         conflict: false,
         local_etag: Some(etag.clone()),
         remote_etag: Some(etag),
     })
+
+    }).await
 }
 
 /// 冲突解决：保留本地版本（上传覆盖远程）

@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { safeListen } from '../../core/tauriEvents'
 import { ElMessage } from 'element-plus'
-import { Warning, Close, ArrowRight } from '@element-plus/icons-vue'
+import { Warning, Close, ArrowRight } from '../icons'
 
 const router = useRouter()
 
@@ -18,7 +18,7 @@ let unlisten = null
 // ============================================================
 async function setupListener() {
   try {
-    unlisten = await safeListen('decision:review-due', (event) => {
+    unlisten = safeListen('decision:review-due', (event) => {
       const payload = event.payload
       const count = typeof payload === 'object' && payload !== null ? payload.count : 0
       if (!count) return

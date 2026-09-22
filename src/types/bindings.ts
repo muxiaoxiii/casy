@@ -42,6 +42,10 @@ export type CalendarEventRow = { id: string; title: string; eventDate: string; s
  */
 export type CalendarSyncReport = { total: number; synced: number; failed: number; skipped: number }
 
+export type CanvasEdge = { id: string; sourceNodeId: string; targetNodeId: string }
+
+export type CanvasFact = { id: string; fileId: string | null; knowledgeId: string | null; sourceCaseId: string | null; sourceTitle: string; page: number | null; excerpt: string; note: string | null; x: number; y: number }
+
 /**
  * 案件数据结构
  */
@@ -149,11 +153,13 @@ export type DiffLineDto = { type: string; line: number; text: string }
  */
 export type DocsyTemplate = { id: string; name: string; path: string; category: string; field_count: number; fields: TemplateField[]; description: string }
 
-export type DocumentEngineStatus = { available: boolean; executable: string | null; version: string | null; rendererAvailable: boolean; coordinateModelAvailable: boolean; ovisModelAvailable: boolean; searchablePdfAvailable: boolean; missing: string[]; error: string | null }
+export type DocumentEngineStatus = { available: boolean; executable: string | null; version: string | null; rendererAvailable: boolean; coordinateModelAvailable: boolean; koreanModelAvailable?: boolean; layoutModelAvailable: boolean; ovisModelAvailable: boolean; searchablePdfAvailable: boolean; missing: string[]; error: string | null }
 
-export type DocumentJobDto = { id: string; fileId: string; sourceSha256: string; status: string; engine: string; modelVersion: string | null; currentPage: number; totalPages: number; progress: number; searchablePdfPath: string | null; pageIrPath: string | null; markdownPath: string | null; errorCode: string | null; errorMessage: string | null; createdAt: string; updatedAt: string }
+export type DocumentJobDto = { id: string; fileId: string; sourceSha256: string; status: string; engine: string; modelVersion: string | null; currentPage: number; totalPages: number; progress: number; phase: string; elapsedSeconds: number; remainingSeconds: number | null; pageTiming: DocumentPageTiming | null; searchablePdfPath: string | null; pageIrPath: string | null; markdownPath: string | null; errorCode: string | null; errorMessage: string | null; createdAt: string; updatedAt: string }
 
-export type DocumentPageView = { fileId: string; jobId: string; fileName: string; pageNumber: number; totalPages: number; markdown: string; imageData: string | null; width: number | null; height: number | null; regions: DocumentRegion[] }
+export type DocumentPageTiming = { renderMs: number; ocrMs: number; layoutMs: number; totalMs: number }
+
+export type DocumentPageView = { fileId: string; jobId: string; fileName: string; pageNumber: number; totalPages: number; markdown: string; imageData: string | null; width: number | null; height: number | null; regions: DocumentRegion[]; layout: any | null; timing: DocumentPageTiming | null }
 
 export type DocumentPassage = { fileId: string; jobId: string; fileName: string; sourcePath: string; number: number; locationKind: string; content: string; citation: string; locations: SourceLocation[] }
 
@@ -170,6 +176,8 @@ export type DocumentRegion = { text: string; bbox: number[]; confidence: number 
  */
 export type Draft = { id: string; caseId: string | null; title: string; content: string | null; templatePath: string | null; status: string; version: number; createdAt: string; updatedAt: string }
 
+export type EditorTask = { id: string; title: string; completed: boolean; missing: boolean }
+
 export type EmbeddingSettings = { profileId: string; model: string; chunkChars: number }
 
 /**
@@ -185,6 +193,8 @@ export type ExcelInspectResult = { sheetName: string; totalRows: number; detecte
  * （`DocumentGenView.vue:499` / `:506`）。
  */
 export type ExportResponse = { outputPath: string; fileSize: number; exportedAt: string }
+
+export type FactHistoryDto = { id: string; sequence: number; eventType: string; payload: string; createdAt: string }
 
 export type FactNodeDto = { id: string; whiteboardId: string; fileId: string | null; fileName: string | null; page: number | null; excerpt: string; note: string | null; x: number; y: number; createdAt: string | null; updatedAt: string | null }
 
@@ -231,7 +241,7 @@ export type FolderTemplateInput = { id: string | null; name: string | null; case
  */
 export type FolderTemplateOutput = { id: string; name: string; caseType: string; isBuiltin: number; directories: any; fileNaming: any | null; createdAt: string | null }
 
-export type GlobalSearchResult = { itemType: string; id: string; title: string; category: string; snippet: string | null }
+export type GlobalSearchResult = { itemType: string; id: string; title: string; category: string; snippet: string | null; caseId: string | null }
 
 /**
  * 图谱边
@@ -243,7 +253,7 @@ export type GraphEdgeDto = { source: string; target: string; type: string }
  */
 export type GraphNodeDto = { id: string; name: string; type: string; category: string | null }
 
-export type HearingDto = { id: string; caseId: string; hearingRecord: string; hearingName: string | null; hearingDate: string; venue: string | null; attendees: string | null; judges: string | null; court: string | null; caseLevel: string | null; contactInfo: string | null; actualStatus: string | null; createdAt: string | null }
+export type HearingDto = { lifecycleStatus: string; changeReason: string; id: string; caseId: string; hearingRecord: string; hearingName: string | null; hearingDate: string; venue: string | null; attendees: string | null; judges: string | null; court: string | null; caseLevel: string | null; contactInfo: string | null; actualStatus: string | null; createdAt: string | null }
 
 /**
  * 节假日解析结果（B1 类型化）
@@ -356,10 +366,24 @@ export type PersonCaseDto = { linkId: string; caseId: string; caseName: string; 
 
 export type PersonDto = { id: string; kind: string; name: string; org: string | null; phone: string | null; email: string | null; preferences: string | null; notes: string | null; createdAt: string | null; updatedAt: string | null; caseCount: number | null }
 
+export type ProcedureAudit = { id: string; eventId: string; action: string; beforeJson: string | null; afterJson: string; reason: string; createdAt: string }
+
+export type ProcedureBoard = { cases: ProcedureCase[]; events: ProcedureEvent[]; items: ProcedureItem[]; coordination: string[]; ruleVersion: string }
+
+export type ProcedureCase = { id: string; name: string; track: string; ourRole: string; status: string }
+
+export type ProcedureEvent = { id: string; caseId: string; kind: string; title: string; actorRole: string; occurredOn: string; forwardedOn: string | null; startOn: string | null; dueOn: string | null; periodValue: number | null; periodUnit: string | null; internalOn: string | null; nextCheckOn: string | null; parentId: string | null; fileId: string | null; hearingId: string | null; legacyKey: string | null; scope: string; basisConfirmed: boolean; sourceNote: string; revision: number; retracted: boolean }
+
+export type ProcedureItem = { id: string; eventId: string; caseId: string; caseName: string; track: string; ourRole: string; actorRole: string; owner: string; title: string; kind: string; dueOn: string | null; rawDueOn: string | null; source: string; explanation: string; legalBasis: string; legalUrl: string; status: string; stateNote: string; fingerprint: string; daysLeft: number | null; needsReview: boolean; editable: boolean }
+
 /**
  * AI 处理结果（分类 + 置信度 + 抽取 + 自动路由动作）
  */
 export type ProcessedInboxResult = { category: string; confidence: number; suggestedCaseId: string | null; caseNo: string | null; extracted: any | null; routeActions: any[] }
+
+export type ProcessingCenter = { jobs: ProcessingJob[]; services: ProcessingJob[]; total: number; active: number; failed: number }
+
+export type ProcessingJob = { id: string; kind: string; title: string; status: string; stage: string; caseId: string | null; caseName: string | null; fileId: string | null; knowledgeId: string | null; outputPath: string | null; error: string | null; current: number; total: number; progress: number; elapsedSeconds: number; remainingSeconds: number | null; pageTiming: DocumentPageTiming | null; createdAt: string; updatedAt: string; canCancel: boolean }
 
 /**
  * 字段级 Diff 行（before = 目标实体当前值，after = 提案将写入的值）
@@ -456,7 +480,7 @@ export type SubtableImportReport = { targetEntity: string; totalRowsProcessed: n
 
 export type SyncResult = { direction: string; success: boolean; message: string; conflict: boolean; localEtag: string | null; remoteEtag: string | null }
 
-export type SyncStatus = { webdavConnected: boolean; webdavUrl: string; lastSyncAt: string | null; deviceVersion: number; remoteEtag: string | null; pendingChanges: boolean }
+export type SyncStatus = { configured: boolean; connectionState: string; lastCheckedAt: string | null; lastError: string | null; webdavConnected: boolean; webdavUrl: string; lastSyncAt: string | null; deviceVersion: number | null; remoteEtag: string | null; pendingChanges: boolean | null }
 
 /**
  * 任务列表项（B1 类型化：返回侧 Value → 强类型；字段与前端手写 Task 契约一致）
@@ -509,7 +533,17 @@ export type UsedRef = { kind: string; id: string; title: string }
  */
 export type VersionMetaDto = { id: string; changedAt: string | null; changeReason: string | null }
 
-export type WhiteboardDto = { id: string; caseId: string; name: string; nodeCount: number; createdAt: string | null; updatedAt: string | null }
+export type WhiteboardDocument = { scene: WhiteboardSceneDto; facts: CanvasFact[]; edges: CanvasEdge[]; factsHash: string }
+
+export type WhiteboardDocumentInput = { caseId: string; whiteboardId: string; sceneJson: string; preview: string | null; revision: number; factsHash: string; facts: CanvasFact[]; edges: CanvasEdge[] }
+
+export type WhiteboardDto = { preview: string | null; id: string; caseId: string; name: string; nodeCount: number; createdAt: string | null; updatedAt: string | null }
 
 export type WhiteboardEdgeDto = { id: string; whiteboardId: string; sourceNodeId: string; targetNodeId: string; createdAt: string | null }
+
+export type WhiteboardSceneDto = { sceneJson: string; revision: number; preview: string | null }
+
+export type WhiteboardSource = { id: string; kind: string; title: string; caseId: string | null; caseName: string | null; preview: string; totalPages: number | null }
+
+export type WhiteboardSources = { items: WhiteboardSource[]; total: number }
 

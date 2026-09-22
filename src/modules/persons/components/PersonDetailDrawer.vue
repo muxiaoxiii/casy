@@ -2,10 +2,10 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Phone, Message, Edit, Delete, Right } from '@element-plus/icons-vue'
+import { Phone, Message, Edit, Delete, Right } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import EmptyState from '../../../shared/components/EmptyState.vue'
-import { Briefcase } from '@element-plus/icons-vue'
+import { Briefcase } from '../../../shared/icons'
 import {
   kindMeta,
   formatPersonTime,

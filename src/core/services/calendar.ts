@@ -14,8 +14,9 @@ type TodayRecommendations = CommandMap['get_today_recommendations']['result']
 export class CalendarService extends Service {
   static inject: string[] = []
 
-  async events(year?: number, month?: number): Promise<{ ok: boolean; data?: CalendarEvent[]; error?: string }> {
+  async events(year?: number, month?: number, monthCount?: number): Promise<{ ok: boolean; data?: CalendarEvent[]; error?: string }> {
     const result = await tauriCallSafe('get_calendar_events', {
+      monthCount,
       year: year ?? new Date().getFullYear(),
       month: month ?? new Date().getMonth() + 1,
     })
@@ -40,23 +41,23 @@ export class CalendarService extends Service {
 
   /** 新建独立日程。data: { title, eventDate, startTime?, endTime?, allDay?, color?, location?, notes?, caseId?, taskId? } */
   async createEvent(data: CalendarEventInput): Promise<{ ok: boolean; data?: CalendarEventRow; error?: string }> {
-    return tauriCallSafe('create_calendar_event', { data })
+    return this.mutation('calendar', tauriCallSafe('create_calendar_event', { data }))
   }
 
   /**
    * 更新日程：title/eventDate 必传，缺省字段保留，null 显式清空。
    */
   async updateEvent(id: string, data: CalendarEventInput): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('update_calendar_event', { id, data })
+    return this.mutation('calendar', tauriCallSafe('update_calendar_event', { id, data }))
   }
 
   /** 拖拽改期/改时刻 */
   async moveEvent(id: string, newDate: string, newStart?: string | null): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('move_calendar_event', { id, newDate, newStart: newStart ?? null })
+    return this.mutation('calendar', tauriCallSafe('move_calendar_event', { id, newDate, newStart: newStart ?? null }))
   }
 
   async removeEvent(id: string): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('delete_calendar_event', { id })
+    return this.mutation('calendar', tauriCallSafe('delete_calendar_event', { id }))
   }
 
   async deadlineWarnings(): Promise<{ ok: boolean; data?: DeadlineResult[]; error?: string }> {

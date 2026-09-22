@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Editor } from '@tiptap/core'
-import { ChatLineSquare } from '@element-plus/icons-vue'
+import { ChatLineSquare } from '../icons'
 import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '../../stores/settings'
 import { quoteColors, setQuoteDepth } from '../markdown/quoteSources'

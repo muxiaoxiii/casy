@@ -42,6 +42,22 @@ pub fn source_hash(title: &str, content: &str) -> String {
 }
 
 pub fn segments(text: &str, size: usize) -> Vec<&str> {
+    // Embedded source figures travel with Markdown exports. Their binary payload
+    // is not language and must never become thousands of embedding chunks.
+    // Keep borrowed slices so source offsets below still refer to the original note.
+    static IMAGE_DATA: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let image_data = IMAGE_DATA.get_or_init(|| regex::Regex::new(r"(?i)data:image/[a-z0-9.+-]+;base64,[a-z0-9+/=\r\n]+").unwrap());
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    for payload in image_data.find_iter(text) {
+        chunks.extend(text_segments(&text[start..payload.start()], size));
+        start = payload.end();
+    }
+    chunks.extend(text_segments(&text[start..], size));
+    chunks
+}
+
+fn text_segments(text: &str, size: usize) -> Vec<&str> {
     assert!(size >= 128);
     let mut chunks = Vec::new();
     let mut start = 0;
@@ -366,6 +382,18 @@ mod tests {
             rebuilt.extend(chunk.chars().skip(125));
         }
         assert_eq!(rebuilt, text);
+    }
+    #[test]
+    fn embedded_image_bytes_are_not_indexed_and_offsets_still_match() {
+        let text = format!("# 图表\n<img src=\"data:image/png;base64,{}\">\n图注：深度与含量\n", "A".repeat(100_000));
+        let chunks = segments(&text, 128);
+        assert!(chunks.len() < 4);
+        assert!(chunks.iter().any(|c| c.contains("深度与含量")));
+        for chunk in chunks {
+            assert!(!chunk.contains("AAAA"));
+            let start = chunk.as_ptr() as usize - text.as_ptr() as usize;
+            assert_eq!(&text[start..start+chunk.len()],chunk);
+        }
     }
 
     #[test]

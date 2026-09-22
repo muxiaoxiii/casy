@@ -11,7 +11,7 @@ import {
   ArrowLeft, Edit, Calendar, Finished, Document,
   Folder, Collection, Clock, Warning, Check,
   Plus, CaretRight, Connection, Timer, Lock, CircleCheck
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import {
   CIVIL_STATUS_LABELS,
   INVALIDATION_STATUS_LABELS,
@@ -22,6 +22,7 @@ import EmptyState from '../../../shared/components/EmptyState.vue'
 import AddRelationDialog from '../components/AddRelationDialog.vue'
 import CaseWizard from '../components/CaseWizard.vue'
 import CaseAttributes from '../components/CaseAttributes.vue'
+import ProcedureBoard from '../components/ProcedureBoard.vue'
 import CaseSourceRecords from '../components/CaseSourceRecords.vue'
 
 const route = useRoute()
@@ -32,13 +33,15 @@ const router = useRouter()
 // ============================================================
 const caseData = ref(null)
 const loading = ref(false)
+const loadError = ref('')
 const tasks = ref([])
 const hearings = ref([])
 const timeline = ref([])
 const knowledge = ref([])
 const files = ref([])
 const relatedCases = ref([])
-const activeTab = ref('overview') // overview | hearings | tasks | tracks | files | timeline | fields
+const validTabs = ['overview','hearings','tasks','tracks','files','persons','whiteboard','timeline','fields']
+const activeTab = ref(validTabs.includes(route.query.tab) ? route.query.tab : 'overview') // overview | hearings | tasks | tracks | files | timeline | fields
 
 // 编辑状态
 const editingGoal = ref(false)
@@ -56,6 +59,8 @@ const hearingForm = ref({
   caseLevel: '',
   contactInfo: '',
   actualStatus: '未开',
+  lifecycleStatus: 'scheduled',
+  changeReason: '',
 })
 
 // 关联案件弹窗
@@ -219,10 +224,16 @@ function percentText(v) {
 // ============================================================
 // 数据加载
 // ============================================================
+let detailLoad = 0
 async function loadCaseData() {
-  loading.value = true
+  const request = ++detailLoad
+  loading.value = true;loadError.value=''
+  try {
+  caseData.value = null
+  tasks.value = []; hearings.value = []; timeline.value = []; knowledge.value = []; files.value = []; relatedCases.value = []; typeMetrics.value = null
+  await loadCase()
+  if (request !== detailLoad || !caseData.value) return
   await Promise.all([
-    loadCase(),
     loadHearings(),
     loadTasks(),
     loadTimeline(),
@@ -231,11 +242,14 @@ async function loadCaseData() {
     loadTypeMetrics(),
     loadRelations(),
   ])
-  loading.value = false
+  }catch(error){if(request===detailLoad)loadError.value=String(error)}
+  finally {if (request === detailLoad) loading.value = false}
 }
 
 async function loadTypeMetrics() {
-  const result = await casyContext.cases.caseTypeMetrics(caseId.value)
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.caseTypeMetrics(id)
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok && result.data) {
     typeMetrics.value = result.data
   } else {
@@ -244,36 +258,46 @@ async function loadTypeMetrics() {
 }
 
 async function loadCase() {
-  const result = await casyContext.cases.get(caseId.value)
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.get(id)
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     caseData.value = result.data
     goalInput.value = result.data.caseGoal || ''
-  }
+  }else {caseData.value=null;loadError.value=result.error || '案件不存在或无法读取'}
 }
 
 async function loadHearings() {
-  const result = await casyContext.cases.listHearings(caseId.value)
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.listHearings(id)
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     hearings.value = result.data || []
   }
 }
 
 async function loadTasks() {
-  const result = await casyContext.tasks.list({ caseId: caseId.value })
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.tasks.list({ caseId: id })
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     tasks.value = result.data || []
   }
 }
 
 async function loadTimeline() {
-  const result = await casyContext.cases.timeline(caseId.value)
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.timeline(id)
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     timeline.value = result.data || []
   }
 }
 
 async function loadRelations() {
-  const result = await casyContext.cases.relations(caseId.value)
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.relations(id)
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     relatedCases.value = result.data || []
   }
@@ -288,7 +312,9 @@ async function handleRelationAdded() {
 }
 
 async function loadKnowledge() {
-  if (!caseData.value) return
+  const id = caseId.value; const request = detailLoad
+  knowledge.value = []
+  if (!caseData.value || caseData.value.id !== id) return
   const searchTerms = [
     caseData.value.caseName,
     caseData.value.caseType,
@@ -296,7 +322,8 @@ async function loadKnowledge() {
   ].filter(Boolean).join(' ')
 
   if (searchTerms) {
-    const result = await casyContext.knowledge.search(searchTerms, 20)
+    const result = await casyContext.knowledge.search(searchTerms)
+    if (id !== caseId.value || request !== detailLoad) return
     if (result.ok && result.data) {
       knowledge.value = result.data
     }
@@ -304,7 +331,9 @@ async function loadKnowledge() {
 }
 
 async function loadFiles() {
-  const result = await casyContext.files.list(caseId.value)
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.files.list(id)
+  if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     files.value = result.data || []
   }
@@ -314,14 +343,16 @@ async function loadFiles() {
 // 操作
 // ============================================================
 function goBack() {
-  router.push({ name: 'cases' })
+  router.push({ name: 'cases', query: { caseId: caseId.value } })
 }
 
 async function saveGoal() {
   if (!caseData.value) return
-  const result = await casyContext.cases.update(caseId.value, { caseGoal: goalInput.value })
+  const id = caseId.value; const goal = goalInput.value
+  const result = await casyContext.cases.update(id, { caseGoal: goal })
+  if (id !== caseId.value) return
   if (result.ok) {
-    caseData.value.caseGoal = goalInput.value
+    caseData.value.caseGoal = goal
     editingGoal.value = false
     ElMessage.success('案件目标已保存')
   }
@@ -331,7 +362,7 @@ async function saveGoal() {
 function openAddHearing() {
   hearingForm.value = {
     id: '',
-    hearingName: '一审第' + (hearings.value.length + 1) + '次开庭',
+    hearingName: '第' + (hearings.value.length + 1) + '次开庭 / 口审',
     hearingDate: '',
     court: caseData.value?.court || '',
     venue: '',
@@ -339,6 +370,8 @@ function openAddHearing() {
     caseLevel: caseData.value?.caseLevel || '',
     contactInfo: caseData.value?.clerk || '',
     actualStatus: '未开',
+  lifecycleStatus: 'scheduled',
+  changeReason: '',
   }
   showHearingDialog.value = true
 }
@@ -354,55 +387,72 @@ function openEditHearing(h) {
     caseLevel: h.caseLevel || '',
     contactInfo: h.contactInfo || '',
     actualStatus: h.actualStatus || '未开',
+    lifecycleStatus: h.lifecycleStatus || (h.actualStatus==='已开'?'held':'scheduled'),
+    changeReason: '',
   }
   showHearingDialog.value = true
 }
 
+const hearingSaving = ref(false)
 async function saveHearing() {
-  if (!hearingForm.value.hearingDate) {
+  if(hearingSaving.value)return
+  const idCase=caseId.value
+  const form={...hearingForm.value}
+  if (!form.hearingDate) {
     ElMessage.warning('请选择开庭/口审时间')
     return
   }
-  if (hearingForm.value.id) {
-    const res = await casyContext.cases.updateHearing(hearingForm.value.id, {
-      hearingName: hearingForm.value.hearingName,
-      hearingDate: hearingForm.value.hearingDate,
-      court: hearingForm.value.court,
-      venue: hearingForm.value.venue,
-      judges: hearingForm.value.judges,
-      caseLevel: hearingForm.value.caseLevel,
-      contactInfo: hearingForm.value.contactInfo,
-      actualStatus: hearingForm.value.actualStatus,
+  hearingSaving.value=true
+  try {
+  if (form.id) {
+    const res = await casyContext.cases.updateHearing(form.id, {
+      hearingName: form.hearingName,
+      hearingDate: form.hearingDate,
+      court: form.court,
+      venue: form.venue,
+      judges: form.judges,
+      caseLevel: form.caseLevel,
+      contactInfo: form.contactInfo,
+      actualStatus: form.lifecycleStatus==='held'?'已开':'未开',
+      lifecycleStatus: form.lifecycleStatus,
+      changeReason: form.changeReason,
     })
+    if(idCase!==caseId.value)return
     if (res.ok) {
       ElMessage.success('庭审排期已更新')
       showHearingDialog.value = false
       await loadHearings()
       await loadCase()
+      await loadTimeline()
     } else {
       ElMessage.error(res.error || '更新失败')
     }
   } else {
     const res = await casyContext.cases.createHearing({
-      caseId: caseId.value,
-      hearingName: hearingForm.value.hearingName,
-      hearingDate: hearingForm.value.hearingDate,
-      court: hearingForm.value.court,
-      venue: hearingForm.value.venue,
-      judges: hearingForm.value.judges,
-      caseLevel: hearingForm.value.caseLevel,
-      contactInfo: hearingForm.value.contactInfo,
-      actualStatus: hearingForm.value.actualStatus,
+      caseId: idCase,
+      hearingName: form.hearingName,
+      hearingDate: form.hearingDate,
+      court: form.court,
+      venue: form.venue,
+      judges: form.judges,
+      caseLevel: form.caseLevel,
+      contactInfo: form.contactInfo,
+      actualStatus: form.lifecycleStatus==='held'?'已开':'未开',
+      lifecycleStatus: form.lifecycleStatus,
+      changeReason: form.changeReason,
     })
+    if(idCase!==caseId.value)return
     if (res.ok) {
       ElMessage.success('已添加开庭/口审排期')
       showHearingDialog.value = false
       await loadHearings()
       await loadCase()
+      await loadTimeline()
     } else {
       ElMessage.error(res.error || '创建失败')
     }
   }
+  } finally {hearingSaving.value=false}
 }
 
 async function deleteHearing(h) {
@@ -420,6 +470,7 @@ async function toggleHearingStatus(h) {
   const res = await casyContext.cases.updateHearing(h.id, { actualStatus: nextStatus })
   if (res.ok) {
     h.actualStatus = nextStatus
+    h.lifecycleStatus = nextStatus==='已开'?'held':'scheduled'
     ElMessage.success(`开庭状态已变更为: ${nextStatus}`)
   }
 }
@@ -485,10 +536,14 @@ onMounted(() => {
 })
 
 watch(caseId, () => {
+  showHearingDialog.value = false; showAddRelationDialog.value = false; showRelatedWizard.value = false; editingGoal.value = false
   loadCaseData()
 })
+watch(() => route.query.tab, tab => { activeTab.value = validTabs.includes(tab) ? tab : 'overview' })
+watch(activeTab, tab => {if(route.query.tab!==tab)router.replace({query:{...route.query,tab}});if(tab==='timeline')void loadTimeline()})
 
 onUnmounted(() => {
+  ++detailLoad
   if (unsubscribeUpdated) unsubscribeUpdated()
 })
 </script>
@@ -503,6 +558,7 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
     <!-- ═══ 案件概要 Hero Card ═══ -->
     <div v-if="caseData" class="case-hero-card">
       <div class="hero-left">
@@ -553,69 +609,69 @@ onUnmounted(() => {
 
     <!-- ═══ 详情 Tab 切换栏 ═══ -->
     <div class="detail-tabs">
-      <span
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'overview' }"
         @click="activeTab = 'overview'"
       >
         项目总览
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'hearings' }"
         @click="activeTab = 'hearings'"
       >
         开庭口审 · {{ hearings.length }}
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'tasks' }"
         @click="activeTab = 'tasks'"
       >
         任务待办 · {{ tasks.length }}
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'tracks' }"
         @click="activeTab = 'tracks'"
       >
-        关联程序 · 多轨
-      </span>
-      <span
+        程序事项 · 收转文与期限
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'files' }"
         @click="activeTab = 'files'"
       >
         案卷 · {{ files.length }}
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'persons' }"
         @click="activeTab = 'persons'"
       >
         实体对象
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'whiteboard' }"
         @click="activeTab = 'whiteboard'"
       >
         事实白板
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'timeline' }"
         @click="activeTab = 'timeline'"
       >
         动态轨迹 · {{ timeline.length }}
-      </span>
-      <span
+      </button>
+      <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'fields' }"
         @click="activeTab = 'fields'"
       >
         全量属性与字段
-      </span>
+      </button>
     </div>
 
     <!-- ═══ Tab 1: 项目总览 ═══ -->
@@ -801,39 +857,9 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- ═══ Tab 2: 三轨状态 ═══ -->
+    <!-- ═══ Tab 2: 程序期限与统筹 ═══ -->
     <div v-if="activeTab === 'tracks'" class="tab-pane">
-      <div class="card">
-        <div class="ch">
-          <span class="t">三轨并行状态机</span>
-          <span class="s">专利无效 / 民事诉讼 / 行政诉讼</span>
-        </div>
-        <div class="sep"></div>
-        <div class="tracks-container">
-          <div v-for="b in trackBadges" :key="b.track" class="track-panel">
-            <div class="track-panel-header">
-              <span class="tp-title">{{ b.track }}</span>
-              <span :class="b.tagClass">{{ b.label }}</span>
-            </div>
-            <div class="track-stepper">
-              <div class="tp-step active">
-                <span class="tp-dot"></span>
-                <span class="tp-name">立案/受理</span>
-              </div>
-              <div class="tp-line"></div>
-              <div class="tp-step active">
-                <span class="tp-dot"></span>
-                <span class="tp-name">审理推进</span>
-              </div>
-              <div class="tp-line"></div>
-              <div class="tp-step">
-                <span class="tp-dot muted"></span>
-                <span class="tp-name">裁决/判决</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ProcedureBoard :case-id="String(caseId)" @open-case="router.push({name:'case-detail',params:{id:$event},query:{tab:'tracks'}})" />
     </div>
 
     <!-- ═══ Tab 3: 案卷管理 ═══ -->
@@ -861,14 +887,15 @@ onUnmounted(() => {
         <div class="sep"></div>
         <div v-if="timeline.length" class="timeline-stream">
           <div v-for="(item, idx) in timeline" :key="idx" class="t-row">
-            <div class="t-date">{{ item.date || item.createdAt?.slice(5, 10) }}</div>
+            <div class="t-date">{{ item.eventDate || item.date || item.createdAt?.slice(5, 10) }}</div>
             <div class="t-track"><div class="t-dot"></div></div>
             <div class="t-body">
               <div class="t-head">
                 <span class="t-title">{{ item.title || item.action || '动态' }}</span>
                 <span v-if="item.author" class="t-author">{{ item.author }}</span>
               </div>
-              <div v-if="item.description" class="t-desc">{{ item.description }}</div>
+              <div v-if="item.detail || item.description" class="t-desc">{{ item.detail || item.description }}</div>
+              <el-button v-if="item.sourceTable==='procedure_events' || item.sourceTable==='hearings'" text @click="activeTab=item.sourceTable==='hearings'?'hearings':'tracks'">查看 / 维护原记录</el-button>
             </div>
           </div>
         </div>
@@ -908,6 +935,7 @@ onUnmounted(() => {
                 <td>
                   <strong>{{ h.hearingName || h.hearingRecord || '开庭/口审' }}</strong>
                   <div v-if="h.caseLevel" class="text-xs text-text-muted">{{ h.caseLevel }}</div>
+                  <small v-if="h.changeReason">变更依据：{{ h.changeReason }}</small>
                 </td>
                 <td>
                   <div class="font-mono text-primary font-semibold">{{ h.hearingDate }}</div>
@@ -920,15 +948,15 @@ onUnmounted(() => {
                     :type="h.actualStatus === '已开' ? 'success' : 'warning'"
                     size="small"
                     style="cursor: pointer"
-                    @click="toggleHearingStatus(h)"
+                    @click="openEditHearing(h)"
                   >
-                    {{ h.actualStatus || '待开庭' }}
+                    {{ ({scheduled:'已排期',held:'已开庭',postponed:'延期待定',cancelled:'已取消'})[h.lifecycleStatus] || h.actualStatus || '待开庭' }}
                   </el-tag>
                 </td>
                 <td>
                   <div class="row-ops">
                     <button class="btn-text" @click="openEditHearing(h)">编辑</button>
-                    <button class="btn-text text-danger" @click="deleteHearing(h)">删除</button>
+                    <button class="btn-text" @click="activeTab='tracks'">收转文与修订记录</button>
                   </div>
                 </td>
               </tr>
@@ -1071,16 +1099,14 @@ onUnmounted(() => {
         <el-form-item label="书记员/联系方式">
           <el-input v-model="hearingForm.contactInfo" placeholder="联系电话或书记员姓名" />
         </el-form-item>
+<el-form-item label="改期 / 延期 / 取消的通知或决定依据"><el-input v-model="hearingForm.changeReason" type="textarea" placeholder="申请延期不等于获准；仅有申请时保留原排期。多次开庭分别新建记录。" /></el-form-item>
         <el-form-item label="出庭状态">
-          <el-radio-group v-model="hearingForm.actualStatus">
-            <el-radio value="未开">未开庭</el-radio>
-            <el-radio value="已开">已开庭</el-radio>
-          </el-radio-group>
+          <el-select v-model="hearingForm.lifecycleStatus"><el-option value="scheduled" label="已排期"/><el-option value="held" label="已开庭"/><el-option v-if="hearingForm.id" value="postponed" label="延期待定（已获准，等待新排期）"/><el-option v-if="hearingForm.id" value="cancelled" label="已取消（有正式依据）"/></el-select>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button size="small" @click="showHearingDialog = false">取消</el-button>
-        <el-button type="primary" size="small" @click="saveHearing">保存</el-button>
+        <el-button type="primary" size="small" :loading="hearingSaving" @click="saveHearing">保存</el-button>
       </template>
     </el-dialog>
     <AddRelationDialog
@@ -1093,6 +1119,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.dtab{border:0;background:transparent;font:inherit}
 /* ============================================================
    案件详情 · Slate 设计规范
    ============================================================ */
@@ -1543,7 +1570,7 @@ onUnmounted(() => {
 .res-ico.blue { color: var(--c-primary); }
 .res-ico.purple { color: var(--c-info); }
 
-/* ── 三轨状态 ──────────────────────────────────────────────── */
+/* ── 程序期限与统筹 ──────────────────────────────────────────────── */
 .tracks-container {
   display: flex;
   flex-direction: column;

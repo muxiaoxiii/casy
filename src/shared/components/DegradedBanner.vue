@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { Warning, Close, RefreshRight } from '@element-plus/icons-vue'
+import { Warning, Close, RefreshRight } from '../icons'
 
 const props = defineProps({
   /** 降级原因 */

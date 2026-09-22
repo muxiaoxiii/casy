@@ -6,8 +6,9 @@ import {
   View,
   Reading,
   DataAnalysis,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import BriefingModal from '../../../shared/components/BriefingModal.vue'
+import BriefingIllustration from '../../../shared/components/briefing/BriefingIllustration.vue'
 import { dailyBriefingStyles as dailyStyles, weeklyBriefingStyles as weeklyStyles } from '../../../shared/briefingStyles'
 
 const settingsStore = useSettingsStore()
@@ -42,7 +43,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
       <div class="header-titles">
         <h3 class="sec-title">早报与周报样式 (Briefing & Reports)</h3>
         <p class="sec-desc">
-          32 套皮肤共享同一份可信数据，只改变排版与材质。预览使用明确标注的样例数据，导出生成高清 PNG 长图。
+          {{ dailyStyles.length + weeklyStyles.length }} 套可收藏的日报与周报，让认真度过的日子有迹可循。共享真实数据，预览明确标注样例，支持高清 PNG 长图。
         </p>
       </div>
     </div>
@@ -54,7 +55,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           <el-icon class="icon-blue"><Reading /></el-icon>
           <span class="group-name">每日早报样式 (Daily Pulse Reports)</span>
         </div>
-        <span class="group-count">16 种可选风格</span>
+        <span class="group-count">{{ dailyStyles.length }} 种可选风格</span>
       </div>
 
       <div class="styles-cards-grid">
@@ -63,6 +64,12 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           :key="item.id"
           class="style-card"
           :class="{ active: settingsStore.daily_brief_style === item.id }"
+          tabindex="0"
+          role="button"
+          :aria-label="`应用${item.label}`"
+          :aria-pressed="settingsStore.daily_brief_style === item.id"
+          @keydown.enter.self.prevent="selectDailyStyle(item.id)"
+          @keydown.space.self.prevent="selectDailyStyle(item.id)"
           @click="selectDailyStyle(item.id)"
         >
           <!-- 选中徽章 -->
@@ -79,6 +86,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
             :style="{ '--style-color': item.themeColor }"
           >
             <div class="thumb-sheet">
+              <BriefingIllustration v-if="['magic-prophet', 'herbarium'].includes(item.id)" :variant="item.id" class="thumb-illustration" />
               <span class="thumb-ornament" aria-hidden="true">C</span>
               <span class="thumb-kicker">CASY / {{ item.label }}</span>
               <strong>{{ item.name }}</strong>
@@ -90,7 +98,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           <!-- 卡片文字信息 -->
           <div class="card-info-body">
             <div class="card-title-row">
-              <h4 class="c-name">{{ item.name }}</h4>
+              <h4 class="c-name">{{ item.label }}</h4>
               <span class="c-tagline">{{ item.tagline }}</span>
             </div>
             <p class="c-desc">{{ item.desc }}</p>
@@ -122,7 +130,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           <el-icon class="icon-amber"><DataAnalysis /></el-icon>
           <span class="group-name">每周复盘样式 (Weekly Synthesis Reports)</span>
         </div>
-        <span class="group-count">16 种可选风格</span>
+        <span class="group-count">{{ weeklyStyles.length }} 种可选风格</span>
       </div>
 
       <div class="styles-cards-grid">
@@ -131,6 +139,12 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           :key="item.id"
           class="style-card"
           :class="{ active: settingsStore.weekly_report_style === item.id }"
+          tabindex="0"
+          role="button"
+          :aria-label="`应用${item.label}`"
+          :aria-pressed="settingsStore.weekly_report_style === item.id"
+          @keydown.enter.self.prevent="selectWeeklyStyle(item.id)"
+          @keydown.space.self.prevent="selectWeeklyStyle(item.id)"
           @click="selectWeeklyStyle(item.id)"
         >
           <!-- 选中徽章 -->
@@ -147,6 +161,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
             :style="{ '--style-color': item.themeColor }"
           >
             <div class="thumb-sheet">
+              <BriefingIllustration v-if="['lunar-log', 'airmail'].includes(item.id)" :variant="item.id" class="thumb-illustration" />
               <span class="thumb-ornament" aria-hidden="true">C</span>
               <span class="thumb-kicker">CASY / {{ item.label }}</span>
               <strong>{{ item.name }}</strong>
@@ -158,7 +173,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           <!-- 卡片文字信息 -->
           <div class="card-info-body">
             <div class="card-title-row">
-              <h4 class="c-name">{{ item.name }}</h4>
+              <h4 class="c-name">{{ item.label }}</h4>
               <span class="c-tagline">{{ item.tagline }}</span>
             </div>
             <p class="c-desc">{{ item.desc }}</p>
@@ -194,6 +209,15 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
 </template>
 
 <style scoped>
+.style-card:focus-visible { outline: 2px solid var(--c-accent, #49634a); outline-offset: 4px; }
+.thumb-illustration { position: absolute; right: 4px; bottom: 3px; width: 100px; height: 64px; color: var(--style-color); }
+.card-thumb-mock:has(.thumb-illustration) .thumb-columns { max-width: 48%; }
+.card-thumb-mock[data-style='magic-prophet'] .thumb-sheet .thumb-ornament { display: none; }
+.card-thumb-mock[data-style='receipt'] .thumb-sheet { width: 55%; margin-inline: auto; border-block: 3px dotted #697064; border-radius: 0; background: #faf9f3; font-family: monospace; }
+.card-thumb-mock[data-style='receipt'] .thumb-rule { height: 14px; background: repeating-linear-gradient(90deg, #45483f 0 2px, transparent 2px 4px, #45483f 4px 5px, transparent 5px 8px); }
+.card-thumb-mock[data-style='herbarium'] .thumb-sheet { background: #f0f0e4; border: 5px solid #dce0cd; }
+.card-thumb-mock[data-style='lunar-log'] .thumb-sheet { background: #14242e; color: #e2e9ed; border: 1px solid #b6cfdf70; }
+.card-thumb-mock[data-style='airmail'] .thumb-sheet { background: #f8f0dd; border-left: 5px dashed #a64c3d; border-right: 5px dashed #476b80; }
 .briefing-settings-container {
   padding: 8px 4px 32px;
   display: flex;

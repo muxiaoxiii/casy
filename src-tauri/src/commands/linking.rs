@@ -25,6 +25,18 @@ pub struct LinkDto {
 
 const VALID_TYPES: [&str; 5] = ["doc", "knowledge", "task", "case", "file"];
 
+fn entity_exists(conn: &rusqlite::Connection, kind: &str, id: &str) -> anyhow::Result<bool> {
+    let sql = match kind {
+        "doc" => "SELECT EXISTS(SELECT 1 FROM drafts WHERE id=?1)",
+        "knowledge" => "SELECT EXISTS(SELECT 1 FROM knowledge_items WHERE id=?1)",
+        "task" => "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=?1 AND deleted_at IS NULL)",
+        "case" => "SELECT EXISTS(SELECT 1 FROM cases WHERE id=?1)",
+        "file" => "SELECT EXISTS(SELECT 1 FROM case_files WHERE id=?1 AND deleted_at IS NULL)",
+        _ => anyhow::bail!("无效的链接类型: {kind}"),
+    };
+    Ok(conn.query_row(sql, params![id], |r| r.get::<_, bool>(0))?)
+}
+
 fn row_to_link(row: &rusqlite::Row) -> rusqlite::Result<LinkDto> {
     Ok(LinkDto {
         id: row.get("id")?,
@@ -71,7 +83,10 @@ pub async fn create_link(
         if !VALID_TYPES.contains(&target_type.as_str()) {
             return Err(anyhow::anyhow!("无效的 target_type: {target_type}"));
         }
-        let conn = db::open_db()?;
+        let mut raw = db::open_db()?;
+        let conn = raw.transaction()?;
+        anyhow::ensure!(entity_exists(&conn, &source_type, &source_id)?, "链接源不存在或已删除");
+        anyhow::ensure!(entity_exists(&conn, &target_type, &target_id)?, "链接目标不存在或已删除");
         let id = db::new_id();
         conn.execute(
             "INSERT INTO links (id, source_type, source_id, target_type, target_id, anchor, label)
@@ -91,7 +106,9 @@ pub async fn create_link(
              FROM links WHERE id = ?1",
         )?;
         let mut link = stmt.query_row(params![id], row_to_link)?;
+        drop(stmt);
         resolve_title(&conn, &mut link);
+        conn.commit()?;
         Ok(link)
     })
     .await

@@ -49,7 +49,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Collection, Close, Search } from '@element-plus/icons-vue'
+import { Collection, Close, Search } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 // 审查 P0-3：SQLite FTS5 的 snippet() 只插入 <b> 高亮、不转义原文，渲染前必须消毒
 import { sanitizeInlineHtml } from '../../../shared/markdown/mdBridge'

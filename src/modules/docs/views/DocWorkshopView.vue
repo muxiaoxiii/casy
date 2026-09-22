@@ -1,20 +1,24 @@
 <template>
-  <div class="doc-workshop">
+  <div class="doc-workshop" :class="'mobile-pane-' + mobilePane">
+    <nav class="draft-mobile-nav" aria-label="文书工作区">
+      <button :aria-pressed="mobilePane === 'list'" @click="mobilePane = 'list'">草稿与模板</button>
+      <button :aria-pressed="mobilePane === 'editor'" @click="mobilePane = 'editor'">编辑文书</button>
+    </nav>
     <!-- 左侧面板 -->
     <div class="draft-sidebar">
       <div class="sidebar-tabs">
-        <div
+        <button type="button"
           :class="['tab-item', { active: activeTab === 'drafts' }]"
           @click="activeTab = 'drafts'"
         >
           {{ $t('docs.drafts') }}
-        </div>
-        <div
+        </button>
+        <button type="button"
           :class="['tab-item', { active: activeTab === 'templates' }]"
           @click="activeTab = 'templates'"
         >
           {{ $t('docs.templates') }}
-        </div>
+        </button>
       </div>
 
       <!-- 草稿列表 -->
@@ -110,9 +114,8 @@
                 :value="c.id"
               />
             </el-select>
-            <el-button type="primary" size="small" :loading="exporting" @click="exportToDocx">
-              {{ $t('docs.export_word') }}
-            </el-button>
+            <el-dropdown trigger="click" :disabled="exporting" @command="exportToDocx"><el-button type="primary" size="small" :loading="exporting">导出</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="md">Markdown（.md）</el-dropdown-item><el-dropdown-item command="pdf">PDF 文档（.pdf）</el-dropdown-item><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+            <el-button :type="showTypesetPreview ? 'primary' : 'default'" plain size="small" @click="showTypesetPreview = !showTypesetPreview">A4 预览</el-button>
             <el-button plain size="small" @click="openEvidenceLinkPicker">
               <el-icon><Link /></el-icon> 证据链接
             </el-button>
@@ -122,8 +125,11 @@
           </div>
         </div>
 
-        <!-- 块编辑器主体 -->
+        <!-- 编辑与真实分页共享同一份结构化文档 -->
+        <div class="document-workspace" :class="{'with-preview':showTypesetPreview}">
+
         <LegalEditor
+          :key="currentDraft.id"
           ref="legalEditorRef"
           v-model="currentDraft.content"
           :case-data="linkedCaseData"
@@ -131,9 +137,14 @@
           :case-id="currentDraft.caseId"
           :source-id="currentDraft.id"
           @update:model-value="scheduleSave"
+          @document-change="previewDocument = $event"
+          @active-block="activeBlock = $event"
           @open-knowledge-drawer="showKnowledgeSidebar = true"
         />
 
+        <TypesetPreview v-if="showTypesetPreview" :key="currentDraft.id" :document="previewDocument" :layout="layoutOptions" :active-block="activeBlock"
+          @update:layout="layoutPreferences=$event" @select-block="legalEditorRef?.scrollToBlock($event)" />
+        </div>
         <div class="editor-statusbar">
           <span>{{ $t('docs.word_count', { count: wordCount }) }}</span>
           <span :class="['save-status', saveStatus]">{{ saveStatusText }}</span>
@@ -158,11 +169,15 @@
 </template>
 
 <script setup>
+import TypesetPreview from '../../../shared/editor/TypesetPreview.vue'
+import {exportDocument} from '../../../shared/editor/exportDocument'
 import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
 import { useDraftRecovery } from '../../../composables/useDraftRecovery'
+import { useRoute } from 'vue-router'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
-import { Collection, Link } from '@element-plus/icons-vue'
+import { Collection, Link } from '../../../shared/icons'
 import LegalEditor from '../components/LegalEditor.vue'
 import KnowledgeSidebar from '../../knowledge/components/KnowledgeSidebar.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
@@ -170,6 +185,11 @@ import { ElMessage } from 'element-plus'
 import debounce from 'lodash-es/debounce'
 
 const showKnowledgeSidebar = ref(false)
+const showTypesetPreview = ref(false)
+const previewDocument = ref(null)
+const activeBlock = ref(0)
+const layoutPreferences = ref({marginMm:20,bindingMm:5,firstLineIndent:true,header:true,skipFirstHeader:true})
+const layoutOptions = computed(()=>({...layoutPreferences.value,title:currentDraft.value?.title || '',caseNo:linkedCaseData.value?.caseNo || ''}))
 
 // 证据链接（W4 双链）：转发到 LegalEditor 暴露的选择器
 const legalEditorRef = ref(null)
@@ -177,10 +197,13 @@ function openEvidenceLinkPicker() {
   legalEditorRef.value?.openEvidenceLinkPicker()
 }
 
+const route = useRoute()
 const props = defineProps([])
 const drafts = ref([])
 const cases = ref([])
 const currentDraftId = ref(null)
+const mobilePane = ref('list')
+watch(currentDraftId, id => { if (id) mobilePane.value = 'editor' })
 const currentDraft = ref(null)
 const loading = ref(false)
 const searchText = ref('')
@@ -261,7 +284,7 @@ async function selectDraft(id) {
 async function createNewDraft() {
   const result = await casyContext.docs.createDraft({
     title: '未命名法律文书',
-    content: '<p>在此输入 <code>/</code> 唤出 Notion 块菜单，或直接输入 Markdown 快速起草...</p>',
+    content: '',
   })
   if (result.ok && result.data) {
     await loadDrafts()
@@ -274,10 +297,13 @@ let savePending = null
 const recovery = useDraftRecovery()
 let editRevision = 0
 let savedRevision = 0
-useSaveBeforeLeave(() => editRevision !== savedRevision || saveStatus.value === 'saving', saveDraft)
-function saveDraft() {
+useSaveBeforeLeave(() => editRevision !== savedRevision || saveStatus.value === 'saving' || legalEditorRef.value?.hasSourceDraft() || legalEditorRef.value?.hasPendingSerialize?.(), saveDraft)
+function saveDraft(commitSources = true) {
+  try { if(commitSources) legalEditorRef.value?.getHtml() } catch(error) { ElMessage.error(String(error)); return Promise.resolve(false) }
   if (savePending) return savePending
   if (!currentDraft.value) return Promise.resolve(true)
+  // 防抖未落盘时先刷出最新正文，避免离开守卫误判干净。
+  if (legalEditorRef.value?.hasPendingSerialize?.()) legalEditorRef.value.getHtml()
   if (savedRevision === editRevision) return Promise.resolve(true)
   if (saveTimer.value) clearTimeout(saveTimer.value)
   savePending = (async () => {
@@ -325,7 +351,7 @@ function scheduleSave() {
   editRevision++
   if (saveTimer.value) clearTimeout(saveTimer.value)
   saveTimer.value = setTimeout(() => {
-    saveDraft()
+    saveDraft(false)
   }, 1500)
 }
 
@@ -339,7 +365,7 @@ async function deleteDraft(id) {
     }
     await loadDrafts()
     if (drafts.value.length > 0) {
-      selectDraft(drafts.value[0].id)
+      selectDraft(typeof route.query.select === 'string' ? route.query.select : drafts.value[0].id)
     } else {
       await createNewDraft()
     }
@@ -347,30 +373,10 @@ async function deleteDraft(id) {
 }
 
 // 导出为 Docx
-async function exportToDocx() {
-  if (!currentDraft.value) return
-  exporting.value = true
-  try {
-    const document = legalEditorRef.value?.getDocumentJson?.()
-    if (!document) {
-      ElMessage.error('编辑器内容尚未就绪，无法导出')
-      return
-    }
-    const result = await casyContext.docs.exportEditedDocx({
-      document,
-      title: currentDraft.value.title || '未命名文书',
-    })
-    if (!result.ok) {
-      ElMessage.error('导出失败: ' + result.error)
-      return
-    }
-    ElMessage.success(`Word 文档已导出: ${result.data.outputPath}`)
-  } catch (err) {
-    console.error('导出 Word 失败', err)
-    ElMessage.error('导出失败')
-  } finally {
-    exporting.value = false
-  }
+async function exportToDocx(format='docx') {
+ if(!currentDraft.value || exporting.value)return
+ exporting.value=true
+ try{if(!await saveDraft())return;const path=await exportDocument({content:currentDraft.value.content || '',contentFormat:'html',title:currentDraft.value.title,format,document:legalEditorRef.value?.getDocumentJson?.(),layout:layoutOptions.value});if(path)ElMessage.success(`文档已保存：${path}`)}catch(error){ElMessage.error(String(error))}finally{exporting.value=false}
 }
 
 function formatTime(timeStr) {
@@ -398,11 +404,13 @@ onMounted(async () => {
   await recovery.recover()
   await Promise.all([loadDrafts(), loadCases()])
   if (drafts.value.length > 0) {
-    selectDraft(drafts.value[0].id)
+    selectDraft(typeof route.query.select === 'string' ? route.query.select : drafts.value[0].id)
   } else {
     await createNewDraft()
   }
 })
+
+watch(() => route.query.select, id => { if (typeof id === 'string') void selectDraft(id) })
 
 // 模板选择回调
 async function onTemplateSelect(template) {
@@ -421,12 +429,18 @@ async function onTemplateSelect(template) {
 onUnmounted(() => {
   if (saveTimer.value) clearTimeout(saveTimer.value)
 })
+onUnmounted(observeChanges(casyContext, ['doc', 'case'], async () => { await Promise.all([loadDrafts(), loadCases()]) }))
 </script>
 
 <style scoped>
+.document-workspace{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;overflow:hidden;}
+.document-workspace.with-preview{grid-template-columns:minmax(0,1fr) minmax(300px,1fr);}
+.document-workspace>.notion-legal-editor-shell{min-width:0;min-height:0;}
+@media(max-width:1100px){.document-workspace.with-preview{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(220px,1fr) minmax(220px,1fr);}}
+
 .doc-workshop {
   display: flex;
-  height: calc(100vh - 64px);
+  height: calc(100dvh - var(--app-topbar-height));
   background: var(--c-bg-page);
   overflow: hidden;
 }
@@ -447,6 +461,9 @@ onUnmounted(() => {
 }
 
 .tab-item {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   flex: 1;
   text-align: center;
   padding: 10px 0;
@@ -657,5 +674,25 @@ onUnmounted(() => {
   flex: 1;
   display: grid;
   place-items: center;
+}
+</style>
+<style scoped>
+.document-workspace{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;overflow:hidden;}
+.document-workspace.with-preview{grid-template-columns:minmax(0,1fr) minmax(300px,1fr);}
+.document-workspace>.notion-legal-editor-shell{min-width:0;min-height:0;}
+@media(max-width:1100px){.document-workspace.with-preview{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(220px,1fr) minmax(220px,1fr);}}
+
+.editor-header{flex-direction:column;align-items:stretch;padding:18px 24px 14px;gap:12px}.notion-title-input{width:100%;min-width:0;box-sizing:border-box}.editor-actions{flex-wrap:wrap;gap:8px}.editor-actions .el-button{margin-left:0}.editor-panel{min-height:0}.doc-workshop{height:100%;min-height:0}.draft-sidebar{width:240px;flex-shrink:0}@media(max-width:1000px){.draft-sidebar{width:205px}.editor-header{padding:14px 16px}.editor-statusbar{padding:8px 16px;flex-wrap:wrap;gap:6px}}
+.draft-mobile-nav { display: none; }
+@container (max-width: 700px) {
+  .doc-workshop { flex-direction: column; }
+  .draft-mobile-nav { display: flex; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--c-border); flex-shrink: 0; background: var(--c-bg-card); }
+  .draft-mobile-nav button { flex: 1; border: 0; padding: 8px; background: transparent; color: var(--c-text-secondary); border-radius: var(--c-radius); font: inherit; font-size: 13px; cursor: pointer; }
+  .draft-mobile-nav button[aria-pressed="true"] { background: var(--c-primary-light); color: var(--c-primary); font-weight: 600; }
+  .doc-workshop > .draft-sidebar, .doc-workshop > .editor-panel { display: none; width: 100%; min-width: 0; min-height: 0; flex: 1; }
+  .mobile-pane-list > .draft-sidebar, .mobile-pane-editor > .editor-panel { display: flex; }
+  .draft-sidebar { border-right: 0; }
+  .draft-search { width: auto; }
+  .editor-actions :deep(.el-select) { max-width: 100%; }
 }
 </style>

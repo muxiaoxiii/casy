@@ -163,6 +163,14 @@ fn key_for(conn: &Connection, state: Option<&StoredProfiles>, id: &str) -> Resul
     Ok(None)
 }
 
+/// Startup/UI metadata must not unlock Keychain just to discard the secret.
+pub fn public_config(conn: &Connection) -> Result<AiConfig> {
+    let config=read(conn)?;
+    let Some(id)=config.active_id.as_deref() else {return Ok(AiConfig::default());};
+    let p=config.profiles.iter().find(|p|p.id==id).context("AI 配置不存在，请重新选择")?;
+    Ok(AiConfig{mode:p.mode.clone(),api_url:Some(p.api_url.clone()),api_key:None,model:Some(p.model.clone()),daily_limit:Some(config.daily_limit)})
+}
+
 pub fn resolve(conn: &Connection, profile_id: Option<&str>) -> Result<AiConfig> {
     let state = stored(conn)?;
     let config = match &state {
@@ -295,4 +303,20 @@ pub async fn test_ai_profile(mut profile: AiProfile) -> Result<String, String> {
         return Err("API 返回空内容，请检查模型与接口协议".into());
     }
     Ok(format!("连接成功：{}", config.model.unwrap_or_default()))
+}
+
+#[cfg(test)]
+mod public_config_tests {
+    use super::*;
+    #[test]
+    fn startup_metadata_does_not_require_the_credential() {
+        let conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)").unwrap();
+        let config=AiProfiles{profiles:vec![AiProfile{id:"p".into(),name:"示例".into(),mode:"openai".into(),api_url:"https://example.com/v1".into(),model:"test-model".into(),has_api_key:true,api_key:None}],active_id:Some("p".into()),..Default::default()};
+        let state=StoredProfiles{config,credentials:std::collections::HashMap::from([("p".into(),"credential-not-loaded-for-metadata".into())])};
+        conn.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![SETTINGS_KEY,serde_json::to_string(&state).unwrap()]).unwrap();
+        let public=public_config(&conn).unwrap();
+        assert_eq!(public.model.as_deref(),Some("test-model"));
+        assert!(public.api_key.is_none());
+    }
 }

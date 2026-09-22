@@ -17,7 +17,7 @@ import {
   Briefcase,
   List,
   Link,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 
 // ============================================================
 // 状态
@@ -25,6 +25,9 @@ import {
 const messages = ref([])
 const inputMessage = ref('')
 const loading = ref(false)
+const progress = ref('')
+let controller = null
+function stopRun() { controller?.abort(); progress.value = '正在停止，等待当前响应结束…' }
 const showToolCalls = ref(false)
 
 // 可用提供商与模型（来自插件系统，初始化完成后自动刷新）
@@ -33,6 +36,8 @@ const availableModels = ref([])
 const selectedProvider = ref('')
 const selectedModel = ref('')
 let offAiConfigured = null
+let offPlugins = () => {}
+let modelsTimer
 watch(selectedProvider, () => {
   const provider = casyContext.getProviders().find(p => p.id === selectedProvider.value)
   availableModels.value = (provider?.models || []).map(m => ({ model: m.id, label: m.name }))
@@ -86,21 +91,24 @@ onMounted(() => {
   })
   addSystemMessage()
   // 插件系统异步初始化：就绪后刷新提供商/模型 + 重建欢迎语（避免时序竞态）
-  const off = casyContext.on('plugins:ready', () => {
+  offPlugins = casyContext.on('plugins:ready', () => {
     loadModels()
     // 若欢迎语还是空工具清单，则重建
     if (messages.value.length === 1 && messages.value[0].role === 'system') {
       messages.value[0].content = buildIntro()
     }
   })
-  setTimeout(() => {
+  modelsTimer = setTimeout(() => {
     loadModels()
-    off()
+    offPlugins()
   }, 800)
 })
 
 onBeforeUnmount(() => {
+  controller?.abort()
   offAiConfigured?.()
+  offPlugins()
+  clearTimeout(modelsTimer)
   if (mentionTimer) clearTimeout(mentionTimer)
 })
 
@@ -117,13 +125,14 @@ function loadModels() {
 }
 
 function buildIntro() {
-  const tools = casyContext.getToolDefinitions()
-  const toolLines = tools.map(t => `- ${t.name}: ${t.description}`).join('\n')
-  return '我是 Casy AI 助手，可以帮你查询案件、管理任务、搜索知识库。\n\n' +
-    '我可以调用以下工具：\n' +
-    (toolLines || '（工具加载中…）') + '\n\n' +
-    '输入 @ 可以引用文件、知识、任务或案件作为上下文。请告诉我你需要什么帮助。'
+  return '可以围绕一件案子，串联任务、日程、笔记和文书。使用 @ 指定资料，或直接描述你要推进的工作。'
 }
+const starterPrompts = [
+  { title: '梳理案件下一步', detail: '结合任务、笔记与文书找出缺口', prompt: '请先列出进行中的案件，让我选择一件，然后读取该案的跨模块上下文，梳理下一步行动及缺失资料。' },
+  { title: '安排接下来的一周', detail: '核对期限、日程与待办工作量', prompt: '请读取当前任务、未来一周的日程和法定期限，帮我分析冲突与空闲时间，并给出可执行的排期建议。' },
+  { title: '准备文书写作', detail: '查阅关联笔记和已保存工作稿', prompt: '请先列出我的文书草稿供我选择，再读取选中文书和对应案件的笔记，列出写作所需事实、证据和待核实事项，注明资料来源。' },
+]
+function useStarter(prompt) { inputMessage.value = prompt; inputRef.value?.focus() }
 
 function addSystemMessage() {
   messages.value.push({
@@ -153,6 +162,8 @@ async function sendMessage() {
 
   inputMessage.value = ''
   loading.value = true
+  controller = new AbortController()
+  progress.value = '正在读取工作上下文…'
 
   try {
     // 设置模型
@@ -169,7 +180,7 @@ async function sendMessage() {
     // 调用 AI（带工具调用 + @ 引用沙箱）
     const result = await aiToolCaller.chatWithTools(
       [{ role: 'system', content: '你是 Casy AI 助手，帮助律师管理案件、任务和知识库。' }, ...history],
-      { autoConfirm: false, contextRefs }
+      { autoConfirm: false, contextRefs, signal: controller.signal, onProgress: message => { if (!controller?.signal.aborted) progress.value = message } }
     )
 
     // 添加 AI 响应
@@ -375,6 +386,7 @@ function formatTime(date) {
 }
 
 function clearChat() {
+  if (loading.value) return
   messages.value = []
   refChips.value = []
   closeMention()
@@ -423,12 +435,16 @@ function clearChat() {
           active-text="显示工具调用"
           inactive-text=""
         />
-        <el-button size="small" @click="clearChat">清空</el-button>
+        <el-button size="small" :disabled="loading" @click="clearChat">清空</el-button>
       </div>
     </div>
 
     <!-- 消息列表 -->
     <div class="chat-messages">
+      <section v-if="!messages.some(m => m.role === 'user')" class="ai-workspace-start">
+        <span class="ai-start-label">CASY · 工作智伴</span><h2>从一件事，连接整个工作台。</h2><p>读懂资料，梳理下一步。每一次修改，先给你可核对的提案。</p>
+        <div class="ai-starter-grid"><button v-for="item in starterPrompts" :key="item.title" type="button" @click="useStarter(item.prompt)"><strong>{{ item.title }} <span>↗</span></strong><small>{{ item.detail }}</small></button></div>
+      </section>
       <div
         v-for="(msg, index) in messages"
         :key="index"
@@ -522,7 +538,7 @@ function clearChat() {
       <!-- 加载中 -->
       <div v-if="loading" class="message message-loading">
         <el-icon class="loading-icon"><Loading /></el-icon>
-        <span>思考中...</span>
+        <span role="status">{{ progress }}</span>
       </div>
     </div>
 
@@ -558,10 +574,11 @@ function clearChat() {
           @keydown.enter.ctrl="sendMessage"
           @keydown.enter.meta="sendMessage"
         />
+        <el-button v-if="loading" @click="stopRun" :disabled="controller?.signal.aborted">停止</el-button>
         <el-button
+          v-else
           type="primary"
           :icon="Position"
-          :loading="loading"
           @click="sendMessage"
         >
           发送
@@ -883,4 +900,18 @@ function clearChat() {
   color: var(--c-text-placeholder);
   text-align: center;
 }
+</style>
+
+<style scoped>
+.ai-workspace-start { padding: 48px 12px 32px; max-width: 820px; margin: 0 auto; }
+.ai-start-label { font-size: 10px; color: var(--c-primary); letter-spacing: .14em; }
+.ai-workspace-start h2 { font-size: clamp(22px, 2.5vw, 32px); font-weight: 550; letter-spacing: -.04em; margin: 18px 0 12px; }
+.ai-workspace-start p { font-size: 13px; line-height: 1.8; color: var(--c-text-secondary); }
+.ai-starter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 30px; }
+.ai-starter-grid button { text-align: left; padding: 18px; font: inherit; color: var(--c-text); background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 10px; cursor: pointer; }
+.ai-starter-grid strong { display: flex; gap: 12px; justify-content: space-between; font-size: 13px; font-weight: 500; }
+.ai-starter-grid strong span { color: var(--c-primary); }
+.ai-starter-grid small { display: block; color: var(--c-text-secondary); line-height: 1.7; font-size: 11px; margin-top: 10px; }
+.ai-starter-grid button:hover { border-color: var(--c-primary); background: var(--c-primary-light); }
+@media(max-width: 800px) { .ai-starter-grid { grid-template-columns: 1fr; } .ai-workspace-start { padding: 24px 0; } }
 </style>

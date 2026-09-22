@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { cpSync, mkdirSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), {name:'offline-canvas-fonts',buildStart() { mkdirSync('public/excalidraw-assets',{recursive:true}); cpSync('node_modules/@excalidraw/excalidraw/dist/prod/fonts','public/excalidraw-assets/fonts',{recursive:true}) }}],
   define: {
     // Interpret locale messages as ASTs so packaged Tauri works with its strict CSP.
     __INTLIFY_JIT_COMPILATION__: true,
@@ -22,6 +23,7 @@ export default defineConfig({
     strictPort: true,
   },
   resolve: {
+    dedupe: ['@tiptap/core', '@tiptap/pm', 'prosemirror-model', 'prosemirror-state', 'prosemirror-transform', 'prosemirror-view'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },

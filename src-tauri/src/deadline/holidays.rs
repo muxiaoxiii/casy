@@ -265,12 +265,11 @@ impl HolidayCalendar {
     }
 
     /// 专利法实施细则算法：按日历月计算
-    /// - 起算日不计入（从次日起算）
+    /// - 起算日不计入，但按月期限仍以起算日期的相应日届满（细则第5条）
     /// - 日历月加法，月末钳制
     /// - 届满日为休假日则顺延
     pub fn add_months_patent(&self, start: NaiveDate, months: u32) -> NaiveDate {
-        let from = start + Duration::days(1);
-        let due = add_months_clamp(from, months);
+        let due = add_months_clamp(start, months);
         self.extend_to_workday(due)
     }
 
@@ -283,8 +282,7 @@ impl HolidayCalendar {
 
     /// 诉讼法算法：按日历月计算
     pub fn add_months_civil(&self, start: NaiveDate, months: u32) -> NaiveDate {
-        let from = start + Duration::days(1);
-        let due = add_months_clamp(from, months);
+        let due = add_months_clamp(start, months);
         self.extend_to_workday(due)
     }
 

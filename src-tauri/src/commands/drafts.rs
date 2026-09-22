@@ -129,6 +129,7 @@ pub async fn update_draft(
     status: Option<String>,
     case_id: Option<String>,
     expected_version: Option<i32>,
+    clear_case: Option<bool>,
 ) -> Result<Draft, String> {
     run_blocking(move || {
         let mut connection = db::open_db()?;
@@ -153,12 +154,12 @@ pub async fn update_draft(
         let new_title = title.unwrap_or(current.0);
         let new_content = content.or(current.1);
         let new_status = status.unwrap_or(current.2);
-        let new_case_id = case_id.or(current.3);
+        let new_case_id = if clear_case == Some(true) { None } else { case_id.or(current.3) };
 
         conn.execute(
-            "UPDATE drafts SET title = ?1, content = ?2, status = ?3, case_id = ?4, version = version + 1
+            "UPDATE drafts SET title = ?1, content = ?2, status = ?3, case_id = ?4, version = version + 1, updated_at = ?6
              WHERE id = ?5",
-            rusqlite::params![new_title, new_content, new_status, new_case_id, id],
+            rusqlite::params![new_title, new_content, new_status, new_case_id, id, db::now_local()],
         )?;
 
         // 返回更新后的草稿

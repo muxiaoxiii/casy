@@ -1,0 +1,13 @@
+✔ Mach-O ARM and Intel are distinguished, including Universal (14.174083ms)
+✔ PE headers distinguish Windows 32-bit x86 and 64-bit x64 (1.263084ms)
+✔ truncated or corrupt native headers are rejected (2.540167ms)
+✔ only recognized permissive expressions may omit a bundled source archive (1.659709ms)
+✔ full distribution assigns every file once and retains all model groups (355.114208ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2266.793208

@@ -134,6 +134,27 @@ pub async fn export_edited_docx(
     .await
 }
 
+/// Unified editor export: all callers supply the same structured snapshot.
+#[tauri::command]
+pub async fn export_editor_document(document:serde_json::Value,markdown:String,title:String,format:String,output_path:String,layout:Option<docsy_engine::typesetting::LayoutOptions>)->Result<ExportResponse,String>{
+ run_blocking(move||{
+  anyhow::ensure!(document["type"]=="doc" && json_within_limit(&document,40*1024*1024) && markdown.len()<=40*1024*1024,"文档格式无效或超过 40 MiB");
+  let extension=if format=="docx-annotated" {"docx"}else{format.as_str()};
+  let path=docsy_engine::output_path::resolve_explicit_output_path(&output_path,&[extension])?;
+  if extension=="docx" {let document=if format=="docx-annotated" {docsy_engine::annotated_document(document)}else{document};let result=docsy_engine::export_rich_docx(document,&title,Some(&output_path))?;return Ok(ExportResponse{output_path:result.output_path,file_size:result.file_size,exported_at:result.exported_at})}
+  let mut assets=None;
+  let bytes=match format.as_str(){"md"=>{let (markdown,images)=super::markdown_export::externalize_images(&markdown,path.parent().ok_or_else(||anyhow::anyhow!("导出目录无效"))?)?;assets=images;markdown.into_bytes()},"pdf"=>docsy_engine::typesetting::compile(&document,&layout.unwrap_or_else(||docsy_engine::typesetting::LayoutOptions{title:title.clone(),..Default::default()}))?.pdf.clone(),_=>anyhow::bail!("不支持的导出格式")};
+  use std::io::Write;let mut stage=tempfile::NamedTempFile::new_in(path.parent().ok_or_else(||anyhow::anyhow!("导出目录无效"))?)?;stage.write_all(&bytes)?;stage.as_file().sync_all()?;stage.persist(&path)?;
+  if let Some(assets)=assets {let _=assets.keep();}
+  Ok(ExportResponse{output_path:path.to_string_lossy().into_owned(),file_size:bytes.len() as u64,exported_at:chrono::Local::now().to_rfc3339()})
+ }).await
+}
+
+#[tauri::command]
+pub async fn preview_editor_document(document:serde_json::Value,layout:docsy_engine::typesetting::LayoutOptions)->Result<docsy_engine::typesetting::DocumentPreview,String>{
+    run_blocking(move || Ok(docsy_engine::typesetting::compile(&document,&layout)?.preview.clone())).await
+}
+
 /// 案件数据结构
 #[derive(Debug, Default)]
 #[allow(dead_code)]
@@ -430,4 +451,17 @@ fn json_str(opt: &Option<String>) -> serde_json::Value {
         Some(s) => serde_json::Value::String(s.clone()),
         None => serde_json::Value::String(String::new()),
     }
+}
+
+fn json_within_limit(value: &serde_json::Value, limit: usize) -> bool {
+    struct Counter { bytes: usize, limit: usize }
+    impl std::io::Write for Counter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes = self.bytes.saturating_add(buf.len());
+            if self.bytes > self.limit { return Err(std::io::Error::other("document too large")); }
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    serde_json::to_writer(Counter { bytes:0, limit }, value).is_ok()
 }

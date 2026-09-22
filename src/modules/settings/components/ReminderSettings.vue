@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
-import { Plus, Delete, Edit, VideoPlay, RefreshRight, Bell } from '@element-plus/icons-vue'
+import { Plus, Delete, Edit, VideoPlay, RefreshRight, Bell } from '../../../shared/icons'
 
 const rules = ref([])
 const logs = ref([])

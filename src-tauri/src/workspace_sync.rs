@@ -289,18 +289,18 @@ impl Reconciler {
         }
         self.observed = observed;
         let tracked = {
-            let mut stmt = conn.prepare("SELECT f.id,f.file_path FROM case_files f JOIN workspace_file_state s ON s.file_id=f.id WHERE f.deleted_at IS NULL")?;
+            let mut stmt = conn.prepare("SELECT f.id,f.file_path,s.missing FROM case_files f JOIN workspace_file_state s ON s.file_id=f.id WHERE f.deleted_at IS NULL")?;
             let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,r.get::<_,bool>(2)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
-        for (id, path) in tracked {
+        for (id, path, was_missing) in tracked {
             let missing = !Path::new(&path).is_file();
-            conn.execute(
-                "UPDATE workspace_file_state SET missing=?2 WHERE file_id=?1",
+            if missing != was_missing { conn.execute(
+                "UPDATE workspace_file_state SET missing=?2 WHERE file_id=?1 AND missing IS NOT ?2",
                 params![id, missing],
-            )?;
+            )?; }
             status.missing += usize::from(missing);
         }
         if opts.embeddings {
@@ -381,11 +381,15 @@ impl Reconciler {
             };
             if missing.len() == 1 {
                 let id = &missing[0].0;
+                let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+                    log::warn!("跳过缺少文件名的路径: {}", path.display());
+                    return Ok(());
+                };
                 let tx =
                     conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                 tx.execute(
                     "UPDATE case_files SET file_path=?2,file_name=?3 WHERE id=?1",
-                    params![id, path_text, path.file_name().unwrap().to_string_lossy()],
+                    params![id, path_text, file_name],
                 )?;
                 files::relocate_knowledge_references(&tx, Path::new(&missing[0].1), path)?;
                 tx.commit()?;
@@ -449,7 +453,7 @@ impl Reconciler {
             if state != "completed" || sha != hash {
                 return Ok(());
             }
-            if opts.content_name && content_named.as_deref() != Some(&job_id) {
+            if opts.content_name && content_named.as_deref() != Some(job_id.as_str()) {
                 let markdown: String = conn.query_row("SELECT COALESCE(group_concat(markdown,char(10)),'') FROM (SELECT markdown FROM document_pages WHERE job_id=?1 ORDER BY page_number LIMIT 2)",[&job_id],|r|r.get(0))?;
                 if let Some(new_name) = content_name(&markdown, &name) {
                     let new_name = if opts.name {
@@ -497,7 +501,18 @@ pub fn start() {
         let mut reconciler = Reconciler::default();
         loop {
             let result = tauri::async_runtime::spawn_blocking(move || {
+                let enabled=db::open_db().and_then(|conn|options(&conn)).map(|o|o.register||o.ocr||o.knowledge||o.embeddings||o.name||o.content_name);
+                if matches!(enabled,Ok(false)) {
+                    crate::processing::service("workspace","案件目录自动同步","disabled","尚未在设置中启用",None);
+                } else {
+                    crate::processing::service("workspace","案件目录自动同步","running","检查目录与文件变化",None);
+                }
                 let result = reconciler.tick();
+                if !matches!(enabled,Ok(false)) {
+                    let error=match &result {Ok(s) if !s.errors.is_empty()=>Some(s.errors.join("；")),Err(e)=>Some(e.to_string()),_=>None};
+                    let summary=match &result {Ok(s)=>format!("最近检查：登记 {}，排队 {}，知识同步 {}，更名 {}；每 10 秒检查",s.registered,s.queued,s.mirrored,s.renamed),Err(_)=>"目录检查失败".into()};
+                    crate::processing::service("workspace","案件目录自动同步",if error.is_some(){"failed"}else{"waiting"},&summary,error.as_deref());
+                }
                 (reconciler, result)
             })
             .await;

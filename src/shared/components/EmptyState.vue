@@ -9,7 +9,7 @@ import {
   Box,
   Folder,
   Search,
-} from '@element-plus/icons-vue'
+} from '../icons'
 
 const props = defineProps({
   /** 场景类型：cases / tasks / docs / knowledge / calendar / inbox / files / search / custom */
@@ -143,7 +143,12 @@ function handleAction() {
 }
 
 .empty-icon {
-  color: var(--gray-300);
+  color: var(--c-primary);
+  background: var(--c-primary-light);
+  border-radius: var(--c-radius-2xl);
+  padding: 16px;
+  display: grid;
+  place-items: center;
   margin-bottom: 16px;
 }
 
@@ -162,7 +167,7 @@ function handleAction() {
 .empty-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--gray-500);
+  color: var(--c-text-heading);
   margin: 0 0 6px 0;
   line-height: 1.4;
 }

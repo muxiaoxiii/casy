@@ -4,6 +4,7 @@
  */
 
 export interface WhiteboardDto {
+  preview?: string | null
   id: string
   caseId: string
   name: string

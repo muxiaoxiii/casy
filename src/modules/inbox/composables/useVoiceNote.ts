@@ -3,10 +3,13 @@
  * 按住说话 / 录音转写 → 收件箱
  */
 import { ref, onScopeDispose } from 'vue'
+import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 
 export function useVoiceNote() {
   const isRecording = ref(false)
+  const isSaving = ref(false)
+  let disposed=false
   const recordingTime = ref(0)
   const transcript = ref('')
   let mediaRecorder: MediaRecorder | null = null
@@ -16,8 +19,10 @@ export function useVoiceNote() {
 
   /** 开始录音 */
   async function startRecording() {
+    if(disposed || isRecording.value || isSaving.value)return
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if(disposed){stream.getTracks().forEach(t=>t.stop());stream=null;return}
       mediaRecorder = new MediaRecorder(stream)
       audioChunks = []
 
@@ -26,10 +31,14 @@ export function useVoiceNote() {
       }
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
-        await processAudio(audioBlob)
+        isSaving.value=true
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
         stream?.getTracks().forEach(track => track.stop())
         stream = null
+        try { await processAudio(audioBlob);audioChunks=[] } catch(error) {
+          ElMessage.error(`录音保存失败：${String(error)}。已尝试下载音频副本，请保留原件。`)
+          const url=URL.createObjectURL(audioBlob),a=document.createElement('a');a.href=url;a.download='未保存的语音速记.'+(audioBlob.type.includes('mp4')?'m4a':audioBlob.type.includes('ogg')?'ogg':'webm');a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)
+        } finally {isSaving.value=false}
       }
 
       mediaRecorder.start()
@@ -39,6 +48,7 @@ export function useVoiceNote() {
       // 计时器
       timer = window.setInterval(() => {
         recordingTime.value++
+        if(recordingTime.value>=3600)stopRecording()
       }, 1000)
 
     } catch (err) {
@@ -64,6 +74,7 @@ export function useVoiceNote() {
   // 组件卸载兜底：清计时器、停录音（onstop 负责保存并释放麦克风），
   // 防止录音中离开页面导致麦克风常亮
   onScopeDispose(() => {
+    disposed=true
     if (timer) {
       clearInterval(timer)
       timer = null
@@ -79,30 +90,12 @@ export function useVoiceNote() {
 
   /** 处理音频 → 转写 → 添加到收件箱 */
   async function processAudio(audioBlob: Blob) {
-    // 将音频转换为 base64
-    const reader = new FileReader()
-    reader.onloadend = async () => {
-      const audioData = Array.from(new Uint8Array(await audioBlob.arrayBuffer()))
-
-      // 保存到临时文件
-      const result = await tauriCallSafe('save_voice_note', {
-        audioData,
-        durationSeconds: recordingTime.value,
-      })
-
-      if (result.ok && result.data) {
-        // 添加到收件箱
-        await tauriCallSafe('add_inbox_item', {
-          sourceType: 'note',
-          title: `语音速记 ${new Date().toLocaleTimeString()}`,
-          contentText: transcript.value || '（语音待转写）',
-          sourcePath: result.data,
-        })
-
-        transcript.value = ''
-      }
-    }
-    reader.readAsDataURL(audioBlob)
+    const audioBase64=await new Promise<string>((resolve,reject)=>{
+      const reader=new FileReader();reader.onerror=()=>reject(reader.error);reader.onload=()=>resolve(String(reader.result).split(',')[1] || '');reader.readAsDataURL(audioBlob)
+    })
+    const result=await tauriCallSafe('save_voice_note',{audioBase64,mimeType:audioBlob.type,durationSeconds:recordingTime.value})
+    if(!result.ok)throw new Error(result.error || '录音保存失败')
+    transcript.value='';ElMessage.success('录音原件已存入收件箱，尚未转写')
   }
 
   /** 格式化录音时长 */
@@ -114,6 +107,7 @@ export function useVoiceNote() {
 
   return {
     isRecording,
+    isSaving,
     recordingTime,
     transcript,
     startRecording,

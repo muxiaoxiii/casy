@@ -338,6 +338,8 @@ export class CasesService extends Service {
       caseLevel?: string
       contactInfo?: string
       actualStatus?: string
+      lifecycleStatus?: string
+      changeReason?: string
     },
   ): Promise<{ ok: boolean; error?: string }> {
     return tauriCallSafe('update_case_hearing', { id, payload })

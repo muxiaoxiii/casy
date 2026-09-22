@@ -14,6 +14,22 @@ type CommandArgsWithOptions<K extends keyof CommandMap & string> =
     ? [args?: CommandMap[K]['params'], options?: TauriCallOptions]
     : [args: CommandMap[K]['params'], options?: TauriCallOptions]
 
+export async function invokeWithDeadline<T>(command: string, args: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+  // Conversion duration depends on page count. The backend owns progress and stall
+  // detection; abandoning its promise would report failure and start the next job
+  // while this one still writes output in the background.
+  const backendOwnsCompletion = command === 'convert_file_to_markdown' || /^(create_backup|restore_backup|export_|import_|webdav_(push|pull|resolve_)|feishu_(sync_|import_)|sync_feishu_)/.test(command)
+  if (backendOwnsCompletion && timeoutMs === undefined) return invoke<T>(command, args)
+  const limit=timeoutMs ?? (/export|import|backup|sync|ai_chat|preview_editor|transcrib|convert/.test(command)?180000:60000)
+  let timer:ReturnType<typeof setTimeout>|undefined
+  try {
+    return await Promise.race([
+      invoke<T>(command,args),
+      new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('IPC_TIMEOUT: 等待响应超时。后台操作可能仍在进行，请先刷新核对结果；不要重复提交写入。')),limit)}),
+    ])
+  } finally {clearTimeout(timer)}
+}
+
 // 是否启用全局错误提示（可通过设置关闭）
 let globalErrorNotify = true
 
@@ -51,7 +67,7 @@ export async function tauriCallSafe<K extends keyof CommandMap & string>(
   }
 
   try {
-    const result = await invoke<CommandMap[K]['result']>(command, invokeArgs)
+    const result = await invokeWithDeadline<CommandMap[K]['result']>(command, invokeArgs)
     return { ok: true, data: result }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -82,7 +98,7 @@ export async function tauriCall<K extends keyof CommandMap & string>(
   }
 
   try {
-    const result = await invoke<CommandMap[K]['result']>(command, invokeArgs)
+    const result = await invokeWithDeadline<CommandMap[K]['result']>(command, invokeArgs)
     return result
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

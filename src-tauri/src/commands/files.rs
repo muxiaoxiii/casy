@@ -264,9 +264,14 @@ pub(crate) fn insert_file(
         return Ok(existing);
     }
     let id = db::new_id();
-    let name = display_name
-        .map(str::to_owned)
-        .unwrap_or_else(|| path.file_name().unwrap().to_string_lossy().to_string());
+    let name = match display_name.map(str::to_owned) {
+        Some(name) => name,
+        None => path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("路径缺少有效文件名: {}", path.display()))?
+            .to_string(),
+    };
     validate_leaf_name(&name)?;
     let size = std::fs::metadata(path)?.len() as i64;
     let kind = path
@@ -525,7 +530,10 @@ fn import_batch(
             let dest = available_link(
                 staged.path(),
                 &dir,
-                source.file_name().unwrap().to_str().unwrap(),
+                source
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .ok_or_else(|| anyhow::anyhow!("来源路径缺少有效文件名: {}", source.display()))?,
             )?;
             links
                 .paths
@@ -898,7 +906,12 @@ pub(crate) fn relocate_files(
     let mut links = PendingLinks::new();
     let mut out = Vec::new();
     for (row, source, name) in &sources {
-        let dir = target.unwrap_or_else(|| source.parent().unwrap());
+        let dir = match target {
+            Some(dir) => dir,
+            None => source
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("路径缺少父目录: {}", source.display()))?,
+        };
         if (target.is_none() && *name == row.file_name) || dir.join(name) == *source {
             out.push(RenameOutcome {
                 id: row.id.clone(),
@@ -910,12 +923,16 @@ pub(crate) fn relocate_files(
         }
         let dest = available_link(source, dir, name)?;
         links.paths.push((source.clone(), dest.clone()));
-        let final_name = dest.file_name().unwrap().to_string_lossy().to_string();
+        let final_name = dest
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("目标路径缺少有效文件名: {}", dest.display()))?
+            .to_string();
         tx.execute(
             "UPDATE case_files SET file_name=?1,file_path=?2 WHERE file_path=?3",
             params![final_name, dest.to_string_lossy(), row.file_path],
         )?;
-        relocate_knowledge_references(&tx, source, &dest)?;
+
         out.push(RenameOutcome {
             id: row.id.clone(),
             old_name: row.file_name.clone(),
@@ -923,6 +940,7 @@ pub(crate) fn relocate_files(
             warning: None,
         });
     }
+    relocate_knowledge_reference_batch(&tx, &links.paths)?;
     tx.commit()?;
     links.committed = true;
     for (source, dest) in &links.paths {
@@ -944,14 +962,17 @@ pub(crate) fn relocate_files(
 }
 
 pub(crate) fn relocate_knowledge_references(conn: &rusqlite::Connection, source: &Path, destination: &Path) -> anyhow::Result<()> {
-    let mappings = [(source.to_owned(), destination.to_owned())];
+    relocate_knowledge_reference_batch(conn, &[(source.to_owned(), destination.to_owned())])
+}
+fn relocate_knowledge_reference_batch(conn: &rusqlite::Connection, mappings: &[(PathBuf,PathBuf)]) -> anyhow::Result<()> {
+    if mappings.is_empty() { return Ok(()); }
     let items = {
         let mut stmt = conn.prepare("SELECT id,content FROM knowledge_items")?;
         let items = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         items
     };
     for (id, content) in items {
-        let relocated = super::portable_backup::relocate_markdown(&content, &mappings);
+        let relocated = super::portable_backup::relocate_markdown(&content, mappings);
         if relocated != content {
             conn.execute("UPDATE knowledge_items SET content=?2,updated_at=datetime('now','localtime') WHERE id=?1",params![id,relocated])?;
         }

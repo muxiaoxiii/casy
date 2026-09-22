@@ -7,6 +7,7 @@
  * 判断依据：window.__TAURI_INTERNALS__ 是否存在。
  */
 
+import type { CalendarEventRow, Draft } from '../types/bindings'
 import { addDaysLocalISO, todayLocalISO, toLocalISODate, daysUntil } from '../shared/utils/date'
 
 export function isTauriRuntime(): boolean {
@@ -56,6 +57,14 @@ const mockInbox = [
   { id: 'i3', title: '检索报告初稿', contentText: '代理师发送了第一轮检索结果，等待律师确认检索式。', sourceType: 'wechat', sourceLabel: 'WECHAT', status: 'pending', caseId: 'c3', caseName: '宁德时代专利无效' },
 ]
 
+// Stateful, contract-shaped fixtures for connected workspace preview. Never used in Tauri.
+const mockCalendarRows: CalendarEventRow[] = [
+  { id: 'preview-session-1', title: '核对隆基口审证据清单', eventDate: todayLocalISO(), startTime: '09:00', endTime: '10:30', allDay: false, caseId: 'c1', taskId: 't1', color: null, location: '资料室', notes: null },
+  { id: 'preview-session-2', title: '证据讨论', eventDate: todayLocalISO(), startTime: '10:00', endTime: '11:00', allDay: false, caseId: 'c1', taskId: null, color: null, location: '会议室', notes: null },
+]
+const mockDrafts: Draft[] = [{ id: 'preview-draft-1', title: '口审代理意见 · 工作稿', content: '<h1>口审代理意见</h1><p>逐项核对技术特征与证据来源，梳理争议焦点。</p>', caseId: 'c1', templatePath: null, status: 'draft', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+mockKnowledge[0].linkedCaseId = 'c1'
+mockKnowledge[2].linkedCaseId = 'c1'
 const mockLinks: any[] = []
 const mockKnowledgeVersions: any[] = []
 
@@ -129,7 +138,8 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       return mockCases.find(c => c.id === args.id) || null
     case 'list_tasks': {
       const filter = (args.filter as any) || {}
-      let items = mockTasks.filter((t: { id: string; completed?: boolean }) => !t.completed)
+      let items = mockTasks.filter(t => filter.completed == null || Boolean('completed' in t && t.completed) === filter.completed)
+      if (filter.startBucket) items = items.filter(t => t.startBucket === filter.startBucket)
       if (filter.perspective === 'inbox') items = mockTasks.filter(t => t.startBucket === 'inbox')
       if (filter.perspective === 'today') items = mockTasks.filter(t => t.startBucket === 'today')
       if (filter.perspective === 'waiting') items = mockTasks.filter(t => t.taskType === 'waiting')
@@ -137,7 +147,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       if (filter.perspective === 'next') items = mockTasks.filter(t => t.taskType === 'action' && (t.blocked === 0 || !t.caseId))
       if (filter.caseId) items = items.filter(t => t.caseId === filter.caseId)
       // 多个消费者期望数组（tasks store / TasksView / DashboardView）
-      return items
+      return items.map(item => ({ ...item, completed: Number('completed' in item && item.completed) }))
     }
     case 'create_task': {
       const data = (args.data as any) || {}
@@ -182,8 +192,10 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
         byTrack: [...new Set(mockCases.map(c => c.track))].map(track => [track, mockCases.filter(c => c.track === track).length]),
         byClient: [...new Set(mockCases.map(c => c.clientName))].map(client => [client, mockCases.filter(c => c.clientName === client).length]),
       }
-    case 'list_knowledge':
-      return { items: mockKnowledge.map(item => ({ ...item })), total: mockKnowledge.length }
+    case 'list_knowledge': {
+      const filter = (args.filter || {}) as { caseId?: string; category?: string }
+      return mockKnowledge.filter(item => (!filter.caseId || item.linkedCaseId === filter.caseId) && (!filter.category || item.category === filter.category)).map(item => ({ ...item }))
+    }
     case 'create_knowledge': {
       const data = (args.data as any) || {}
       const id = `k${Date.now()}`
@@ -290,17 +302,49 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       item.status = 'filed'
       return { success: true, action: 'task_created', task }
     }
+    case 'list_calendar_events':
+      return mockCalendarRows.filter(e => e.eventDate >= String(args.startDate) && e.eventDate <= String(args.endDate)).map(e => ({ ...e }))
+    case 'create_calendar_event': {
+      const data = args.data as CalendarEventRow
+      const row: CalendarEventRow = { ...data, id: crypto.randomUUID(), allDay: Boolean(data.allDay), color: data.color || null, location: data.location || null, notes: data.notes || null, caseId: data.caseId || null, taskId: data.taskId || null, startTime: data.startTime || null, endTime: data.endTime || null }
+      mockCalendarRows.push(row)
+      return { ...row }
+    }
+    case 'update_calendar_event': {
+      const row = mockCalendarRows.find(e => e.id === args.id)
+      if (!row) return undefined
+      Object.assign(row, args.data)
+      return null
+    }
+    case 'delete_calendar_event': {
+      const index = mockCalendarRows.findIndex(e => e.id === args.id)
+      if (index < 0) return undefined
+      mockCalendarRows.splice(index, 1)
+      return null
+    }
+    case 'list_drafts': return mockDrafts.map(d => ({ ...d }))
+    case 'get_draft': return mockDrafts.find(d => d.id === args.id) ? { ...mockDrafts.find(d => d.id === args.id)! } : undefined
+    case 'update_draft': {
+      const row = mockDrafts.find(d => d.id === args.id)
+      if (!row || (args.expectedVersion != null && args.expectedVersion !== row.version)) return undefined
+      for (const key of ['title', 'content', 'status', 'caseId'] as const) if (key in args) Object.assign(row, { [key]: args[key] })
+      row.version++; row.updatedAt = new Date().toISOString()
+      return { ...row }
+    }
+    case 'list_case_files': return []
     case 'get_calendar_events': {
       const year = (args.year as number) || new Date().getFullYear()
       const month = (args.month as number) || new Date().getMonth() + 1
-      return mockEvents.filter(e => {
+      return [...mockEvents.filter(e => {
         const [y, m] = e.date.split('-').map(Number)
         return y === year && m === month
       }).map(e => ({
         id: e.id, date: e.date, title: e.title, eventType: e.type === 'court' ? 'hearing' : e.type,
         caseId: e.caseId || '', caseName: mockCases.find(c => c.id === e.caseId)?.caseName || '',
         startTime: e.time, endTime: null, allDay: false,
-      }))
+      })), ...mockCalendarRows.filter(e => e.eventDate.startsWith(`${year}-${String(month).padStart(2, '0')}`)).map(e => ({
+        ...e, date: e.eventDate, eventType: 'event', caseId: e.caseId || '', caseName: mockCases.find(c => c.id === e.caseId)?.caseName || '', allDay: e.allDay,
+      }))]
     }
     case 'get_deadline_warnings_with_levels':
     case 'get_deadline_warnings':

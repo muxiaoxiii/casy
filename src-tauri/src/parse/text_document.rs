@@ -1,10 +1,8 @@
 use crate::document_pipeline::{DocumentPage, ProcessRequest, ProcessResult};
 use anyhow::{bail, Context, Result};
 use pulldown_cmark::{Event, Options, Parser};
-use std::{io::Read, path::Path};
+use std::path::Path;
 
-const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_MARKDOWN_BYTES: usize = 64 * 1024 * 1024;
 const CHUNK_CHARS: usize = 3000;
 
 pub fn supports(path: &Path) -> bool {
@@ -18,26 +16,20 @@ pub fn supports(path: &Path) -> bool {
 }
 
 pub fn extract_markdown(path: &Path) -> Result<String> {
-    let file = std::fs::File::open(path)?;
-    if file.metadata()?.len() > MAX_SOURCE_BYTES {
-        bail!("DOCUMENT_TOO_LARGE: 文本文档超过 64 MiB 处理上限");
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_SOURCE_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_SOURCE_BYTES {
-        bail!("DOCUMENT_TOO_LARGE: 文本文档超过 64 MiB 处理上限");
-    }
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
     let markdown = if matches!(ext.as_str(), "md" | "markdown" | "txt") {
-        String::from_utf8(bytes)
-            .context("TEXT_ENCODING: 文本需要 UTF-8 编码")?
-            .trim_start_matches('\u{feff}')
-            .to_owned()
+        let mut text = std::fs::read_to_string(path)
+            .context("TEXT_ENCODING: 无法读取文件，文本需要 UTF-8 编码")?;
+        if text.starts_with('\u{feff}') {
+            text.drain(..'\u{feff}'.len_utf8());
+        }
+        text
     } else {
+        let bytes = std::fs::read(path).context("无法读取文档")?;
         anydoc::to_markdown_bytes(&bytes, anydoc::Format::from_extension(&ext)).map_err(|e| {
             if ext == "doc" {
                 anyhow::anyhow!(
@@ -50,9 +42,6 @@ pub fn extract_markdown(path: &Path) -> Result<String> {
     };
     if markdown.trim().is_empty() {
         bail!("NO_TEXT: 文件没有可提取的正文");
-    }
-    if markdown.len() > MAX_MARKDOWN_BYTES {
-        bail!("DOCUMENT_TOO_LARGE: 提取正文超过 64 MiB 处理上限");
     }
     Ok(markdown)
 }
@@ -108,6 +97,8 @@ fn segment(index: usize, markdown: &str) -> DocumentPage {
         markdown: markdown.into(),
         regions: vec![],
         confidence: None,
+        layout: None,
+        timing: None,
     }
 }
 
@@ -120,9 +111,13 @@ pub fn process(request: &ProcessRequest) -> Result<ProcessResult> {
     let markdown_path = root.join("document.md");
     let page_ir_path = root.join("segments.json");
     std::fs::write(&markdown_path, markdown)?;
-    serde_json::to_writer(std::fs::File::create(&page_ir_path)?, &pages)?;
+    use std::io::Write;
+    let mut writer = std::io::BufWriter::new(std::fs::File::create(&page_ir_path)?);
+    serde_json::to_writer(&mut writer, &pages)?;
+    writer.flush()?;
     Ok(ProcessResult {
         source_map_path: None,
+        elapsed_ms: 0,
         source_sha256: request.source_sha256.clone(),
         engine: "text-document".into(),
         model_version: Some("anydoc-0.1.8".into()),
@@ -136,6 +131,22 @@ pub fn process(request: &ProcessRequest) -> Result<ProcessResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn accepts_text_source_and_extracted_markdown_larger_than_64_mib() {
+        use std::io::Write;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("large.md");
+        let mut file = std::fs::File::create(&path).unwrap();
+        let block = vec![b'a'; 1024 * 1024];
+        for _ in 0..65 { file.write_all(&block).unwrap(); }
+        file.write_all("\n最后一行完整保留".as_bytes()).unwrap();
+        drop(file);
+        let markdown = extract_markdown(&path).unwrap();
+        assert!(markdown.len() > 64 * 1024 * 1024);
+        assert_eq!(markdown.len() as u64, std::fs::metadata(path).unwrap().len());
+        assert!(markdown.ends_with("\n最后一行完整保留"));
+    }
+
     #[test]
     fn segments_keep_all_content_and_bound_cjk_chunks() {
         let source = format!(

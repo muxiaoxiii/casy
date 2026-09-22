@@ -448,6 +448,7 @@ impl ImapWatcher {
                 let running_clone = running.clone();
                 tokio::spawn(async move {
                     if let Err(e) = watch_account(account, running_clone).await {
+                        crate::processing::service("email","邮件监听","failed","邮件监听异常",Some(&e.to_string()));
                         log::error!("IMAP 监听错误: {}", e);
                     }
                 });
@@ -460,6 +461,7 @@ impl ImapWatcher {
         });
 
         self.handle = Some(handle);
+        crate::processing::service("email","邮件监听","waiting","等待新邮件通知",None);
         log::info!("IMAP 邮件监听已启动");
         Ok(())
     }
@@ -470,6 +472,7 @@ impl ImapWatcher {
         if let Some(handle) = self.handle.take() {
             handle.abort();
         }
+        crate::processing::service("email","邮件监听","disabled","已停止监听",None);
         log::info!("IMAP 邮件监听已停止");
     }
 
@@ -595,6 +598,9 @@ async fn connect_and_idle(config: &ImapAccountConfig, running: &Arc<AtomicBool>)
 
 /// 拉取新邮件
 async fn fetch_new_emails(session: &mut ImapSession, config: &ImapAccountConfig) -> Result<()> {
+    crate::processing::tracked("email","收取新邮件",fetch_new_emails_inner(session,config)).await
+}
+async fn fetch_new_emails_inner(session: &mut ImapSession, config: &ImapAccountConfig) -> Result<()> {
     // 获取上次同步的 UID
     let last_uid = {
         let conn = crate::db::open_db()?;

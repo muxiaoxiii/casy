@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Clock, RefreshLeft } from '@element-plus/icons-vue'
+import { Clock, RefreshLeft } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 
 const props = defineProps({

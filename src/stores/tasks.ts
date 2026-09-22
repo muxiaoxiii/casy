@@ -37,6 +37,8 @@ export interface CustomPerspective {
 export interface TasksState {
   tasks: GTDTask[]
   loading: boolean
+  /** Monotonic load token so concurrent loadTasks cannot apply a stale list. */
+  listRequest: number
   activePerspective: string
   customPerspectives: CustomPerspective[]
   filter: {
@@ -67,6 +69,7 @@ export const useTasksStore = defineStore('tasks', {
   state: (): TasksState => ({
     tasks: [],
     loading: false,
+    listRequest: 0,
     activePerspective: 'inbox',
     customPerspectives: [],
     filter: {
@@ -168,6 +171,7 @@ export const useTasksStore = defineStore('tasks', {
     // ============================================================
     
     async loadTasks(): Promise<void> {
+      const request = ++this.listRequest
       this.loading = true
       const result = await casyContext.tasks.list({
         completed: this.filter.completed || null,
@@ -175,6 +179,8 @@ export const useTasksStore = defineStore('tasks', {
         areaId: this.filter.areaId || null,
         taskType: this.filter.taskType || null,
       })
+      // Ignore stale responses that finished after a newer load started.
+      if (request !== this.listRequest) return
       if (result.ok && result.data) {
         this.tasks = result.data
       }

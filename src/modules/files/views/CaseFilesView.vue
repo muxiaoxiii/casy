@@ -8,7 +8,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Folder, Message, Paperclip, Upload, Download, Document,
   ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close, EditPen, FolderAdd, RefreshLeft
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
 import DocumentSourceViewer from '../components/DocumentSourceViewer.vue'
 import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
@@ -18,6 +18,19 @@ const router = useRouter()
 const casesStore = useCasesStore()
 
 const caseId = computed(() => String(route.params.caseId || ''))
+const caseChoices = ref([])
+const caseChoiceLoading = ref(false)
+let caseChoiceRevision = 0
+async function searchCaseChoices(search = '') {
+  const revision = ++caseChoiceRevision
+  caseChoiceLoading.value = true
+  const result = await casyContext.cases.list({ search, page: 1, perPage: 100 })
+  if (disposed || revision !== caseChoiceRevision) return
+  caseChoiceLoading.value = false
+  if (result.ok) caseChoices.value = result.data?.items || []
+  else ElMessage.warning(result.error || '案件列表加载失败')
+}
+function chooseCase(id) { if (id) router.push({ name: 'files', params: { caseId: id } }) }
 const caseData = ref(null)
 const loading = ref(false)
 const activeCategory = ref('all')
@@ -38,6 +51,7 @@ const moveOpen = ref(false)
 const moveIds = ref([])
 const moveDir = ref('')
 let loadRevision = 0
+let lastIdlePoll = 0
 let disposed = false
 
 function selectFile(file) {
@@ -80,6 +94,15 @@ function isOcrCandidateFile(file) {
 
 function isTextDocument(file) {
   return /\.(md|markdown|txt|doc|docx|docm|rtf|odt)$/i.test(file?.fileName || '')
+}
+
+function formatProcessingDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0))
+  return value < 60 ? `${value} 秒` : `${Math.floor(value / 60)} 分 ${value % 60} 秒`
+}
+
+function documentPhase(phase) {
+  return ({ preparing:'准备文件',rendering:'渲染页面',recognizing:'识别文字',analyzing_layout:'分析复杂版面',finalizing:'整理结果' })[phase] || '处理中'
 }
 
 function ocrBadge(file) {
@@ -140,6 +163,10 @@ async function openSearchablePdf(file) {
 async function retryDocument(file) {
   const job = documentJobs.value[file.id]
   if (!job) return ocrNow(file)
+  if (job.status === 'completed') {
+    try { await ElMessageBox.confirm('使用当前引擎重新识别并建立新版本。旧结果保留；新识别不会自动继承旧版的手工校订。', '重新识别', { confirmButtonText: '生成新版本', cancelButtonText: '取消' }) }
+    catch { return }
+  }
   const result = await tauriCallSafe('retry_document_job', { jobId: job.id })
   if (!result.ok) ElMessage.error(result.error || '重试失败')
   else ElMessage.success('已重新加入处理队列')
@@ -431,16 +458,25 @@ watch(caseId, () => {
 }, { immediate: true })
 
 onMounted(() => {
+  searchCaseChoices()
   loadDocumentEngine()
   let polling = false
   documentPollTimer = window.setInterval(async () => {
-    if (polling) return
+    if (polling || disposed) return
+    // Idle pages should not keep two IPC calls every 3s forever.
+    const jobs = Object.values(documentJobs.value)
+    const hasActive = jobs.some(job => job.status === 'running' || job.status === 'queued')
+    if (!hasActive && jobs.length > 0 && !route.query.select) {
+      // Stretch idle polling instead of hammering IPC; still refresh occasionally.
+      if (Date.now() - lastIdlePoll < 30_000) return
+    }
+    lastIdlePoll = Date.now()
     polling = true
     try {
-      const before = JSON.stringify(documentJobs.value)
+      const before = JSON.stringify(Object.values(documentJobs.value).map(job => [job.id, job.status, job.searchablePdfPath]))
       await loadDocumentJobs()
       await loadOcrStates()
-      if (before !== JSON.stringify(documentJobs.value)) await loadFiles()
+      if (before !== JSON.stringify(Object.values(documentJobs.value).map(job => [job.id, job.status, job.searchablePdfPath]))) await loadFiles()
     } finally {
       polling = false
     }
@@ -459,7 +495,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
         <div>
           <div class="workspace-eyebrow">案件卷宗</div>
           <div class="workspace-title-row">
-            <h1>{{ caseData?.caseName || '案件文件' }}</h1>
+            <h1>卷宗</h1>
+            <el-select :model-value="caseId || undefined" filterable remote :remote-method="searchCaseChoices" :loading="caseChoiceLoading" placeholder="选择或搜索案件" aria-label="选择卷宗所属案件" class="dossier-case-picker" @change="chooseCase">
+              <el-option v-if="caseData && !caseChoices.some(item => item.id === caseId)" :value="caseId" :label="caseData.caseName" />
+              <el-option v-for="item in caseChoices" :key="item.id" :value="item.id" :label="[item.internalNo || item.caseNo, item.caseName].filter(Boolean).join(' · ')" />
+            </el-select>
             <span v-if="caseData?.caseNo" class="case-number">{{ caseData.caseNo }}</span>
           </div>
         </div>
@@ -473,15 +513,15 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
           clearable
           placeholder="搜索当前卷宗"
         />
-        <el-button @click="loadFiles" circle title="刷新文件" aria-label="刷新文件">
+        <el-button :disabled="!caseId" @click="loadFiles" circle title="刷新文件" aria-label="刷新文件">
           <el-icon><Refresh /></el-icon>
         </el-button>
         
-        <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn" :disabled="showRemoved">
+        <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn" :disabled="!caseId || showRemoved">
           <el-icon><Search /></el-icon> 卷宗检索
         </el-button>
 
-        <el-button type="primary" @click="uploadFile" :loading="uploading" :disabled="mutating || showRemoved">
+        <el-button type="primary" @click="uploadFile" :loading="uploading" :disabled="!caseId || mutating || showRemoved">
           <el-icon><Upload /></el-icon>
           上传文件
         </el-button>
@@ -499,11 +539,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
         </div>
 
         <div class="directory-picker">
-          <el-select v-model="selectedDir" aria-label="卷宗文件夹" :disabled="showRemoved" filterable>
+          <el-select v-model="selectedDir" aria-label="卷宗文件夹" :disabled="!caseId || showRemoved" filterable>
             <el-option label="所有文件夹" value="__all__" />
             <el-option v-for="dir in directories" :key="dir.relPath" :label="dir.name" :value="dir.relPath" />
           </el-select>
-          <el-button :icon="FolderAdd" :disabled="mutating || showRemoved" title="新建文件夹" aria-label="新建文件夹" @click="createDirectory" />
+          <el-button :icon="FolderAdd" :disabled="!caseId || mutating || showRemoved" title="新建文件夹" aria-label="新建文件夹" @click="createDirectory" />
         </div>
 
         <nav class="folder-list" aria-label="文件分类">
@@ -608,6 +648,12 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
             <p v-if="!isTextDocument(selectedFile) && documentEngine && !documentEngine.available" class="ocr-engine-warning">
               引擎未就绪：{{ documentEngine.missing?.join('、') || documentEngine.error }}
             </p>
+            <p v-if="documentJobs[selectedFile.id]?.status === 'running'" class="ocr-processing-detail">
+              {{ documentPhase(documentJobs[selectedFile.id].phase) }}
+              <template v-if="documentJobs[selectedFile.id].totalPages"> · {{ documentJobs[selectedFile.id].currentPage }} / {{ documentJobs[selectedFile.id].totalPages }} 页</template>
+              · 已用 {{ formatProcessingDuration(documentJobs[selectedFile.id].elapsedSeconds) }}
+              <template v-if="documentJobs[selectedFile.id].remainingSeconds != null"> · 预计剩余 {{ formatProcessingDuration(documentJobs[selectedFile.id].remainingSeconds) }}</template>
+            </p>
             <p v-if="documentJobs[selectedFile.id]?.errorMessage" class="ocr-engine-error">
               {{ documentJobs[selectedFile.id].errorMessage }}
             </p>
@@ -629,7 +675,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
               :loading="!!ocrBusy[selectedFile.id]"
               :disabled="['queued', 'running'].includes(documentJobs[selectedFile.id]?.status)"
               @click="ocrNow(selectedFile)"
-            >{{ isTextDocument(selectedFile) ? '提取正文并索引' : '生成可搜索 PDF' }}</el-button>
+            >{{ isTextDocument(selectedFile) ? '提取正文并索引' : '开始识别并生成可搜索 PDF' }}</el-button>
             <el-button
               v-if="['queued', 'running'].includes(documentJobs[selectedFile.id]?.status)"
               :icon="Close"
@@ -652,11 +698,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
               @click="casyContext.files.openDefault(documentJobs[selectedFile.id].markdownPath)"
             >打开 Markdown 备份</el-button>
             <el-button
-              v-if="['failed', 'cancelled'].includes(documentJobs[selectedFile.id]?.status)"
+              v-if="['failed', 'cancelled', 'completed'].includes(documentJobs[selectedFile.id]?.status)"
               type="warning"
               plain
               @click="retryDocument(selectedFile)"
-            >重试</el-button>
+            >{{ documentJobs[selectedFile.id]?.status === 'completed' ? '重新识别（保留旧版）' : '重试' }}</el-button>
             <el-button
               v-if="ocrStates[selectedFile.id]?.hasText"
               text

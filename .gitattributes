@@ -1,0 +1,3 @@
+# Preserve historical archive bytes; binary evidence must not be treated as text.
+*.pdf binary
+docs/Archive/** -whitespace

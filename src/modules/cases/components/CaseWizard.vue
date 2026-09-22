@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import { Close, Check, Back, Right, Plus, Delete, MagicStick } from '@element-plus/icons-vue'
+import { Close, Check, Back, Right, Plus, Delete, MagicStick } from '../../../shared/icons'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
 import { intakeSections, routeOptions, statusGroups, newIntake, setIntakeRoute, intakePayload, parseIntakeText } from './caseIntake'

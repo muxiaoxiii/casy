@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Clock, Delete, Edit, Plus, RefreshRight } from '@element-plus/icons-vue'
+import { Clock, Delete, Edit, Plus, RefreshRight } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import DeadlineRuleAuditDrawer from './DeadlineRuleAuditDrawer.vue'
 import {

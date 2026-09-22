@@ -95,6 +95,14 @@ pub fn calendar_sync_enabled(conn: &Connection) -> bool {
         .unwrap_or(false)
 }
 
+/// Status inspection only; authentication is performed by explicit connection/sync actions.
+pub fn caldav_configured(conn: &Connection) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT count(*) = 3 FROM settings WHERE key IN ('caldav_url','caldav_user','caldav_pass') AND length(trim(value)) > 0",
+        [], |row| row.get(0),
+    )?)
+}
+
 /// 从 settings + keychain 加载 CalDAV 配置
 ///
 /// 未配置（缺 URL / 用户名 / 密码）时返回 Ok(None)。
@@ -114,14 +122,7 @@ pub fn load_caldav_config(conn: &Connection) -> Result<Option<CalDavConfig>> {
         return Ok(None);
     };
 
-    // 密码：优先 keychain（service "casy-caldav"，account 为 caldav_user），回退 settings 表
-    let password = crate::credentials::get_credential(
-        crate::credentials::CredentialType::CaldavPassword,
-        &user,
-    )
-    .ok()
-    .flatten()
-    .or_else(|| get("caldav_pass"));
+    let password = crate::credentials::resolve_settings_secret(conn,"caldav_pass")?;
 
     let Some(password) = password else {
         return Ok(None);
@@ -384,6 +385,21 @@ fn escape_ics(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn passive_configuration_checks_require_local_metadata_only() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)").unwrap();
+        assert!(!super::caldav_configured(&conn).unwrap());
+        assert_eq!(crate::sync::feishu::feishu_configuration(&conn).unwrap(), (false,None));
+        for (k,v) in [("caldav_url","https://calendar.invalid/"),("caldav_user","user"),("caldav_pass","secret"),("feishu_app_id","app-test"),("feishu_app_secret","secret")] {
+            conn.execute("INSERT INTO settings VALUES(?1,?2)",[k,v]).unwrap();
+        }
+        assert!(super::caldav_configured(&conn).unwrap());
+        assert_eq!(crate::sync::feishu::feishu_configuration(&conn).unwrap(), (true,Some("app-test".into())));
+        conn.execute("UPDATE settings SET value='  ' WHERE key LIKE '%pass' OR key='feishu_app_secret'",[]).unwrap();
+        assert!(!super::caldav_configured(&conn).unwrap());
+        assert!(!crate::sync::feishu::feishu_configuration(&conn).unwrap().0);
+    }
     use super::*;
 
     #[test]

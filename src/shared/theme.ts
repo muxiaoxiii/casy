@@ -2,14 +2,14 @@ export const THEME_OPTIONS = [
   {
     value: 'system',
     label: '跟随系统',
-    description: '在石墨蓝与暗夜主题之间自动切换',
-    swatches: ['#F5F7FA', '#FFFFFF', '#3E5C9A'],
+    description: '在卷宗明亮与卷宗墨色之间自动切换',
+    swatches: ['#F4F6FA', '#FFFFFF', '#1A4FD6'],
   },
   {
     value: 'slate',
-    label: '石墨蓝',
+    label: '卷宗明亮',
     description: '冷静、清晰，适合长时间专业工作',
-    swatches: ['#F5F7FA', '#FFFFFF', '#3E5C9A'],
+    swatches: ['#F4F6FA', '#FFFFFF', '#1A4FD6'],
   },
   {
     value: 'luminous-terra',
@@ -31,9 +31,9 @@ export const THEME_OPTIONS = [
   },
   {
     value: 'dark',
-    label: '暗夜深色',
+    label: '卷宗墨色',
     description: '中性深灰表面与更清晰的蓝色焦点',
-    swatches: ['#101319', '#181D27', '#6487D4'],
+    swatches: ['#0B1220', '#111C2E', '#8AAFFF'],
   },
 ] as const
 

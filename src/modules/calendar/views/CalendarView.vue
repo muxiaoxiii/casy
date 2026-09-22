@@ -1,7 +1,12 @@
 <script setup>
+import CalendarComposer from '../components/CalendarComposer.vue'
+import TimeGrid from '../components/TimeGrid.vue'
+import { timeString } from '../parseCalendarCapture'
 import { surroundingMonths, monthWorkingDays, eventDuration } from '../calendarDates'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
+import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -22,17 +27,25 @@ import {
   TrendCharts,
   Warning,
   Opportunity,
-} from '@element-plus/icons-vue'
+} from '../../../shared/icons'
 
+const { t, locale } = useI18n()
 const router = useRouter()
 const route = useRoute()
 
 // ============================================================
 // 状态管理 (100% 连通真实 SQLite 数据库)
 // ============================================================
-const currentDate = ref(new Date())
+function dateFromQuery(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date()
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+  return formatDate(date) === value ? date : new Date()
+}
+const currentDate = ref(dateFromQuery(route.query.date))
 const events = ref([])
 const tasks = ref([])
+const completedTaskIds = ref(new Set())
 const todayTasks = ref([])
 const cases = ref([])
 const deadlineWarnings = ref([])
@@ -74,9 +87,6 @@ const editingItem = ref({
 const tankFilter = ref('unscheduled') // 'unscheduled' | 'week' | 'multiday' | 'today'
 const tankSearch = ref('')
 
-// 自然语言快速输入
-const captureInput = ref('')
-const capturing = ref(false)
 
 // ============================================================
 // 拖拽调度引擎 (Drag & Drop Engine - 真实持久化)
@@ -152,102 +162,27 @@ function getDaySpan(startStr, dueStr) {
   return Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1)
 }
 
-// 放置到日历某一天的单元格 (月视图 / 周视图 / 预测视图)
+// Month/agenda drag changes the intended start date. Explicit extend remains a duration edit.
 async function onDropOnDay(e, targetDate) {
   e.preventDefault()
   let task = currentDraggedTask.value
-  if (!task && e.dataTransfer) {
-    try {
-      task = JSON.parse(e.dataTransfer.getData('application/json'))
-    } catch {}
+  if (!task && e.dataTransfer) { try { task = JSON.parse(e.dataTransfer.getData('application/json')) } catch { return } }
+  if(task?.type==='event') {
+    const event=events.value.find(e=>e.id===task.id && e.type==='event')
+    if(!event)return
+    const result=await casyContext.calendar.moveEvent(event.id,formatDate(targetDate),event.startTime || null)
+    if(!result.ok)return ElMessage.error(result.error || '日程移动失败')
+    await loadEvents();onDragEnd();ElMessage.success('已移动日程');return
   }
-  if (!task) return
-
-  const targetDateStr = formatDate(targetDate)
-  let newStartDate = targetDateStr
-  let newDueDate = targetDateStr
-
-  if (dragAction.value === 'extend') {
-    const origStart = task.startDate || dragOriginCellDate.value || targetDateStr
-    if (targetDateStr >= origStart) {
-      newStartDate = origStart
-      newDueDate = targetDateStr
-    } else {
-      newStartDate = targetDateStr
-      newDueDate = origStart
-    }
-  } else {
-    if (task.startDate && task.dueDate && task.startDate !== task.dueDate) {
-      const span = getDaySpan(task.startDate, task.dueDate)
-      const endD = new Date(targetDate)
-      endD.setDate(endD.getDate() + span - 1)
-      newDueDate = formatDate(endD)
-    }
-  }
-
-  // 2. 先真实持久化：失败则不更新本地、不弹成功、直接报错
-  const startBucket = isToday(newStartDate) ? 'today' : 'anytime'
-  const res = await casyContext.tasks.update({
-    id: task.id,
-    startDate: newStartDate,
-    dueDate: newDueDate,
-    startBucket,
-  })
-  if (!res.ok) return ElMessage.error(res.error || '排期失败')
-
-  // 3. 持久化成功后更新本地
-  const existing = tasks.value.find(t => t.id === task.id)
-  if (existing) {
-    existing.startDate = newStartDate
-    existing.dueDate = newDueDate
-    existing.startBucket = startBucket
-  }
-
-  if (newStartDate !== newDueDate) {
-    ElMessage.success(`已将「${task.taskName}」设定为跨天任务 (${newStartDate} ~ ${newDueDate})`)
-  } else {
-    ElMessage.success(`已将「${task.taskName}」排期至 ${targetDateStr}`)
-  }
-
+  if (!task?.id || !tasks.value.some(t => t.id === task.id)) return
+  const date = formatDate(targetDate)
+  const patch = dragAction.value === 'extend'
+    ? { id: task.id, startDate: task.startDate || date, dueDate: date }
+    : { id: task.id, startDate: date, startBucket: isToday(targetDate) ? 'today' : 'anytime' }
+  const result = await casyContext.tasks.update(patch)
+  if (!result.ok) return ElMessage.error(result.error || '排期失败')
+  ElMessage.success(dragAction.value === 'extend' ? '已更新任务日期范围' : '已更新任务开始日期')
   await loadTasks()
-  onDragEnd()
-}
-
-// 放置到 Day 视图具体小时槽位
-async function onDropOnHourSlot(e, hour) {
-  e.preventDefault()
-  let task = currentDraggedTask.value
-  if (!task && e.dataTransfer) {
-    try {
-      task = JSON.parse(e.dataTransfer.getData('application/json'))
-    } catch {}
-  }
-  if (!task) return
-
-  const hourStr = `${String(hour).padStart(2, '0')}:00`
-  const targetDateStr = formatDate(currentDate.value)
-  const startBucket = isToday(currentDate.value) ? 'today' : 'anytime'
-
-  const res = await casyContext.tasks.update({
-    id: task.id,
-    startDate: targetDateStr,
-    dueDate: targetDateStr,
-    startTime: hourStr,
-    startBucket,
-  })
-  if (!res.ok) return ElMessage.error(res.error || '排期失败')
-
-  const existing = tasks.value.find(t => t.id === task.id)
-  if (existing) {
-    existing.startDate = targetDateStr
-    existing.dueDate = targetDateStr
-    existing.startTime = hourStr
-    existing.startBucket = startBucket
-  }
-
-  ElMessage.success(`已将「${task.taskName}」安排至 ${targetDateStr} ${hourStr}`)
-  await loadTasks()
-  await loadTodayTasks()
   onDragEnd()
 }
 
@@ -260,12 +195,11 @@ async function onDropToHoldingTank(e) {
       task = JSON.parse(e.dataTransfer.getData('application/json'))
     } catch {}
   }
-  if (!task) return
+  if (!task || task.type==='event') return
 
   const res = await casyContext.tasks.update({
     id: task.id,
     startDate: null,
-    dueDate: null,
     startTime: null,
     startBucket: 'inbox',
   })
@@ -274,7 +208,6 @@ async function onDropToHoldingTank(e) {
   const existing = tasks.value.find(t => t.id === task.id)
   if (existing) {
     existing.startDate = null
-    existing.dueDate = null
     existing.startTime = null
     existing.startBucket = 'inbox'
   }
@@ -293,9 +226,9 @@ function openDayModal(cell) {
 function openEditDetail(item, type = 'task') {
   if (type === 'event' && item.type !== 'event') {
     if (item.type === 'task') {
-      router.push({ name: 'tasks', query: { tab: 'all' } })
+      router.push({ name: 'tasks', query: { edit: item.id } })
     } else if (item.caseId) {
-      router.push({ name: 'case-detail', params: { id: item.caseId } })
+      router.push({ name: 'case-detail', params: { id: item.caseId }, query: {tab: item.type === 'hearing' ? 'hearings' : 'tracks'} })
     }
     return
   }
@@ -323,6 +256,7 @@ function openEditDetail(item, type = 'task') {
       endTime: item.endTime || '',
       caseId: item.caseId || '',
       estimatedMinutes: 60,
+      taskId: item.taskId || null,
       description: item.notes || '',
       completed: 0,
     }
@@ -424,13 +358,7 @@ async function deleteEditingItem() {
 // ============================================================
 // 真实数据视图计算 (Zero Mock Data)
 // ============================================================
-const viewOptions = [
-  { key: 'timeline', label: 'Timeline' },
-  { key: 'month', label: 'Month' },
-  { key: 'week', label: 'Week' },
-  { key: 'day', label: 'Day' },
-  { key: 'forecast', label: 'Forecast' },
-]
+const viewOptions = computed(() => ['timeline', 'month', 'week', 'day', 'forecast'].map(key => ({ key, label: t(`calendar.${key}`) })))
 
 const weekDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const weekDaysCn = ['一', '二', '三', '四', '五', '六', '日']
@@ -453,7 +381,7 @@ const currentMonthInfo = computed(() => {
     year: y,
     month: m,
     monthNameEn: monthsEn[m],
-    label: `${monthsEn[m]} ${y}`,
+    label: currentDate.value.toLocaleDateString(locale.value, { year: 'numeric', month: 'long' }),
     cnLabel: `${y}年${m + 1}月`,
   }
 })
@@ -621,7 +549,11 @@ const monthGridDays = computed(() => {
     })
   }
 
-  return days
+  return days.map(cell=>{
+    const dayTasks=tasksForDay(cell.date),ids=new Set(dayTasks.map(t=>t.id)),ds=formatDate(cell.date)
+    const dayEvents=events.value.filter(e=>e.date===ds && !(e.type==='task' && ids.has(e.id)))
+    return {...cell,tasks:dayTasks,events:dayEvents,multiDayTasks:dayTasks.filter(t=>t.startDate && t.dueDate && t.startDate!==t.dueDate),hasHard:dayEvents.some(e=>e.type==='court'||e.type==='hearing'||e.type?.startsWith('deadline')),hasWaiting:dayEvents.some(e=>['waiting','appeal','discovery'].includes(e.type)),hasPlan:dayTasks.length>0||dayEvents.some(e=>['task','event'].includes(e.type))}
+  })
 })
 
 // 周视图 7 天列数据
@@ -743,7 +675,7 @@ const tankTasks = computed(() => {
   let list = []
 
   if (tankFilter.value === 'unscheduled') {
-    list = tasks.value.filter(t => !t.dueDate && !t.completed)
+    list = tasks.value.filter(t => !t.completed && !t.startDate && !t.startTime && !events.value.some(e => e.taskId === t.id && e.date >= formatDate(currentDate.value)))
   } else if (tankFilter.value === 'week') {
     const now = new Date(currentDate.value)
     const dayOfWeek = now.getDay() || 7
@@ -775,7 +707,7 @@ const tankTasks = computed(() => {
 onMounted(async () => {
   await loadData()
 })
-onUnmounted(casyContext.on('inbox:confirmed', () => loadData()))
+onUnmounted(observeChanges(casyContext, ['task', 'calendar', 'case', 'inbox'], loadData))
 
 async function loadData() {
   loading.value = true
@@ -793,13 +725,17 @@ async function loadData() {
 async function loadEvents() {
   const request = ++eventRequest
   eventError.value = ''
-  events.value = []
-  const results = await Promise.all(surroundingMonths(currentDate.value).map(({ year, month }) => casyContext.calendar.events(year, month)))
+  const months = surroundingMonths(currentDate.value)
+  const [results, independent] = await Promise.all([
+    casyContext.calendar.events(months[0].year, months[0].month, months.length).then(result => [result]),
+    casyContext.calendar.listEvents(formatDate(new Date(months[0].year, months[0].month - 1, 1)), formatDate(new Date(months[months.length - 1].year, months[months.length - 1].month, 0))),
+  ])
   if (request !== eventRequest) return
   const failed = results.find(result => !result.ok || !Array.isArray(result.data))
   if (!failed) {
     events.value = results.flatMap(result => result.data).map(e => ({
       ...e,
+      ...(e.type === 'event' ? (independent.data || []).find(row => row.id === e.id) : {}),
       time: e.startTime || null,
       endTime: e.endTime || null,
       allDay: !!e.allDay,
@@ -810,9 +746,10 @@ async function loadEvents() {
 }
 
 async function loadTasks() {
-  const result = await casyContext.tasks.list({ completed: false })
+  const result = await casyContext.tasks.list({})
   if (result.ok && Array.isArray(result.data)) {
-    tasks.value = result.data
+    completedTaskIds.value = new Set(result.data.filter(task => task.completed).map(task => task.id))
+    tasks.value = result.data.filter(task => !task.completed)
   }
 }
 
@@ -894,23 +831,44 @@ async function toggleTask(task) {
   await loadTodayTasks()
 }
 
-async function createFromNaturalLanguage() {
-  const text = captureInput.value.trim()
-  if (!text || capturing.value) return
-  capturing.value = true
-  const result = await casyContext.calendar.createEvent({
-    title: text,
-    eventDate: formatDate(currentDate.value),
-    allDay: 1,
-  })
-  capturing.value = false
-  if (result.ok) {
-    ElMessage.success(`已创建日程：${text}`)
-    captureInput.value = ''
-    await loadData()
-  } else {
-    ElMessage.error(result.error || '创建失败')
+async function onCalendarCreated(date) {
+  currentDate.value = dateFromQuery(date)
+  await loadData()
+}
+watch(() => [route.query.date, route.query.view], ([date, view]) => {
+  if (date) currentDate.value = dateFromQuery(date)
+  if (['timeline', 'month', 'week', 'day', 'forecast'].includes(view)) activeView.value = view
+  void loadData()
+})
+const jumpDate = computed({ get: () => formatDate(currentDate.value), set: value => { currentDate.value = dateFromQuery(value); void loadData() } })
+function timedItems(date) {
+  const dayEvents = eventsForDay(date).filter(e => e.time && e.type !== 'task')
+  return [
+    ...dayEvents.map(e => ({ id: e.id, title: e.title, startTime: e.time, endTime: e.endTime, color: e.color, kind: 'event', completed: !!e.taskId && completedTaskIds.value.has(e.taskId) })),
+    ...tasksForDay(date).filter(t => t.startTime && !dayEvents.some(e => e.taskId === t.id)).map(t => ({ id: t.id, title: t.taskName, startTime: t.startTime, endTime: null, kind: 'task' })),
+  ]
+}
+const timedDays = computed(() => (activeView.value === 'week' ? weekColumns.value.map(c => c.date) : [currentDate.value]).map(date => ({ date: formatDate(date), items: timedItems(date) })))
+function openTimedItem(item, date) {
+  const source = item.kind === 'task' ? tasks.value.find(t => t.id === item.id) : eventsForDay(date).find(e => e.id === item.id)
+  if (source) openEditDetail(source, item.kind)
+}
+const schedulingTasks = new Set()
+async function scheduleTaskBlock(event, date, hour) {
+  let task = currentDraggedTask.value
+  if (!task && event.dataTransfer) {
+    try { task = JSON.parse(event.dataTransfer.getData('application/json')) } catch { return }
   }
+  if (!task?.id || !tasks.value.some(t => t.id === task.id) || schedulingTasks.has(task.id)) return
+  const duration = Math.max(15, Number(task.estimatedMinutes) || 60)
+  if (hour * 60 + duration >= 1440) return ElMessage.warning('时间块跨越午夜，请选择更早的开始时间')
+  schedulingTasks.add(task.id)
+  try {
+    const result = await casyContext.calendar.createEvent({ title: task.taskName, eventDate: date, startTime: timeString(hour * 60), endTime: timeString(hour * 60 + duration), allDay: false, taskId: task.id, caseId: task.caseId || null })
+    if (!result.ok) return ElMessage.error(result.error || '排期失败')
+    ElMessage.success('已为任务安排时间块')
+    await loadEvents()
+  } finally { schedulingTasks.delete(task.id); onDragEnd() }
 }
 </script>
 
@@ -925,11 +883,11 @@ async function createFromNaturalLanguage() {
             {{ activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? `未来 14 天诉讼与排期预测` : currentMonthInfo.label }}
           </h1>
           <div class="month-nav-btns">
-            <button class="nav-arrow-btn" @click="prevPeriod" title="Previous">
+            <button class="nav-arrow-btn" @click="prevPeriod" :title="t('calendar.previous')" :aria-label="t('calendar.previous')">
               <el-icon :size="16"><ArrowLeft /></el-icon>
             </button>
-            <button class="nav-today-pill" @click="goToday">Today</button>
-            <button class="nav-arrow-btn" @click="nextPeriod" title="Next">
+            <button class="nav-today-pill" @click="goToday">{{ t('calendar.today') }}</button>
+            <button class="nav-arrow-btn" @click="nextPeriod" :title="t('calendar.next')" :aria-label="t('calendar.next')">
               <el-icon :size="16"><ArrowRight /></el-icon>
             </button>
           </div>
@@ -938,15 +896,7 @@ async function createFromNaturalLanguage() {
 
       <div class="header-right-actions">
         <!-- 快速输入条 -->
-        <div class="natural-input-box">
-          <el-icon class="input-icon" :size="14"><Plus /></el-icon>
-          <input
-            v-model="captureInput"
-            placeholder="Search or schedule (CMD+K)..."
-            class="natural-real-input"
-            @keyup.enter="createFromNaturalLanguage"
-          />
-        </div>
+        <CalendarComposer :date="formatDate(currentDate)" :cases="cases" @created="onCalendarCreated" />
 
         <!-- 视图切换胶囊 -->
         <div class="view-switch-pill">
@@ -966,15 +916,15 @@ async function createFromNaturalLanguage() {
     <!-- ═══ 2. 时间线视图 (Global Timeline · 真实数据库流) ═══ -->
     <div v-if="activeView === 'timeline'" class="timeline-global-layout">
       <aside class="timeline-case-filter-aside">
-        <h2 class="filter-headline-title">Filter by Case</h2>
+        <h2 class="filter-headline-title">按案件筛选</h2>
         <div class="case-search-wrapper">
           <el-icon class="case-search-icon" :size="16"><Search /></el-icon>
-          <input v-model="caseSearchQuery" placeholder="Search cases..." class="case-search-input" />
+          <input v-model="caseSearchQuery" placeholder="搜索案件…" class="case-search-input" />
         </div>
         <div class="case-checkbox-list">
           <label class="case-checkbox-item all-cases" @click="selectedCaseIds.clear(); selectedCaseIds.add('all')">
             <input type="checkbox" :checked="selectedCaseIds.has('all')" class="case-native-checkbox" />
-            <span class="case-checkbox-name font-bold">All Cases</span>
+            <span class="case-checkbox-name font-bold">全部案件</span>
           </label>
           <label
             v-for="c in filteredCases"
@@ -991,8 +941,8 @@ async function createFromNaturalLanguage() {
       <main class="timeline-main-stream">
         <div class="timeline-stream-top">
           <div>
-            <h1 class="stream-main-heading">Global Timeline</h1>
-            <p class="stream-sub-caption">Cross-matter scheduling and capacity overview.</p>
+            <h1 class="stream-main-heading">{{ t('calendar.globalTimeline') }}</h1>
+            <p class="stream-sub-caption">看清案件安排，留出推进工作的时间。</p>
           </div>
         </div>
         <div class="timeline-events-container">
@@ -1048,26 +998,26 @@ async function createFromNaturalLanguage() {
           <!-- 上方一排月度洞察小卡片 -->
           <div class="month-top-stats-strip">
             <div class="m-stat-pill">
-              <span class="m-stat-lbl">Deadlines</span>
+              <span class="m-stat-lbl">{{ t('calendar.deadlines') }}</span>
               <strong class="m-stat-val text-risk">{{ monthInsights.deadlines }}</strong>
             </div>
             <div class="m-stat-pill">
-              <span class="m-stat-lbl">Workload</span>
+              <span class="m-stat-lbl">{{ t('calendar.workload') }}</span>
               <strong class="m-stat-val text-primary">{{ monthInsights.workload }}</strong>
             </div>
             <div class="m-stat-pill">
-              <span class="m-stat-lbl">Workdays</span>
+              <span class="m-stat-lbl">{{ t('calendar.workdays') }}</span>
               <strong class="m-stat-val">{{ monthInsights.workdays }}</strong>
             </div>
             <div class="m-stat-pill">
-              <span class="m-stat-lbl">Holidays</span>
+              <span class="m-stat-lbl">{{ t('calendar.holidays') }}</span>
               <strong class="m-stat-val text-warning">{{ monthInsights.holidays }}</strong>
             </div>
           </div>
 
           <!-- 星期头 -->
           <div class="month-days-of-week-row">
-            <div v-for="d in weekDaysEn" :key="d" class="dow-cell">{{ d }}</div>
+            <div v-for="d in (locale === 'en-US' ? weekDaysEn : weekDaysCn.map(day => '周' + day))" :key="d" class="dow-cell">{{ d }}</div>
           </div>
 
           <!-- 紧凑日历矩阵 -->
@@ -1078,7 +1028,7 @@ async function createFromNaturalLanguage() {
               class="month-matrix-day-cell"
               :class="{
                 'is-outside': !cell.isCurrentMonth,
-                'is-risk-day': hasHardEventOnDay(cell.date) && cell.isCurrentMonth,
+                'is-risk-day': cell.hasHard && cell.isCurrentMonth,
                 'is-drag-target': dragOverKey === formatDate(cell.date),
               }"
               @dragover="onDragOver"
@@ -1089,9 +1039,9 @@ async function createFromNaturalLanguage() {
             >
               <div class="cell-header-flex">
                 <div class="cell-dots-indicator-group">
-                  <span v-if="hasHardEventOnDay(cell.date)" class="dot-indicator dot-risk" title="Hard Deadline" />
-                  <span v-if="hasWaitingOnDay(cell.date)" class="dot-indicator dot-warning" title="Waiting on Client" />
-                  <span v-if="hasPlanEventOnDay(cell.date)" class="dot-indicator dot-primary" title="Flexible Task" />
+                  <span v-if="cell.hasHard" class="dot-indicator dot-risk" title="Hard Deadline" />
+                  <span v-if="cell.hasWaiting" class="dot-indicator dot-warning" title="Waiting on Client" />
+                  <span v-if="cell.hasPlan" class="dot-indicator dot-primary" title="Flexible Task" />
                 </div>
                 <span class="cell-number-badge" :class="{ 'today-pill': isToday(cell.date) }">
                   {{ cell.date.getDate() }}
@@ -1100,9 +1050,10 @@ async function createFromNaturalLanguage() {
 
               <!-- 当日事项流 -->
               <div class="cell-items-preview">
+                <div v-for="event in cell.events.filter(e=>e.type==='event')" :key="'event-'+event.id" class="cell-task-capsule" draggable="true" @dragstart.stop="onDragStart($event,event)" @dragend="onDragEnd" @click.stop="openEditDetail(event,'event')"><span class="capsule-title">{{ event.startTime || '全天' }} · {{ event.title }}</span></div>
                 <!-- 跨天条带 -->
                 <div
-                  v-for="mt in multiDayTasksForDay(cell.date)"
+                  v-for="mt in cell.multiDayTasks"
                   :key="'mt-' + mt.id"
                   class="cell-multiday-ribbon"
                   :class="{
@@ -1137,7 +1088,7 @@ async function createFromNaturalLanguage() {
 
                 <!-- 单日任务胶囊 -->
                 <div
-                  v-for="t in tasksForDay(cell.date).filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate).slice(0, 2)"
+                  v-for="t in cell.tasks.filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate).slice(0, 2)"
                   :key="t.id"
                   class="cell-task-capsule"
                   draggable="true"
@@ -1204,37 +1155,7 @@ async function createFromNaturalLanguage() {
             </div>
           </div>
 
-          <div class="week-timegrid-main-body">
-            <div
-              v-for="h in weekHours"
-              :key="h"
-              class="week-hour-grid-row"
-            >
-              <div class="week-time-gutter">{{ String(h).padStart(2, '0') }}:00</div>
-              <div class="week-hour-7cols">
-                <div
-                  v-for="col in weekColumns"
-                  :key="'slot-' + col.dateStr + '-' + h"
-                  class="week-slot-day-cell"
-                  :class="{ 'is-today-slot': col.isToday }"
-                  @dragover="onDragOver"
-                  @drop="onDropOnDay($event, col.date)"
-                >
-                  <div
-                    v-for="t in col.tasks.filter(t => t.startTime?.startsWith(String(h).padStart(2, '0')))"
-                    :key="'wt-' + t.id"
-                    class="week-cell-task-block"
-                    @dblclick="openEditDetail(t, 'task')"
-                  >
-                    <span class="w-task-title">{{ t.taskName }}</span>
-                  </div>
-                  <button v-for="ev in eventsForDay(col.date).filter(e => e.time?.startsWith(String(h).padStart(2, '0')))" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
-                    <span>{{ ev.time }}</span><strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <TimeGrid :days="timedDays" @open="openTimedItem" @drop-task="scheduleTaskBlock" />
         </div>
 
         <!-- 3. 日视图 (Day View) -->
@@ -1246,7 +1167,7 @@ async function createFromNaturalLanguage() {
                 {{ isToday(currentDate) ? '今日时间表' : '单日日程' }} · {{ tasksForDay(currentDate).length + eventsForDay(currentDate).length }} 项安排
               </span>
             </div>
-            <span class="day-view-mode-tag">Hourly Schedule</span>
+            <span class="day-view-mode-tag">时间安排</span>
           </div>
 
           <div v-if="multiDayTasksForDay(currentDate).length" class="day-multiday-active-banner">
@@ -1280,43 +1201,7 @@ async function createFromNaturalLanguage() {
               <strong>{{ task.taskName }}</strong><span>{{ task.caseName }}</span>
             </button>
           </div>
-          <div class="day-hours-drop-stream">
-            <div
-              v-for="h in weekHours"
-              :key="h"
-              class="day-hour-drop-row"
-              :class="{ 'is-drag-over': dragOverKey === `hour-${h}` }"
-              @dragover="onDragOver"
-              @dragenter="dragOverKey = `hour-${h}`"
-              @dragleave="dragOverKey = null"
-              @drop="onDropOnHourSlot($event, h)"
-            >
-              <div class="hour-time-label">{{ String(h).padStart(2, '0') }}:00</div>
-              <div class="hour-slot-drop-area">
-                <template v-if="tasksForDay(currentDate).filter(t => t.startTime?.startsWith(String(h).padStart(2, '0'))).length || eventsForDay(currentDate).filter(e => e.time?.startsWith(String(h).padStart(2, '0'))).length">
-                  <div
-                    v-for="t in tasksForDay(currentDate).filter(t => t.startTime?.startsWith(String(h).padStart(2, '0')))"
-                    :key="'d-t-' + t.id"
-                    class="day-slot-item-card"
-                    @dblclick="openEditDetail(t, 'task')"
-                  >
-                    <span class="slot-badge-caps">Task</span>
-                    <strong class="slot-item-title" :class="{ struck: t.completed }">{{ t.taskName }}</strong>
-                    <button class="slot-check-btn" :class="{ checked: t.completed }" @click.stop="toggleTask(t)">
-                      <el-icon v-if="t.completed" :size="12"><Check /></el-icon>
-                    </button>
-                  </div>
-                  <button v-for="ev in eventsForDay(currentDate).filter(e => e.time?.startsWith(String(h).padStart(2, '0')))" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
-                    <span>{{ ev.time }}<template v-if="ev.endTime"> - {{ ev.endTime }}</template></span>
-                    <strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
-                  </button>
-                </template>
-                <div v-else class="hour-empty-slot-placeholder">
-                  <span>{{ dragOverKey === `hour-${h}` ? `松开鼠标安排至 ${String(h).padStart(2, '0')}:00` : 'Available Slot · 拖入右侧待办直接排期' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <TimeGrid :days="timedDays" @open="openTimedItem" @drop-task="scheduleTaskBlock" />
         </div>
 
         <!-- 4. 预测视图 (Forecast: 完整 14 天诉讼与负荷预测工作台) -->
@@ -1445,12 +1330,18 @@ async function createFromNaturalLanguage() {
         @dragleave="isOverTank = false"
         @drop="onDropToHoldingTank($event)"
       >
+        <div class="agenda-mini">
+          <label>跳转日期 <input v-model="jumpDate" type="date" /></label>
+          <div class="agenda-mini-title"><strong>{{ formatDate(currentDate) }}</strong><button type="button" @click="activeView = 'day'">展开当日 ↗</button></div>
+          <p v-if="!eventsForDay(currentDate).length">当天暂无日程</p>
+          <button v-for="event in eventsForDay(currentDate)" :key="event.type + event.id" class="agenda-mini-item" type="button" @click="openEditDetail(event, 'event')"><time>{{ event.time || '全天' }}</time><span>{{ event.title }}</span></button>
+        </div>
         <div class="tank-header-card">
           <div class="tank-title-row">
             <div>
-              <h3 class="tank-title">Holding Tank</h3>
+              <h3 class="tank-title">{{ t('calendar.taskPool') }}</h3>
               <p class="tank-sub-desc">
-                {{ isOverTank ? '松开鼠标移回未排期池' : '任务池 (未完成任务永久保留，拖入左侧直接排期)' }}
+                {{ isOverTank ? '松开鼠标移回未排期池' : '拖入时段，为任务留出专注时间' }}
               </p>
             </div>
             <span class="tank-badge">{{ tankTasks.length }} 项</span>
@@ -1621,6 +1512,7 @@ async function createFromNaturalLanguage() {
       width="500px"
       destroy-on-close
     >
+      <el-button v-if="editingItem.type === 'event' && editingItem.taskId" text @click="router.push({ path: '/tasks', query: { edit: editingItem.taskId } })">打开关联任务 ↗</el-button>
       <div class="edit-modal-body">
         <div class="edit-form-item">
           <label>标题 / 名称</label>
@@ -1879,7 +1771,7 @@ async function createFromNaturalLanguage() {
 
 .m-stat-lbl {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--slate-gray-light);
   text-transform: uppercase;
@@ -2208,7 +2100,7 @@ async function createFromNaturalLanguage() {
 
 .week-time-gutter {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--slate-gray-light);
   text-align: right;
   padding-right: 8px;
@@ -2243,7 +2135,7 @@ async function createFromNaturalLanguage() {
   background: var(--c-bg-subtle);
   border-left: 2.5px solid var(--c-primary);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -2290,7 +2182,7 @@ async function createFromNaturalLanguage() {
 
 .day-view-mode-tag {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-primary);
   background: var(--c-primary-light);
@@ -2500,7 +2392,7 @@ async function createFromNaturalLanguage() {
 
 .f-stat-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--slate-gray-light);
   text-transform: uppercase;
@@ -2664,7 +2556,7 @@ async function createFromNaturalLanguage() {
 
 .f-hours-pill {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--slate-gray-light);
   background: var(--c-bg-card);
   padding: 1px 6px;
@@ -2768,7 +2660,7 @@ async function createFromNaturalLanguage() {
 
 .tank-badge {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-primary);
   background: var(--c-primary-light);
@@ -3097,7 +2989,7 @@ async function createFromNaturalLanguage() {
 }
 
 .sec-hint-txt {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--slate-gray-light);
 }
 
@@ -3345,4 +3237,36 @@ async function createFromNaturalLanguage() {
   .calendar-unified-workspace-grid { grid-template-columns: 1fr; }
   .calendar-unified-holding-tank { width: 100%; }
 }
+@container (max-width: 760px) {
+  .header-right-actions { width: 100%; min-width: 0; flex-wrap: wrap; gap: 12px; }
+  .natural-input-box { width: 100%; min-width: 0; }
+  .view-switch-pill { width: 100%; justify-content: space-between; }
+  .switch-btn { white-space: nowrap; flex: 1; padding: 8px; }
+  .month-title-row { flex-wrap: wrap; gap: 12px; }
+  .month-top-stats-strip { gap: 6px; padding: 10px; }
+  .m-stat-pill { flex-direction: column; gap: 4px; min-width: 0; padding: 8px 4px; }
+  .m-stat-lbl { white-space: nowrap; font-size: 11px; }
+  .month-matrix-day-cell { min-height: 76px; }
+}
+</style>
+
+<style scoped>
+.stitch-calendar-workspace { padding: 28px 24px; gap: 24px; }
+.calendar-top-header { padding-bottom: 4px; }
+.month-display-title { font-size: 28px; letter-spacing: -.035em; font-weight: 600; }
+.calendar-unified-holding-tank { background: var(--c-bg-card); box-shadow: none; border-radius: 10px; }
+.agenda-mini { padding: 18px; border-bottom: 1px solid var(--c-border); }
+.agenda-mini label { display: flex; align-items: center; gap: 10px; color: var(--c-text-secondary); font-size: 11px; }
+.agenda-mini input { min-width: 0; flex: 1; font: inherit; color: var(--c-text); padding: 6px; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 5px; }
+.agenda-mini-title { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 12px; font-size: 13px; }
+.agenda-mini button { background: transparent; border: 0; color: var(--c-text); font: inherit; cursor: pointer; border-radius: 5px; }
+.agenda-mini-title button { font-size: 11px; color: var(--c-primary); }
+.agenda-mini .agenda-mini-item { width: 100%; padding: 9px 2px; display: flex; align-items: baseline; gap: 12px; text-align: left; font-size: 12px; }
+.agenda-mini-item time { flex: 0 0 38px; color: var(--c-text-secondary); font-size: 10px; }
+.agenda-mini-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda-mini .agenda-mini-item:hover { background: var(--c-bg-hover); }
+.agenda-mini p { font-size: 12px; color: var(--c-text-secondary); }
+.agenda-mini button:focus-visible { outline: 2px solid var(--c-primary); }
+.tank-sub-desc { line-height: 1.7; }
+@media (max-width: 650px) { .stitch-calendar-workspace { padding: 20px 12px; } .header-right-actions { width: 100%; flex-wrap: wrap; } .month-display-title { font-size: 24px; } }
 </style>

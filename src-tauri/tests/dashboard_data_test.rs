@@ -48,7 +48,7 @@ async fn dashboard_matches_live_records_and_preserves_hearing_boundaries() {
     for (id, date) in [("month-end", "2026-12-31 15:37:00"), ("next-month", "2027-01-01T09:15:00"), ("all-day", "2026-12-01")] {
         conn.execute("INSERT INTO hearings(id,case_id,hearing_record,hearing_date) VALUES(?1,'dashboard-case',?1,?2)", params![id,date]).unwrap();
     }
-    let events = calendar::get_calendar_events(2026,12).await.unwrap();
+    let events = calendar::get_calendar_events(2026, 12, None).await.unwrap();
     let hearing = events.iter().find(|event| event.id == "month-end").unwrap();
     assert_eq!(hearing.date,"2026-12-31");
     assert_eq!(hearing.start_time.as_deref(),Some("15:37"));
@@ -57,8 +57,8 @@ async fn dashboard_matches_live_records_and_preserves_hearing_boundaries() {
     assert!(!events.iter().any(|event| event.id == "next-month"));
     let all_day = events.iter().find(|event| event.id == "all-day").unwrap();
     assert_eq!((all_day.start_time.as_deref(),all_day.all_day),(None,Some(true)));
-    let january = calendar::get_calendar_events(2027,1).await.unwrap();
+    let january = calendar::get_calendar_events(2027, 1, None).await.unwrap();
     assert_eq!(january.iter().find(|event| event.id == "next-month").unwrap().start_time.as_deref(),Some("09:15"));
-    assert!(calendar::get_calendar_events(2026,13).await.is_err());
+    assert!(calendar::get_calendar_events(2026, 13, None).await.is_err());
     assert_eq!(conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| row.get::<_,i64>(0)).unwrap(),0);
 }

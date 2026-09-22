@@ -13,7 +13,7 @@ import {
   UploadFilled,
   Close,
   Check,
-} from '@element-plus/icons-vue'
+} from '../icons'
 import { casyContext } from '../../core/plugin/context'
 import { parseWhen } from '../nlp/parseWhen'
 import type { IpcJsonObject } from '../../types/ipc'

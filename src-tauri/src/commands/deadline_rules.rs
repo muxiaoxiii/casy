@@ -132,7 +132,8 @@ pub async fn upsert_deadline_rule(
     priority: i32,
 ) -> Result<String, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw = db::open_db()?;
+        let conn = raw.transaction()?;
         let valid_units = ["day", "calendar_month"];
         if !valid_units.contains(&offset_unit.as_str()) {
             return Err(anyhow::anyhow!("无效的偏移单位: {offset_unit}"));
@@ -166,6 +167,7 @@ pub async fn upsert_deadline_rule(
                 if before.track != track {
                     crate::deadline::recalc::recalc_track_inner(&conn, &before.track)?;
                 }
+                conn.commit()?;
                 Ok(rid.clone())
             }
             None => {
@@ -192,6 +194,7 @@ pub async fn upsert_deadline_rule(
                 let after = get_rule(&conn, &new_id)?;
                 write_audit(&conn, &new_id, "create", None, after.as_ref())?;
                 crate::deadline::recalc::recalc_track_inner(&conn, &track)?;
+                conn.commit()?;
                 Ok(new_id)
             }
         }
@@ -202,7 +205,8 @@ pub async fn upsert_deadline_rule(
 #[tauri::command]
 pub async fn toggle_deadline_rule(id: String, enabled: bool) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw = db::open_db()?;
+        let conn = raw.transaction()?;
         let before = get_rule(&conn, &id)?.ok_or_else(|| anyhow::anyhow!("规则不存在: {id}"))?;
         conn.execute(
             "UPDATE deadline_rules SET auto_calculate = ?2 WHERE id = ?1",
@@ -211,6 +215,7 @@ pub async fn toggle_deadline_rule(id: String, enabled: bool) -> Result<(), Strin
         let after = get_rule(&conn, &id)?;
         write_audit(&conn, &id, "toggle", Some(&before), after.as_ref())?;
         crate::deadline::recalc::recalc_track_inner(&conn, &before.track)?;
+        conn.commit()?;
         Ok(())
     })
     .await
@@ -219,11 +224,18 @@ pub async fn toggle_deadline_rule(id: String, enabled: bool) -> Result<(), Strin
 #[tauri::command]
 pub async fn delete_deadline_rule(id: String) -> Result<(), String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut raw = db::open_db()?;
+        let conn = raw.transaction()?;
         let before = get_rule(&conn, &id)?.ok_or_else(|| anyhow::anyhow!("规则不存在: {id}"))?;
+        // case_deadlines.rule_id 无 ON DELETE，先解绑避免 RESTRICT 中断删除。
+        conn.execute(
+            "UPDATE case_deadlines SET rule_id = NULL WHERE rule_id = ?1",
+            params![id],
+        )?;
         conn.execute("DELETE FROM deadline_rules WHERE id = ?1", params![id])?;
         write_audit(&conn, &id, "delete", Some(&before), None)?;
         crate::deadline::recalc::recalc_track_inner(&conn, &before.track)?;
+        conn.commit()?;
         Ok(())
     })
     .await

@@ -74,6 +74,7 @@ async fn full_backup_calendar_and_editor_recovery_survive_reopening() {
         None,
         None,
         Some(draft.version),
+        None,
     )
     .await
     .unwrap();
@@ -83,7 +84,8 @@ async fn full_backup_calendar_and_editor_recovery_survive_reopening() {
         Some("stale".into()),
         None,
         None,
-        Some(draft.version)
+        Some(draft.version),
+        None
     )
     .await
     .unwrap_err()

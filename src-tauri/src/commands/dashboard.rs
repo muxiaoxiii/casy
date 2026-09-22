@@ -140,7 +140,7 @@ pub async fn get_upcoming_hearings(days: Option<i32>) -> Result<Vec<UpcomingHear
         let mut stmt = conn.prepare(
             "SELECT h.id, h.hearing_date, COALESCE(NULLIF(h.hearing_name,''),'庭审'), c.id, c.case_name
              FROM hearings h JOIN cases c ON c.id = h.case_id
-             WHERE substr(h.hearing_date,1,10) BETWEEN ?1 AND ?2 AND COALESCE(h.actual_status,'未开') != '已开'
+             WHERE substr(h.hearing_date,1,10) BETWEEN ?1 AND ?2 AND COALESCE(h.actual_status,'未开') != '已开' AND h.lifecycle_status='scheduled'
              ORDER BY h.hearing_date ASC, h.id",
         )?;
         let rows = stmt

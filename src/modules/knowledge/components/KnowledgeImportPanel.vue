@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, Download, FolderOpened, Search, Refresh } from '@element-plus/icons-vue'
+import { Document, Download, FolderOpened, Search, Refresh } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 
 const emit = defineEmits(['imported', 'navigate'])

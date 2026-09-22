@@ -266,3 +266,34 @@ pub fn get_ai_api_key(config_key: &str) -> Result<Option<String>> {
 
     Ok(None)
 }
+
+/// Settings contain opaque references, never a reusable password returned through IPC.
+pub fn settings_secret_type(key: &str) -> Option<CredentialType> {
+    match key {
+        "smtp_pass" => Some(CredentialType::SmtpPassword),
+        "caldav_pass" => Some(CredentialType::CaldavPassword),
+        "webdavPassword" | "webdav_password" => Some(CredentialType::WebDavPassword),
+        "feishu_app_secret" => Some(CredentialType::FeishuToken),
+        _ => None,
+    }
+}
+const SETTING_SECRET_PREFIX: &str = "keychain:v1:";
+pub fn resolve_settings_secret(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>> {
+    let Some(stored) = crate::db::get_setting(conn,key)?.filter(|s|!s.is_empty()) else {return Ok(None)};
+    if let Some(account)=stored.strip_prefix(SETTING_SECRET_PREFIX) {
+        anyhow::ensure!(crate::runtime_paths::isolated_data_root().is_none(), "隔离资料库不能读取系统凭据，请重新配置");
+        return get_credential(settings_secret_type(key).context("未知凭据类型")?,account)?
+            .map(Some).context("已保存的凭据不可用，请重新输入密码");
+    }
+    Ok(Some(stored)) // legacy credentials remain usable until verified migration succeeds
+}
+pub fn secure_settings_secret(key: &str, value: &str) -> Result<String> {
+    if value.is_empty() || value.starts_with(SETTING_SECRET_PREFIX) {return Ok(value.to_owned())}
+    anyhow::ensure!(crate::runtime_paths::isolated_data_root().is_none(), "隔离测试资料库不写入系统凭据");
+    let kind=settings_secret_type(key).context("未知凭据类型")?;
+    // A new immutable entry allows SQLite rollback without overwriting the old credential.
+    let account=format!("settings-{}",uuid::Uuid::new_v4());
+    store_credential(kind.clone(),&account,value)?;
+    anyhow::ensure!(get_credential(kind,&account)?.as_deref()==Some(value),"凭据读回校验失败，旧配置未修改");
+    Ok(format!("{SETTING_SECRET_PREFIX}{account}"))
+}

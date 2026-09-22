@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
         "update_task" => tasks::update_task(p["data"].clone()).await.map(|v|json!(v)),
         "toggle_task" => tasks::toggle_task(id(),None,None,None).await.map(|v|json!(v)),
         "restore_task" => tasks::restore_task(p["snapshot"].clone()).await.map(|v|json!(v)),
-        "get_calendar_events" => calendar::get_calendar_events(p["year"].as_i64().unwrap_or(2026) as i32,p["month"].as_u64().unwrap_or(9) as u32).await.map(|v|json!(v)),
+        "get_calendar_events" => calendar::get_calendar_events(p["year"].as_i64().unwrap_or(2026) as i32,p["month"].as_u64().unwrap_or(9) as u32, p["monthCount"].as_u64().map(|v|v as u32)).await.map(|v|json!(v)),
         "get_deadline_warnings" => commands::get_deadline_warnings().await.map(|v|json!(v)),
         "get_holiday_calendar" => commands::settings::get_holiday_calendar(p["year"].as_i64().unwrap_or(2026) as i32).await,
         _ => Err("Command outside dashboard QA allowlist".into()),

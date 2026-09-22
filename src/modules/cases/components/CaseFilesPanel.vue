@@ -9,7 +9,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { Folder, Document, Picture, Box, Setting, FolderOpened, Plus, Search } from '@element-plus/icons-vue'
+import { Folder, Document, Picture, Box, Setting, FolderOpened, Plus, Search } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import FilePreviewPanel from './FilePreviewPanel.vue'
@@ -27,7 +27,7 @@ let unlistenDrop: (() => void) | null = null
 let unlistenWorkspace: (() => void) | null = null
 let disposed = false
 onMounted(async () => {
-  const stop = await safeListen('workspace:updated', () => { if (!loading.value) void load() })
+  const stop = safeListen('workspace:updated', () => { if (!loading.value) void load() })
   if (disposed) stop()
   else unlistenWorkspace = stop
 })
