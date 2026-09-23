@@ -70,3 +70,9 @@ npm run release:validation
 0.1.3 已加入引擎/脚本测试，tag 构建调用完整生产验证打包流程并上传证据；本轮未触发远端 CI。既有 Clippy/audit 门禁仍需远端或专门本地运行确认，公证与发行证书未完成。
 
 开发预览的文件监听排除 `src-tauri/`、`outputs/` 和 `release/`，避免原生构建/模型资源及验收产物触发无关监听。前端源码仍保持热更新。并行原生编译时可能放大前端测试等待时间；复核时限制 worker，并记录实际超时和补跑结果，不修改业务断言。
+
+## 日历布局隔离样例
+
+开发服务器启动后访问 `http://127.0.0.1:1420/tests/fixtures/calendar-ui/index.html?mode=mixed&width=720&theme=rice-paper#/calendar?date=2026-09-25&view=timeline`。该页面直接挂载真实日历组件，但注入合成 services，不初始化插件系统，不读取或修改用户数据库，也不持久化主题；不支持保存操作。参数 `mode` 可选 mixed/holidays/empty，`width` 控制日历容器宽度，`theme` 使用已有主题标识，`view` 可选六种视图。固定的 2026-09 日期仅用于回归，不作为节假日数据来源。该入口不被生产构建引用。
+
+时间线交互回归：`npx vitest run tests/unit/calendarTimeline.test.ts`。视觉检查需同时核对行高、日期/休班标记交叠、超长内容和实际详情字段；jsdom 不验证 CSS 排版。

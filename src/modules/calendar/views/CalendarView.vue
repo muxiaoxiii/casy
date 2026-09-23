@@ -1,5 +1,6 @@
 <script setup>
 import HolidayBadges from '../components/HolidayBadges.vue'
+import TimelineStream from '../components/TimelineStream.vue'
 import PersonalDaysDialog from '../components/PersonalDaysDialog.vue'
 import YearHeatmap from '../components/YearHeatmap.vue'
 import CalendarComposer from '../components/CalendarComposer.vue'
@@ -479,14 +480,16 @@ const timelineStream = computed(() => {
     if (!dateStr) continue
     if (!map.has(dateStr)) map.set(dateStr, [])
     map.get(dateStr).push({
-      id: ev.id,
+      id: `${ev.type}:${ev.id}`,
+      source: ev,
+      sourceKind: 'event',
       time: ev.time || '全天',
       title: ev.title,
       caseName: ev.caseName || '律所事项',
       type: ev.type === 'court' || ev.type === 'hearing' ? 'court' : 'primary',
-      tag1: ev.type === 'court' ? 'Trial' : 'Event',
-      tag2: ev.type === 'court' ? 'Hard Boundary' : 'Scheduled',
-      tag2Type: ev.type === 'court' ? 'risk' : 'neutral',
+      tag1: ['court', 'hearing'].includes(ev.type) ? '庭审' : '日程',
+      tag2: ['court', 'hearing'].includes(ev.type) ? '固定安排' : '已排期',
+      tag2Type: ['court', 'hearing'].includes(ev.type) ? 'risk' : 'neutral',
       duration: eventDuration(ev.time, ev.endTime),
     })
   }
@@ -498,13 +501,15 @@ const timelineStream = computed(() => {
     if (!dateStr) continue
     if (!map.has(dateStr)) map.set(dateStr, [])
     map.get(dateStr).push({
-      id: t.id,
+      id: `task:${t.id}`,
+      source: t,
+      sourceKind: 'task',
       time: t.startTime || '未排时',
       title: t.taskName,
       caseName: t.caseName || '常规待办',
       type: 'primary',
-      tag1: 'Task',
-      tag2: 'Flexible',
+      tag1: '任务',
+      tag2: '可调整',
       tag2Type: 'warning',
       duration: t.estimatedMinutes ? `${t.estimatedMinutes} 分钟` : '',
     })
@@ -517,12 +522,14 @@ const timelineStream = computed(() => {
   // 排序
   const sortedDates = Array.from(map.keys()).sort()
   return sortedDates.map(dateStr => {
-    const d = new Date(dateStr)
+    const d = dateFromQuery(dateStr)
     const items = map.get(dateStr)
     items.sort((a, b) => (a.time || '').localeCompare(b.time || ''))
     return {
       dateStr,
-      dateLabel: isToday(d) ? `Today — ${d.getMonth() + 1}/${d.getDate()}` : `${d.getMonth() + 1}月${d.getDate()}日 (周${weekDaysCn[d.getDay() === 0 ? 6 : d.getDay() - 1]})`,
+      dateLabel: `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`,
+      weekday: `${isToday(d) ? '今天 · ' : ''}周${weekDaysCn[d.getDay() === 0 ? 6 : d.getDay() - 1]}`,
+      holidays: holidaysOn(dateStr),
       items,
     }
   })
@@ -962,17 +969,16 @@ async function scheduleTaskBlock(event, date, hour) {
           <input v-model="caseSearchQuery" placeholder="搜索案件…" class="case-search-input" />
         </div>
         <div class="case-checkbox-list">
-          <label class="case-checkbox-item all-cases" @click="selectedCaseIds.clear(); selectedCaseIds.add('all')">
-            <input type="checkbox" :checked="selectedCaseIds.has('all')" class="case-native-checkbox" />
+          <label class="case-checkbox-item all-cases">
+            <input type="checkbox" :checked="selectedCaseIds.has('all')" class="case-native-checkbox" @change="selectedCaseIds.clear(); if ($event.target.checked) selectedCaseIds.add('all')" />
             <span class="case-checkbox-name font-bold">全部案件</span>
           </label>
           <label
             v-for="c in filteredCases"
             :key="c.id"
             class="case-checkbox-item"
-            @click="selectedCaseIds.delete('all'); selectedCaseIds.has(c.id) ? selectedCaseIds.delete(c.id) : selectedCaseIds.add(c.id)"
           >
-            <input type="checkbox" :checked="selectedCaseIds.has(c.id)" class="case-native-checkbox" />
+            <input type="checkbox" :checked="selectedCaseIds.has(c.id)" class="case-native-checkbox" @change="selectedCaseIds.delete('all'); selectedCaseIds.has(c.id) ? selectedCaseIds.delete(c.id) : selectedCaseIds.add(c.id)" />
             <span class="case-checkbox-name">{{ c.caseName || c.caseNo }}</span>
           </label>
         </div>
@@ -985,47 +991,7 @@ async function scheduleTaskBlock(event, date, hour) {
             <p class="stream-sub-caption">看清案件安排，留出推进工作的时间。</p>
           </div>
         </div>
-        <div class="timeline-events-container">
-          <div class="timeline-vertical-guide-line" />
-
-          <div
-            v-for="group in timelineStream"
-            :key="group.dateStr"
-            class="timeline-date-group"
-          >
-            <div class="group-date-label"><span>{{ group.dateLabel }}</span><HolidayBadges :entries="holidaysOn(group.dateStr)" /></div>
-            <div class="group-axis-big-node" />
-            <div class="group-cards-stack">
-              <div
-                v-for="item in group.items"
-                :key="item.id"
-                class="timeline-event-card-row"
-                @dblclick="openEditDetail(item, item.type === 'court' ? 'event' : 'task')"
-              >
-                <div class="time-stamp-col">{{ item.time }}</div>
-                <div class="event-axis-ring-dot" :class="item.type" />
-                <div class="event-detail-box">
-                  <div class="event-left-accent-line" :class="item.type" />
-                  <div class="box-content-top">
-                    <div>
-                      <div class="box-badges-row">
-                        <span class="badge-tag-pill neutral">{{ item.tag1 }}</span>
-                        <span class="badge-tag-pill" :class="item.tag2Type">{{ item.tag2 }}</span>
-                      </div>
-                      <h3 class="box-title-text">{{ item.title }}</h3>
-                      <p class="box-case-text">{{ item.caseName }}</p>
-                    </div>
-                    <span v-if="item.duration" class="mono-duration">{{ item.duration }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="!timelineStream.length" class="timeline-empty-hint">
-            暂无已排期的事件或任务
-          </div>
-        </div>
+        <TimelineStream :groups="timelineStream" @open="item => openEditDetail(item.source, item.sourceKind)" />
       </main>
     </div>
 
@@ -1167,9 +1133,9 @@ async function scheduleTaskBlock(event, date, hour) {
               class="week-col-header-cell"
               :class="{ 'is-today-col': col.isToday }"
             >
-              <HolidayBadges :entries="holidaysOn(col.date)" />
               <span class="week-col-name">周{{ col.weekDayCn }}</span>
               <span class="week-col-date-pill" :class="{ active: col.isToday }">{{ col.dayNum }}</span>
+              <HolidayBadges :entries="holidaysOn(col.date)" compact />
             </div>
           </div>
 
@@ -1183,7 +1149,7 @@ async function scheduleTaskBlock(event, date, hour) {
                 @dragover="onDragOver"
                 @drop="onDropOnDay($event, col.date)"
               >
-                <button v-for="ev in eventsForDay(col.date).filter(e => !e.time)" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
+                <button v-for="ev in eventsForDay(col.date).filter(e => !e.time)" :key="ev.type + ev.id" type="button" :title="`${ev.title} · ${ev.caseName || ''}`" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
                   <strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
                 </button>
                 <div
@@ -1237,7 +1203,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
           <div v-if="eventsForDay(currentDate).some(e => !e.time) || tasksForDay(currentDate).some(t => !t.startTime)" class="day-unscheduled">
             <h3>全天 / 未指定时间</h3>
-            <button v-for="ev in eventsForDay(currentDate).filter(e => !e.time)" :key="ev.type + ev.id" type="button" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
+            <button v-for="ev in eventsForDay(currentDate).filter(e => !e.time)" :key="ev.type + ev.id" type="button" :title="`${ev.title} · ${ev.caseName || ''}`" class="calendar-event-item" @click="openEditDetail(ev, 'event')">
               <strong>{{ ev.title }}</strong><span>{{ ev.caseName }}</span>
             </button>
             <button v-for="task in tasksForDay(currentDate).filter(t => !t.startTime && !eventsForDay(currentDate).some(e => e.type === 'task' && e.id === t.id))" :key="task.id" type="button" class="calendar-event-item" @click="openEditDetail(task, 'task')">
@@ -1634,6 +1600,7 @@ async function scheduleTaskBlock(event, date, hour) {
    Stitch Unified Calendar Layout (v4.0_9 & v4.1_3)
    ═══════════════════════════════════════════════════════════ */
 .stitch-calendar-workspace {
+  container-type: inline-size;
   max-width: 1440px;
   margin: 0 auto;
   padding: 16px 24px 32px;
@@ -1771,7 +1738,7 @@ async function scheduleTaskBlock(event, date, hour) {
    ═══════════════════════════════════════════════════════════ */
 .calendar-unified-workspace-grid {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 20px;
   align-items: stretch;
   flex: 1;
@@ -1834,7 +1801,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .month-days-of-week-row {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background: var(--c-bg-page);
   border-bottom: 1px solid var(--c-border);
 }
@@ -1852,7 +1819,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .month-dates-matrix-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: minmax(78px, 1fr);
   background: var(--c-border);
   gap: 1px;
@@ -2034,7 +2001,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .week-cols-header-row {
   display: grid;
-  grid-template-columns: 54px repeat(7, 1fr);
+  grid-template-columns: 48px repeat(7, minmax(0, 1fr));
   background: var(--c-bg-subtle);
   border-bottom: 1px solid var(--c-border);
 }
@@ -2052,6 +2019,11 @@ async function scheduleTaskBlock(event, date, hour) {
   border-right: 1px solid var(--c-border-light);
 }
 
+.week-col-header-cell .holiday-badges { min-height: 18px; justify-content: center; }
+.allday-grid-cols { max-height: 180px; overflow-y: auto; }
+.allday-col-drop-slot .calendar-event-item { display: block; padding: 6px; }
+.allday-col-drop-slot .calendar-event-item strong,
+.allday-col-drop-slot .calendar-event-item span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .week-col-header-cell.is-today-col {
   background: var(--c-primary-light);
 }
@@ -2079,7 +2051,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .week-allday-ribbon-bar {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: 48px minmax(0, 1fr);
   border-bottom: 1px solid var(--c-border);
   background: var(--c-bg-page);
   min-height: 32px;
@@ -2096,10 +2068,11 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .allday-grid-cols {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .allday-col-drop-slot {
+  min-width: 0;
   padding: 3px 4px;
   border-right: 1px solid var(--c-border-light);
   display: flex;
@@ -2138,7 +2111,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .week-hour-grid-row {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: 48px minmax(0, 1fr);
   min-height: 44px;
   border-bottom: 1px solid var(--c-border-light);
 }
@@ -2155,7 +2128,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .week-hour-7cols {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .week-slot-day-cell {
@@ -2262,6 +2235,9 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .dma-item-card {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   background: var(--c-bg-card);
@@ -2272,6 +2248,7 @@ async function scheduleTaskBlock(event, date, hour) {
   cursor: pointer;
 }
 
+.dma-name { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; }
 .dma-badge {
   font-family: var(--font-mono);
   font-size: 9px;
@@ -2292,6 +2269,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .dma-check-btn,
 .slot-check-btn {
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
   border-radius: 4px;
@@ -2579,6 +2557,8 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .f-events-col {
+  min-width: 0;
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2617,6 +2597,9 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .f-event-chip {
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
@@ -2628,6 +2611,10 @@ async function scheduleTaskBlock(event, date, hour) {
   transition: all var(--motion-fast);
 }
 
+.f-event-chip > span:not(.f-task-dot) { min-width: 0; overflow-wrap: anywhere; }
+.f-event-chip small, .f-event-chip strong, .f-event-chip .el-icon { flex-shrink: 0; }
+.f-event-chip small { white-space: nowrap; }
+.f-risk-tag-row, .forecast-stats-strip, .f-filter-tabs { flex-wrap: wrap; }
 .f-event-chip:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
@@ -2899,7 +2886,8 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .timeline-case-filter-aside {
-  width: 260px;
+  flex: 0 0 220px;
+  min-width: 0;
   border-right: 1px solid var(--c-border);
   padding: 20px;
 }
@@ -2917,6 +2905,7 @@ async function scheduleTaskBlock(event, date, hour) {
   border-radius: var(--c-radius);
   padding: 6px 10px 6px 28px;
   font-size: 12px;
+  color: var(--c-text);
   outline: none;
 }
 
@@ -2926,9 +2915,9 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .case-native-checkbox { accent-color: var(--c-primary); }
 
-.case-checkbox-name { font-size: 12.5px; }
+.case-checkbox-name { font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
 
-.timeline-main-stream { flex: 1; background: var(--c-bg-page); }
+.timeline-main-stream { flex: 1; min-width: 0; background: var(--c-bg-page); }
 
 .timeline-stream-top {
   padding: 20px 28px;
@@ -2939,66 +2928,6 @@ async function scheduleTaskBlock(event, date, hour) {
 .stream-main-heading { font-size: 20px; font-weight: 700; margin: 0; }
 
 .stream-sub-caption { font-size: 12px; color: var(--slate-gray-light); margin: 2px 0 0; }
-
-.timeline-events-container { padding: 28px 28px 48px 120px; position: relative; }
-
-.timeline-vertical-guide-line { position: absolute; left: 119px; top: 0; bottom: 0; width: 1px; background: var(--c-border); }
-
-.timeline-date-group { position: relative; margin-bottom: 30px; }
-
-.group-date-label { position: absolute; left: -120px; top: 0; width: 100px; text-align: right; font-weight: 700; font-size: 13px; }
-
-.group-axis-big-node { position: absolute; left: -5px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--c-bg-page); border: 2px solid var(--c-primary); z-index: 10; }
-
-.group-cards-stack { display: flex; flex-direction: column; gap: 12px; }
-
-.timeline-event-card-row { position: relative; cursor: pointer; }
-
-.time-stamp-col { position: absolute; left: -120px; top: 12px; width: 100px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--slate-gray-light); }
-
-.event-axis-ring-dot { position: absolute; left: -4px; top: 16px; width: 9px; height: 9px; border-radius: 50%; background: var(--c-primary); z-index: 10; }
-.event-axis-ring-dot.court { background: var(--status-risk); }
-
-.event-detail-box {
-  margin-left: 24px;
-  background: var(--c-bg-card);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  padding: 14px 18px;
-  position: relative;
-  overflow: hidden;
-}
-
-.event-left-accent-line { position: absolute; top: 0; left: 0; bottom: 0; width: 3.5px; background: var(--c-primary); }
-.event-left-accent-line.court { background: var(--status-risk); }
-
-.box-content-top { display: flex; align-items: flex-start; justify-content: space-between; }
-
-.box-badges-row { display: flex; gap: 6px; margin-bottom: 4px; }
-
-.badge-tag-pill {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
-}
-.badge-tag-pill.neutral { background: var(--c-bg-subtle); color: var(--c-text-regular); }
-.badge-tag-pill.risk { background: var(--bg-risk-weak); color: var(--status-risk); font-weight: 700; }
-.badge-tag-pill.warning { background: var(--bg-warning-weak); color: var(--status-warning); font-weight: 700; }
-
-.box-title-text { font-size: 14px; font-weight: 600; margin: 0; }
-
-.box-case-text { font-size: 12px; color: var(--slate-gray-light); margin: 2px 0 0; }
-
-.mono-duration { font-family: var(--font-mono); font-size: 11px; color: var(--slate-gray-light); }
-
-.timeline-empty-hint {
-  padding: 40px 0;
-  text-align: center;
-  color: var(--slate-gray-light);
-  font-size: 13px;
-}
 
 /* ═══════════════════════════════════════════════════════════
    4. 单日日程明细弹窗样式 (Day Modal)
@@ -3282,7 +3211,17 @@ async function scheduleTaskBlock(event, date, hour) {
   .calendar-unified-workspace-grid { grid-template-columns: 1fr; }
   .calendar-unified-holding-tank { width: 100%; }
 }
+@container (max-width: 1000px) {
+  .calendar-unified-workspace-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @container (max-width: 760px) {
+  .calendar-unified-workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  .timeline-global-layout { flex-direction: column; }
+  .timeline-case-filter-aside { flex-basis: auto; width: auto; border-right: 0; border-bottom: 1px solid var(--c-border); }
+  .case-checkbox-list { max-height: 140px; overflow: auto; }
+  .cell-header-flex { flex-wrap: wrap; gap: 3px; }
+  .forecast-day-row { grid-template-columns: 90px minmax(0, 1fr); gap: 10px; }
+  .forecast-overview-header, .forecast-filter-bar, .day-schedule-header { flex-wrap: wrap; gap: 12px; }
   .header-right-actions { width: 100%; min-width: 0; flex-wrap: wrap; gap: 12px; }
   .natural-input-box { width: 100%; min-width: 0; }
   .view-switch-pill { width: 100%; justify-content: space-between; }

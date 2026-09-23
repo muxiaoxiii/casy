@@ -55,20 +55,20 @@ h2 { font-size: 17px; margin: 0; }
 p { color: var(--c-text-secondary); line-height: 1.6; font-size: 13px; }
 .heatmap-legend { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-text-secondary); }
 .heat-swatch { width: 15px; height: 15px; border-radius: 3px; }
-.year-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 16px; margin-top: 12px; }
+.year-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 16px; margin-top: 12px; }
 .mini-month { border: 1px solid var(--c-border); border-radius: 12px; padding: 14px; background: color-mix(in srgb, var(--c-primary) var(--month-density), var(--c-bg-card)); }
 .mini-month-heading { border: 0; background: none; color: var(--c-text-heading); display: flex; align-items: baseline; justify-content: space-between; width: 100%; padding: 0 0 12px; cursor: pointer; }
 .mini-month-heading strong { font-size: 16px; }.mini-month-heading span { color: var(--c-text-secondary); font-size: 11px; }
 .mini-weekdays, .mini-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .mini-weekdays { color: var(--c-text-secondary); font-size: 11px; text-align: center; padding-bottom: 7px; }
-.heat-day { border: 1px solid transparent; border-radius: 4px; min-width: 0; aspect-ratio: 1; position: relative; display: grid; place-content: center; color: var(--c-text); font-size: 12px; cursor: pointer; padding: 0; }
+.heat-day { border: 1px solid transparent; border-radius: 4px; min-width: 0; aspect-ratio: 1; min-height: 36px; position: relative; display: grid; place-content: center; color: var(--c-text); font-size: 12px; cursor: pointer; padding: 0 0 10px; }
 [data-level="0"] { background: var(--heat-0); } [data-level="1"] { background: var(--heat-1); } [data-level="2"] { background: var(--heat-2); } [data-level="3"] { background: var(--heat-3); } [data-level="4"] { background: var(--heat-4); color: var(--c-primary-contrast); }
 .heat-day:hover, .heat-day.selected { outline: 2px solid var(--c-primary); outline-offset: 1px; }
 .heat-day.today { border-color: var(--c-text); font-weight: 800; }
-.heat-day-badges { position: absolute; bottom: 0; right: 0; gap: 0; }.heat-day-badges :deep(.holiday-badge) { font-size: 7px; padding: 0; line-height: 1; }
+.heat-day-badges { position: absolute; bottom: 1px; left: 0; right: 0; gap: 1px; justify-content: center; flex-wrap: nowrap; }.heat-day-badges :deep(.holiday-badge) { font-size: 7px; padding: 0; line-height: 1; }
 .heat-day small { position: absolute; font-size: 8px; bottom: 0; right: 1px; line-height: 1; padding: 1px; border-radius: 2px; color: var(--c-warning); background: var(--c-warning-light); }.heat-day small.workday { color: var(--c-info); background: var(--c-info-light); }
 .heatmap-detail { margin-top: 20px; border: 1px solid var(--c-border); background: var(--c-bg-card); border-radius: 12px; padding: 16px; }
-.heat-task { display: flex; justify-content: space-between; gap: 12px; border: 0; border-bottom: 1px solid var(--c-border-light); width: 100%; padding: 12px 0; background: transparent; color: var(--c-text); text-align: left; cursor: pointer; }.heat-task small { color: var(--c-text-secondary); flex-shrink: 0; }
-@media(min-width: 1400px) { .year-months { grid-template-columns: repeat(4, 1fr); } }
-@media(max-width: 600px) { .year-months { grid-template-columns: 1fr; } }
+.heat-task { display: flex; justify-content: space-between; gap: 12px; border: 0; border-bottom: 1px solid var(--c-border-light); width: 100%; padding: 12px 0; background: transparent; color: var(--c-text); text-align: left; cursor: pointer; }.heat-task > span { min-width: 0; overflow-wrap: anywhere; }.heat-task small { color: var(--c-text-secondary); flex-shrink: 0; }
+@container(min-width: 1100px) { .year-months { grid-template-columns: repeat(4, 1fr); } }
+@container(max-width: 520px) { .year-months { grid-template-columns: 1fr; } }
 </style>

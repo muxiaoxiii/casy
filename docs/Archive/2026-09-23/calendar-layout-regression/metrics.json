@@ -1,0 +1,122 @@
+{
+  "sixViews": [
+    {
+      "view": "day",
+      "badges": 4,
+      "overflow": []
+    },
+    {
+      "view": "week",
+      "badges": 6,
+      "overflow": []
+    },
+    {
+      "view": "month",
+      "badges": 8,
+      "overflow": []
+    },
+    {
+      "view": "year",
+      "badges": 6,
+      "overflow": []
+    },
+    {
+      "view": "timeline",
+      "badges": 6,
+      "overflow": []
+    },
+    {
+      "view": "forecast",
+      "badges": 7,
+      "overflow": []
+    }
+  ],
+  "additional": [
+    {
+      "view": "timeline",
+      "width": 1100,
+      "theme": "docket-light",
+      "mode": "holidays",
+      "groups": [
+        {
+          "height": 101.375
+        },
+        {
+          "height": 117.46875
+        },
+        {
+          "height": 101.375
+        },
+        {
+          "height": 101.375
+        },
+        {
+          "height": 73.375
+        }
+      ],
+      "overflow": [],
+      "primary": "#1a4fd6"
+    },
+    {
+      "view": "timeline",
+      "width": 480,
+      "theme": "docket-dark",
+      "mode": "mixed",
+      "groups": [
+        {
+          "height": 131.265625
+        },
+        {
+          "height": 739.53125
+        },
+        {
+          "height": 222.84375
+        },
+        {
+          "height": 350.78125
+        },
+        {
+          "height": 103.265625
+        }
+      ],
+      "overflow": [],
+      "primary": "#8aafff"
+    },
+    {
+      "view": "timeline",
+      "width": 720,
+      "theme": "solarized-light",
+      "mode": "empty",
+      "groups": [],
+      "overflow": [],
+      "primary": "#247BAA"
+    },
+    {
+      "view": "month",
+      "width": 480,
+      "theme": "solarized-light",
+      "mode": "mixed",
+      "groups": [],
+      "overflow": [],
+      "primary": "#247BAA"
+    },
+    {
+      "view": "year",
+      "width": 480,
+      "theme": "docket-dark",
+      "mode": "mixed",
+      "groups": [],
+      "overflow": [],
+      "primary": "#8aafff"
+    },
+    {
+      "view": "forecast",
+      "width": 480,
+      "theme": "solarized-light",
+      "mode": "mixed",
+      "groups": [],
+      "overflow": [],
+      "primary": "#247BAA"
+    }
+  ]
+}
