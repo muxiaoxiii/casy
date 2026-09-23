@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on build directory
+   Compiling casy v0.1.3 (/Users/only/Documents/PythonProgram/Casy/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 12s
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/casy_lib-55ae9b7207cfa6d0)
+
+running 2 tests
+test commands::rest_day_reminders::tests::covers_entire_official_break_and_real_work_only ... ok
+test commands::rest_day_reminders::tests::warns_before_and_during_rest_deduplicates_and_clears_resolved_work ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 273 filtered out; finished in 2.46s
+

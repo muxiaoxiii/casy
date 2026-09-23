@@ -1,0 +1,80 @@
+Window: "Casy", App: Casy.
+0 standard window Casy, Secondary Actions: Raise
+	1 scroll area
+		2 HTML content Description: Casy · 专利律师全流程秩序引擎, URL: tauri://localhost#/calendar?date=2026-09-23&view=day
+			3 link 跳转到主要内容, Value: tauri://localhost#main-content
+			4 container 主导航
+				5 button Casy 首页
+				6 container
+					7 heading 专注, Value: 3
+						8 text 专注
+					9 button 今日, Help: 今日 / Today
+					10 button 收件箱, Help: 收件箱 / Inbox
+					11 heading 事项, Value: 3
+						12 text 事项
+					13 button 案件, Help: 案件 / Cases
+					14 button 任务, Help: 任务 / Tasks
+					15 button 日历, Help: 日历 / Calendar
+					16 heading 知识, Value: 3
+						17 text 知识
+					18 button 知识库, Help: 知识库 / Vault
+					19 button 卷宗, Help: 卷宗 / Dossier
+					20 button 文书工坊, Help: 文书工坊 / Drafting
+					21 heading WORKSPACE, Value: 3
+						22 text WORKSPACE
+					23 button 客户, Help: 客户 / Clients
+					24 button 数据看板, Help: 数据看板 / Dashboard
+				25 text AI 未配置
+				26 button C
+个人工作台 执业信息未设置
+				27 button 设置, Help: Settings / 设置
+			28 container
+				29 button (expanded) 折叠/展开侧栏, Secondary Actions: Collapse
+				30 button 全局搜索
+				31 button 处理中心
+				32 button 通知中心
+				33 button 文件转换
+				34 button 快速捕获
+			35 container 日历
+				36 heading 2026年9月, Value: 1
+					37 text 2026年9月
+				38 button 上一时段
+				39 button 今天
+				40 button 下一时段
+				41 text field (settable) 快捷创建日程, Placeholder: 明天下午3点 讨论证据 1小时 @会议室
+				42 text ↵
+				43 button 日
+				44 button 周
+				45 button 月
+				46 button 年
+				47 button 时间线
+				48 button 排期
+				49 text 实色：法定休 / 班
+				50 text 虚线：个人自休 / 自班（可与法定安排并存）
+				51 button 添加休息日
+				52 container
+					53 heading 按案件筛选, Value: 2
+						54 text 按案件筛选
+					55 text field (settable) 搜索案件…
+					56 checkbox 全部案件, Value: 1
+					57 text 全部案件
+				58 container
+					59 heading 全局时间线, Value: 1
+						60 text 全局时间线
+					61 text 看清案件安排，留出推进工作的时间。 9月20日 (周日) 法定班 Today — 9/23 自休 15:00 EVENT SCHEDULED
+					62 heading 休息日提醒验收, Value: 3
+						63 text 休息日提醒验收
+					64 text 律所事项 60 分钟 9月25日 (周五) 法定休 9月26日 (周六) 法定休 9月27日 (周日) 法定休
+	65 close button
+	66 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	67 minimize button
+	68 text Casy
+69 menu bar
+	70 Casy
+	71 File
+	72 Edit
+	73 View
+	74 Window
+	75 Help
+
+The focused UI element is 35 container 日历

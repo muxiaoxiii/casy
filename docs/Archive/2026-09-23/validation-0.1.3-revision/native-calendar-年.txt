@@ -1,0 +1,462 @@
+Window: "Casy", App: Casy.
+0 standard window Casy, Secondary Actions: Raise
+	1 scroll area
+		2 HTML content Description: Casy · 专利律师全流程秩序引擎, URL: tauri://localhost#/calendar?date=2026-09-23&view=day
+			3 link 跳转到主要内容, Value: tauri://localhost#main-content
+			4 container 主导航
+				5 button Casy 首页
+				6 container
+					7 heading 专注, Value: 3
+						8 text 专注
+					9 button 今日, Help: 今日 / Today
+					10 button 收件箱, Help: 收件箱 / Inbox
+					11 heading 事项, Value: 3
+						12 text 事项
+					13 button 案件, Help: 案件 / Cases
+					14 button 任务, Help: 任务 / Tasks
+					15 button 日历, Help: 日历 / Calendar
+					16 heading 知识, Value: 3
+						17 text 知识
+					18 button 知识库, Help: 知识库 / Vault
+					19 button 卷宗, Help: 卷宗 / Dossier
+					20 button 文书工坊, Help: 文书工坊 / Drafting
+					21 heading WORKSPACE, Value: 3
+						22 text WORKSPACE
+					23 button 客户, Help: 客户 / Clients
+					24 button 数据看板, Help: 数据看板 / Dashboard
+				25 text AI 未配置
+				26 button C
+个人工作台 执业信息未设置
+				27 button 设置, Help: Settings / 设置
+			28 container
+				29 button (expanded) 折叠/展开侧栏, Secondary Actions: Collapse
+				30 button 全局搜索
+				31 button 处理中心
+				32 button 通知中心
+				33 button 文件转换
+				34 button 快速捕获
+			35 container 日历
+				36 heading 2026 年, Value: 1
+					37 text 2026 年
+				38 button 上一时段
+				39 button 今天
+				40 button 下一时段
+				41 text field (settable) 快捷创建日程, Placeholder: 明天下午3点 讨论证据 1小时 @会议室
+				42 text ↵
+				43 button 日
+				44 button 周
+				45 button 月
+				46 button 年
+				47 button 时间线
+				48 button 排期
+				49 text 实色：法定休 / 班
+				50 text 虚线：个人自休 / 自班（可与法定安排并存）
+				51 button 添加休息日
+				52 container 年度任务热力图
+					53 heading 全年工作密度, Value: 2
+						54 text 全年工作密度
+					55 text 按每天已排期的任务数着色（含已完成），跨日任务在每天计一次；未排期任务不计入。
+					56 container 任务数量色阶
+						57 text 少 多
+					58 button 1 月 0 天有任务
+					59 text 一 二 三 四 五 六 日
+					60 toggle button 2026-01-01 · 0 项任务 · 法定休 元旦, Value: off
+					61 toggle button 2026-01-02 · 0 项任务 · 法定休 元旦, Value: off
+					62 toggle button 2026-01-03 · 0 项任务 · 法定休 元旦, Value: off
+					63 toggle button 2026-01-04 · 0 项任务 · 法定班 调休上班, Value: off
+					64 toggle button 2026-01-05 · 0 项任务, Value: off
+					65 toggle button 2026-01-06 · 0 项任务, Value: off
+					66 toggle button 2026-01-07 · 0 项任务, Value: off
+					67 toggle button 2026-01-08 · 0 项任务, Value: off
+					68 toggle button 2026-01-09 · 0 项任务, Value: off
+					69 toggle button 2026-01-10 · 0 项任务, Value: off
+					70 toggle button 2026-01-11 · 0 项任务, Value: off
+					71 toggle button 2026-01-12 · 0 项任务, Value: off
+					72 toggle button 2026-01-13 · 0 项任务, Value: off
+					73 toggle button 2026-01-14 · 0 项任务, Value: off
+					74 toggle button 2026-01-15 · 0 项任务, Value: off
+					75 toggle button 2026-01-16 · 0 项任务, Value: off
+					76 toggle button 2026-01-17 · 0 项任务, Value: off
+					77 toggle button 2026-01-18 · 0 项任务, Value: off
+					78 toggle button 2026-01-19 · 0 项任务, Value: off
+					79 toggle button 2026-01-20 · 0 项任务, Value: off
+					80 toggle button 2026-01-21 · 0 项任务, Value: off
+					81 toggle button 2026-01-22 · 0 项任务, Value: off
+					82 toggle button 2026-01-23 · 0 项任务, Value: off
+					83 toggle button 2026-01-24 · 0 项任务, Value: off
+					84 toggle button 2026-01-25 · 0 项任务, Value: off
+					85 toggle button 2026-01-26 · 0 项任务, Value: off
+					86 toggle button 2026-01-27 · 0 项任务, Value: off
+					87 toggle button 2026-01-28 · 0 项任务, Value: off
+					88 toggle button 2026-01-29 · 0 项任务, Value: off
+					89 toggle button 2026-01-30 · 0 项任务, Value: off
+					90 toggle button 2026-01-31 · 0 项任务, Value: off
+					91 button 2 月 0 天有任务
+					92 text 一 二 三 四 五 六 日
+					93 toggle button 2026-02-01 · 0 项任务, Value: off
+					94 toggle button 2026-02-02 · 0 项任务, Value: off
+					95 toggle button 2026-02-03 · 0 项任务, Value: off
+					96 toggle button 2026-02-04 · 0 项任务, Value: off
+					97 toggle button 2026-02-05 · 0 项任务, Value: off
+					98 toggle button 2026-02-06 · 0 项任务, Value: off
+					99 toggle button 2026-02-07 · 0 项任务, Value: off
+					100 toggle button 2026-02-08 · 0 项任务, Value: off
+					101 toggle button 2026-02-09 · 0 项任务, Value: off
+					102 toggle button 2026-02-10 · 0 项任务, Value: off
+					103 toggle button 2026-02-11 · 0 项任务, Value: off
+					104 toggle button 2026-02-12 · 0 项任务, Value: off
+					105 toggle button 2026-02-13 · 0 项任务, Value: off
+					106 toggle button 2026-02-14 · 0 项任务 · 法定班 调休上班, Value: off
+					107 toggle button 2026-02-15 · 0 项任务 · 法定休 春节, Value: off
+					108 toggle button 2026-02-16 · 0 项任务 · 法定休 春节, Value: off
+					109 toggle button 2026-02-17 · 0 项任务 · 法定休 春节, Value: off
+					110 toggle button 2026-02-18 · 0 项任务 · 法定休 春节, Value: off
+					111 toggle button 2026-02-19 · 0 项任务 · 法定休 春节, Value: off
+					112 toggle button 2026-02-20 · 0 项任务 · 法定休 春节, Value: off
+					113 toggle button 2026-02-21 · 0 项任务 · 法定休 春节, Value: off
+					114 toggle button 2026-02-22 · 0 项任务 · 法定休 春节, Value: off
+					115 toggle button 2026-02-23 · 0 项任务 · 法定休 春节, Value: off
+					116 toggle button 2026-02-24 · 0 项任务, Value: off
+					117 toggle button 2026-02-25 · 0 项任务, Value: off
+					118 toggle button 2026-02-26 · 0 项任务, Value: off
+					119 toggle button 2026-02-27 · 0 项任务, Value: off
+					120 toggle button 2026-02-28 · 0 项任务 · 法定班 调休上班, Value: off
+					121 button 3 月 0 天有任务
+					122 text 一 二 三 四 五 六 日
+					123 toggle button 2026-03-01 · 0 项任务, Value: off
+					124 toggle button 2026-03-02 · 0 项任务, Value: off
+					125 toggle button 2026-03-03 · 0 项任务, Value: off
+					126 toggle button 2026-03-04 · 0 项任务, Value: off
+					127 toggle button 2026-03-05 · 0 项任务, Value: off
+					128 toggle button 2026-03-06 · 0 项任务, Value: off
+					129 toggle button 2026-03-07 · 0 项任务, Value: off
+					130 toggle button 2026-03-08 · 0 项任务, Value: off
+					131 toggle button 2026-03-09 · 0 项任务, Value: off
+					132 toggle button 2026-03-10 · 0 项任务, Value: off
+					133 toggle button 2026-03-11 · 0 项任务, Value: off
+					134 toggle button 2026-03-12 · 0 项任务, Value: off
+					135 toggle button 2026-03-13 · 0 项任务, Value: off
+					136 toggle button 2026-03-14 · 0 项任务, Value: off
+					137 toggle button 2026-03-15 · 0 项任务, Value: off
+					138 toggle button 2026-03-16 · 0 项任务, Value: off
+					139 toggle button 2026-03-17 · 0 项任务, Value: off
+					140 toggle button 2026-03-18 · 0 项任务, Value: off
+					141 toggle button 2026-03-19 · 0 项任务, Value: off
+					142 toggle button 2026-03-20 · 0 项任务, Value: off
+					143 toggle button 2026-03-21 · 0 项任务, Value: off
+					144 toggle button 2026-03-22 · 0 项任务, Value: off
+					145 toggle button 2026-03-23 · 0 项任务, Value: off
+					146 toggle button 2026-03-24 · 0 项任务, Value: off
+					147 toggle button 2026-03-25 · 0 项任务, Value: off
+					148 toggle button 2026-03-26 · 0 项任务, Value: off
+					149 toggle button 2026-03-27 · 0 项任务, Value: off
+					150 toggle button 2026-03-28 · 0 项任务, Value: off
+					151 toggle button 2026-03-29 · 0 项任务, Value: off
+					152 toggle button 2026-03-30 · 0 项任务, Value: off
+					153 toggle button 2026-03-31 · 0 项任务, Value: off
+					154 button 4 月 0 天有任务
+					155 text 一 二 三 四 五 六 日
+					156 toggle button 2026-04-01 · 0 项任务, Value: off
+					157 toggle button 2026-04-02 · 0 项任务, Value: off
+					158 toggle button 2026-04-03 · 0 项任务, Value: off
+					159 toggle button 2026-04-04 · 0 项任务 · 法定休 清明节, Value: off
+					160 toggle button 2026-04-05 · 0 项任务 · 法定休 清明节, Value: off
+					161 toggle button 2026-04-06 · 0 项任务 · 法定休 清明节, Value: off
+					162 toggle button 2026-04-07 · 0 项任务, Value: off
+					163 toggle button 2026-04-08 · 0 项任务, Value: off
+					164 toggle button 2026-04-09 · 0 项任务, Value: off
+					165 toggle button 2026-04-10 · 0 项任务, Value: off
+					166 toggle button 2026-04-11 · 0 项任务, Value: off
+					167 toggle button 2026-04-12 · 0 项任务, Value: off
+					168 toggle button 2026-04-13 · 0 项任务, Value: off
+					169 toggle button 2026-04-14 · 0 项任务, Value: off
+					170 toggle button 2026-04-15 · 0 项任务, Value: off
+					171 toggle button 2026-04-16 · 0 项任务, Value: off
+					172 toggle button 2026-04-17 · 0 项任务, Value: off
+					173 toggle button 2026-04-18 · 0 项任务, Value: off
+					174 toggle button 2026-04-19 · 0 项任务, Value: off
+					175 toggle button 2026-04-20 · 0 项任务, Value: off
+					176 toggle button 2026-04-21 · 0 项任务, Value: off
+					177 toggle button 2026-04-22 · 0 项任务, Value: off
+					178 toggle button 2026-04-23 · 0 项任务, Value: off
+					179 toggle button 2026-04-24 · 0 项任务, Value: off
+					180 toggle button 2026-04-25 · 0 项任务, Value: off
+					181 toggle button 2026-04-26 · 0 项任务, Value: off
+					182 toggle button 2026-04-27 · 0 项任务, Value: off
+					183 toggle button 2026-04-28 · 0 项任务, Value: off
+					184 toggle button 2026-04-29 · 0 项任务, Value: off
+					185 toggle button 2026-04-30 · 0 项任务, Value: off
+					186 button 5 月 0 天有任务
+					187 text 一 二 三 四 五 六 日
+					188 toggle button 2026-05-01 · 0 项任务 · 法定休 劳动节, Value: off
+					189 toggle button 2026-05-02 · 0 项任务 · 法定休 劳动节, Value: off
+					190 toggle button 2026-05-03 · 0 项任务 · 法定休 劳动节, Value: off
+					191 toggle button 2026-05-04 · 0 项任务 · 法定休 劳动节, Value: off
+					192 toggle button 2026-05-05 · 0 项任务 · 法定休 劳动节, Value: off
+					193 toggle button 2026-05-06 · 0 项任务, Value: off
+					194 toggle button 2026-05-07 · 0 项任务, Value: off
+					195 toggle button 2026-05-08 · 0 项任务, Value: off
+					196 toggle button 2026-05-09 · 0 项任务 · 法定班 调休上班, Value: off
+					197 toggle button 2026-05-10 · 0 项任务, Value: off
+					198 toggle button 2026-05-11 · 0 项任务, Value: off
+					199 toggle button 2026-05-12 · 0 项任务, Value: off
+					200 toggle button 2026-05-13 · 0 项任务, Value: off
+					201 toggle button 2026-05-14 · 0 项任务, Value: off
+					202 toggle button 2026-05-15 · 0 项任务, Value: off
+					203 toggle button 2026-05-16 · 0 项任务, Value: off
+					204 toggle button 2026-05-17 · 0 项任务, Value: off
+					205 toggle button 2026-05-18 · 0 项任务, Value: off
+					206 toggle button 2026-05-19 · 0 项任务, Value: off
+					207 toggle button 2026-05-20 · 0 项任务, Value: off
+					208 toggle button 2026-05-21 · 0 项任务, Value: off
+					209 toggle button 2026-05-22 · 0 项任务, Value: off
+					210 toggle button 2026-05-23 · 0 项任务, Value: off
+					211 toggle button 2026-05-24 · 0 项任务, Value: off
+					212 toggle button 2026-05-25 · 0 项任务, Value: off
+					213 toggle button 2026-05-26 · 0 项任务, Value: off
+					214 toggle button 2026-05-27 · 0 项任务, Value: off
+					215 toggle button 2026-05-28 · 0 项任务, Value: off
+					216 toggle button 2026-05-29 · 0 项任务, Value: off
+					217 toggle button 2026-05-30 · 0 项任务, Value: off
+					218 toggle button 2026-05-31 · 0 项任务, Value: off
+					219 button 6 月 0 天有任务
+					220 text 一 二 三 四 五 六 日
+					221 toggle button 2026-06-01 · 0 项任务, Value: off
+					222 toggle button 2026-06-02 · 0 项任务, Value: off
+					223 toggle button 2026-06-03 · 0 项任务, Value: off
+					224 toggle button 2026-06-04 · 0 项任务, Value: off
+					225 toggle button 2026-06-05 · 0 项任务, Value: off
+					226 toggle button 2026-06-06 · 0 项任务, Value: off
+					227 toggle button 2026-06-07 · 0 项任务, Value: off
+					228 toggle button 2026-06-08 · 0 项任务, Value: off
+					229 toggle button 2026-06-09 · 0 项任务, Value: off
+					230 toggle button 2026-06-10 · 0 项任务, Value: off
+					231 toggle button 2026-06-11 · 0 项任务, Value: off
+					232 toggle button 2026-06-12 · 0 项任务, Value: off
+					233 toggle button 2026-06-13 · 0 项任务, Value: off
+					234 toggle button 2026-06-14 · 0 项任务, Value: off
+					235 toggle button 2026-06-15 · 0 项任务, Value: off
+					236 toggle button 2026-06-16 · 0 项任务, Value: off
+					237 toggle button 2026-06-17 · 0 项任务, Value: off
+					238 toggle button 2026-06-18 · 0 项任务, Value: off
+					239 toggle button 2026-06-19 · 0 项任务 · 法定休 端午节, Value: off
+					240 toggle button 2026-06-20 · 0 项任务 · 法定休 端午节, Value: off
+					241 toggle button 2026-06-21 · 0 项任务 · 法定休 端午节, Value: off
+					242 toggle button 2026-06-22 · 0 项任务, Value: off
+					243 toggle button 2026-06-23 · 0 项任务, Value: off
+					244 toggle button 2026-06-24 · 0 项任务, Value: off
+					245 toggle button 2026-06-25 · 0 项任务, Value: off
+					246 toggle button 2026-06-26 · 0 项任务, Value: off
+					247 toggle button 2026-06-27 · 0 项任务, Value: off
+					248 toggle button 2026-06-28 · 0 项任务, Value: off
+					249 toggle button 2026-06-29 · 0 项任务, Value: off
+					250 toggle button 2026-06-30 · 0 项任务, Value: off
+					251 button 7 月 0 天有任务
+					252 text 一 二 三 四 五 六 日
+					253 toggle button 2026-07-01 · 0 项任务, Value: off
+					254 toggle button 2026-07-02 · 0 项任务, Value: off
+					255 toggle button 2026-07-03 · 0 项任务, Value: off
+					256 toggle button 2026-07-04 · 0 项任务, Value: off
+					257 toggle button 2026-07-05 · 0 项任务, Value: off
+					258 toggle button 2026-07-06 · 0 项任务, Value: off
+					259 toggle button 2026-07-07 · 0 项任务, Value: off
+					260 toggle button 2026-07-08 · 0 项任务, Value: off
+					261 toggle button 2026-07-09 · 0 项任务, Value: off
+					262 toggle button 2026-07-10 · 0 项任务, Value: off
+					263 toggle button 2026-07-11 · 0 项任务, Value: off
+					264 toggle button 2026-07-12 · 0 项任务, Value: off
+					265 toggle button 2026-07-13 · 0 项任务, Value: off
+					266 toggle button 2026-07-14 · 0 项任务, Value: off
+					267 toggle button 2026-07-15 · 0 项任务, Value: off
+					268 toggle button 2026-07-16 · 0 项任务, Value: off
+					269 toggle button 2026-07-17 · 0 项任务, Value: off
+					270 toggle button 2026-07-18 · 0 项任务, Value: off
+					271 toggle button 2026-07-19 · 0 项任务, Value: off
+					272 toggle button 2026-07-20 · 0 项任务, Value: off
+					273 toggle button 2026-07-21 · 0 项任务, Value: off
+					274 toggle button 2026-07-22 · 0 项任务, Value: off
+					275 toggle button 2026-07-23 · 0 项任务, Value: off
+					276 toggle button 2026-07-24 · 0 项任务, Value: off
+					277 toggle button 2026-07-25 · 0 项任务, Value: off
+					278 toggle button 2026-07-26 · 0 项任务, Value: off
+					279 toggle button 2026-07-27 · 0 项任务, Value: off
+					280 toggle button 2026-07-28 · 0 项任务, Value: off
+					281 toggle button 2026-07-29 · 0 项任务, Value: off
+					282 toggle button 2026-07-30 · 0 项任务, Value: off
+					283 toggle button 2026-07-31 · 0 项任务, Value: off
+					284 button 8 月 0 天有任务
+					285 text 一 二 三 四 五 六 日
+					286 toggle button 2026-08-01 · 0 项任务, Value: off
+					287 toggle button 2026-08-02 · 0 项任务, Value: off
+					288 toggle button 2026-08-03 · 0 项任务, Value: off
+					289 toggle button 2026-08-04 · 0 项任务, Value: off
+					290 toggle button 2026-08-05 · 0 项任务, Value: off
+					291 toggle button 2026-08-06 · 0 项任务, Value: off
+					292 toggle button 2026-08-07 · 0 项任务, Value: off
+					293 toggle button 2026-08-08 · 0 项任务, Value: off
+					294 toggle button 2026-08-09 · 0 项任务, Value: off
+					295 toggle button 2026-08-10 · 0 项任务, Value: off
+					296 toggle button 2026-08-11 · 0 项任务, Value: off
+					297 toggle button 2026-08-12 · 0 项任务, Value: off
+					298 toggle button 2026-08-13 · 0 项任务, Value: off
+					299 toggle button 2026-08-14 · 0 项任务, Value: off
+					300 toggle button 2026-08-15 · 0 项任务, Value: off
+					301 toggle button 2026-08-16 · 0 项任务, Value: off
+					302 toggle button 2026-08-17 · 0 项任务, Value: off
+					303 toggle button 2026-08-18 · 0 项任务, Value: off
+					304 toggle button 2026-08-19 · 0 项任务, Value: off
+					305 toggle button 2026-08-20 · 0 项任务, Value: off
+					306 toggle button 2026-08-21 · 0 项任务, Value: off
+					307 toggle button 2026-08-22 · 0 项任务, Value: off
+					308 toggle button 2026-08-23 · 0 项任务, Value: off
+					309 toggle button 2026-08-24 · 0 项任务, Value: off
+					310 toggle button 2026-08-25 · 0 项任务, Value: off
+					311 toggle button 2026-08-26 · 0 项任务, Value: off
+					312 toggle button 2026-08-27 · 0 项任务, Value: off
+					313 toggle button 2026-08-28 · 0 项任务, Value: off
+					314 toggle button 2026-08-29 · 0 项任务, Value: off
+					315 toggle button 2026-08-30 · 0 项任务, Value: off
+					316 toggle button 2026-08-31 · 0 项任务, Value: off
+					317 button 9 月 0 天有任务
+					318 text 一 二 三 四 五 六 日
+					319 toggle button 2026-09-01 · 0 项任务, Value: off
+					320 toggle button 2026-09-02 · 0 项任务, Value: off
+					321 toggle button 2026-09-03 · 0 项任务, Value: off
+					322 toggle button 2026-09-04 · 0 项任务, Value: off
+					323 toggle button 2026-09-05 · 0 项任务, Value: off
+					324 toggle button 2026-09-06 · 0 项任务, Value: off
+					325 toggle button 2026-09-07 · 0 项任务, Value: off
+					326 toggle button 2026-09-08 · 0 项任务, Value: off
+					327 toggle button 2026-09-09 · 0 项任务, Value: off
+					328 toggle button 2026-09-10 · 0 项任务, Value: off
+					329 toggle button 2026-09-11 · 0 项任务, Value: off
+					330 toggle button 2026-09-12 · 0 项任务, Value: off
+					331 toggle button 2026-09-13 · 0 项任务, Value: off
+					332 toggle button 2026-09-14 · 0 项任务, Value: off
+					333 toggle button 2026-09-15 · 0 项任务, Value: off
+					334 toggle button 2026-09-16 · 0 项任务, Value: off
+					335 toggle button 2026-09-17 · 0 项任务, Value: off
+					336 toggle button 2026-09-18 · 0 项任务, Value: off
+					337 toggle button 2026-09-19 · 0 项任务, Value: off
+					338 toggle button 2026-09-20 · 0 项任务 · 法定班 调休上班, Value: off
+					339 toggle button 2026-09-21 · 0 项任务, Value: off
+					340 toggle button 2026-09-22 · 0 项任务, Value: off
+					341 toggle button 2026-09-23 · 0 项任务 · 个人休, Help: 2026-09-23 · 0 项任务 · 个人休 , Value: off
+					342 toggle button 2026-09-24 · 0 项任务, Value: off
+					343 toggle button 2026-09-25 · 0 项任务 · 法定休 中秋节, Value: off
+					344 toggle button 2026-09-26 · 0 项任务 · 法定休 中秋节, Value: off
+					345 toggle button 2026-09-27 · 0 项任务 · 法定休 中秋节, Value: off
+					346 toggle button 2026-09-28 · 0 项任务, Value: off
+					347 toggle button 2026-09-29 · 0 项任务, Value: off
+					348 toggle button 2026-09-30 · 0 项任务, Value: off
+					349 button 10 月 0 天有任务
+					350 text 一 二 三 四 五 六 日
+					351 toggle button 2026-10-01 · 0 项任务 · 法定休 国庆节, Value: off
+					352 toggle button 2026-10-02 · 0 项任务 · 法定休 国庆节, Value: off
+					353 toggle button 2026-10-03 · 0 项任务 · 法定休 国庆节, Value: off
+					354 toggle button 2026-10-04 · 0 项任务 · 法定休 国庆节, Value: off
+					355 toggle button 2026-10-05 · 0 项任务 · 法定休 国庆节, Value: off
+					356 toggle button 2026-10-06 · 0 项任务 · 法定休 国庆节, Value: off
+					357 toggle button 2026-10-07 · 0 项任务 · 法定休 国庆节, Value: off
+					358 toggle button 2026-10-08 · 0 项任务, Value: off
+					359 toggle button 2026-10-09 · 0 项任务, Value: off
+					360 toggle button 2026-10-10 · 0 项任务 · 法定班 调休上班, Value: off
+					361 toggle button 2026-10-11 · 0 项任务, Value: off
+					362 toggle button 2026-10-12 · 0 项任务, Value: off
+					363 toggle button 2026-10-13 · 0 项任务, Value: off
+					364 toggle button 2026-10-14 · 0 项任务, Value: off
+					365 toggle button 2026-10-15 · 0 项任务, Value: off
+					366 toggle button 2026-10-16 · 0 项任务, Value: off
+					367 toggle button 2026-10-17 · 0 项任务, Value: off
+					368 toggle button 2026-10-18 · 0 项任务, Value: off
+					369 toggle button 2026-10-19 · 0 项任务, Value: off
+					370 toggle button 2026-10-20 · 0 项任务, Value: off
+					371 toggle button 2026-10-21 · 0 项任务, Value: off
+					372 toggle button 2026-10-22 · 0 项任务, Value: off
+					373 toggle button 2026-10-23 · 0 项任务, Value: off
+					374 toggle button 2026-10-24 · 0 项任务, Value: off
+					375 toggle button 2026-10-25 · 0 项任务, Value: off
+					376 toggle button 2026-10-26 · 0 项任务, Value: off
+					377 toggle button 2026-10-27 · 0 项任务, Value: off
+					378 toggle button 2026-10-28 · 0 项任务, Value: off
+					379 toggle button 2026-10-29 · 0 项任务, Value: off
+					380 toggle button 2026-10-30 · 0 项任务, Value: off
+					381 toggle button 2026-10-31 · 0 项任务, Value: off
+					382 button 11 月 0 天有任务
+					383 text 一 二 三 四 五 六 日
+					384 toggle button 2026-11-01 · 0 项任务, Value: off
+					385 toggle button 2026-11-02 · 0 项任务, Value: off
+					386 toggle button 2026-11-03 · 0 项任务, Value: off
+					387 toggle button 2026-11-04 · 0 项任务, Value: off
+					388 toggle button 2026-11-05 · 0 项任务, Value: off
+					389 toggle button 2026-11-06 · 0 项任务, Value: off
+					390 toggle button 2026-11-07 · 0 项任务, Value: off
+					391 toggle button 2026-11-08 · 0 项任务, Value: off
+					392 toggle button 2026-11-09 · 0 项任务, Value: off
+					393 toggle button 2026-11-10 · 0 项任务, Value: off
+					394 toggle button 2026-11-11 · 0 项任务, Value: off
+					395 toggle button 2026-11-12 · 0 项任务, Value: off
+					396 toggle button 2026-11-13 · 0 项任务, Value: off
+					397 toggle button 2026-11-14 · 0 项任务, Value: off
+					398 toggle button 2026-11-15 · 0 项任务, Value: off
+					399 toggle button 2026-11-16 · 0 项任务, Value: off
+					400 toggle button 2026-11-17 · 0 项任务, Value: off
+					401 toggle button 2026-11-18 · 0 项任务, Value: off
+					402 toggle button 2026-11-19 · 0 项任务, Value: off
+					403 toggle button 2026-11-20 · 0 项任务, Value: off
+					404 toggle button 2026-11-21 · 0 项任务, Value: off
+					405 toggle button 2026-11-22 · 0 项任务, Value: off
+					406 toggle button 2026-11-23 · 0 项任务, Value: off
+					407 toggle button 2026-11-24 · 0 项任务, Value: off
+					408 toggle button 2026-11-25 · 0 项任务, Value: off
+					409 toggle button 2026-11-26 · 0 项任务, Value: off
+					410 toggle button 2026-11-27 · 0 项任务, Value: off
+					411 toggle button 2026-11-28 · 0 项任务, Value: off
+					412 toggle button 2026-11-29 · 0 项任务, Value: off
+					413 toggle button 2026-11-30 · 0 项任务, Value: off
+					414 button 12 月 0 天有任务
+					415 text 一 二 三 四 五 六 日
+					416 toggle button 2026-12-01 · 0 项任务, Value: off
+					417 toggle button 2026-12-02 · 0 项任务, Value: off
+					418 toggle button 2026-12-03 · 0 项任务, Value: off
+					419 toggle button 2026-12-04 · 0 项任务, Value: off
+					420 toggle button 2026-12-05 · 0 项任务, Value: off
+					421 toggle button 2026-12-06 · 0 项任务, Value: off
+					422 toggle button 2026-12-07 · 0 项任务, Value: off
+					423 toggle button 2026-12-08 · 0 项任务, Value: off
+					424 toggle button 2026-12-09 · 0 项任务, Value: off
+					425 toggle button 2026-12-10 · 0 项任务, Value: off
+					426 toggle button 2026-12-11 · 0 项任务, Value: off
+					427 toggle button 2026-12-12 · 0 项任务, Value: off
+					428 toggle button 2026-12-13 · 0 项任务, Value: off
+					429 toggle button 2026-12-14 · 0 项任务, Value: off
+					430 toggle button 2026-12-15 · 0 项任务, Value: off
+					431 toggle button 2026-12-16 · 0 项任务, Value: off
+					432 toggle button 2026-12-17 · 0 项任务, Value: off
+					433 toggle button 2026-12-18 · 0 项任务, Value: off
+					434 toggle button 2026-12-19 · 0 项任务, Value: off
+					435 toggle button 2026-12-20 · 0 项任务, Value: off
+					436 toggle button 2026-12-21 · 0 项任务, Value: off
+					437 toggle button 2026-12-22 · 0 项任务, Value: off
+					438 toggle button 2026-12-23 · 0 项任务, Value: off
+					439 toggle button 2026-12-24 · 0 项任务, Value: off
+					440 toggle button 2026-12-25 · 0 项任务, Value: off
+					441 toggle button 2026-12-26 · 0 项任务, Value: off
+					442 toggle button 2026-12-27 · 0 项任务, Value: off
+					443 toggle button 2026-12-28 · 0 项任务, Value: off
+					444 toggle button 2026-12-29 · 0 项任务, Value: off
+					445 toggle button 2026-12-30 · 0 项任务, Value: off
+					446 toggle button 2026-12-31 · 0 项任务, Value: off
+	447 close button
+	448 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	449 minimize button
+	450 text Casy
+451 menu bar
+	452 Casy
+	453 File
+	454 Edit
+	455 View
+	456 Window
+	457 Help
+
+The focused UI element is 35 container 日历

@@ -1,0 +1,2 @@
+There has been no change in the accessibility tree for Window: "Casy".
+The focused UI element is 35 button 退出应用

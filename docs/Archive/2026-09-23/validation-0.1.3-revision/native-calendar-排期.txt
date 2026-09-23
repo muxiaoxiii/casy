@@ -1,0 +1,153 @@
+Window: "Casy", App: Casy.
+0 standard window Casy, Secondary Actions: Raise
+	1 scroll area
+		2 HTML content Description: Casy · 专利律师全流程秩序引擎, URL: tauri://localhost#/calendar?date=2026-09-23&view=day
+			3 link 跳转到主要内容, Value: tauri://localhost#main-content
+			4 container 主导航
+				5 button Casy 首页
+				6 container
+					7 heading 专注, Value: 3
+						8 text 专注
+					9 button 今日, Help: 今日 / Today
+					10 button 收件箱, Help: 收件箱 / Inbox
+					11 heading 事项, Value: 3
+						12 text 事项
+					13 button 案件, Help: 案件 / Cases
+					14 button 任务, Help: 任务 / Tasks
+					15 button 日历, Help: 日历 / Calendar
+					16 heading 知识, Value: 3
+						17 text 知识
+					18 button 知识库, Help: 知识库 / Vault
+					19 button 卷宗, Help: 卷宗 / Dossier
+					20 button 文书工坊, Help: 文书工坊 / Drafting
+					21 heading WORKSPACE, Value: 3
+						22 text WORKSPACE
+					23 button 客户, Help: 客户 / Clients
+					24 button 数据看板, Help: 数据看板 / Dashboard
+				25 text AI 未配置
+				26 button C
+个人工作台 执业信息未设置
+				27 button 设置, Help: Settings / 设置
+			28 container
+				29 button (expanded) 折叠/展开侧栏, Secondary Actions: Collapse
+				30 button 全局搜索
+				31 button 处理中心
+				32 button 通知中心
+				33 button 文件转换
+				34 button 快速捕获
+			35 container 日历 (showing 0-100 of 109 items)
+				36 heading 未来 14 天诉讼与排期预测, Value: 1
+					37 text 未来 14 天诉讼与排期预测
+				38 button 上一时段
+				39 button 今天
+				40 button 下一时段
+				41 text field (settable) 快捷创建日程, Placeholder: 明天下午3点 讨论证据 1小时 @会议室
+				42 text ↵
+				43 button 日
+				44 button 周
+				45 button 月
+				46 button 年
+				47 button 时间线
+				48 button 排期
+				49 text 实色：法定休 / 班
+				50 text 虚线：个人自休 / 自班（可与法定安排并存）
+				51 button 添加休息日
+				52 heading 未来 14 天诉讼与负荷全景预测, Value: 2
+					53 text 未来 14 天诉讼与负荷全景预测
+				54 text 覆盖 2026-09-23 起 14 天全量庭审日程、上诉/举证期限、预估工时与深度起草窗口。
+				55 text 诉讼/开庭日
+				56 text 0 天
+				57 text 预估总工时
+				58 text 0h
+				59 text 黄金专注窗口
+				60 text 4 天
+				61 button 全部 14 天
+				62 button 仅看开庭与期限日
+				63 button 仅看专注空闲窗口
+				64 text 已展示 14 天预测
+				65 text 今日
+				66 text 9月23日
+				67 text 周三
+				68 text 自休
+				69 text 休息安排 · 留意个人计划
+				70 text 15:00
+				71 text 休息日提醒验收
+				72 text 明日
+				73 text 9月24日
+				74 text 周四
+				75 text 排期充裕 · 专注窗口
+				76 text 暂无已排期事项 · 支持将右侧任务拖入落位
+				77 text 后天
+				78 text 9月25日
+				79 text 周五
+				80 text 法定休
+				81 text 休息安排 · 留意个人计划
+				82 text 当日有休息安排，请结合个人计划排期
+				83 text 3天后
+				84 text 9月26日
+				85 text 周六
+				86 text 法定休
+				87 text 休息安排 · 留意个人计划
+				88 text 当日有休息安排，请结合个人计划排期
+				89 text 4天后
+				90 text 9月27日
+				91 text 周日
+				92 text 法定休
+				93 text 休息安排 · 留意个人计划
+				94 text 当日有休息安排，请结合个人计划排期
+				95 text 5天后
+				96 text 9月28日
+				97 text 周一
+				98 text 排期充裕 · 专注窗口
+				99 text 暂无已排期事项 · 支持将右侧任务拖入落位
+				100 text 6天后
+				101 text 9月29日
+				102 text 周二
+				103 text 排期充裕 · 专注窗口
+				104 text 暂无已排期事项 · 支持将右侧任务拖入落位
+				105 text 7天后
+				106 text 9月30日
+				107 text 周三
+				108 text 排期充裕 · 专注窗口
+				109 text 暂无已排期事项 · 支持将右侧任务拖入落位
+				110 text 8天后
+				111 text 10月1日
+				112 text 周四
+				113 text 法定休
+				114 text 休息安排 · 留意个人计划
+				115 text 当日有休息安排，请结合个人计划排期
+				116 text 9天后
+				117 text 10月2日
+				118 text 周五
+				119 text 法定休
+				120 text 休息安排 · 留意个人计划
+				121 text 当日有休息安排，请结合个人计划排期
+				122 text 10天后
+				123 text 10月3日
+				124 text 周六
+				125 text 法定休
+				126 text 休息安排 · 留意个人计划
+				127 text 当日有休息安排，请结合个人计划排期
+				128 text 11天后
+				129 text 10月4日
+				130 text 周日
+				131 text 法定休
+				132 text 休息安排 · 留意个人计划
+				133 text 当日有休息安排，请结合个人计划排期
+				134 text 12天后
+				135 text 10月5日
+				136 text 周一
+				137 text 法定休
+	138 close button
+	139 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	140 minimize button
+	141 text Casy
+142 menu bar
+	143 Casy
+	144 File
+	145 Edit
+	146 View
+	147 Window
+	148 Help
+
+The focused UI element is 35 container 日历

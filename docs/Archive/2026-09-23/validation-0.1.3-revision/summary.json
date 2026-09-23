@@ -1,0 +1,38 @@
+{
+  "version": "0.1.3",
+  "sourceRevision": "035af0545d94cf3b9ba2ee45d653c81e0143a26c",
+  "rust": {
+    "passed": 334,
+    "ignored": 4,
+    "failed": 0,
+    "nestedChildResultExcluded": 1
+  },
+  "frontend": {
+    "baselinePassed": 288,
+    "finalRunPassed": 287,
+    "finalRunTimeouts": 1,
+    "focusedRecheckPassed": 17
+  },
+  "native": {
+    "isolatedProfile": "/private/tmp/casy-013-webdav-native-qa",
+    "holidayImportChangedDates": 4,
+    "personalRestSaved": true,
+    "restWorkNotificationVisible": true,
+    "notificationNavigatedToDay": true,
+    "calendarViews": [
+      "day",
+      "week",
+      "month",
+      "year",
+      "timeline",
+      "forecast"
+    ],
+    "webdavFullBackupAndRestore": true,
+    "restoreExitCode": 0
+  },
+  "limitations": [
+    "ad-hoc signing; no notarization",
+    "no real external AI/WebDAV service validation",
+    "reminders require running application"
+  ]
+}

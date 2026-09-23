@@ -1,0 +1,2 @@
+There has been no change in the accessibility tree for Window: "Casy".
+The focused UI element is 2 HTML content Description: Casy · 专利律师全流程秩序引擎, URL: tauri://localhost#/calendar?view=year&date=2027-01-01

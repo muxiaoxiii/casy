@@ -1,0 +1,66 @@
+[
+  {
+    "card": "#FFFFFF",
+    "colorScheme": "light",
+    "page": "#F7F9FB",
+    "primary": "#244481",
+    "texture": false,
+    "theme": "slate"
+  },
+  {
+    "card": "#FFFFFF",
+    "colorScheme": "light",
+    "page": "#FCF9F2",
+    "primary": "#416353",
+    "texture": false,
+    "theme": "luminous-terra"
+  },
+  {
+    "card": "#FFFDF7",
+    "colorScheme": "light",
+    "page": "#FAF7ED",
+    "primary": "#247BAA",
+    "texture": false,
+    "theme": "solarized-light"
+  },
+  {
+    "card": "#073642",
+    "colorScheme": "dark",
+    "page": "#002B36",
+    "primary": "#2AA6D6",
+    "texture": false,
+    "theme": "solarized-dark"
+  },
+  {
+    "card": "#181D27",
+    "colorScheme": "dark",
+    "page": "#111318",
+    "primary": "#6487D4",
+    "texture": false,
+    "theme": "dark"
+  },
+  {
+    "card": "#fff",
+    "colorScheme": "light",
+    "page": "#f4f6fa",
+    "primary": "#1a4fd6",
+    "texture": false,
+    "theme": "docket-light"
+  },
+  {
+    "card": "#111c2e",
+    "colorScheme": "dark",
+    "page": "#0b1220",
+    "primary": "#8aafff",
+    "texture": false,
+    "theme": "docket-dark"
+  },
+  {
+    "card": "#fcf6e8",
+    "colorScheme": "light",
+    "page": "#f3ead7",
+    "primary": "#924536",
+    "texture": true,
+    "theme": "rice-paper"
+  }
+]

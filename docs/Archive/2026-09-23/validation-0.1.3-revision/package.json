@@ -1,0 +1,12 @@
+{
+  "version": "0.1.3",
+  "label": "themes-webdav-calendar",
+  "revision": "035af0545d94cf3b9ba2ee45d653c81e0143a26c",
+  "dirty": false,
+  "sha256": "afeb199b728bbe5c9212e8f3437079b7061e905d5b61c055abc2965b9e2ab415",
+  "arch": "arm64",
+  "minimumMacOS": "26.0",
+  "signing": "ad-hoc",
+  "notarized": false,
+  "validatedAt": "2026-09-23T02:18:39.535Z"
+}

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/only/Documents/PythonProgram/Casy
+
+
+ Test Files  61 passed (61)
+      Tests  288 passed (288)
+   Start at  09:47:31
+   Duration  24.94s (transform 5.69s, setup 0ms, import 14.76s, tests 6.99s, environment 20.48s)
+
