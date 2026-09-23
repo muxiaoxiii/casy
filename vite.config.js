@@ -21,6 +21,8 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // Native builds and release evidence do not change browser modules.
+    watch: { ignored: ['**/src-tauri/**', '**/outputs/**', '**/release/**'] },
   },
   resolve: {
     dedupe: ['@tiptap/core', '@tiptap/pm', 'prosemirror-model', 'prosemirror-state', 'prosemirror-transform', 'prosemirror-view'],

@@ -68,3 +68,5 @@ npm run release:validation
 [ci.yml](../.github/workflows/ci.yml) 的 frontend 跑类型、单测、构建；Rust 矩阵为 Ubuntu/macOS，Windows 已暂停。tag 打包仅 macOS。CI 还声明 Clippy/audit 和 bindings 漂移检查，但本次没有远端运行证据。
 
 0.1.3 已加入引擎/脚本测试，tag 构建调用完整生产验证打包流程并上传证据；本轮未触发远端 CI。既有 Clippy/audit 门禁仍需远端或专门本地运行确认，公证与发行证书未完成。
+
+开发预览的文件监听排除 `src-tauri/`、`outputs/` 和 `release/`，避免原生构建/模型资源及验收产物触发无关监听。前端源码仍保持热更新。并行原生编译时可能放大前端测试等待时间；复核时限制 worker，并记录实际超时和补跑结果，不修改业务断言。
