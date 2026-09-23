@@ -32,7 +32,7 @@ describe('independent task planning', () => {
   })
   it('uses explicit plans in the year heatmap, including clear without legacy date fallback', () => {
     const task={id:'a',startDate:'2026-01-01',dueDate:'2026-12-31',planDefined:true,plannedStartDate:'2026-09-25',plannedEndDate:'2026-09-27'}
-    expect([...yearTaskDays(2026,[task]).keys()]).toEqual(['2026-09-25','2026-09-26','2026-09-27'])
-    expect(yearTaskDays(2026,[{...task,plannedStartDate:null,plannedEndDate:null}]).size).toBe(0)
+    expect([...yearTaskDays(2026,[task]).keys()].sort()).toEqual(['2026-09-25','2026-09-26','2026-09-27','2026-12-31'])
+    expect([...yearTaskDays(2026,[{...task,plannedStartDate:null,plannedEndDate:null}]).keys()]).toEqual(['2026-12-31'])
   })
 })

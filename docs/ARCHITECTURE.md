@@ -62,3 +62,5 @@ flowchart LR
 AI gateway/profile/proposal、飞书、CalDAV、WebDAV、IMAP/SMTP、MCP 都有代码入口，但配置、状态、实现成熟度不同。实现情况见 [数据与安全](DATA_AND_SECURITY.md)。
 
 资源准备与应用构建分开；完整包须同时包含引擎、模型、渲染器、字体、Zvec 和对应声明。平台与校验流程见 [运行时分发](runtime-distribution-plan.md)。
+
+任务列表/恢复 DTO 统一返回独立计划标记、起止和修订号，甘特保存广播 task:changed 使任务、首页、案件与通知消费者刷新。任务 dueDate 是截止的首选字段，旧 deadline 为兼容别名。个人可用时段在 personal_calendar_days 中保存，由 personal_availability.rs 校验和计算；法定期限引擎不读取该个人设置。

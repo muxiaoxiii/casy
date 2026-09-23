@@ -15,6 +15,8 @@ async fn complete_webdav_backup_restores_cases_tasks_settings_and_attachments() 
         conn.execute("INSERT INTO cases(id,case_name,client_name,folder_path) VALUES('qa-case','恢复案件','测试客户',?1)", [documents.to_str().unwrap()]).unwrap();
         conn.execute("INSERT INTO case_files(id,case_id,file_name,file_path,category) VALUES('qa-file','qa-case','证据.txt',?1,'evidence')", [attachment.to_str().unwrap()]).unwrap();
         conn.execute("INSERT INTO tasks(id,task_name,case_id,created_date) VALUES('qa-task','备份时的任务','qa-case','2026-09-23')", []).unwrap();
+        conn.execute("INSERT INTO task_plans(task_id,start_date,end_date,revision) VALUES('qa-task','2026-09-24','2026-09-26',3)",[]).unwrap();
+        db::set_setting(&conn,"personal_calendar_days",r#"[{"date":"2026-09-25","kind":"holiday","name":"半天","startTime":"13:00","endTime":"18:00"}]"#).unwrap();
         db::set_setting(&conn, "theme", "rice-paper").unwrap();
     }
     let original_key = db::get_or_create_encryption_key().unwrap();
@@ -67,6 +69,8 @@ async fn complete_webdav_backup_restores_cases_tasks_settings_and_attachments() 
         let conn = db::open_db().unwrap();
         assert_eq!(db::get_setting(&conn, "theme").unwrap().as_deref(), Some("rice-paper"));
         assert_eq!(conn.query_row("SELECT task_name FROM tasks WHERE id='qa-task'", [], |r|r.get::<_,String>(0)).unwrap(), "备份时的任务");
+        let plan:(String,String,i32)=conn.query_row("SELECT start_date,end_date,revision FROM task_plans WHERE task_id='qa-task'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();assert_eq!(plan,("2026-09-24".into(),"2026-09-26".into(),3));
+        assert!(db::get_setting(&conn,"personal_calendar_days").unwrap().unwrap().contains("13:00"));
         let path: String = conn.query_row("SELECT file_path FROM case_files WHERE id='qa-file'", [], |r|r.get(0)).unwrap();
         assert!(std::path::Path::new(&path).starts_with(profile.path().join("restored")));
         assert_eq!(std::fs::read_to_string(path).unwrap(), "原始证据 · WebDAV 完整恢复");

@@ -436,6 +436,11 @@ async function saveTask() {
 }
 
 async function moveTaskToday(task) {
+  if (task.planDefined) {
+    ElMessage.info('此任务已有独立计划，请在甘特图中改期并确认')
+    await router.push({path:'/calendar',query:{view:'forecast',layout:'gantt',date:task.plannedStartDate || todayStr.value}})
+    return
+  }
   const result = await casyContext.tasks.update({
     id: task.id,
     startBucket: 'today',
@@ -456,6 +461,11 @@ async function markTaskWaiting(task) {
 }
 
 async function snoozeTask(task, option) {
+  if (task.planDefined) {
+    ElMessage.info('此任务已有独立计划，请在甘特图中改期并确认')
+    await router.push({path:'/calendar',query:{view:'forecast',layout:'gantt',date:task.plannedStartDate || todayStr.value}})
+    return
+  }
   if (busyTasks.has(task.id)) return
   busyTasks.add(task.id)
   try {
@@ -892,7 +902,8 @@ function getCustomPerspectiveCount(perspectiveId) {
         <div class="form-row">
           <div class="form-item">
             <label>开始日期 (Do When)</label>
-            <input v-model="editForm.startDate" type="date" class="form-input" />
+            <input v-model="editForm.startDate" type="date" class="form-input" :disabled="editingTask?.planDefined" />
+            <p v-if="editingTask?.planDefined">计划：{{ editingTask.plannedStartDate || '未安排' }}{{ editingTask.plannedEndDate ? ' — ' + editingTask.plannedEndDate : '' }}。<button type="button" @click="router.push({path:'/calendar',query:{view:'forecast',layout:'gantt',date:editingTask.plannedStartDate || todayStr}})">去甘特图调整</button></p>
           </div>
           <div class="form-item">
             <label>截止日期 (Deadline)</label>

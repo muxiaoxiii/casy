@@ -8,6 +8,8 @@
  * - 60s 轮询未读数，面板打开时拉取全量列表；
  * - payloadJson 含 caseId/taskId 时点击跳转对应路由（/cases/:id、/tasks）。
  */
+import { casyContext } from '../../../core/plugin/context'
+import { observeChanges } from '../../../core/observeChanges'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -39,6 +41,8 @@ const notifications = ref<AppNotification[]>([])
 const panelOpen = ref(false)
 const listLoading = ref(false)
 const bellRef = ref<HTMLElement | null>(null)
+
+onUnmounted(observeChanges(casyContext, ['task','calendar','holiday'], async () => { await refreshUnread(); if (panelOpen.value) await loadList() }))
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 

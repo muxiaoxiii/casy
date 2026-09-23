@@ -286,6 +286,10 @@ export interface Task {
   finishNote: string | null
   // GTD 字段
   taskType: TaskType
+  planDefined?: boolean
+  plannedStartDate?: string | null
+  plannedEndDate?: string | null
+  planRevision?: number | null
   startDate: string | null         // When
   dueDate: string | null           // Deadline
   dueTime: string | null           // 具体时间点 HH:MM（设计哲学 §7 时间分配）

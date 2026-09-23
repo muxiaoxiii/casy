@@ -149,7 +149,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       if (filter.perspective === 'next') items = mockTasks.filter(t => t.taskType === 'action' && (t.blocked === 0 || !t.caseId))
       if (filter.caseId) items = items.filter(t => t.caseId === filter.caseId)
       // 多个消费者期望数组（tasks store / TasksView / DashboardView）
-      return items.map(item => ({ ...item, completed: Number('completed' in item && item.completed) }))
+      return items.map(item => { const plan=mockTaskPlans.find(p=>p.taskId===item.id); return { ...item, planDefined:!!plan, plannedStartDate:plan?.startDate??null, plannedEndDate:plan?.endDate??null, planRevision:plan?.revision??null, completed:Number('completed' in item && item.completed) } })
     }
     case 'create_task': {
       const data = (args.data as any) || {}

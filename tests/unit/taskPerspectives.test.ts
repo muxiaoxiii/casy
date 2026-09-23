@@ -46,3 +46,17 @@ describe('GTD availability', () => {
     expect(top.map(t=>t.id)).toEqual(['parent', 'orphan-child'])
   })
 })
+
+it('uses independent plans consistently in today, next, upcoming and multiday without changing deadlines',()=>{
+  const tasks=[
+    {id:'future',startDate:'2020-01-01',plannedStartDate:'2027-04-01',plannedEndDate:'2027-04-02'},
+    {id:'current',startDate:'2099-01-01',plannedStartDate:'2027-03-11',plannedEndDate:'2027-03-12'},
+    {id:'clear',startDate:'2020-01-01',plannedStartDate:null,plannedEndDate:null},
+    {id:'due',dueDate:'2027-03-11',plannedStartDate:'2027-04-01',plannedEndDate:'2027-04-01'},
+  ].map(t=>({completed:0,startBucket:'anytime',taskType:'action',planDefined:true,...t})) as any
+  const opts={todayStr:'2027-03-11'}
+  expect(tasksForPerspective(tasks,'today',opts).map(t=>t.id)).toEqual(['current','due'])
+  expect(tasksForPerspective(tasks,'next',opts).map(t=>t.id)).toEqual(['current','clear'])
+  expect(tasksForPerspective(tasks,'multiday',opts).map(t=>t.id)).toEqual(['future','current'])
+  expect(tasksForPerspective(tasks,'upcoming',opts).map(t=>t.id)).toEqual(['current','future','due'])
+})

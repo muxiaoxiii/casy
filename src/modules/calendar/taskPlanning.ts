@@ -1,5 +1,5 @@
 import { addDaysLocalISO, parseLocalDate, toLocalISODate } from '../../shared/utils/date'
-import { isPlanningWorkday } from './calendarDates'
+import { planningRestIntervals } from './calendarDates'
 import type { TaskPlan } from '../../types/bindings'
 import type { HolidayCalendarEntry } from '../../types/ipc'
 
@@ -43,11 +43,18 @@ export function planningWarnings(task: PlanningTask, range: PlanRange, tasks: Pl
   const byDate = new Map<string, HolidayCalendarEntry[]>()
   holidays.forEach(e=>byDate.set(e.date,[...(byDate.get(e.date)||[]),e]))
   let rest=0
+  const partial: string[]=[]
   for(let date=range.start;date<=range.end;date=addDaysLocalISO(date,1)) {
-    if(!isPlanningWorkday(parseLocalDate(date)!,byDate.get(date)||[]))rest++
+    const entries=byDate.get(date)||[], intervals=planningRestIntervals(parseLocalDate(date)!,entries)
+    if(intervals.reduce((n,[s,e])=>n+e-s,0)===1440)rest++
+    else if(intervals.length) {
+      const clock=(minutes:number)=>`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`
+      partial.push(`${date} ${intervals.map(([start,end])=>`${clock(start)}–${clock(end)}`).join('、')}`)
+    }
     if(date==='9999-12-31')break
   }
   if(rest)warnings.push(`计划包含 ${rest} 个休息日（含周末和个人安排）`)
+  if(partial.length)warnings.push(`计划包含 ${partial.length} 天的部分休息时段（${partial.slice(0,3).join('；')}${partial.length>3?'等':''}），日级计划未指定具体时间，请核对`)
   const active = new Set(tasks.filter(t=>!t.completed && t.id!==task.id).map(t=>t.id))
   const overlaps = plans.filter(p=>active.has(p.taskId) && p.startDate && p.endDate && p.startDate<=range.end && p.endDate>=range.start)
   if(overlaps.length) warnings.push(`与 ${overlaps.length} 项任务的计划日期重叠，请核对工作量`)

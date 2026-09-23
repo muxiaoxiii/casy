@@ -14,6 +14,7 @@
  * 在非空分支下结果与原实现逐字节一致。
  */
 
+import { taskPlanStart, hasMultiDayPlan } from '../../../shared/utils/taskSchedule'
 import type { Task } from '../../../types'
 
 // ============================================================
@@ -74,7 +75,7 @@ export function tasksForPerspective(
       list = tasks.filter(t => !t.completed && (
         ((t.dueDate || t.deadline) && (t.dueDate || t.deadline)! <= today)
         || ((!t.deferUntil || t.deferUntil <= today) && t.startBucket !== 'someday'
-          && (t.startBucket === 'today' || (t.startDate && t.startDate <= today)))))
+          && (t.startBucket === 'today' || (taskPlanStart(t) && taskPlanStart(t)! <= today)))))
       break
 
     case 'deferred':
@@ -84,19 +85,19 @@ export function tasksForPerspective(
       break
 
     case 'upcoming':
-      list = tasks.filter(t => !t.completed && (t.dueDate || t.startDate || t.deadline))
-      list.sort((a, b) => (a.dueDate || a.startDate || '9999').localeCompare(b.dueDate || b.startDate || '9999'))
+      list = tasks.filter(t => !t.completed && (t.dueDate || taskPlanStart(t) || t.deadline))
+      list.sort((a, b) => (taskPlanStart(a) || a.dueDate || a.deadline || '9999').localeCompare(taskPlanStart(b) || b.dueDate || b.deadline || '9999'))
       break
 
     case 'multiday':
-      list = tasks.filter(t => !t.completed && t.startDate && t.dueDate && t.startDate !== t.dueDate)
+      list = tasks.filter(t => !t.completed && hasMultiDayPlan(t))
       break
 
     case 'next':
       list = tasks.filter(t => !t.completed && !t.blocked && !t.waitingFor
         && (t.taskType === 'action' || !t.taskType)
         && !['inbox','someday'].includes(t.startBucket)
-        && (!t.startDate || t.startDate <= today) && (!t.deferUntil || t.deferUntil <= today))
+        && (!taskPlanStart(t) || taskPlanStart(t)! <= today) && (!t.deferUntil || t.deferUntil <= today))
       break
 
     case 'waiting':
@@ -270,7 +271,7 @@ export function buildMatrixQuadrants(tasks: Task[]): MatrixQuadrants {
       title: '重要不紧急 (Schedule)',
       desc: '起草长篇辩护词、战略推演、客户深度维系',
       color: '#e6a23c',
-      tasks: uncompleted.filter(t => t.priority === 'important' || (!t.priority && (t.startDate && t.dueDate && t.startDate !== t.dueDate))),
+      tasks: uncompleted.filter(t => t.priority === 'important' || (!t.priority && (hasMultiDayPlan(t)))),
     },
     q3: {
       key: 'urgent',

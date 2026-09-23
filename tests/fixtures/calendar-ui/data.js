@@ -19,17 +19,18 @@ export const holidays = [
 ]
 const ok = data => Promise.resolve({ ok: true, data })
 export function fixtureServices(mode = 'mixed') {
-  const work = mode === 'mixed' || mode === 'gantt'
+  const work = mode === 'mixed' || mode === 'gantt' || mode === 'availability'
   const plans = mode === 'gantt' ? [{taskId:'task1',startDate:'2026-09-25',endDate:'2026-09-27',revision:1},{taskId:'task2',startDate:'2026-09-24',endDate:'2026-10-04',revision:1}] : []
+  let personal = mode === 'availability' ? [{date:'2026-09-28',kind:'holiday',name:'下午请假',startTime:'13:00',endTime:'18:00'}] : holidays.filter(e=>e.source==='personal')
   return {
     calendar: {
       taskPlans: () => ok(plans.map(p=>({...p}))),
       saveTaskPlan: data => { const old=plans.find(p=>p.taskId===data.taskId); if((old?.revision||0)!==data.expectedRevision)return Promise.resolve({ok:false,error:'PLAN_CONFLICT'}); const plan={taskId:data.taskId,startDate:data.startDate,endDate:data.endDate,revision:data.expectedRevision+1}; const index=plans.findIndex(p=>p.taskId===data.taskId); if(index>=0)plans[index]=plan;else plans.push(plan);return ok({...plan}) },
       events: () => ok(work ? events : []), listEvents: () => ok(work ? events.filter(e => e.type === 'event') : []),
-      deadlineWarnings: () => ok([]), holidays: year => ok({ year, entries: mode === 'empty' ? [] : holidays.filter(e => e.date.startsWith(`${year}-`)) }),
+      deadlineWarnings: () => ok([]), holidays: year => ok({ year, entries: mode === 'empty' ? [] : [...holidays.filter(e=>e.source!=='personal'),...personal.map(e=>({...e,source:'personal'}))].filter(e=>e.date.startsWith(`${year}-`)) }),
     },
     tasks: { list: () => ok(work ? tasks : []) },
     cases: { list: () => ok({ items: [{ id: 'case1', caseName }, { id: 'case2', caseName: '另一案件' }], total: 2 }) },
-    settings: { get: () => ok(null) },
+    settings: { get: () => ok({personal_calendar_days:personal}), save: data => {personal=data.personal_calendar_days;return ok(null)} },
   }
 }

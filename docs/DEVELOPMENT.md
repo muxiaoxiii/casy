@@ -74,10 +74,12 @@ npm run release:validation
 
 ## 日历布局隔离样例
 
-开发服务器启动后访问 `http://127.0.0.1:1420/tests/fixtures/calendar-ui/index.html?mode=mixed&width=720&theme=rice-paper#/calendar?date=2026-09-25&view=timeline`。该页面直接挂载真实日历组件，但注入合成 services，不初始化插件系统，不读取或修改用户数据库，也不持久化主题；甘特计划可在 fixture 内存中保存，重载页面即重置。参数 `mode` 可选 mixed/holidays/empty/gantt，`width` 控制日历容器宽度，`theme` 使用已有主题标识，`view` 可选六种视图。固定的 2026-09 日期仅用于回归，不作为节假日数据来源。该入口不被生产构建引用。
+开发服务器启动后访问 `http://127.0.0.1:1420/tests/fixtures/calendar-ui/index.html?mode=mixed&width=720&theme=rice-paper#/calendar?date=2026-09-25&view=timeline`。该页面直接挂载真实日历组件，但注入合成 services，不初始化插件系统，不读取或修改用户数据库，也不持久化主题；甘特计划可在 fixture 内存中保存，重载页面即重置。参数 `mode` 可选 mixed/holidays/empty/gantt/availability，`width` 控制日历容器宽度，`theme` 使用已有主题标识，`view` 可选六种视图。固定的 2026-09 日期仅用于回归，不作为节假日数据来源。该入口不被生产构建引用。
 
 时间线交互回归：`npx vitest run tests/unit/calendarTimeline.test.ts`。视觉检查需同时核对行高、日期/休班标记交叠、超长内容和实际详情字段；jsdom 不验证 CSS 排版。
 
 甘特入口：在上述 URL 中使用 `mode=gantt`、`view=forecast&layout=gantt`。`TaskGantt` 通过 `CalendarService.taskPlans/saveTaskPlan` 调用原生 `list_task_plans/save_task_plan`，入库至 v42 `task_plans`；计划起止与任务 startDate/dueDate 分开，NULL 起止代表取消独立计划，修订号保留。类型由 `cd src-tauri && cargo test export_bindings` 生成，禁止手改 bindings.ts。
 
 定向验证：`npx vitest run tests/unit/taskPlanning.test.ts tests/unit/TaskGantt.test.ts tests/unit/calendarTimeline.test.ts tests/unit/calendarProjection.test.ts`；原生计划校验：`cd src-tauri && cargo test task_plans`，休息提醒：`cargo test rest_day_reminders`。全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。
+
+时段 fixture：`mode=availability`、`date=2026-09-28&view=day`，预置 13:00–18:00 请假，支持表单内存保存与各视图切换。`tests/unit/personalAvailability.test.ts` 覆盖保存、失败草稿与时间范围；`task_plan_chain_test` 使用真正原生命令验证任务全链路及重复实例，`webdav_full_backup_test` 验证计划和休息时段随完整档案恢复。

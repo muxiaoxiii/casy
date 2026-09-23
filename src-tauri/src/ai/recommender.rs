@@ -53,7 +53,7 @@ pub fn generate_today_recommendations(conn: &rusqlite::Connection) -> Result<Rec
     // 获取所有未完成任务
     let mut stmt = conn.prepare(
         "SELECT t.id, t.task_name, t.case_id, t.priority, t.due_date, t.deadline,
-                t.estimated_minutes, t.context, t.task_type, t.start_date, t.start_bucket,
+                t.estimated_minutes, t.context, t.task_type, CASE WHEN EXISTS(SELECT 1 FROM task_plans WHERE task_id=t.id) THEN (SELECT start_date FROM task_plans WHERE task_id=t.id) ELSE t.start_date END, t.start_bucket,
                 t.flagged, t.blocked, c.case_name
          FROM tasks t
          LEFT JOIN cases c ON c.id = t.case_id

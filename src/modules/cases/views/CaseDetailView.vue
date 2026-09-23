@@ -1,4 +1,5 @@
 <script setup>
+import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
@@ -725,7 +726,7 @@ onUnmounted(() => {
                 <el-icon v-else-if="task.blocked" :size="12"><Lock /></el-icon>
               </div>
               <div class="seq-content" @click="openTaskEdit(task)">
-                <span class="seq-name">{{ task.taskName }}</span>
+                <span class="seq-name">{{ task.taskName }}</span><span v-if="task.planDefined" class="seq-hint">{{ taskPlanLabel(task) }}</span>
                 <span v-if="task.blocked" class="seq-hint">等待前置步骤完成</span>
               </div>
               <span v-if="task.completed" class="tag green">已完成</span>

@@ -27,6 +27,10 @@ pub struct TaskDto {
     pub assignee: Option<String>,
     pub finish_note: Option<String>,
     pub task_type: String,
+    pub plan_defined: bool,
+    pub planned_start_date: Option<String>,
+    pub planned_end_date: Option<String>,
+    pub plan_revision: Option<i32>,
     pub start_date: Option<String>,
     pub due_date: Option<String>,
     pub due_time: Option<String>,
@@ -74,7 +78,7 @@ fn row_to_task_dto(row: &rusqlite::Row) -> rusqlite::Result<TaskDto> {
         task_name: row.get::<_, String>("task_name")?,
         description: row.get::<_, Option<String>>("description")?,
         created_date: row.get::<_, String>("created_date")?,
-        deadline: row.get::<_, Option<String>>("deadline")?,
+        deadline: row.get::<_, Option<String>>("due_date")?.filter(|v| !v.is_empty()).or(row.get::<_, Option<String>>("deadline")?),
         priority: row.get::<_, Option<String>>("priority")?,
         completed: row.get::<_, i32>("completed")?,
         assignee: row.get::<_, Option<String>>("assignee")?,
@@ -82,8 +86,12 @@ fn row_to_task_dto(row: &rusqlite::Row) -> rusqlite::Result<TaskDto> {
         task_type: row
             .get::<_, Option<String>>("task_type")?
             .unwrap_or_else(|| "action".to_string()),
+        plan_defined: row.get::<_, Option<i32>>("plan_revision")?.is_some(),
+        planned_start_date: row.get("planned_start_date")?,
+        planned_end_date: row.get("planned_end_date")?,
+        plan_revision: row.get("plan_revision")?,
         start_date: row.get::<_, Option<String>>("start_date")?,
-        due_date: row.get::<_, Option<String>>("due_date")?,
+        due_date: row.get::<_, Option<String>>("due_date")?.filter(|v| !v.is_empty()).or(row.get::<_, Option<String>>("deadline")?),
         due_time: row.get::<_, Option<String>>("due_time")?,
         time_block: row.get::<_, Option<String>>("time_block")?,
         waiting_for: row.get::<_, Option<String>>("waiting_for")?,
@@ -112,9 +120,14 @@ fn row_to_task_dto(row: &rusqlite::Row) -> rusqlite::Result<TaskDto> {
     })
 }
 
+const TASK_PROJECTION: &str = "SELECT tasks.*,
+    (SELECT start_date FROM task_plans WHERE task_id=tasks.id) AS planned_start_date,
+    (SELECT end_date FROM task_plans WHERE task_id=tasks.id) AS planned_end_date,
+    (SELECT revision FROM task_plans WHERE task_id=tasks.id) AS plan_revision FROM tasks";
+
 fn load_task_row(conn: &rusqlite::Connection, id: &str) -> anyhow::Result<TaskDto> {
     conn.query_row(
-        "SELECT * FROM tasks WHERE id = ?1",
+        &format!("{TASK_PROJECTION} WHERE id = ?1"),
         rusqlite::params![id],
         row_to_task_dto,
     )
@@ -127,7 +140,7 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
         db::with_conn(|conn| {
         // 软删除：默认过滤已删任务（deleted_at IS NULL），
         // 后续 AND 条件在此之上叠加。
-        let mut sql = String::from("SELECT * FROM tasks WHERE deleted_at IS NULL");
+        let mut sql = format!("{TASK_PROJECTION} WHERE deleted_at IS NULL");
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
@@ -173,7 +186,7 @@ pub async fn list_tasks(filter: Option<TaskFilter>) -> Result<Vec<TaskDto>, Stri
                             sql.push_str(" AND completed=0 AND (
                                 COALESCE(NULLIF(due_date,''),NULLIF(deadline,''))<=date('now','localtime')
                                 OR ((defer_until IS NULL OR defer_until<=date('now','localtime')) AND start_bucket!='someday'
-                                  AND (start_bucket='today' OR NULLIF(start_date,'')<=date('now','localtime'))))");
+                                  AND (start_bucket='today' OR (CASE WHEN EXISTS(SELECT 1 FROM task_plans WHERE task_id=tasks.id) THEN (SELECT start_date FROM task_plans WHERE task_id=tasks.id) ELSE NULLIF(start_date,'') END)<=date('now','localtime'))))");
                         }
                         _ => {
                             sql.push_str(&format!(" AND start_bucket = ?{}", idx));
@@ -204,6 +217,9 @@ fn normalize_optional_task_fields(data: &mut serde_json::Value) {
             data[key] = serde_json::Value::Null;
         }
     }
+    // dueDate is canonical; deadline is its legacy alias, including explicit clears.
+    if let Some(value) = data.get("dueDate").cloned() { data["deadline"] = value; }
+    else if let Some(value) = data.get("deadline").cloned() { data["dueDate"] = value; }
 }
 
 #[tauri::command]
@@ -673,6 +689,8 @@ pub async fn snooze_task(
         };
         chrono::NaiveDate::parse_from_str(&new_date,"%Y-%m-%d")?;
 
+        let has_plan: bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM task_plans WHERE task_id=?1)",[&id],|r|r.get(0))?;
+        anyhow::ensure!(!has_plan,"此任务使用独立计划，请在甘特图中调整并确认日期");
         // Snooze changes the plan, never a legal deadline.
         // 软删拒绝：仅对活跃任务生效，0 行命中即任务不存在/已软删。
         let is_today = new_date == today.to_string();
@@ -1022,6 +1040,13 @@ pub async fn update_task(data: serde_json::Value) -> Result<(), String> {
             })?;
 
         let (old_due_date, old_completed, old_start_bucket) = old_info;
+        // A legacy start-date edit must not silently diverge from an independent plan.
+        if !matches!(patch.start_date, PatchField::Unset) {
+            let (has_plan, start): (bool, Option<String>) = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM task_plans WHERE task_id=tasks.id),start_date FROM tasks WHERE id=?1", [&patch.id], |r|Ok((r.get(0)?,r.get(1)?)))?;
+            let requested=match &patch.start_date {PatchField::Value(v)=>Some(v.clone()),_=>None};
+            anyhow::ensure!(!has_plan || requested==start, "此任务使用独立计划，请在甘特图中调整并确认日期");
+        }
 
         // 2. P0-2: AI 授权网关校验
         crate::ai::gateway::verify_ai_mutation_authorized(
@@ -1473,7 +1498,7 @@ pub async fn search_tasks(query: String) -> Result<Vec<SearchTaskDto>, String> {
         }
         let like = format!("%{}%", q.replace('%', ""));
         let mut stmt = conn.prepare(
-            "SELECT id, task_name, due_date, completed, start_bucket
+            "SELECT id, task_name, COALESCE(NULLIF(due_date,''),deadline) AS due_date, completed, start_bucket
              FROM tasks
              WHERE task_name LIKE ?1 AND deleted_at IS NULL
              ORDER BY completed ASC,

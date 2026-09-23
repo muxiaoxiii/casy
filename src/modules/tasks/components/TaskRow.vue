@@ -21,7 +21,12 @@ import {
   getTaskTypeLabel, getTaskTypeColor,
 } from '../utils/taskDisplay'
 
+import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
+
 export interface RowTask {
+  planDefined?: boolean
+  plannedStartDate?: string | null
+  plannedEndDate?: string | null
   id: string
   taskName: string
   completed: number
@@ -166,8 +171,10 @@ function areaName(id: string | null | undefined): string {
           :class="{ overdue }"
         >
           <el-icon><Calendar /></el-icon>
-          {{ formatDate(dueText) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
+          截止 {{ formatDate(dueText) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
         </span>
+
+        <span v-if="task.planDefined" class="meta-item task-plan">{{ taskPlanLabel(task) }}</span>
 
         <span v-if="task.estimatedMinutes" class="meta-item estimated">
           <el-icon><Timer /></el-icon>

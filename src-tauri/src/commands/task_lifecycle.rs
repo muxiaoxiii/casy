@@ -114,8 +114,10 @@ pub(super) fn completion_effects(
         )?;
         if let Some(rule) = rule.filter(|_| existing.is_none()) {
             validate_recurrence(&rule)?;
+            let plan: Option<(Option<String>,Option<String>)> = conn.query_row(
+                "SELECT start_date,end_date FROM task_plans WHERE task_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
             let (anchor,start,follow,review,defer,has_due): (String,Option<String>,Option<String>,Option<String>,Option<String>,bool) = conn.query_row(
-                "SELECT COALESCE(NULLIF(due_date,''),NULLIF(deadline,''),NULLIF(start_date,''),date('now','localtime')),start_date,follow_up_date,next_review_date,defer_until,COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')) IS NOT NULL FROM tasks WHERE id=?1",
+                "SELECT COALESCE(NULLIF(due_date,''),NULLIF(deadline,''),CASE WHEN EXISTS(SELECT 1 FROM task_plans WHERE task_id=tasks.id) THEN (SELECT start_date FROM task_plans WHERE task_id=tasks.id) ELSE NULLIF(start_date,'') END,date('now','localtime')),start_date,follow_up_date,next_review_date,defer_until,COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')) IS NOT NULL FROM tasks WHERE id=?1",
                 [id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
             let next = next_occurrence(&rule, &anchor)
                 .ok_or_else(|| anyhow::anyhow!("无法计算下一次重复日期"))?;
@@ -130,6 +132,16 @@ pub(super) fn completion_effects(
                 sequential,0,COALESCE((SELECT max(t.sequence_order)+1 FROM tasks t WHERE t.case_id IS tasks.case_id AND t.parent_task_id IS tasks.parent_task_id AND t.deleted_at IS NULL),0),
                 'anytime',estimated_minutes,area_id,parent_task_id,recurrence_rule,?2,knowledge_id,?6,?7,time_block FROM tasks WHERE id=?8",
                 params![successor,now,has_due.then_some(&next),shifted(start,shift).or_else(|| (!has_due).then(||next.clone())),shifted(follow,shift),shifted(review,shift),shifted(defer,shift),id])?;
+            if let Some((start,end))=plan {
+                let move_date=|value:Option<String>| -> Result<Option<String>> {
+                    value.map(|value| {
+                        let next=shifted(Some(value),shift).ok_or_else(||anyhow::anyhow!("重复计划日期超出范围"))?;
+                        anyhow::ensure!(next.len()==10 && next.as_str() <= "9999-12-31", "重复计划日期超出范围");
+                        Ok(next)
+                    }).transpose()
+                };
+                conn.execute("INSERT INTO task_plans(task_id,start_date,end_date,revision) VALUES(?1,?2,?3,1)",params![successor,move_date(start)?,move_date(end)?])?;
+            }
             conn.execute("INSERT INTO case_task_links(case_id,task_id) SELECT case_id,?2 FROM case_task_links WHERE task_id=?1",params![id,successor])?;
             conn.execute("INSERT INTO task_events(id,task_id,event_type,occurred_at,payload,actor) VALUES(?1,?2,'created',?3,?4,'system')",
                 params![db::new_id(),successor,now,serde_json::json!({"recurrenceSource":id}).to_string()])?;

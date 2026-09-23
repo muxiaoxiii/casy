@@ -63,7 +63,9 @@ export class CalendarService extends Service {
   async taskPlans() { return tauriCallSafe('list_task_plans', {}) }
 
   async saveTaskPlan(data: TaskPlanInput) {
-    return this.mutation('plan', tauriCallSafe('save_task_plan', { data }))
+    const result = await this.mutation('plan', tauriCallSafe('save_task_plan', { data }))
+    if (result.ok) this.ctx.emit('task:changed', { id: data.taskId })
+    return result
   }
 
   async deadlineWarnings(): Promise<{ ok: boolean; data?: DeadlineResult[]; error?: string }> {

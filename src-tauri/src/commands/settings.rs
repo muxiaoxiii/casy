@@ -121,17 +121,7 @@ pub async fn get_holidays_summary() -> Result<serde_json::Value, String> {
 
 /// Personal availability is independent of the statutory deadline calendar.
 fn validate_personal_days(value: &serde_json::Value) -> anyhow::Result<()> {
-    let entries = value.as_array().filter(|entries| entries.len() <= 3000)
-        .ok_or_else(|| anyhow::anyhow!("个人调休数据格式错误或超过 3000 天"))?;
-    let mut dates = std::collections::HashSet::new();
-    for entry in entries {
-        let date = entry["date"].as_str().unwrap_or_default();
-        let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
-        anyhow::ensure!(parsed.to_string() == date && date >= "1900-01-01" && date <= "2200-12-31", "个人调休日期无效");
-        anyhow::ensure!(matches!(entry["kind"].as_str(), Some("holiday" | "workday")), "个人调休类型无效");
-        anyhow::ensure!(dates.insert(date), "同一天只能设置一个个人调休安排");
-        anyhow::ensure!(entry["name"].as_str().is_some_and(|name| name.chars().count() <= 80), "个人调休备注过长或格式错误");
-    }
+    super::personal_availability::parse(value)?;
     Ok(())
 }
 

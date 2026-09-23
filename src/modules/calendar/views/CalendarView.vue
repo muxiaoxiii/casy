@@ -2,13 +2,12 @@
 import HolidayBadges from '../components/HolidayBadges.vue'
 import TimelineStream from '../components/TimelineStream.vue'
 import TaskGantt from '../components/TaskGantt.vue'
-import { planRange } from '../taskPlanning'
 import PersonalDaysDialog from '../components/PersonalDaysDialog.vue'
 import YearHeatmap from '../components/YearHeatmap.vue'
 import CalendarComposer from '../components/CalendarComposer.vue'
 import TimeGrid from '../components/TimeGrid.vue'
 import { timeString } from '../parseCalendarCapture'
-import { surroundingMonths, monthWorkingDays, eventDuration, isPlanningWorkday } from '../calendarDates'
+import { surroundingMonths, monthWorkingDays, eventDuration, isPlanningWorkday, planningRestIntervals } from '../calendarDates'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
@@ -59,15 +58,32 @@ const plansLoading = ref(false)
 let planRequest = 0
 const forecastMode = ref(route.query.layout === 'gantt' ? 'gantt' : 'list')
 const taskPlanMap = computed(() => new Map(taskPlans.value.map(plan => [plan.taskId, plan])))
+function hasIndependentPlan(task) {
+  return !!(task?.planDefined || taskPlanMap.value.has(task?.id))
+}
+function taskPlanDates(task) {
+  if (taskPlanMap.value.has(task.id)) {
+    const plan = taskPlanMap.value.get(task.id)
+    return { start: plan.startDate ?? null, end: plan.endDate ?? null }
+  }
+  if (task.planDefined) return { start: task.plannedStartDate ?? null, end: task.plannedEndDate ?? null }
+  return null
+}
 function taskSchedule(task) {
-  if (taskPlanMap.value.has(task.id)) return planRange(taskPlanMap.value.get(task.id))
+  if (hasIndependentPlan(task)) {
+    const plan = taskPlanDates(task)
+    return plan?.start && plan?.end && plan.start <= plan.end ? { start: plan.start, end: plan.end } : null
+  }
   const start = task.startDate || task.dueDate, end = task.dueDate || task.startDate
   return start && end && start <= end ? { start, end } : null
 }
 function isMultiDayTask(task) { const range = taskSchedule(task); return !!range && range.start !== range.end }
 function scheduleStart(task) { return taskSchedule(task)?.start || '' }
 function scheduleEnd(task) { return taskSchedule(task)?.end || '' }
-const yearTasks = computed(() => allTasks.value.map(task => ({ ...task, planDefined: taskPlanMap.value.has(task.id), plannedStartDate: taskPlanMap.value.get(task.id)?.startDate, plannedEndDate: taskPlanMap.value.get(task.id)?.endDate })))
+const yearTasks = computed(() => allTasks.value.map(task => {
+  const plan = taskPlanDates(task)
+  return { ...task, planDefined: hasIndependentPlan(task), plannedStartDate: plan?.start ?? null, plannedEndDate: plan?.end ?? null }
+}))
 const holidayError = ref('')
 let holidayRequest = 0
 const completedTaskIds = ref(new Set())
@@ -201,7 +217,7 @@ async function onDropOnDay(e, targetDate) {
     await loadEvents();onDragEnd();ElMessage.success('已移动日程');return
   }
   if (!task?.id || !tasks.value.some(t => t.id === task.id)) return
-  if (taskPlanMap.value.has(task.id)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('此任务已有独立计划，请在甘特图中调整并确认日期') }
+  if (hasIndependentPlan(task)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('此任务已有独立计划，请在甘特图中调整并确认日期') }
   const date = formatDate(targetDate)
   const patch = dragAction.value === 'extend'
     ? { id: task.id, startDate: task.startDate || date, dueDate: date }
@@ -223,7 +239,7 @@ async function onDropToHoldingTank(e) {
     } catch {}
   }
   if (!task || task.type==='event') return
-  if (taskPlanMap.value.has(task.id)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('请在甘特图中取消此任务的独立计划') }
+  if (hasIndependentPlan(task)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('请在甘特图中取消此任务的独立计划') }
 
   const res = await casyContext.tasks.update({
     id: task.id,
@@ -265,8 +281,8 @@ function openEditDetail(item, type = 'task') {
       id: item.id,
       type: 'task',
       title: item.taskName || item.title || '',
-      startDate: item.startDate || item.dueDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
-      dueDate: item.dueDate || item.startDate || (activeDaySummary.value ? formatDate(activeDaySummary.value.date) : ''),
+      startDate: item.startDate || '',
+      dueDate: item.dueDate || item.deadline || '',
       startTime: item.startTime || '',
       caseId: item.caseId || '',
       estimatedMinutes: item.estimatedMinutes || 60,
@@ -443,7 +459,7 @@ function eventsForDay(date) {
 function tasksForDay(date) {
   const ds = formatDate(date)
   return tasks.value.filter(t => {
-    if (!taskPlanMap.value.has(t.id) && (t.dueDate === ds || t.startDate === ds)) return true
+    if (!hasIndependentPlan(t) && (t.dueDate === ds || t.startDate === ds)) return true
     const range = taskSchedule(t)
     if (range && ds >= range.start && ds <= range.end) return true
     return false
@@ -495,7 +511,7 @@ const timelineStream = computed(() => {
 
   // 2. 收集事件
   for (const ev of events.value) {
-    if (ev.type === 'task' && tasks.value.some(t => t.id === ev.id && (t.dueDate || t.startDate) === ev.date)) continue
+    if (ev.type === 'task' && tasks.value.some(t => t.id === ev.id && (hasIndependentPlan(t) ? taskSchedule(t)?.start || t.dueDate : t.dueDate || t.startDate) === ev.date)) continue
     if (allowedCases && ev.caseId && !allowedCases.has(ev.caseId)) continue
     const dateStr = ev.date
     if (!dateStr) continue
@@ -508,7 +524,7 @@ const timelineStream = computed(() => {
       title: ev.title,
       caseName: ev.caseName || '律所事项',
       type: ev.type === 'court' || ev.type === 'hearing' ? 'court' : 'primary',
-      tag1: ['court', 'hearing'].includes(ev.type) ? '庭审' : '日程',
+      tag1: ev.type === 'task' ? '任务截止' : ['court', 'hearing'].includes(ev.type) ? '庭审' : '日程',
       tag2: ['court', 'hearing'].includes(ev.type) ? '固定安排' : '已排期',
       tag2Type: ['court', 'hearing'].includes(ev.type) ? 'risk' : 'neutral',
       duration: eventDuration(ev.time, ev.endTime),
@@ -518,14 +534,14 @@ const timelineStream = computed(() => {
   // 3. 收集任务
   for (const t of tasks.value) {
     if (allowedCases && t.caseId && !allowedCases.has(t.caseId)) continue
-    const dateStr = taskPlanMap.value.has(t.id) ? taskSchedule(t)?.start || t.dueDate : t.dueDate || t.startDate
+    const dateStr = hasIndependentPlan(t) ? taskSchedule(t)?.start || t.dueDate : t.dueDate || t.startDate
     if (!dateStr) continue
     if (!map.has(dateStr)) map.set(dateStr, [])
     map.get(dateStr).push({
       id: `task:${t.id}`,
       source: t,
       sourceKind: 'task',
-      time: t.startTime || '未排时',
+      time: t.startTime || (dateStr === t.dueDate ? t.dueTime : '') || '未排时',
       title: t.taskName,
       caseName: t.caseName || '常规待办',
       type: 'primary',
@@ -644,7 +660,7 @@ const forecast14Days = computed(() => {
 
     const available = isPlanningWorkday(d, holidaysOn(dateStr))
     let riskLevel = available ? 'free' : 'rest'
-    let riskTag = available ? '排期充裕 · 专注窗口' : '休息安排 · 留意个人计划'
+    let riskTag = available ? (planningRestIntervals(d, holidaysOn(dateStr)).length ? '部分时段休息 · 核对可用时间' : '排期充裕 · 专注窗口') : '休息安排 · 留意个人计划'
 
     if (hasCourt || hasDeadline) {
       riskLevel = 'risk'
@@ -698,7 +714,7 @@ const forecastOverviewStats = computed(() => {
 
     if (hasCourt) {
       riskDays++
-    } else if (mins <= 120 && isPlanningWorkday(d, holidaysOn(d))) {
+    } else if (mins <= 120 && planningRestIntervals(d, holidaysOn(d)).length === 0) {
       freeDays++
     }
   }
@@ -716,7 +732,7 @@ const tankTasks = computed(() => {
   let list = []
 
   if (tankFilter.value === 'unscheduled') {
-    list = tasks.value.filter(t => !t.completed && !(taskPlanMap.value.has(t.id) ? taskSchedule(t) : t.startDate) && !t.startTime && !events.value.some(e => e.taskId === t.id && e.date >= formatDate(currentDate.value)))
+    list = tasks.value.filter(t => !t.completed && !(hasIndependentPlan(t) ? taskSchedule(t) : t.startDate) && !t.startTime && !events.value.some(e => e.taskId === t.id && e.date >= formatDate(currentDate.value)))
   } else if (tankFilter.value === 'week') {
     const now = new Date(currentDate.value)
     const dayOfWeek = now.getDay() || 7
@@ -923,13 +939,13 @@ function openYearDate(date, view) {
 }
 const jumpDate = computed({ get: () => formatDate(currentDate.value), set: value => { currentDate.value = dateFromQuery(value); void loadData() } })
 function timedItems(date) {
-  const dayEvents = eventsForDay(date).filter(e => e.time && e.type !== 'task')
+  const dayEvents = eventsForDay(date).filter(e => e.time)
   return [
     ...dayEvents.map(e => ({ id: e.id, title: e.title, startTime: e.time, endTime: e.endTime, color: e.color, kind: 'event', completed: !!e.taskId && completedTaskIds.value.has(e.taskId) })),
-    ...tasksForDay(date).filter(t => t.startTime && !dayEvents.some(e => e.taskId === t.id)).map(t => ({ id: t.id, title: t.taskName, startTime: t.startTime, endTime: null, kind: 'task' })),
+    ...tasksForDay(date).filter(t => t.startTime && !dayEvents.some(e => e.taskId === t.id || (e.type === 'task' && e.id === t.id))).map(t => ({ id: t.id, title: t.taskName, startTime: t.startTime, endTime: null, kind: 'task' })),
   ]
 }
-const timedDays = computed(() => (activeView.value === 'week' ? weekColumns.value.map(c => c.date) : [currentDate.value]).map(date => ({ date: formatDate(date), items: timedItems(date) })))
+const timedDays = computed(() => (activeView.value === 'week' ? weekColumns.value.map(c => c.date) : [currentDate.value]).map(date => ({ date: formatDate(date), items: timedItems(date), rest: planningRestIntervals(date, holidaysOn(date)).map(([start,end]) => ({start,end,label:`休息 ${String(Math.floor(start/60)).padStart(2,'0')}:${String(start%60).padStart(2,'0')}–${String(Math.floor(end/60)).padStart(2,'0')}:${String(end%60).padStart(2,'0')}`})) })))
 function openTimedItem(item, date) {
   const source = item.kind === 'task' ? tasks.value.find(t => t.id === item.id) : eventsForDay(date).find(e => e.id === item.id)
   if (source) openEditDetail(source, item.kind)
@@ -1566,7 +1582,7 @@ async function scheduleTaskBlock(event, date, hour) {
       destroy-on-close
     >
       <el-button v-if="editingItem.type === 'event' && editingItem.taskId" text @click="router.push({ path: '/tasks', query: { edit: editingItem.taskId } })">打开关联任务 ↗</el-button>
-      <p v-if="editingItem.type === 'task' && taskPlanMap.has(editingItem.id)" class="calendar-plan-note">此任务的独立计划在甘特图中调整；下方编辑任务属性和截止日期。<el-button text @click="showEditDialog = false; activeView = 'forecast'; forecastMode = 'gantt'">打开甘特图</el-button></p>
+      <p v-if="editingItem.type === 'task' && hasIndependentPlan(tasks.find(t => t.id === editingItem.id) || {})" class="calendar-plan-note">此任务的独立计划在甘特图中调整；下方编辑任务属性和截止日期。<el-button text @click="showEditDialog = false; activeView = 'forecast'; forecastMode = 'gantt'">打开甘特图</el-button></p>
       <div class="edit-modal-body">
         <div class="edit-form-item">
           <label>标题 / 名称</label>
@@ -1576,7 +1592,7 @@ async function scheduleTaskBlock(event, date, hour) {
         <div class="edit-form-row">
           <div class="edit-form-item">
             <label>开始日期</label>
-            <input v-model="editingItem.startDate" type="date" class="edit-input" />
+            <input v-model="editingItem.startDate" type="date" class="edit-input" :disabled="editingItem.type === 'task' && hasIndependentPlan(tasks.find(t => t.id === editingItem.id) || {})" />
           </div>
           <div class="edit-form-item">
             <label>截止日期</label>

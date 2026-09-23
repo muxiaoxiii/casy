@@ -17,6 +17,8 @@ export type IpcJsonObject = { [key: string]: IpcJsonScalar | IpcJsonObject | Ipc
 export type IpcJsonValue = IpcJsonScalar | IpcJsonObject | IpcJsonScalar[] | IpcJsonObject[]
 
 export interface HolidayCalendarEntry {
+  startTime?: string | null
+  endTime?: string | null
   source?: 'official' | 'personal'
   date: string
   name: string

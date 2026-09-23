@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { availabilityTimeLabel } from '../calendarDates'
 import { computed, ref } from 'vue'
 import HolidayBadges from './HolidayBadges.vue'
 import { toLocalISODate, todayLocalISO } from '../../../shared/utils/date'
@@ -18,7 +19,7 @@ const months = computed(() => Array.from({ length: 12 }, (_, month) => {
   const offset = (first.getDay() + 6) % 7
   const days = Array.from({ length: count }, (_, index) => {
     const key = toLocalISODate(new Date(props.year, month, index + 1)), tasks = taskDays.value.get(key) || [], holiday = holidayMap.value.get(key) || []
-    return { key, number: index + 1, count: tasks.length, level: heatLevel(tasks.length), holiday, title: `${key} · ${tasks.length} 项任务${holiday.map(entry => ` · ${entry.source === 'personal' ? '个人' : '法定'}${entry.kind === 'holiday' ? '休' : '班'} ${entry.name}`).join('')}` }
+    return { key, number: index + 1, count: tasks.length, level: heatLevel(tasks.length), holiday, title: `${key} · ${tasks.length} 项任务${holiday.map(entry => ` · ${entry.source === 'personal' ? '个人' : '法定'}${entry.kind === 'holiday' ? '休' : '班'} ${entry.name} ${availabilityTimeLabel(entry)}`).join('')}` }
   })
   const total = days.reduce((sum, day) => sum + day.count, 0)
   return { month, date: toLocalISODate(first), offset, days, total, busyDays: days.filter(day => day.count).length, density: Math.min(18, total / count * 4) }

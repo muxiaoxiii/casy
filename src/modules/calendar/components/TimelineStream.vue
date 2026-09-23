@@ -1,4 +1,5 @@
 <script setup>
+import { availabilityTimeLabel } from '../calendarDates'
 import HolidayBadges from './HolidayBadges.vue'
 defineProps({ groups: { type: Array, required: true } })
 const emit = defineEmits(['open'])
@@ -17,7 +18,7 @@ const emit = defineEmits(['open'])
         <div v-if="group.holidays.length" class="timeline-holiday-note">
           <p v-for="entry in group.holidays" :key="`${entry.source}-${entry.date}`">
             <strong>{{ entry.source === 'personal' ? '个人安排' : '法定安排' }}</strong>
-            {{ entry.name || (entry.kind === 'holiday' ? '休息日' : '调休工作日') }}
+            {{ entry.name || (entry.kind === 'holiday' ? '休息' : '调休工作') }} · {{ availabilityTimeLabel(entry) }}
           </p>
           <span v-if="!group.items.length">当日暂无已排期事项</span>
         </div>

@@ -185,7 +185,7 @@ pub async fn get_today_kpis() -> Result<TodayKpis, String> {
         )?;
         let due_today: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks
-             WHERE completed = 0 AND (due_date = ?1 OR deadline = ?1) AND deleted_at IS NULL",
+             WHERE completed = 0 AND COALESCE(NULLIF(due_date,''),deadline) = ?1 AND deleted_at IS NULL",
             rusqlite::params![today],
             |r| r.get(0),
         )?;

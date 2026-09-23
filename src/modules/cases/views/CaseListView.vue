@@ -1,4 +1,5 @@
 <script setup>
+import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
@@ -897,7 +898,8 @@ async function handleCreateCase(formData) {
                   <el-icon v-if="task.completed" :size="11"><Check /></el-icon>
                 </button>
                 <span class="task-row-name" :class="{ struck: task.completed }">{{ task.taskName }}</span>
-                <span v-if="task.dueDate" class="task-row-due">{{ task.dueDate.slice(5) }}</span>
+                <span v-if="task.planDefined" class="task-row-plan" :title="taskPlanLabel(task)">{{ taskPlanLabel(task) }}</span>
+                <span v-if="task.dueDate" class="task-row-due">截止 {{ task.dueDate.slice(5) }}</span>
               </div>
               <div v-if="!caseUpcomingTasks.length" class="empty-upcoming-box">
                 <span>暂无待处理事项 · 状态良好</span>
@@ -2019,6 +2021,7 @@ async function handleCreateCase(formData) {
   text-decoration: line-through;
   color: var(--slate-gray-light);
 }
+.task-row-plan { font-size:11px; color:var(--c-text-secondary); max-width:140px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .task-row-due {
   font-family: var(--font-mono);
   font-size: 10px;

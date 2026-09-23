@@ -93,8 +93,8 @@ pub async fn get_calendar_events(year: i32, month: u32, month_count: Option<u32>
 
         // 任务到期
         let mut stmt = conn.prepare(
-            "SELECT id, deadline, task_name, case_id FROM tasks
-             WHERE substr(deadline,1,10) BETWEEN ?1 AND ?2 AND completed = 0 AND deleted_at IS NULL",
+            "SELECT id, COALESCE(NULLIF(due_date,''),deadline) || CASE WHEN NULLIF(due_time,'') IS NOT NULL THEN 'T'||due_time ELSE '' END, task_name, case_id FROM tasks
+             WHERE substr(COALESCE(NULLIF(due_date,''),deadline),1,10) BETWEEN ?1 AND ?2 AND completed = 0 AND deleted_at IS NULL",
         )?;
         for row in stmt.query_map(rusqlite::params![start, end], |r| {
             CalendarEvent::projection(

@@ -25,8 +25,25 @@ export function eventDuration(start?: string | null, end?: string | null) {
   return total > 0 ? `${total} 分钟` : ''
 }
 
-/** Personal availability takes precedence for planning, never legal deadlines. */
-export function isPlanningWorkday(date: Date, entries: { kind: string; source?: string }[]) {
-  const entry = entries.find(entry => entry.source === 'personal') || entries.find(entry => entry.source !== 'personal')
-  return entry ? entry.kind === 'workday' : date.getDay() !== 0 && date.getDay() !== 6
+export interface AvailabilityEntry { kind: string; source?: string; startTime?: string | null; endTime?: string | null }
+export function timeMinutes(value?: string | null) {
+  if (!value || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return value === '24:00' ? 1440 : null
+  return Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5))
+}
+export function availabilityTimeLabel(entry: AvailabilityEntry) {
+  return entry.startTime && entry.endTime ? `${entry.startTime}–${entry.endTime}` : '全天'
+}
+/** Personal availability affects planning, never the statutory calendar. */
+export function planningRestIntervals(date: Date, entries: AvailabilityEntry[]): Array<[number, number]> {
+  const official = entries.find(e => e.source !== 'personal')
+  const rest = official ? official.kind === 'holiday' : [0, 6].includes(date.getDay())
+  const personal = entries.find(e => e.source === 'personal')
+  if (!personal) return rest ? [[0, 1440]] : []
+  const start = timeMinutes(personal.startTime), end = timeMinutes(personal.endTime)
+  if (start === null || end === null) return personal.kind === 'holiday' ? [[0, 1440]] : []
+  if (personal.kind === 'holiday') return rest ? [[0, 1440]] : [[start, end]]
+  return rest ? ([[0, start], [end, 1440]] as Array<[number,number]>).filter(([s,e]) => s < e) : []
+}
+export function isPlanningWorkday(date: Date, entries: AvailabilityEntry[]) {
+  return planningRestIntervals(date, entries).reduce((sum,[s,e]) => sum + e - s,0) < 1440
 }

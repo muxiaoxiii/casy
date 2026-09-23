@@ -909,7 +909,7 @@ pub async fn get_today_stats() -> Result<TodayStats, String> {
 
         // 今日到期任务
         let due_today: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE (deadline = ?1 OR due_date = ?1) AND completed = 0 AND deleted_at IS NULL",
+            "SELECT COUNT(*) FROM tasks WHERE COALESCE(NULLIF(due_date,''),deadline) = ?1 AND completed = 0 AND deleted_at IS NULL",
             rusqlite::params![today],
             |row| row.get(0),
         ).unwrap_or(0);

@@ -8,12 +8,13 @@ import { minutes } from '../../calendar/parseCalendarCapture'
 import type { Task } from '../../../types'
 import RelatedWork from '../../../shared/components/RelatedWork.vue'
 
+import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
 const props = defineProps<{ task: Task; cases: Array<{ id: string; caseName?: string | null; caseNo?: string | null }> }>()
 const emit = defineEmits<{ close: []; saved: []; advanced: [] }>()
 const router = useRouter()
 const title = ref(props.task.taskName)
 const notes = ref(props.task.description || '')
-const dueDate = ref(props.task.dueDate || '')
+const dueDate = ref(props.task.dueDate || props.task.deadline || '')
 const caseId = ref(props.task.caseId || '')
 const bucket = ref(props.task.startBucket || 'inbox')
 const busy = ref(false)
@@ -74,6 +75,8 @@ defineExpose({ saveIfDirty: () => snapshot() === savedSnapshot ? Promise.resolve
       <label>截止日期<input v-model="dueDate" type="date" :disabled="busy" /></label>
       <label>关联案件<select v-model="caseId" :disabled="busy"><option value="">独立任务</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option></select></label>
     </div>
+    <p v-if="task.planDefined">{{ taskPlanLabel(task) }} · 截止日期单独管理。</p>
+    <button type="button" :disabled="busy" @click="async () => { if (await save()) await router.push({path:'/calendar',query:{view:'forecast',layout:'gantt',date:task.plannedStartDate || day}}) }">在甘特图调整计划</button>
     <div v-if="scheduling" class="schedule-fields">
       <p>为这项任务留出一段时间，截止日期单独管理。</p>
       <label>排期日期<input v-model="day" type="date" :disabled="busy" /></label>

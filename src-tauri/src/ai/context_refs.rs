@@ -58,7 +58,7 @@ fn resolve_one(conn: &Connection, kind: &str, id: &str) -> Result<Option<(UsedRe
         "task" => {
             let row: Option<(String, Option<String>, Option<String>, Option<String>)> = conn
                 .query_row(
-                    "SELECT task_name, description, deadline, priority FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
+                    "SELECT task_name, description, COALESCE(NULLIF(due_date,''),deadline), priority FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
                     params![id],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )

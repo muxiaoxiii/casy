@@ -26,6 +26,7 @@ describe('calendar projection contract', () => {
     await service.saveTaskPlan(data)
     expect(request).toHaveBeenLastCalledWith('save_task_plan',{data})
     expect(emit).toHaveBeenCalledWith('plan:changed')
+    expect(emit).toHaveBeenCalledWith('task:changed',{id:'t'})
     request.mockResolvedValue({ok:false,error:'PLAN_CONFLICT'});emit.mockClear()
     await service.saveTaskPlan(data)
     expect(emit).not.toHaveBeenCalled()

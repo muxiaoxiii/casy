@@ -1,5 +1,5 @@
 //! Rest-day planning notices are local-only and never alter legal deadlines.
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use anyhow::Result;
 use chrono::{Duration, NaiveDate};
 use rusqlite::{params, Connection};
@@ -10,58 +10,71 @@ pub(super) fn refresh(conn: &Connection, today: NaiveDate) -> Result<()> {
         Some(raw) => HolidayCalendar::from_json_str(&raw).map_err(anyhow::Error::msg)?,
         None => HolidayCalendar::builtin(),
     };
-    let mut personal = HashMap::new();
-    if let Some(raw) = db::get_setting(conn, "personal_calendar_days")? {
-        let rows: Vec<serde_json::Value> = serde_json::from_str(&raw)?;
-        for row in rows {
-            if let (Some(date), Some(kind)) = (row["date"].as_str(), row["kind"].as_str()) {
-                personal.insert(date.to_owned(), kind.to_owned());
-            }
-        }
-    }
-    let is_rest = |date: NaiveDate| personal.get(&date.to_string())
-        .map(|kind| kind == "holiday").unwrap_or_else(|| !official.is_workday(date));
-    let today_rest = is_rest(today);
-    let tomorrow_rest = is_rest(today + Duration::days(1));
+    let personal = super::personal_availability::parse(&match db::get_setting(conn,"personal_calendar_days")? {
+        Some(raw)=>serde_json::from_str(&raw)?,None=>serde_json::json!([]),
+    })?;
+    let rest = |date:NaiveDate| super::personal_availability::rest_intervals(date,&official,&personal);
+    let today_intervals=rest(today);
+    let today_rest = !today_intervals.is_empty();
+    let today_full_rest = today_intervals.iter().map(|(s,e)|(e-s) as u32).sum::<u32>()>=1440;
+    let tomorrow_rest = !rest(today + Duration::days(1)).is_empty();
     let mut desired = HashSet::new();
     if today_rest || tomorrow_rest {
-        // On the eve of a break include its entire continuous span, so work
-        // later in a long holiday is visible before the user leaves.
+        // On the eve of a break — and when today is only partially away —
+        // include the continuous rest span so later leave days stay visible.
         let mut through = today;
-        if !today_rest {
+        if !today_full_rest {
             for offset in 1..=366 {
                 let date = today + Duration::days(offset);
-                if !is_rest(date) { break; }
+                if rest(date).is_empty() { break; }
                 through = date;
             }
         }
         let start = today.to_string(); let end = through.to_string();
         // Identity is shared by a task and its calendar time block: one notice.
         let mut work: BTreeMap<String, (String, String)> = BTreeMap::new();
-        let mut stmt = conn.prepare("SELECT t.id,t.task_name,CASE WHEN p.task_id IS NOT NULL THEN p.start_date ELSE COALESCE(NULLIF(t.start_date,''),NULLIF(t.due_date,''),NULLIF(t.deadline,'')) END,CASE WHEN p.task_id IS NOT NULL THEN p.end_date ELSE COALESCE(NULLIF(t.due_date,''),NULLIF(t.deadline,''),NULLIF(t.start_date,'')) END FROM tasks t LEFT JOIN task_plans p ON p.task_id=t.id WHERE t.completed=0 AND t.deleted_at IS NULL UNION ALL SELECT id,task_name,COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')),COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')) FROM tasks WHERE completed=0 AND deleted_at IS NULL")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?)))?;
+        // Date-only work is a possible conflict; timed work uses half-open intervals.
+        // On the day before leave, keep today's pending work and inspect the leave span.
+        let conflicts=|date:&str,from:Option<&str>,to:Option<&str>| -> bool {
+            let Ok(date)=NaiveDate::parse_from_str(date,"%Y-%m-%d") else{return false;};
+            if !today_rest && date==today {return true;}
+            super::personal_availability::intersects(&rest(date),from,to)
+        };
+        let mut stmt = conn.prepare("SELECT t.id,t.task_name,
+            CASE WHEN p.task_id IS NOT NULL THEN p.start_date ELSE COALESCE(NULLIF(t.start_date,''),NULLIF(t.due_date,''),NULLIF(t.deadline,'')) END,
+            CASE WHEN p.task_id IS NOT NULL THEN p.end_date ELSE COALESCE(NULLIF(t.due_date,''),NULLIF(t.deadline,''),NULLIF(t.start_date,'')) END,
+            CASE WHEN p.task_id IS NULL AND (t.start_date IS NULL OR t.start_date='' OR t.start_date=COALESCE(NULLIF(t.due_date,''),t.deadline)) THEN t.due_time ELSE NULL END
+            FROM tasks t LEFT JOIN task_plans p ON p.task_id=t.id WHERE t.completed=0 AND t.deleted_at IS NULL
+            UNION ALL SELECT id,task_name,COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')),COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')),due_time FROM tasks WHERE completed=0 AND deleted_at IS NULL")?;
+        let rows=stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?)))?;
         for row in rows {
-            let (id,title,from,to) = row?;
-            if let (Some(from),Some(to)) = (from,to) {
-                if from <= end && to >= start {
-                    work.insert(format!("task:{id}"),(title,from.max(start.clone())));
+            let (id,title,from,to,time)=row?;
+            if let (Some(from),Some(to))=(from,to) {
+                let mut date=today;
+                while date<=through {
+                    let key=date.to_string();
+                    if key>=from && key<=to && conflicts(&key,time.as_deref(),None) {
+                        work.entry(format!("task:{id}")).or_insert((title,key)); break;
+                    }
+                    date+=Duration::days(1);
                 }
             }
         }
-        let mut stmt = conn.prepare("SELECT 'event:'||e.id,e.title,e.event_date,e.task_id FROM calendar_events e LEFT JOIN tasks t ON t.id=e.task_id WHERE e.event_date BETWEEN ?1 AND ?2 AND (e.task_id IS NULL OR (t.id IS NOT NULL AND t.completed=0 AND t.deleted_at IS NULL))
-            UNION ALL SELECT 'deadline:'||id,deadline_name,due_date,NULL FROM case_deadlines WHERE completed=0 AND due_date BETWEEN ?1 AND ?2
-            UNION ALL SELECT 'hearing:'||id,COALESCE(hearing_name,hearing_record),substr(hearing_date,1,10),NULL FROM hearings WHERE lifecycle_status='scheduled' AND COALESCE(actual_status,'未开')!='已开' AND substr(hearing_date,1,10) BETWEEN ?1 AND ?2")?;
-        let rows = stmt.query_map(params![start,end],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?)))?;
+        let mut stmt=conn.prepare("SELECT 'event:'||e.id,e.title,e.event_date,e.task_id,CASE WHEN e.all_day=1 THEN NULL ELSE e.start_time END,CASE WHEN e.all_day=1 THEN NULL ELSE COALESCE(NULLIF(e.end_time,''),'24:00') END FROM calendar_events e LEFT JOIN tasks t ON t.id=e.task_id WHERE e.event_date BETWEEN ?1 AND ?2 AND (e.task_id IS NULL OR (t.id IS NOT NULL AND t.completed=0 AND t.deleted_at IS NULL))
+            UNION ALL SELECT 'deadline:'||id,deadline_name,due_date,NULL,NULL,NULL FROM case_deadlines WHERE completed=0 AND due_date BETWEEN ?1 AND ?2
+            UNION ALL SELECT 'hearing:'||id,COALESCE(hearing_name,hearing_record),substr(hearing_date,1,10),NULL,substr(hearing_date,12,5),'24:00' FROM hearings WHERE lifecycle_status='scheduled' AND COALESCE(actual_status,'未开')!='已开' AND substr(hearing_date,1,10) BETWEEN ?1 AND ?2")?;
+        let rows=stmt.query_map(params![start,end],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,Option<String>>(5)?)))?;
         for row in rows {
-            let (id,title,date,task_id) = row?;
-            let key = task_id.map(|id|format!("task:{id}")).unwrap_or(id);
+            let (id,title,date,task_id,from,to)=row?;
+            if !conflicts(&date,from.as_deref(),to.as_deref()) {continue;}
+            let key=task_id.map(|id|format!("task:{id}")).unwrap_or(id);
             work.entry(key).or_insert((title,date));
         }
         for (entity,(title,date)) in work {
             let id = format!("rest-work:{today}:{entity}");
-            let heading = if today_rest { "休息日仍有工作" } else { "休息前请安排工作" };
-            let body = if today_rest { format!("今天是休息日，仍有未完成或已排期事项：{title}。请提前处理或调整安排。") }
-                else { format!("明天开始休息，今天至 {end} 仍有事项：{title}（{date}）。请在休息前确认安排。") };
+            let heading = if today_rest { "休息安排与工作需核对" } else { "休息前请安排工作" };
+            let body = if today_rest { format!("今天有休息安排，事项「{title}」与休息时段重叠或尚未指定具体时间，请核对安排。") }
+                else { format!("明天有休息安排，今天至 {end} 仍有事项：{title}（{date}）。请在休息前确认安排。") };
             let payload = serde_json::json!({"calendarDate":date,"entity":entity,"restReminderDay":start}).to_string();
             conn.execute("INSERT INTO notifications(id,type,title,body,payload_json) VALUES(?1,'rest_day_work',?2,?3,?4) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,payload_json=excluded.payload_json",params![id,heading,body,payload])?;
             // Preserve read/dismiss state: refreshes must not resurrect handled notices.
@@ -134,6 +147,32 @@ mod tests {
         refresh(&conn,NaiveDate::from_ymd_opt(2027,3,10).unwrap()).unwrap(); assert_eq!(count(),0);
         conn.execute("UPDATE tasks SET due_date='2027-03-11' WHERE id='p'",[]).unwrap();
         refresh(&conn,NaiveDate::from_ymd_opt(2027,3,11).unwrap()).unwrap(); assert_eq!(count(),1);
+    }
+
+    #[test]
+    fn partial_leave_only_conflicts_with_overlapping_times_and_keeps_untimed_work() {
+        let conn=Connection::open_in_memory().unwrap();db::init_db(&conn).unwrap();
+        db::set_setting(&conn,"personal_calendar_days",r#"[{"date":"2027-03-11","kind":"holiday","name":"半天请假","startTime":"13:00","endTime":"18:00"}]"#).unwrap();
+        conn.execute_batch("INSERT INTO calendar_events(id,title,event_date,start_time,end_time,all_day,created_at,updated_at) VALUES('morning','上午工作','2027-03-11','09:00','12:00',0,'now','now'),('overlap','跨午工作','2027-03-11','12:30','13:30',0,'now','now'),('after','下班后','2027-03-11','18:00','19:00',0,'now','now');
+            INSERT INTO tasks(id,task_name,created_date,due_date,due_time,completed) VALUES('am','上午截止','2027-01-01','2027-03-11','10:00',0),('pm','下午截止','2027-01-01','2027-03-11','14:00',0),('untimed','未定时','2027-01-01','2027-03-11',NULL,0);").unwrap();
+        for today in [NaiveDate::from_ymd_opt(2027,3,10).unwrap(),NaiveDate::from_ymd_opt(2027,3,11).unwrap()] {
+            refresh(&conn,today).unwrap();
+            let ids=conn.prepare("SELECT id FROM notifications WHERE dismissed_at IS NULL ORDER BY id").unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+            assert_eq!(ids.len(),3);assert!(ids.iter().any(|id|id.ends_with("event:overlap")));assert!(ids.iter().any(|id|id.ends_with("task:pm")));assert!(ids.iter().any(|id|id.ends_with("task:untimed")));
+        }
+    }
+
+    #[test]
+    fn partial_leave_still_scans_the_following_continuous_rest_span() {
+        let conn=Connection::open_in_memory().unwrap();db::init_db(&conn).unwrap();
+        db::set_setting(&conn,"personal_calendar_days",r#"[
+            {"date":"2027-03-11","kind":"holiday","name":"下午半天","startTime":"13:00","endTime":"18:00"},
+            {"date":"2027-03-12","kind":"holiday","name":"全天"}
+        ]"#).unwrap();
+        conn.execute("INSERT INTO tasks(id,task_name,created_date,due_date,completed) VALUES('later','连续休息中的事项','2027-01-01','2027-03-12',0)",[]).unwrap();
+        refresh(&conn,NaiveDate::from_ymd_opt(2027,3,11).unwrap()).unwrap();
+        let ids=conn.prepare("SELECT id FROM notifications WHERE dismissed_at IS NULL ORDER BY id").unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        assert_eq!(ids,vec!["rest-work:2027-03-11:task:later".to_string()]);
     }
 
 }

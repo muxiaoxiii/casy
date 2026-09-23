@@ -9,6 +9,7 @@ pub mod caldav;
 pub mod calendar;
 pub mod calendar_events;
 pub mod task_plans;
+mod personal_availability;
 pub mod cases;
 pub mod dashboard;
 pub mod deadline_rules;

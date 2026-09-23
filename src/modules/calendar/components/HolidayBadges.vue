@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { availabilityTimeLabel } from '../calendarDates'
 import type { HolidayCalendarEntry } from '../../../types/ipc'
 defineProps<{ entries: HolidayCalendarEntry[]; compact?: boolean }>()
 </script>
 <template>
   <span class="holiday-badges">
-    <span v-for="entry in entries" :key="`${entry.source || 'official'}-${entry.date}`" class="holiday-badge" :class="[entry.kind, { personal: entry.source === 'personal' }]" :title="`${entry.source === 'personal' ? '个人调休' : '法定安排'} · ${entry.kind === 'holiday' ? '休息' : '上班'}${entry.name ? ` · ${entry.name}` : ''}`">
-      {{ entry.source === 'personal' ? (entry.kind === 'holiday' ? '自休' : '自班') : compact ? (entry.kind === 'holiday' ? '休' : '班') : (entry.kind === 'holiday' ? '法定休' : '法定班') }}
+    <span v-for="entry in entries" :key="`${entry.source || 'official'}-${entry.date}`" class="holiday-badge" :class="[entry.kind, { personal: entry.source === 'personal' }]" :title="`${entry.source === 'personal' ? '个人安排' : '法定安排'} · ${entry.kind === 'holiday' ? '休息' : '上班'} · ${availabilityTimeLabel(entry)}${entry.name ? ` · ${entry.name}` : ''}`">
+      {{ entry.source === 'personal' ? (entry.kind === 'holiday' ? (entry.startTime ? '时休' : '自休') : '自班') : compact ? (entry.kind === 'holiday' ? '休' : '班') : (entry.kind === 'holiday' ? '法定休' : '法定班') }}<template v-if="!compact && entry.startTime"> {{ availabilityTimeLabel(entry) }}</template>
     </span>
   </span>
 </template>
