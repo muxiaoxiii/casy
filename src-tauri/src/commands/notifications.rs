@@ -38,6 +38,9 @@ const SELECT_ACTIVE: &str = "SELECT id, type, title, body, payload_json, created
 pub async fn list_notifications() -> Result<Vec<AppNotification>, String> {
     run_blocking(|| {
         let conn = db::open_db()?;
+        if let Err(error) = super::rest_day_reminders::refresh(&conn, chrono::Local::now().date_naive()) {
+            log::warn!("休息日提醒检查失败: {error}");
+        }
         let mut stmt = conn.prepare(&format!("{SELECT_ACTIVE} ORDER BY created_at DESC"))?;
         let rows = stmt.query_map([], row_to_notification)?;
         Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
@@ -50,6 +53,9 @@ pub async fn list_notifications() -> Result<Vec<AppNotification>, String> {
 pub async fn unread_notification_count() -> Result<i64, String> {
     run_blocking(|| {
         let conn = db::open_db()?;
+        if let Err(error) = super::rest_day_reminders::refresh(&conn, chrono::Local::now().date_naive()) {
+            log::warn!("休息日提醒检查失败: {error}");
+        }
         let n: i64 = conn.query_row(
             "SELECT COUNT(*) FROM notifications WHERE dismissed_at IS NULL AND read_at IS NULL",
             [],

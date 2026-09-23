@@ -950,7 +950,7 @@ async function scheduleTaskBlock(event, date, hour) {
       </div>
     </div>
 
-    <div class="calendar-holiday-legend"><span>实色：法定休 / 班</span><span>虚线：个人自休 / 自班（可与法定安排并存）</span><el-button @click="showPersonalDays = true">个人调休</el-button></div>
+    <div class="calendar-holiday-legend"><span>实色：法定休 / 班</span><span>虚线：个人自休 / 自班（可与法定安排并存）</span><el-button @click="showPersonalDays = true">添加休息日</el-button></div>
     <PersonalDaysDialog v-model="showPersonalDays" :date="formatDate(currentDate)" @saved="loadHolidays" />
 
     <!-- ═══ 2. 时间线视图 (Global Timeline · 真实数据库流) ═══ -->

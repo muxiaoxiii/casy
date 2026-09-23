@@ -97,6 +97,7 @@ onMounted(() => {
 
 <template>
   <div class="reminder-settings">
+    <el-alert title="休息日前工作提醒" type="info" :closable="false" description="法定节假日、周末及自己添加的休息日，如果当天仍有未完成任务、日程或期限，或休息前一天仍有工作，通知中心会特别提醒。同一事项每天最多一条；完成或改期后自动撤下，个人上班日不额外提醒。" style="margin-bottom: 20px" />
     <div class="section-head">
       <div>
         <h4>提醒规则</h4>

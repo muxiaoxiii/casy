@@ -86,6 +86,9 @@ impl ReminderEngine {
         let today_dt = NaiveDate::parse_from_str(&today, "%Y-%m-%d")
             .unwrap_or_else(|_| chrono::Local::now().date_naive());
 
+        if let Err(error) = super::rest_day_reminders::refresh(conn, today_dt) {
+            log::warn!("休息日提醒检查失败: {error}");
+        }
         let mut triggered = Vec::new();
 
         for rule in &rules {

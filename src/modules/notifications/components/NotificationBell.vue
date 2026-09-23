@@ -28,6 +28,7 @@ interface AppNotification {
 interface NotificationPayload {
   caseId?: string | null
   taskId?: string | null
+  calendarDate?: string | null
   level?: string | null
 }
 
@@ -95,7 +96,7 @@ function parsePayload(n: AppNotification): NotificationPayload | null {
 
 function hasTarget(n: AppNotification): boolean {
   const p = parsePayload(n)
-  return !!(p && (p.caseId || p.taskId))
+  return !!(p && (p.caseId || p.taskId || p.calendarDate))
 }
 
 async function openNotification(n: AppNotification) {
@@ -105,7 +106,10 @@ async function openNotification(n: AppNotification) {
     void tauriCall('mark_notification_read', { id: n.id }, { silent: true })
   }
   const p = parsePayload(n)
-  if (p?.caseId) {
+  if (p?.calendarDate) {
+    panelOpen.value = false
+    router.push({ path: '/calendar', query: { date: p.calendarDate, view: 'day' } })
+  } else if (p?.caseId) {
     panelOpen.value = false
     router.push(`/cases/${p.caseId}`)
   } else if (p?.taskId) {
@@ -116,7 +120,7 @@ async function openNotification(n: AppNotification) {
 }
 
 function typeIcon(type: string) {
-  if (type === 'reminder') return AlarmClock
+  if (type === 'reminder' || type === 'rest_day_work') return AlarmClock
   return InfoFilled
 }
 

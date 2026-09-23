@@ -1,3 +1,4 @@
+mod rest_day_reminders;
 pub mod editor_tasks;
 pub mod ai_routes;
 pub mod areas;
