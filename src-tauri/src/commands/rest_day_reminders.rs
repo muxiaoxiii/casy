@@ -38,7 +38,7 @@ pub(super) fn refresh(conn: &Connection, today: NaiveDate) -> Result<()> {
         let start = today.to_string(); let end = through.to_string();
         // Identity is shared by a task and its calendar time block: one notice.
         let mut work: BTreeMap<String, (String, String)> = BTreeMap::new();
-        let mut stmt = conn.prepare("SELECT id, task_name, COALESCE(NULLIF(start_date,''),NULLIF(due_date,''),NULLIF(deadline,'')), COALESCE(NULLIF(due_date,''),NULLIF(deadline,''),NULLIF(start_date,'')) FROM tasks WHERE completed=0")?;
+        let mut stmt = conn.prepare("SELECT id, task_name, COALESCE(NULLIF(start_date,''),NULLIF(due_date,''),NULLIF(deadline,'')), COALESCE(NULLIF(due_date,''),NULLIF(deadline,''),NULLIF(start_date,'')) FROM tasks WHERE completed=0 AND deleted_at IS NULL")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?)))?;
         for row in rows {
             let (id,title,from,to) = row?;
@@ -48,7 +48,7 @@ pub(super) fn refresh(conn: &Connection, today: NaiveDate) -> Result<()> {
                 }
             }
         }
-        let mut stmt = conn.prepare("SELECT 'event:'||e.id,e.title,e.event_date,e.task_id FROM calendar_events e LEFT JOIN tasks t ON t.id=e.task_id WHERE e.event_date BETWEEN ?1 AND ?2 AND (e.task_id IS NULL OR COALESCE(t.completed,0)=0)
+        let mut stmt = conn.prepare("SELECT 'event:'||e.id,e.title,e.event_date,e.task_id FROM calendar_events e LEFT JOIN tasks t ON t.id=e.task_id WHERE e.event_date BETWEEN ?1 AND ?2 AND (e.task_id IS NULL OR (t.id IS NOT NULL AND t.completed=0 AND t.deleted_at IS NULL))
             UNION ALL SELECT 'deadline:'||id,deadline_name,due_date,NULL FROM case_deadlines WHERE completed=0 AND due_date BETWEEN ?1 AND ?2
             UNION ALL SELECT 'hearing:'||id,COALESCE(hearing_name,hearing_record),substr(hearing_date,1,10),NULL FROM hearings WHERE lifecycle_status='scheduled' AND COALESCE(actual_status,'未开')!='已开' AND substr(hearing_date,1,10) BETWEEN ?1 AND ?2")?;
         let rows = stmt.query_map(params![start,end],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?)))?;
@@ -86,8 +86,8 @@ mod tests {
         let conn=Connection::open_in_memory().unwrap();
         conn.execute_batch(db::schema::SCHEMA_SQL).unwrap(); db::schema::run_migrations(&conn,1).unwrap();
         conn.execute_batch("INSERT INTO cases(id,case_name,track,client_name) VALUES('c','提醒验证','other','test');
-            INSERT INTO tasks(id,task_name,created_date,due_date,completed) VALUES('t','长假最后一天工作','2026-09-01','2026-09-27',0),('done','已完成','2026-09-01','2026-09-25',1);
-            INSERT INTO calendar_events(id,title,event_date,task_id,created_at,updated_at) VALUES('linked','任务时间块','2026-09-27','t','now','now'),('done','已完成任务的时间块','2026-09-25','done','now','now'),('meeting','会议','2026-09-26',NULL,'now','now');
+            INSERT INTO tasks(id,task_name,created_date,due_date,completed) VALUES('t','长假最后一天工作','2026-09-01','2026-09-27',0),('done','已完成','2026-09-01','2026-09-25',1),('deleted','已删除','2026-09-01','2026-09-25',0); UPDATE tasks SET deleted_at='2026-09-01' WHERE id='deleted';
+            INSERT INTO calendar_events(id,title,event_date,task_id,created_at,updated_at) VALUES('linked','任务时间块','2026-09-27','t','now','now'),('done','已完成任务的时间块','2026-09-25','done','now','now'),('meeting','会议','2026-09-26',NULL,'now','now'),('deleted','已删除任务时间块','2026-09-25','deleted','now','now');
             INSERT INTO case_deadlines(id,case_id,deadline_name,due_date) VALUES('d','c','举证截止','2026-09-25');
             INSERT INTO hearings(id,case_id,hearing_record,hearing_date,lifecycle_status) VALUES('h','c','待开庭','2026-09-26 09:00:00','scheduled'),('old','c','已开庭','2026-09-26','held'),('cancel','c','已取消','2026-09-26','cancelled');").unwrap();
         refresh(&conn,NaiveDate::from_ymd_opt(2026,9,24).unwrap()).unwrap();
