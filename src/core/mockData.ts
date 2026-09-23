@@ -7,7 +7,7 @@
  * 判断依据：window.__TAURI_INTERNALS__ 是否存在。
  */
 
-import type { CalendarEventRow, Draft } from '../types/bindings'
+import type { TaskPlan, CalendarEventRow, Draft } from '../types/bindings'
 import { addDaysLocalISO, todayLocalISO, toLocalISODate, daysUntil } from '../shared/utils/date'
 
 export function isTauriRuntime(): boolean {
@@ -34,6 +34,8 @@ const mockTasks = [
   { id: 't7', taskName: '更新案件进度周报', caseId: null, priority: 'normal', dueDate: '2026-08-21', taskType: 'action', startBucket: 'today', blocked: 0 },
 ]
 
+
+const mockTaskPlans: TaskPlan[] = []
 
 const mockEvents = [
   { id: 'e1', title: '隆基无效口审', date: '2026-08-25', type: 'hearing', caseId: 'c1', time: '09:30' },
@@ -420,6 +422,16 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
           '（浏览器预览模式）我是 Casy AI 助手。真实 AI 对话需要在 Tauri 应用中配置 Ollama 或 OpenAI 后端。',
         runId: null,
       }
+    }
+    case 'list_task_plans': return mockTaskPlans.map(plan => ({ ...plan }))
+    case 'save_task_plan': {
+      const data = args.data as { taskId: string; startDate: string | null; endDate: string | null; expectedRevision: number }
+      const index = mockTaskPlans.findIndex(plan => plan.taskId === data.taskId)
+      if ((mockTaskPlans[index]?.revision || 0) !== data.expectedRevision) throw new Error('PLAN_CONFLICT: 请刷新后重试')
+      const plan = { taskId: data.taskId, startDate: data.startDate, endDate: data.endDate, revision: data.expectedRevision + 1 }
+      if (index >= 0) mockTaskPlans[index] = plan
+      else mockTaskPlans.push(plan)
+      return { ...plan }
     }
     case 'get_holiday_calendar':
       return { year: args.year, entries: [] } // Browser preview only; native calendar reads persisted dates.

@@ -39,7 +39,8 @@ flowchart LR
 ## 后端与数据
 
 - [lib.rs](../src-tauri/src/lib.rs)：Tauri 插件、应用初始化、命令注册、后台服务。
-- [db/mod.rs](../src-tauri/src/db/mod.rs)：连接复用、加密密钥、维护模式；[schema.rs](../src-tauri/src/db/schema.rs) 当前版本 41，逐版本事务迁移。
+- [db/mod.rs](../src-tauri/src/db/mod.rs)：连接复用、加密密钥、维护模式；[schema.rs](../src-tauri/src/db/schema.rs) 当前版本 42，逐版本事务迁移。
+- [task_plans.rs](../src-tauri/src/commands/task_plans.rs)：独立任务计划起止与修订号，版本检查、计划写入和审计同事务；不改写任务截止或法定期限。
 - [commands/](../src-tauri/src/commands/)：IPC 入口与阻塞任务分派。
 - [deadline/procedure.rs](../src-tauri/src/deadline/procedure.rs)：程序事件、版本校验、期限投影与关联案件；[规则说明](procedure-deadline-rules.md)。
 - [background_jobs.rs](../src-tauri/src/background_jobs.rs)：文档/知识索引任务的持久化与执行；[processing.rs](../src-tauri/src/processing.rs) 记录活动与恢复状态。

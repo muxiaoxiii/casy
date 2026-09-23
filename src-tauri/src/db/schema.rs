@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 41;
+pub const CURRENT_SCHEMA_VERSION: i64 = 42;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -718,6 +718,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("39", MIGRATION_V39_SQL),
     ("40", MIGRATION_V40_SQL),
     ("41", MIGRATION_V41_SQL),
+    ("42", MIGRATION_V42_SQL),
 ];
 
 
@@ -4747,4 +4748,16 @@ CREATE TRIGGER IF NOT EXISTS remember_whiteboard BEFORE DELETE ON whiteboards BE
 END;
 CREATE INDEX IF NOT EXISTS idx_tasks_knowledge ON tasks(knowledge_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_events_task ON calendar_events(task_id);
+"#;
+
+/// Task planning is separate from task due dates and statutory deadlines.
+pub const MIGRATION_V42_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS task_plans (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  start_date TEXT,
+  end_date TEXT,
+  revision INTEGER NOT NULL CHECK(revision > 0),
+  CHECK((start_date IS NULL AND end_date IS NULL) OR
+        (start_date IS NOT NULL AND end_date IS NOT NULL AND start_date <= end_date))
+);
 "#;

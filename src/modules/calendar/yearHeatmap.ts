@@ -1,10 +1,10 @@
 import { toLocalISODate } from '../../shared/utils/date'
-export interface HeatmapTask { id: string; taskName?: string; startDate?: string | null; dueDate?: string | null; completed?: boolean | number }
+export interface HeatmapTask { id: string; taskName?: string; startDate?: string | null; dueDate?: string | null; completed?: boolean | number; planDefined?: boolean; plannedStartDate?: string | null; plannedEndDate?: string | null }
 export function yearTaskDays(year: number, tasks: HeatmapTask[]) {
   const days = new Map<string, HeatmapTask[]>()
   const first = `${year}-01-01`, last = `${year}-12-31`
   for (const task of tasks) {
-    const start = task.startDate || task.dueDate, end = task.dueDate || task.startDate
+    const start = task.planDefined ? task.plannedStartDate : task.startDate || task.dueDate, end = task.planDefined ? task.plannedEndDate : task.dueDate || task.startDate
     if (!start || !end || start > end || end < first || start > last) continue
     const from = start < first ? first : start, through = end > last ? last : end
     const [y, m, d] = from.split('-').map(Number)

@@ -1,6 +1,8 @@
 <script setup>
 import HolidayBadges from '../components/HolidayBadges.vue'
 import TimelineStream from '../components/TimelineStream.vue'
+import TaskGantt from '../components/TaskGantt.vue'
+import { planRange } from '../taskPlanning'
 import PersonalDaysDialog from '../components/PersonalDaysDialog.vue'
 import YearHeatmap from '../components/YearHeatmap.vue'
 import CalendarComposer from '../components/CalendarComposer.vue'
@@ -51,6 +53,21 @@ const events = ref([])
 const tasks = ref([])
 const allTasks = ref([])
 const taskError = ref('')
+const taskPlans = ref([])
+const planError = ref('')
+const plansLoading = ref(false)
+let planRequest = 0
+const forecastMode = ref(route.query.layout === 'gantt' ? 'gantt' : 'list')
+const taskPlanMap = computed(() => new Map(taskPlans.value.map(plan => [plan.taskId, plan])))
+function taskSchedule(task) {
+  if (taskPlanMap.value.has(task.id)) return planRange(taskPlanMap.value.get(task.id))
+  const start = task.startDate || task.dueDate, end = task.dueDate || task.startDate
+  return start && end && start <= end ? { start, end } : null
+}
+function isMultiDayTask(task) { const range = taskSchedule(task); return !!range && range.start !== range.end }
+function scheduleStart(task) { return taskSchedule(task)?.start || '' }
+function scheduleEnd(task) { return taskSchedule(task)?.end || '' }
+const yearTasks = computed(() => allTasks.value.map(task => ({ ...task, planDefined: taskPlanMap.value.has(task.id), plannedStartDate: taskPlanMap.value.get(task.id)?.startDate, plannedEndDate: taskPlanMap.value.get(task.id)?.endDate })))
 const holidayError = ref('')
 let holidayRequest = 0
 const completedTaskIds = ref(new Set())
@@ -184,6 +201,7 @@ async function onDropOnDay(e, targetDate) {
     await loadEvents();onDragEnd();ElMessage.success('已移动日程');return
   }
   if (!task?.id || !tasks.value.some(t => t.id === task.id)) return
+  if (taskPlanMap.value.has(task.id)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('此任务已有独立计划，请在甘特图中调整并确认日期') }
   const date = formatDate(targetDate)
   const patch = dragAction.value === 'extend'
     ? { id: task.id, startDate: task.startDate || date, dueDate: date }
@@ -205,6 +223,7 @@ async function onDropToHoldingTank(e) {
     } catch {}
   }
   if (!task || task.type==='event') return
+  if (taskPlanMap.value.has(task.id)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('请在甘特图中取消此任务的独立计划') }
 
   const res = await casyContext.tasks.update({
     id: task.id,
@@ -424,8 +443,9 @@ function eventsForDay(date) {
 function tasksForDay(date) {
   const ds = formatDate(date)
   return tasks.value.filter(t => {
-    if (t.dueDate === ds || t.startDate === ds) return true
-    if (t.startDate && t.dueDate && ds >= t.startDate && ds <= t.dueDate) return true
+    if (!taskPlanMap.value.has(t.id) && (t.dueDate === ds || t.startDate === ds)) return true
+    const range = taskSchedule(t)
+    if (range && ds >= range.start && ds <= range.end) return true
     return false
   })
 }
@@ -433,7 +453,8 @@ function tasksForDay(date) {
 function multiDayTasksForDay(date) {
   const ds = formatDate(date)
   return tasks.value.filter(t => {
-    return t.startDate && t.dueDate && t.startDate !== t.dueDate && ds >= t.startDate && ds <= t.dueDate
+    const range = taskSchedule(t)
+    return range && range.start !== range.end && ds >= range.start && ds <= range.end
   })
 }
 
@@ -497,7 +518,7 @@ const timelineStream = computed(() => {
   // 3. 收集任务
   for (const t of tasks.value) {
     if (allowedCases && t.caseId && !allowedCases.has(t.caseId)) continue
-    const dateStr = t.dueDate || t.startDate
+    const dateStr = taskPlanMap.value.has(t.id) ? taskSchedule(t)?.start || t.dueDate : t.dueDate || t.startDate
     if (!dateStr) continue
     if (!map.has(dateStr)) map.set(dateStr, [])
     map.get(dateStr).push({
@@ -571,7 +592,7 @@ const monthGridDays = computed(() => {
   return days.map(cell=>{
     const dayTasks=tasksForDay(cell.date),ids=new Set(dayTasks.map(t=>t.id)),ds=formatDate(cell.date)
     const dayEvents=events.value.filter(e=>e.date===ds && !(e.type==='task' && ids.has(e.id)))
-    return {...cell,tasks:dayTasks,events:dayEvents,multiDayTasks:dayTasks.filter(t=>t.startDate && t.dueDate && t.startDate!==t.dueDate),hasHard:dayEvents.some(e=>e.type==='court'||e.type==='hearing'||e.type?.startsWith('deadline')),hasWaiting:dayEvents.some(e=>['waiting','appeal','discovery'].includes(e.type)),hasPlan:dayTasks.length>0||dayEvents.some(e=>['task','event'].includes(e.type))}
+    return {...cell,tasks:dayTasks,events:dayEvents,multiDayTasks:dayTasks.filter(t=>isMultiDayTask(t) && scheduleStart(t)<=ds && scheduleEnd(t)>=ds),hasHard:dayEvents.some(e=>e.type==='court'||e.type==='hearing'||e.type?.startsWith('deadline')),hasWaiting:dayEvents.some(e=>['waiting','appeal','discovery'].includes(e.type)),hasPlan:dayTasks.length>0||dayEvents.some(e=>['task','event'].includes(e.type))}
   })
 })
 
@@ -695,7 +716,7 @@ const tankTasks = computed(() => {
   let list = []
 
   if (tankFilter.value === 'unscheduled') {
-    list = tasks.value.filter(t => !t.completed && !t.startDate && !t.startTime && !events.value.some(e => e.taskId === t.id && e.date >= formatDate(currentDate.value)))
+    list = tasks.value.filter(t => !t.completed && !(taskPlanMap.value.has(t.id) ? taskSchedule(t) : t.startDate) && !t.startTime && !events.value.some(e => e.taskId === t.id && e.date >= formatDate(currentDate.value)))
   } else if (tankFilter.value === 'week') {
     const now = new Date(currentDate.value)
     const dayOfWeek = now.getDay() || 7
@@ -708,10 +729,10 @@ const tankTasks = computed(() => {
 
     list = tasks.value.filter(t => t.dueDate && t.dueDate >= monStr && t.dueDate <= sunStr && !t.completed)
   } else if (tankFilter.value === 'multiday') {
-    list = tasks.value.filter(t => t.startDate && t.dueDate && t.startDate !== t.dueDate && !t.completed)
+    list = tasks.value.filter(t => isMultiDayTask(t) && !t.completed)
   } else if (tankFilter.value === 'today') {
     const ds = formatDate(currentDate.value)
-    list = tasks.value.filter(t => (t.dueDate === ds || t.startDate === ds) && !t.completed)
+    list = tasks.value.filter(t => (t.dueDate === ds || (taskSchedule(t) && scheduleStart(t) <= ds && scheduleEnd(t) >= ds)) && !t.completed)
   }
 
   if (q) {
@@ -727,7 +748,7 @@ const tankTasks = computed(() => {
 onMounted(async () => {
   await loadData()
 })
-onUnmounted(observeChanges(casyContext, ['task', 'calendar', 'case', 'inbox', 'holiday'], loadData))
+onUnmounted(observeChanges(casyContext, ['task', 'calendar', 'case', 'inbox', 'holiday', 'plan'], loadData))
 
 async function loadData() {
   loading.value = true
@@ -738,14 +759,31 @@ async function loadData() {
     loadCases(),
     loadDeadlineWarnings(),
     loadHolidays(),
+    loadTaskPlans(),
   ])
   loading.value = false
 }
 
+async function loadTaskPlans() {
+  const request = ++planRequest
+  plansLoading.value = true
+  try {
+    const result = await casyContext.calendar.taskPlans()
+    if (request !== planRequest) return
+    if (result.ok && Array.isArray(result.data)) { taskPlans.value = result.data; planError.value = '' }
+    else planError.value = result.error || '任务计划加载失败'
+  } catch (error) { if (request === planRequest) planError.value = String(error) }
+  finally { if (request === planRequest) plansLoading.value = false }
+}
+function onPlanSaved(plan) {
+  taskPlans.value = [...taskPlans.value.filter(item => item.taskId !== plan.taskId), plan]
+  ElMessage.success(plan.startDate ? '任务计划已保存，截止日期保持不变' : '已取消任务计划，截止日期保持不变')
+}
+function navigateGantt(date) { currentDate.value = dateFromQuery(date); void loadData() }
 async function loadEvents() {
   const request = ++eventRequest
   eventError.value = ''
-  const months = activeView.value === 'year' ? Array.from({ length: 12 }, (_, month) => ({ year: currentDate.value.getFullYear(), month: month + 1 })) : surroundingMonths(currentDate.value)
+  const months = activeView.value === 'year' ? Array.from({ length: 12 }, (_, month) => ({ year: currentDate.value.getFullYear(), month: month + 1 })) : activeView.value === 'forecast' ? Array.from({ length: 4 }, (_, offset) => { const date = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + offset, 1); return { year: date.getFullYear(), month: date.getMonth() + 1 } }) : surroundingMonths(currentDate.value)
   const [results, independent] = await Promise.all([
     casyContext.calendar.events(months[0].year, months[0].month, months.length).then(result => [result]),
     casyContext.calendar.listEvents(formatDate(new Date(months[0].year, months[0].month - 1, 1)), formatDate(new Date(months[months.length - 1].year, months[months.length - 1].month, 0))),
@@ -918,15 +956,15 @@ async function scheduleTaskBlock(event, date, hour) {
 <template>
   <div class="stitch-calendar-workspace">
     <div v-if="eventError" class="calendar-data-error" role="alert">日程加载失败 <el-button text @click="loadEvents">重试</el-button></div>
-    <div v-if="holidayError || taskError" class="calendar-data-error" role="alert">{{ holidayError || taskError }} <el-button text @click="loadData">重试</el-button></div>
+    <div v-if="holidayError || taskError || planError" class="calendar-data-error" role="alert">{{ holidayError || taskError || planError }} <el-button text @click="loadData">重试</el-button></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
     <div class="calendar-top-header">
       <div class="header-titles">
         <div class="month-title-row">
           <h1 class="month-display-title">
-            {{ activeView === 'year' ? `${currentDate.getFullYear()} 年` : activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? `未来 14 天诉讼与排期预测` : currentMonthInfo.label }}
+            {{ activeView === 'year' ? `${currentDate.getFullYear()} 年` : activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? (forecastMode === 'gantt' ? '任务甘特排期' : '未来 14 天诉讼与排期预测') : currentMonthInfo.label }}
           </h1>
-          <div class="month-nav-btns">
+          <div v-if="!(activeView === 'forecast' && forecastMode === 'gantt')" class="month-nav-btns">
             <button class="nav-arrow-btn" @click="prevPeriod" :title="t('calendar.previous')" :aria-label="t('calendar.previous')">
               <el-icon :size="16"><ArrowLeft /></el-icon>
             </button>
@@ -959,6 +997,11 @@ async function scheduleTaskBlock(event, date, hour) {
 
     <div class="calendar-holiday-legend"><span>实色：法定休 / 班</span><span>虚线：个人自休 / 自班（可与法定安排并存）</span><el-button @click="showPersonalDays = true">添加休息日</el-button></div>
     <PersonalDaysDialog v-model="showPersonalDays" :date="formatDate(currentDate)" @saved="loadHolidays" />
+
+    <div v-if="activeView === 'forecast'" class="forecast-mode-switch" aria-label="排期展示方式">
+      <button type="button" :aria-pressed="forecastMode === 'list'" @click="forecastMode = 'list'">负荷列表</button>
+      <button type="button" :aria-pressed="forecastMode === 'gantt'" @click="forecastMode = 'gantt'">横向甘特图</button>
+    </div>
 
     <!-- ═══ 2. 时间线视图 (Global Timeline · 真实数据库流) ═══ -->
     <div v-if="activeView === 'timeline'" class="timeline-global-layout">
@@ -996,7 +1039,8 @@ async function scheduleTaskBlock(event, date, hour) {
     </div>
 
     <!-- ═══ 3. 主工作区：月视图 / 周视图 / 日视图 / 预测视图 统一联动 Holding Tank ═══ -->
-    <YearHeatmap v-else-if="activeView === 'year'" :year="currentDate.getFullYear()" :tasks="allTasks" :holidays="holidayEntries" :loading="loading" @month="openYearDate($event, 'month')" @day="openYearDate($event, 'day')" @task="openEditDetail($event, 'task')" />
+    <YearHeatmap v-else-if="activeView === 'year'" :year="currentDate.getFullYear()" :tasks="yearTasks" :holidays="holidayEntries" :loading="loading" @month="openYearDate($event, 'month')" @day="openYearDate($event, 'day')" @task="openEditDetail($event, 'task')" />
+    <TaskGantt v-else-if="activeView === 'forecast' && forecastMode === 'gantt'" :date="formatDate(currentDate)" :tasks="allTasks" :plans="taskPlans" :cases="cases" :holidays="holidayEntries" :events="events" :loading="loading || plansLoading" :error="planError || taskError || holidayError || eventError" @saved="onPlanSaved" @refresh="loadData" @navigate="navigateGantt" @open="openEditDetail($event, 'task')" @event="openEditDetail($event, 'event')" />
     <div v-else class="calendar-unified-workspace-grid">
       <!-- ── A. 左侧主视图区域 ── -->
       <div class="calendar-main-stage">
@@ -1065,21 +1109,21 @@ async function scheduleTaskBlock(event, date, hour) {
                   :key="'mt-' + mt.id"
                   class="cell-multiday-ribbon"
                   :class="{
-                    'is-start': formatDate(cell.date) === mt.startDate,
-                    'is-end': formatDate(cell.date) === mt.dueDate,
-                    'is-middle': formatDate(cell.date) > mt.startDate && formatDate(cell.date) < mt.dueDate,
+                    'is-start': formatDate(cell.date) === scheduleStart(mt),
+                    'is-end': formatDate(cell.date) === scheduleEnd(mt),
+                    'is-middle': formatDate(cell.date) > scheduleStart(mt) && formatDate(cell.date) < scheduleEnd(mt),
                   }"
                   draggable="true"
                   @dragstart.stop="onDragStart($event, mt, 'schedule', cell.date)"
                   @dragend="onDragEnd"
                   @click.stop="openDayModal(cell)"
                   @dblclick.stop="openEditDetail(mt, 'task')"
-                  :title="`${mt.taskName} (${mt.startDate} ~ ${mt.dueDate}) · 双击编辑`"
+                  :title="`${mt.taskName} (${scheduleStart(mt)} ~ ${scheduleEnd(mt)}) · 双击编辑`"
                 >
-                  <span v-if="formatDate(cell.date) === mt.startDate" class="ribbon-text">
+                  <span v-if="formatDate(cell.date) === scheduleStart(mt)" class="ribbon-text">
                     ▶ {{ mt.taskName }}
                   </span>
-                  <span v-else-if="formatDate(cell.date) === mt.dueDate" class="ribbon-text">
+                  <span v-else-if="formatDate(cell.date) === scheduleEnd(mt)" class="ribbon-text">
                     🏁 结束
                   </span>
                   <span v-else class="ribbon-cont-line" />
@@ -1096,7 +1140,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
                 <!-- 单日任务胶囊 -->
                 <div
-                  v-for="t in cell.tasks.filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate).slice(0, 2)"
+                  v-for="t in cell.tasks.filter(t => !isMultiDayTask(t)).slice(0, 2)"
                   :key="t.id"
                   class="cell-task-capsule"
                   draggable="true"
@@ -1191,9 +1235,9 @@ async function scheduleTaskBlock(event, date, hour) {
                 class="dma-item-card"
                 @dblclick="openEditDetail(mt, 'task')"
               >
-                <span class="dma-badge">共 {{ getDaySpan(mt.startDate, mt.dueDate) }} 天</span>
+                <span class="dma-badge">共 {{ getDaySpan(scheduleStart(mt), scheduleEnd(mt)) }} 天</span>
                 <strong class="dma-name">{{ mt.taskName }}</strong>
-                <span class="dma-span">({{ mt.startDate }} ~ {{ mt.dueDate }})</span>
+                <span class="dma-span">({{ scheduleStart(mt) }} ~ {{ scheduleEnd(mt) }})</span>
                 <button class="dma-check-btn" :class="{ checked: mt.completed }" @click.stop="toggleTask(mt)">
                   <el-icon v-if="mt.completed" :size="12"><Check /></el-icon>
                 </button>
@@ -1305,12 +1349,12 @@ async function scheduleTaskBlock(event, date, hour) {
                   >
                     <el-icon :size="12"><Timer /></el-icon>
                     <span>{{ mt.taskName }}</span>
-                    <small>({{ mt.startDate.slice(5) }}~{{ mt.dueDate.slice(5) }})</small>
+                    <small>({{ scheduleStart(mt).slice(5) }}~{{ scheduleEnd(mt).slice(5) }})</small>
                   </div>
 
                   <!-- 单日待办 -->
                   <div
-                    v-for="t in day.tasks.filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate)"
+                    v-for="t in day.tasks.filter(t => !isMultiDayTask(t))"
                     :key="'ft-' + t.id"
                     class="f-event-chip task"
                     @dblclick="openEditDetail(t, 'task')"
@@ -1386,8 +1430,8 @@ async function scheduleTaskBlock(event, date, hour) {
               </div>
               <div class="tank-task-meta">
                 <span v-if="task.caseName" class="meta-case-tag">{{ task.caseName }}</span>
-                <span v-if="task.startDate && task.dueDate && task.startDate !== task.dueDate" class="meta-multiday-badge">
-                  跨 {{ getDaySpan(task.startDate, task.dueDate) }} 天 ({{ task.startDate.slice(5) }} ~ {{ task.dueDate.slice(5) }})
+                <span v-if="isMultiDayTask(task)" class="meta-multiday-badge">
+                  跨 {{ getDaySpan(scheduleStart(task), scheduleEnd(task)) }} 天 ({{ scheduleStart(task).slice(5) }} ~ {{ scheduleEnd(task).slice(5) }})
                 </span>
                 <span v-else-if="task.dueDate" class="meta-due-date">截止: {{ task.dueDate }}</span>
               </div>
@@ -1440,9 +1484,9 @@ async function scheduleTaskBlock(event, date, hour) {
             >
               <div class="m-left">
                 <el-icon class="m-drag-icon"><Rank /></el-icon>
-                <span class="m-badge">共 {{ getDaySpan(mt.startDate, mt.dueDate) }} 天</span>
+                <span class="m-badge">共 {{ getDaySpan(scheduleStart(mt), scheduleEnd(mt)) }} 天</span>
                 <strong>{{ mt.taskName }}</strong>
-                <small>({{ mt.startDate }} ~ {{ mt.dueDate }})</small>
+                <small>({{ scheduleStart(mt) }} ~ {{ scheduleEnd(mt) }})</small>
               </div>
               <button class="m-check-btn" :class="{ checked: mt.completed }" @click.stop="toggleTask(mt)">
                 <el-icon v-if="mt.completed" :size="12"><Check /></el-icon>
@@ -1483,7 +1527,7 @@ async function scheduleTaskBlock(event, date, hour) {
           </div>
           <div class="modal-tasks-list">
             <div
-              v-for="t in tasksForDay(activeDaySummary.date).filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate)"
+              v-for="t in tasksForDay(activeDaySummary.date).filter(t => !isMultiDayTask(t))"
               :key="'m-t-' + t.id"
               class="modal-task-item"
               draggable="true"
@@ -1502,7 +1546,7 @@ async function scheduleTaskBlock(event, date, hour) {
                 <el-icon v-if="t.completed" :size="12"><Check /></el-icon>
               </button>
             </div>
-            <div v-if="!tasksForDay(activeDaySummary.date).filter(t => !t.startDate || !t.dueDate || t.startDate === t.dueDate).length" class="modal-empty-hint">暂无当日待办事项</div>
+            <div v-if="!tasksForDay(activeDaySummary.date).filter(t => !isMultiDayTask(t)).length" class="modal-empty-hint">暂无当日待办事项</div>
           </div>
         </div>
       </div>
@@ -1522,6 +1566,7 @@ async function scheduleTaskBlock(event, date, hour) {
       destroy-on-close
     >
       <el-button v-if="editingItem.type === 'event' && editingItem.taskId" text @click="router.push({ path: '/tasks', query: { edit: editingItem.taskId } })">打开关联任务 ↗</el-button>
+      <p v-if="editingItem.type === 'task' && taskPlanMap.has(editingItem.id)" class="calendar-plan-note">此任务的独立计划在甘特图中调整；下方编辑任务属性和截止日期。<el-button text @click="showEditDialog = false; activeView = 'forecast'; forecastMode = 'gantt'">打开甘特图</el-button></p>
       <div class="edit-modal-body">
         <div class="edit-form-item">
           <label>标题 / 名称</label>
@@ -1587,6 +1632,9 @@ async function scheduleTaskBlock(event, date, hour) {
 </template>
 
 <style scoped>
+.forecast-mode-switch { display:flex; gap:4px; align-self:flex-start; padding:3px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg-subtle); }
+.forecast-mode-switch button { padding:7px 12px; font:inherit; font-size:12px; color:var(--c-text); background:transparent; border:0; border-radius:5px; cursor:pointer; }
+.forecast-mode-switch button[aria-pressed=true] { background:var(--c-primary); color:var(--c-primary-contrast); }
 .calendar-holiday-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--c-text-secondary); font-size: 12px; }
 
 .calendar-data-error { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--c-danger); }

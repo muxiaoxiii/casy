@@ -19,4 +19,16 @@ describe('calendar projection contract', () => {
     request.mockResolvedValue({ ok: false, error: 'offline' })
     expect(await new CalendarService({} as CasyContext).events(2026, 9)).toEqual({ ok: false, error: 'offline' })
   })
+  it('sends only independent plan dates and revision and broadcasts successful changes', async () => {
+    const emit=vi.fn(), service=new CalendarService({ emit } as unknown as CasyContext)
+    const data={taskId:'t',startDate:'2026-09-25',endDate:'2026-09-28',expectedRevision:2}
+    request.mockResolvedValue({ok:true,data:{...data,revision:3}})
+    await service.saveTaskPlan(data)
+    expect(request).toHaveBeenLastCalledWith('save_task_plan',{data})
+    expect(emit).toHaveBeenCalledWith('plan:changed')
+    request.mockResolvedValue({ok:false,error:'PLAN_CONFLICT'});emit.mockClear()
+    await service.saveTaskPlan(data)
+    expect(emit).not.toHaveBeenCalled()
+  })
+
 })

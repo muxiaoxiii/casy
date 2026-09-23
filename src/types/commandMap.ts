@@ -97,6 +97,8 @@ import type {
   SubtableImportConfig,
   SubtableImportReport,
   TaskDto,
+  TaskPlan,
+  TaskPlanInput,
   TaskFilter,
   UpdateAreaInput,
   TaskTemplate,
@@ -488,6 +490,8 @@ export type CommandMap = {
   update_calendar_event: Cmd<{ id: string; data: CalendarEventInput }, void>
   move_calendar_event: Cmd<{ id: string; newDate: string; newStart?: string | null }, void>
   delete_calendar_event: Cmd<{ id: string }, void>
+  list_task_plans: Cmd<Record<string, never>, TaskPlan[]>
+  save_task_plan: Cmd<{ data: TaskPlanInput }, TaskPlan>
   get_holiday_calendar: Cmd<{ year: number }, HolidayCalendarPayload>
   send_ics_invitation_cmd: Cmd<{ to: string; subject: string; description: string; startIso: string; durationMinutes: number; alarmMinutes: number }, string>
   test_caldav_connection: Cmd<{}, string>

@@ -1,7 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { CalendarEvent, DashboardStats } from '../../types'
-import type { CalendarEventRow, CalendarSyncReport, DeadlineResult, DeadlineWarning } from '../../types/bindings'
+import type { TaskPlanInput, CalendarEventRow, CalendarSyncReport, DeadlineResult, DeadlineWarning } from '../../types/bindings'
 import type { CommandMap } from '../../types/commandMap'
 import type { CalendarEventInput, HolidayCalendarPayload } from '../../types/ipc'
 
@@ -58,6 +58,12 @@ export class CalendarService extends Service {
 
   async removeEvent(id: string): Promise<{ ok: boolean; error?: string }> {
     return this.mutation('calendar', tauriCallSafe('delete_calendar_event', { id }))
+  }
+
+  async taskPlans() { return tauriCallSafe('list_task_plans', {}) }
+
+  async saveTaskPlan(data: TaskPlanInput) {
+    return this.mutation('plan', tauriCallSafe('save_task_plan', { data }))
   }
 
   async deadlineWarnings(): Promise<{ ok: boolean; data?: DeadlineResult[]; error?: string }> {

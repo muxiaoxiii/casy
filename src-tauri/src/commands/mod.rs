@@ -8,6 +8,7 @@ pub mod editor_recovery;
 pub mod caldav;
 pub mod calendar;
 pub mod calendar_events;
+pub mod task_plans;
 pub mod cases;
 pub mod dashboard;
 pub mod deadline_rules;
@@ -264,6 +265,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         calendar_events::list_calendar_events,
         calendar_events::create_calendar_event,
         calendar_events::update_calendar_event,
+        task_plans::list_task_plans,
+        task_plans::save_task_plan,
         calendar_events::move_calendar_event,
         calendar_events::delete_calendar_event,
         projects::list_projects,

@@ -1,6 +1,6 @@
 # 开发、验证与交付
 
-核对日期：2026-09-22。当前版本 0.1.3，生产验证版；验收结果见 RELEASE_0.1.3.md。
+核对日期：2026-09-23。当前版本 0.1.3，生产验证版；验收结果见 RELEASE_0.1.3.md。
 
 ## 环境
 
@@ -23,7 +23,7 @@ npm run tauri -- dev
 debug 构建支持绝对路径 `CASY_TEST_DATA_DIR`；应用还支持显式 `--profile-dir <绝对路径>`。测试不要使用真实资料库。需要保留验收产物时给独立目录并记录路径，结束后再按需清理。
 
 ```bash
-CASY_TEST_DATA_DIR=/private/tmp/casy-review-profile \
+CASY_TEST_DATA_DIR="$(mktemp -d /private/tmp/casy-review.XXXXXX)" \
   cargo test --manifest-path src-tauri/Cargo.toml --locked
 ```
 
@@ -35,14 +35,15 @@ CASY_TEST_DATA_DIR=/private/tmp/casy-review-profile \
 npm run typecheck
 npm run test:unit
 npm run build
-cargo test --manifest-path src-tauri/Cargo.toml --locked
+CASY_TEST_DATA_DIR="$(mktemp -d /private/tmp/casy-review.XXXXXX)" \
+  cargo test --manifest-path src-tauri/Cargo.toml --locked --jobs 2
 cargo test --manifest-path tools/casy-doc-engine/Cargo.toml --locked --features models
 node --test scripts/binary-architecture.test.mjs scripts/license-policy.test.mjs scripts/runtime-components.test.mjs
 ```
 
 `tests/e2e/` 包含 17 个本地脚本，通常需要桥接 example、前端服务、浏览器和隔离资料目录；它们没有被普通 `npm run test:unit` 自动运行。真实模型用例中带 `#[ignore]` 的项目也必须按各文件说明单独运行。
 
-完整回归、真实样本和忽略项见 [验收记录](RELEASE_0.1.3.md)。本机同时运行多个重型编译时建议 `npx vitest run --maxWorkers=2`，避免测试资源竞争。
+完整回归、真实样本和忽略项见 [验收记录](RELEASE_0.1.3.md)。本机同时运行多个重型编译时建议 `npx vitest run --maxWorkers=1`，避免测试资源竞争。
 
 ## 完整包
 
@@ -73,6 +74,10 @@ npm run release:validation
 
 ## 日历布局隔离样例
 
-开发服务器启动后访问 `http://127.0.0.1:1420/tests/fixtures/calendar-ui/index.html?mode=mixed&width=720&theme=rice-paper#/calendar?date=2026-09-25&view=timeline`。该页面直接挂载真实日历组件，但注入合成 services，不初始化插件系统，不读取或修改用户数据库，也不持久化主题；不支持保存操作。参数 `mode` 可选 mixed/holidays/empty，`width` 控制日历容器宽度，`theme` 使用已有主题标识，`view` 可选六种视图。固定的 2026-09 日期仅用于回归，不作为节假日数据来源。该入口不被生产构建引用。
+开发服务器启动后访问 `http://127.0.0.1:1420/tests/fixtures/calendar-ui/index.html?mode=mixed&width=720&theme=rice-paper#/calendar?date=2026-09-25&view=timeline`。该页面直接挂载真实日历组件，但注入合成 services，不初始化插件系统，不读取或修改用户数据库，也不持久化主题；甘特计划可在 fixture 内存中保存，重载页面即重置。参数 `mode` 可选 mixed/holidays/empty/gantt，`width` 控制日历容器宽度，`theme` 使用已有主题标识，`view` 可选六种视图。固定的 2026-09 日期仅用于回归，不作为节假日数据来源。该入口不被生产构建引用。
 
 时间线交互回归：`npx vitest run tests/unit/calendarTimeline.test.ts`。视觉检查需同时核对行高、日期/休班标记交叠、超长内容和实际详情字段；jsdom 不验证 CSS 排版。
+
+甘特入口：在上述 URL 中使用 `mode=gantt`、`view=forecast&layout=gantt`。`TaskGantt` 通过 `CalendarService.taskPlans/saveTaskPlan` 调用原生 `list_task_plans/save_task_plan`，入库至 v42 `task_plans`；计划起止与任务 startDate/dueDate 分开，NULL 起止代表取消独立计划，修订号保留。类型由 `cd src-tauri && cargo test export_bindings` 生成，禁止手改 bindings.ts。
+
+定向验证：`npx vitest run tests/unit/taskPlanning.test.ts tests/unit/TaskGantt.test.ts tests/unit/calendarTimeline.test.ts tests/unit/calendarProjection.test.ts`；原生计划校验：`cd src-tauri && cargo test task_plans`，休息提醒：`cargo test rest_day_reminders`。全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。

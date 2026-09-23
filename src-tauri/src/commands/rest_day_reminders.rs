@@ -38,7 +38,7 @@ pub(super) fn refresh(conn: &Connection, today: NaiveDate) -> Result<()> {
         let start = today.to_string(); let end = through.to_string();
         // Identity is shared by a task and its calendar time block: one notice.
         let mut work: BTreeMap<String, (String, String)> = BTreeMap::new();
-        let mut stmt = conn.prepare("SELECT id, task_name, COALESCE(NULLIF(start_date,''),NULLIF(due_date,''),NULLIF(deadline,'')), COALESCE(NULLIF(due_date,''),NULLIF(deadline,''),NULLIF(start_date,'')) FROM tasks WHERE completed=0 AND deleted_at IS NULL")?;
+        let mut stmt = conn.prepare("SELECT t.id,t.task_name,CASE WHEN p.task_id IS NOT NULL THEN p.start_date ELSE COALESCE(NULLIF(t.start_date,''),NULLIF(t.due_date,''),NULLIF(t.deadline,'')) END,CASE WHEN p.task_id IS NOT NULL THEN p.end_date ELSE COALESCE(NULLIF(t.due_date,''),NULLIF(t.deadline,''),NULLIF(t.start_date,'')) END FROM tasks t LEFT JOIN task_plans p ON p.task_id=t.id WHERE t.completed=0 AND t.deleted_at IS NULL UNION ALL SELECT id,task_name,COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')),COALESCE(NULLIF(due_date,''),NULLIF(deadline,'')) FROM tasks WHERE completed=0 AND deleted_at IS NULL")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?)))?;
         for row in rows {
             let (id,title,from,to) = row?;
@@ -122,4 +122,18 @@ mod tests {
         conn.execute("UPDATE tasks SET due_date='2027-03-15' WHERE id='b'",[]).unwrap();
         refresh(&conn,NaiveDate::from_ymd_opt(2027,3,12).unwrap()).unwrap(); assert_eq!(count(),0);
     }
+    #[test]
+    fn independent_plans_warn_on_rest_without_moving_task_deadline() {
+        let conn=Connection::open_in_memory().unwrap(); db::init_db(&conn).unwrap();
+        conn.execute_batch("INSERT INTO tasks(id,task_name,created_date,due_date,completed) VALUES('p','计划工作','2027-01-01','2027-04-01',0); INSERT INTO task_plans(task_id,start_date,end_date,revision) VALUES('p','2027-03-11','2027-03-12',1);").unwrap();
+        db::set_setting(&conn,"personal_calendar_days",r#"[{"date":"2027-03-11","kind":"holiday","name":"休息"}]"#).unwrap();
+        refresh(&conn,NaiveDate::from_ymd_opt(2027,3,10).unwrap()).unwrap();
+        let count=||conn.query_row("SELECT count(*) FROM notifications WHERE type='rest_day_work' AND dismissed_at IS NULL",[],|r|r.get::<_,i64>(0)).unwrap();
+        assert_eq!(count(),1);
+        conn.execute("UPDATE task_plans SET start_date=NULL,end_date=NULL,revision=2",[]).unwrap();
+        refresh(&conn,NaiveDate::from_ymd_opt(2027,3,10).unwrap()).unwrap(); assert_eq!(count(),0);
+        conn.execute("UPDATE tasks SET due_date='2027-03-11' WHERE id='p'",[]).unwrap();
+        refresh(&conn,NaiveDate::from_ymd_opt(2027,3,11).unwrap()).unwrap(); assert_eq!(count(),1);
+    }
+
 }

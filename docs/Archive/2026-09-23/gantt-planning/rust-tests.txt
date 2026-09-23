@@ -1,0 +1,736 @@
+   Compiling casy v0.1.3 (/Users/only/Documents/PythonProgram/Casy/src-tauri)
+warning: function `export_pdf` is never used
+ --> src/docsy_engine/pdf_export.rs:5:8
+  |
+5 | pub fn export_pdf(root: &Value) -> Result<Vec<u8>> {
+  |        ^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `parse_formula` is never used
+  --> src/formula/mod.rs:16:8
+   |
+16 | pub fn parse_formula(input: &str) -> Result<ast::Expr, String> {
+   |        ^^^^^^^^^^^^^
+
+warning: variants `Eq`, `Ne`, `Lt`, `Gt`, `Le`, and `Ge` are never constructed
+  --> src/formula/ast.rs:13:5
+   |
+12 | pub enum CmpOp {
+   |          ----- variants in this enum
+13 |     Eq, // ==
+   |     ^^
+14 |     Ne, // !=
+   |     ^^
+15 |     Lt, // <
+   |     ^^
+16 |     Gt, // >
+   |     ^^
+17 |     Le, // <=
+   |     ^^
+18 |     Ge, // >=
+   |     ^^
+   |
+   = note: `CmpOp` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: variants `And` and `Or` are never constructed
+  --> src/formula/ast.rs:25:5
+   |
+24 | pub enum LogicOp {
+   |          ------- variants in this enum
+25 |     And, // &&
+   |     ^^^
+26 |     Or,  // ||
+   |     ^^
+   |
+   = note: `LogicOp` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: variants `FieldRef`, `CrossTableRef`, `Compare`, `Logic`, `Concat`, and `Lookup` are never constructed
+  --> src/formula/ast.rs:37:5
+   |
+32 | pub enum Expr {
+   |          ---- variants in this enum
+...
+37 |     FieldRef { field_id: String },
+   |     ^^^^^^^^
+...
+40 |     CrossTableRef { table_id: String, field_id: String },
+   |     ^^^^^^^^^^^^^
+...
+46 |     Compare {
+   |     ^^^^^^^
+...
+53 |     Logic {
+   |     ^^^^^
+...
+60 |     Concat(Vec<Expr>),
+   |     ^^^^^^
+...
+63 |     Lookup {
+   |     ^^^^^^
+   |
+   = note: `Expr` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `ws` is never used
+  --> src/formula/parser.rs:28:4
+   |
+28 | fn ws<'a, F, O>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
+   |    ^^
+
+warning: function `is_ident_char` is never used
+  --> src/formula/parser.rs:35:4
+   |
+35 | fn is_ident_char(c: char) -> bool {
+   |    ^^^^^^^^^^^^^
+
+warning: function `is_ident_start` is never used
+  --> src/formula/parser.rs:39:4
+   |
+39 | fn is_ident_start(c: char) -> bool {
+   |    ^^^^^^^^^^^^^^
+
+warning: function `identifier` is never used
+  --> src/formula/parser.rs:43:4
+   |
+43 | fn identifier(input: &str) -> IResult<&str, &str> {
+   |    ^^^^^^^^^^
+
+warning: function `parse_string_literal` is never used
+  --> src/formula/parser.rs:49:4
+   |
+49 | fn parse_string_literal(input: &str) -> IResult<&str, Expr> {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_number_literal` is never used
+  --> src/formula/parser.rs:54:4
+   |
+54 | fn parse_number_literal(input: &str) -> IResult<&str, Expr> {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_bool_literal` is never used
+  --> src/formula/parser.rs:59:4
+   |
+59 | fn parse_bool_literal(input: &str) -> IResult<&str, Expr> {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_null_literal` is never used
+  --> src/formula/parser.rs:66:4
+   |
+66 | fn parse_null_literal(input: &str) -> IResult<&str, Expr> {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_literal` is never used
+  --> src/formula/parser.rs:70:4
+   |
+70 | fn parse_literal(input: &str) -> IResult<&str, Expr> {
+   |    ^^^^^^^^^^^^^
+
+warning: function `parse_cross_table_ref` is never used
+  --> src/formula/parser.rs:82:4
+   |
+82 | fn parse_cross_table_ref(input: &str) -> IResult<&str, Expr> {
+   |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_lookup_chain` is never used
+   --> src/formula/parser.rs:103:4
+    |
+103 | fn parse_lookup_chain(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_function_call` is never used
+   --> src/formula/parser.rs:161:4
+    |
+161 | fn parse_function_call(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_field_ref` is never used
+   --> src/formula/parser.rs:179:4
+    |
+179 | fn parse_field_ref(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `parse_primary` is never used
+   --> src/formula/parser.rs:191:4
+    |
+191 | fn parse_primary(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^^
+
+warning: function `parse_unary` is never used
+   --> src/formula/parser.rs:205:4
+    |
+205 | fn parse_unary(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^
+
+warning: function `parse_additive` is never used
+   --> src/formula/parser.rs:225:4
+    |
+225 | fn parse_additive(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `parse_concat` is never used
+   --> src/formula/parser.rs:252:4
+    |
+252 | fn parse_concat(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^
+
+warning: function `parse_comparison` is never used
+   --> src/formula/parser.rs:276:4
+    |
+276 | fn parse_comparison(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `parse_logic` is never used
+   --> src/formula/parser.rs:311:4
+    |
+311 | fn parse_logic(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^^
+
+warning: function `parse_expr` is never used
+   --> src/formula/parser.rs:343:4
+    |
+343 | fn parse_expr(input: &str) -> IResult<&str, Expr> {
+    |    ^^^^^^^^^^
+
+warning: function `parse_formula` is never used
+   --> src/formula/parser.rs:352:8
+    |
+352 | pub fn parse_formula(input: &str) -> Result<Expr, String> {
+    |        ^^^^^^^^^^^^^
+
+warning: `casy` (lib) generated 26 warnings
+warning: unused variable: `version`
+  --> tests/schema_v20_test.rs:66:9
+   |
+66 |     let version: i64 = conn
+   |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_version`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `casy` (test "schema_v20_test") generated 1 warning (run `cargo fix --test "schema_v20_test" -p casy` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 42s
+     Running unittests src/lib.rs (target/debug/deps/casy_lib-55ae9b7207cfa6d0)
+
+running 281 tests
+test ai::embeddings::tests::compact_vectors_preserve_ranking_and_read_legacy_floats ... ok
+test ai::document_match::tests::repeated_margins_do_not_interrupt_a_three_page_match ... ok
+test ai::document_match::tests::cross_page_matches_preserve_multilingual_regions_and_original_hyphen ... ok
+test ai::insights::tests::test_parse_insights_empty_and_garbage ... ok
+test ai::insights::tests::test_parse_insights_with_surrounding_text ... ok
+test ai::insights::tests::test_parse_insights_clean_json ... ok
+test ai::embeddings::tests::validates_indexes_dimensions_and_numbers ... ok
+test ai::page_index::tests::answers_require_exact_quotes_from_read_sources ... ok
+test ai::page_index::tests::heading_tree_uses_real_page_ranges ... ok
+test ai::continuations::tests::candidates_exclude_new_lists_headings_and_finished_sentences ... ok
+test ai::continuations::tests::preserves_both_page_locations_and_rejects_nonadjacent_pages ... ok
+test ai::distillation::tests::test_run_distillation_empty_db ... ok
+test ai::distillation::tests::test_archive_threshold_90_days ... ok
+test ai::profiles::public_config_tests::startup_metadata_does_not_require_the_credential ... ok
+test ai::distillation::tests::test_confirm_memory_refreshes_last_used ... ok
+test ai::distillation::tests::test_merge_keeps_data ... ok
+test ai::distillation::tests::test_stale_threshold_30_days ... ok
+test commands::cases::case_type_metrics_tests::test_generic_metrics_when_case_type_null ... ok
+test commands::cases::case_type_metrics_tests::test_case_not_found ... ok
+test commands::cases::case_type_metrics_tests::test_growth_metrics ... ok
+test commands::cases::case_type_metrics_tests::test_exploratory_metrics ... ok
+test commands::cases::case_type_metrics_tests::test_computational_metrics ... ok
+test commands::conversion::tests::failed_multi_output_export_rolls_back_only_its_own_files ... ok
+test commands::conversion::tests::standalone_pdf_conversion_with_real_engine ... ignored, requires bundled document engine and CASY_CONVERSION_TEST_PDF
+
+running 1 test
+test ai::usage::tests::durable_counter_respects_dates_limits_and_corruption ... ok
+[2m2026-09-23T03:46:07.780908Z[0m [32m INFO[0m [2mcasy_lib::app_log[0m[2m:[0m [2msrc/app_log.rs[0m[2m:[0m[2m97:[0m 日志系统已初始化 [3mlog_dir[0m[2m=[0m/var/folders/tz/q100sk452ndb8fk0wtqhc3mc0000gn/T/.tmp2SVJWZ/logs [3mdebug_mode[0m[2m=[0mtrue
+[2m2026-09-23T03:46:07.781018Z[0m [32m INFO[0m [2mcasy_lib::app_log::tests[0m[2m:[0m [2msrc/app_log.rs[0m[2m:[0m[2m144:[0m conversion-log-after-init
+test app_log::tests::file_logger_survives_initialization_and_flushes_on_shutdown ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 280 filtered out; finished in 0.01s
+
+test commands::conversion::tests::text_pdf_is_rejected_before_creating_any_output ... ok
+test app_log::tests::file_logger_survives_initialization_and_flushes_on_shutdown ... ok
+test ai::usage::tests::concurrent_connections_cannot_exceed_limit ... ok
+test commands::conversion::tests::conversion_preserves_source_and_existing_output ... ok
+test commands::conversion::tests::conversion_externalizes_legacy_ocr_images_without_overwriting ... ok
+test commands::conversion::tests::markdown_attachments_survive_cross_directory_conversion ... ok
+test commands::cases::hearing_lifecycle_tests::rescheduling_requires_evidence_preserves_other_round_and_audits_old_date ... ok
+test commands::drafts::tests::draft_serializes_to_camel_case ... ok
+test commands::files::tests::accepts_nested_case_relative_path ... ok
+test commands::files::tests::data_root_db_and_key_not_openable ... ok
+test commands::files::tests::executable_extension_classification ... ok
+test commands::files::tests::executable_is_rejected_even_inside_app_dir ... ok
+test commands::files::tests::executable_outside_app_dir_rejected ... ok
+test commands::files::tests::manages_regular_file_in_app_dir_allowed ... ok
+test commands::files::tests::non_safe_type_outside_app_dir_rejected ... ok
+test commands::files::tests::rejects_case_path_escape_and_absolute_path ... ok
+test commands::files::tests::safe_export_outside_app_dir_allowed ... ok
+test commands::files::tests::safe_open_extension_classification ... ok
+test commands::files::tests::symlink_to_external_executable_rejected_after_canonicalize ... ok
+test commands::inbox::tests::capture_title_uses_content_or_filename ... ok
+test commands::inbox::tests::chooses_ignore_status_supported_by_current_schema ... ok
+test commands::inbox::tests::detects_official_court_delivery_link_and_fields ... ok
+test commands::inbox::tests::normalizes_ui_folder_labels_to_case_file_categories ... ok
+test commands::inbox::tests::parses_official_holiday_ranges_and_makeup_days ... ok
+test commands::inbox::tests::parses_short_date_without_control_characters ... ok
+test commands::inbox::tests::recognizes_short_date_event_intent ... ok
+test commands::document_intelligence::tests::changed_source_requires_new_job_after_cancellation ... ok
+test commands::inbox::tests::registers_inbox_file_with_schema_safe_category ... ok
+test commands::inbox::tests::rejects_non_court_link ... ok
+test commands::inbox::tests::recommends_holiday_update_before_generic_task ... ok
+test commands::demo::tests::seed_rejects_non_empty_db ... ok
+test commands::knowledge::line_diff_tests::inserted_and_deleted_lines_do_not_shift_the_entire_document ... ok
+test commands::demo::tests::seed_on_empty_db_inserts_full_set ... ok
+test commands::inbox::tests::test_quick_judge_tomorrow_submit_poa_with_or_without_case ... ok
+test commands::document_intelligence::tests::source_view_rejects_wrong_binding_deleted_files_and_changed_originals ... ok
+test commands::document_intelligence::tests::queue_deduplicates_and_retry_isolates_cancelled_processes ... ok
+test commands::document_intelligence::tests::missing_completed_artifacts_are_rebuilt ... ok
+test commands::document_intelligence::tests::completed_job_can_be_explicitly_reprocessed_without_erasing_previous_result ... ok
+test commands::inbox::tests::test_all_natural_language_dates_recognition ... ok
+test ai::retrieval::tests::cross_page_word_is_searchable_with_both_region_references ... ok
+test ai::retrieval::tests::searches_chinese_questions_and_never_leaks_other_files_or_old_jobs ... ok
+test commands::knowledge::tests::search_knowledge_treats_wildcards_and_backslashes_literally ... ok
+test commands::knowledge::tests::search_knowledge_falls_back_for_chinese_phrase ... ok
+test commands::knowledge::tests::test_before_restore_snapshot_does_not_block_edit_window ... ok
+test commands::markdown_export::tests::editor_export_preserves_images_without_inline_base64 ... ok
+test commands::markdown_export::tests::failed_exports_clean_up_and_plain_text_creates_no_assets ... ok
+test commands::markdown_export::tests::html_and_markdown_images_keep_pixels_and_relative_links_when_moved ... ok
+test commands::portable_backup::tests::markdown_attachments_move_without_rewriting_other_text ... ok
+test commands::knowledge::tests::test_export_knowledge_markdown_uses_saved_content_and_validates_extension ... ok
+test commands::portable_backup::tests::relocation_respects_path_boundaries ... ok
+test commands::knowledge::tests::test_export_knowledge_markdown_externalizes_ocr_images ... ok
+test commands::knowledge::tests::test_import_new_revision_preserves_previous_tree_and_edits ... ok
+test commands::knowledge::tests::test_import_pageindex_tree_dedup_and_links ... ok
+test commands::knowledge::tests::test_import_pageindex_orphan_cleanup_after_root_deleted ... ok
+test commands::knowledge::tests::test_snapshot_only_on_change_and_once_per_session ... ok
+test commands::knowledge::tests::test_restore_version_ownership_snapshot_and_wiki_resync ... ok
+test commands::reminder::tests::test_already_sent_window_vs_daily ... ok
+test commands::reminder::tests::test_build_feishu_card_message ... ok
+test commands::reminder::tests::test_deadline_before_interval_trigger ... ok
+test commands::reminder::tests::task_due_rule_uses_due_date_when_deadline_is_empty ... ok
+test commands::reminder::tests::test_deadline_before_window_dedup_no_daily_bombardment ... ok
+test commands::reminder::tests::test_level_uses_real_days_diff ... ok
+test commands::reminder::tests::test_next_work_start_boundaries ... ok
+test commands::reminder::tests::test_r1_deferred_outside_work_hours ... ok
+test commands::reminder::tests::test_r1_within_work_hours_unaffected ... ok
+test commands::reminder::tests::test_r3_immediate_outside_work_hours ... ok
+test commands::reminder::tests::test_reminder_rule_serde ... ok
+test commands::reminder::tests::test_work_hours_default_and_profile ... ok
+test commands::reminder::tests::test_deadline_on_and_after_semantics ... ok
+test commands::knowledge::tests::test_sync_wiki_links_create_remove_and_preserve_others ... ok
+test commands::knowledge::tests::test_validate_parent_rejects_self_missing_and_cycle ... ok
+test commands::processing::tests::interruption_keeps_results_and_durable_document_queue_but_marks_unresumable_work ... ok
+test commands::processing::tests::cross_case_aggregation_includes_post_ocr_indexing_and_all_history_pages ... ok
+test commands::processing::tests::waiting_services_and_future_reminders_do_not_inflate_active_count ... ok
+test commands::settings::lawyer_profile_tests::test_corrupt_value_falls_back_to_default ... ok
+test commands::settings::lawyer_profile_tests::test_default_profile_when_missing ... ok
+test commands::settings::lawyer_profile_tests::test_reject_non_object ... ok
+test commands::settings::lawyer_profile_tests::test_save_and_load_profile ... ok
+test commands::reminder::tests::hearing_receipts_do_not_hide_other_rounds_and_accept_time_of_day ... ok
+test commands::rest_day_reminders::tests::covers_entire_official_break_and_real_work_only ... ok
+test commands::rest_day_reminders::tests::independent_plans_warn_on_rest_without_moving_task_deadline ... ok
+test commands::processing::tests::upgrading_legacy_database_backfills_only_latest_index_stage_and_is_repeatable ... ok
+test commands::rest_day_reminders::tests::warns_before_and_during_rest_deduplicates_and_clears_resolved_work ... ok
+test commands::tasks::hearing_date_tests::accepts_dates_and_valid_timestamps_only ... ok
+test commands::search::tests::global_search_escapes_fts_special_characters ... ok
+test commands::tasks::tests::test_next_occurrence_rules ... ok
+test commands::search::tests::global_search_reads_completed_document_pages ... ok
+test commands::task_plans::tests::hides_soft_deleted_plans_and_restores_them_on_undelete ... ok
+test commands::search::tests::global_search_reads_document_page_markdown ... ok
+test commands::task_plans::tests::rejects_invalid_dates_ranges_deleted_and_completed_tasks ... ok
+test commands::task_plans::tests::rejects_stale_writes_including_clear_recreate_and_rolls_back_audit_failure ... ok
+test commands::task_plans::tests::saves_plans_without_rewriting_deadlines_and_keeps_audit ... ok
+test commands::portable_backup::tests::portable_backup_restores_files_relations_and_paths_under_a_new_key ... ok
+test commands::task_plans::tests::upgrades_v41_database_without_changing_existing_task_dates ... ok
+test commands::tasks::tests::test_restore_task_atomic_commits_task_and_event ... ok
+test commands::tasks::tests::test_idempotent_soft_delete_no_duplicate_event ... ok
+test commands::whiteboard_document::tests::export_writes_supported_formats_and_does_not_clobber_on_invalid_data ... ok
+test commands::tasks::tests::test_restore_task_does_not_inherit_case_sequential ... ok
+test commands::tasks::tests::test_restore_task_preserves_original_id_and_completed ... ok
+test commands::tasks::tests::test_restore_task_preserves_parent_from_both_field_names ... ok
+test commands::tasks::tests::test_restore_task_rejects_id_collision ... ok
+test db::key_selection_tests::encrypted_database_recovers_legacy_key_without_replacement ... ok
+test db::key_selection_tests::fresh_install_does_not_access_keychain ... ok
+test db::key_selection_tests::invalid_local_key_is_not_interpolated_or_replaced ... ok
+test db::key_selection_tests::recovered_key_is_persisted_once_and_invalid_key_never_is ... ok
+test db::key_selection_tests::valid_local_key_avoids_startup_prompt ... ok
+test db::knowledge_index::tests::embedded_image_bytes_are_not_indexed_and_offsets_still_match ... ok
+test db::knowledge_index::tests::retrieval_context_tracks_heading_ancestry_without_other_source_headings ... ok
+test db::knowledge_index::tests::segments_cover_full_cjk_text_with_overlap ... ok
+test db::schema::fact_history_tests::fact_history_preserves_revisions_ignores_moves_and_rolls_back ... ok
+test commands::tasks::tests::test_restore_task_rolls_back_leaves_no_partial_rows ... ok
+test db::schema::tests::document_fts_backfills_and_skips_repeated_rebuilds ... ok
+test db::schema::tests::test_apply_migration_tx_rolls_back_on_failure ... ok
+test db::schema::tests::test_apply_versions_resumes_after_failed_version ... ok
+test commands::tasks::tests::test_restore_undeletes_soft_deleted_task ... ok
+test commands::tasks::tests::test_soft_delete_preserves_row_and_associated_records ... ok
+test commands::tasks::tests::test_soft_deleted_task_hidden_from_mutations_and_display ... ok
+test commands::whiteboard_document::tests::archived_existing_source_remains_saveable_but_new_reference_is_rejected ... ok
+test commands::whiteboard_document::tests::text_notes_sources_delete_undo_and_edges_commit_together ... ok
+test commands::whiteboard_document::tests::invalid_source_or_scene_rolls_back_all_facts_and_revision ... ok
+test db::schema::tests::test_v23_rebuild_removes_legacy_category_check ... ok
+test commands::whiteboard_document::tests::stale_scene_external_fact_edits_and_cross_board_ids_are_rejected ... ok
+test deadline::holidays::tests::calendar_entries_include_name_and_makeup_workday ... ok
+test deadline::holidays::tests::deadline_month_clamp ... ok
+test deadline::holidays::tests::deadline_not_on_weekend ... ok
+test deadline::holidays::tests::dragon_boat_2026 ... ok
+test deadline::holidays::tests::labor_day_2026 ... ok
+test deadline::holidays::tests::mid_autumn_2026 ... ok
+test deadline::holidays::tests::national_day_2026 ... ok
+test deadline::holidays::tests::national_day_deadline_push ... ok
+test deadline::holidays::tests::new_year_2026 ... ok
+test deadline::holidays::tests::qingming_2026 ... ok
+test deadline::holidays::tests::spring_festival_2026 ... ok
+test deadline::holidays::tests::weekend_push_to_monday ... ok
+test deadline::procedure::tests::absent_supplement_has_monitor_but_no_second_response ... ok
+test deadline::procedure::tests::civil_scope_and_admin_third_party_are_not_assumed ... ok
+test deadline::procedure::tests::earlier_patentee_response_advances_supplement_lookup ... ok
+test deadline::procedure::tests::explicit_notice_is_exact_and_calendar_gap_flagged ... ok
+test deadline::procedure::tests::judgment_result_does_not_close_pending_appeal ... ok
+test commands::whiteboard_scene::tests::scenes_preserve_images_reject_stale_and_cross_case_and_bound_history ... ok
+test db::schema::tests::case_status_migration_keeps_fts_consistent_on_insert_update_delete ... ok
+test deadline::procedure::tests::month_is_corresponding_day_not_30_days_or_extra_day ... ok
+test db::schema::tests::test_full_migration_idempotent_reaches_target ... ok
+test db::schema::tests::test_v11_migration_idempotent ... ok
+test deadline::procedure::tests::submission_is_not_service_and_roles_reverse ... ok
+test db::schema::tests::test_v12_migration_idempotent ... ok
+test db::schema::tests::test_v23_fresh_schema_accepts_notebook_categories ... ok
+test db::schema::tests::test_v24_soft_delete_migration_adds_column_index_event_types ... ok
+test docsy_engine::export::tests::test_escape_xml ... ok
+test docsy_engine::export::tests::test_format_value_array ... ok
+test docsy_engine::export::tests::test_format_value_string ... ok
+test docsy_engine::output_path::tests::allows_existing_regular_target ... ok
+test docsy_engine::output_path::tests::normalizes_traversal_in_parent ... ok
+test docsy_engine::output_path::tests::rejects_extension_outside_allowlist ... ok
+test docsy_engine::output_path::tests::rejects_pre_existing_symlink_target ... ok
+test docsy_engine::output_path::tests::rejects_relative_path ... ok
+test docsy_engine::pdf_export::tests::pdf_refuses_unknown_nodes_instead_of_dropping_content ... ok
+test db::schema::tests::test_v25_case_route_accepts_civil_admin_parallel ... ok
+test docsy_engine::renderer::tests::test_escape_html ... ok
+test docsy_engine::renderer::tests::test_extract_text ... ok
+test deadline::procedure::tests::legacy_formula_dates_stay_unconfirmed_until_explicit_takeover ... ok
+test docsy_engine::rich_export::compatibility_tests::explicit_compatibility_copy_keeps_sources_and_a_visible_notice ... ok
+test docsy_engine::rich_export::tests::exports_chinese_table_and_evidence_reference ... ok
+test docsy_engine::rich_export::tests::rejects_unknown_nodes_instead_of_dropping_them ... ok
+test docsy_engine::rich_export::tests::long_tables_repeat_headers_allow_page_splits_and_preserve_merges ... ok
+test deadline::procedure::tests::linked_cycles_shared_tasks_and_same_day_hearings ... ok
+test deadline::procedure::tests::repeated_receipts_and_summons_link_to_distinct_hearings_without_cross_case_references ... ok
+test docsy_engine::typesetting::tests::rejects_missing_notes_glyphs_and_malformed_tables ... ok
+test docsy_engine::pdf_export::tests::searchable_chinese_pdf_paginates_and_repeats_table_headers ... ok
+test document_pipeline::source_map::tests::divergent_markdown_never_invents_coordinates ... ok
+test document_pipeline::source_map::tests::multilingual_offsets_bind_exact_bytes_and_both_pages ... ok
+test document_pipeline::source_map::tests::table_markup_maps_escaped_values_and_corrections_preserve_grid ... ok
+test docsy_engine::typesetting::tests::chinese_pages_and_anchors ... ok
+test document_pipeline::tests::interrupted_engine_stream_propagates_the_read_error ... ok
+test document_pipeline::tests::job_state_distinguishes_cancellation_from_missing_rows_and_sql_errors ... ok
+test document_pipeline::tests::rejects_path_traversal_and_invalid_hashes ... ok
+test docsy_engine::typesetting::tests::math_notes_and_rejection ... ok
+test document_pipeline::tests::verifies_source_artifact_containment_and_page_backups ... ok
+test export_bindings::export_ts_bindings ... ok
+test formula::dependency::tests::casy_all_formulas ... ok
+test formula::dependency::tests::casy_graph_case_progress ... ok
+test formula::dependency::tests::casy_graph_filing_date ... ok
+test formula::dependency::tests::no_dependents ... ok
+test formula::dependency::tests::topo_sort_independent ... ok
+test formula::dependency::tests::topo_sort_linear ... ok
+test formula::eval::tests::eval_add_days_to_date ... ok
+test formula::eval::tests::eval_and_short_circuit ... ok
+test formula::eval::tests::eval_and_true ... ok
+test formula::eval::tests::eval_comparison_eq ... ok
+test formula::eval::tests::eval_comparison_ne ... ok
+test formula::eval::tests::eval_concat ... ok
+test formula::eval::tests::eval_date_comparison ... ok
+test formula::eval::tests::eval_edate ... ok
+test formula::eval::tests::eval_edate_clamp ... ok
+test formula::eval::tests::eval_if_false ... ok
+test formula::eval::tests::eval_if_true ... ok
+test formula::eval::tests::eval_isblank_empty_string ... ok
+test formula::eval::tests::eval_isblank_null ... ok
+test formula::eval::tests::eval_nested_if_or ... ok
+test formula::eval::tests::eval_not ... ok
+test formula::eval::tests::eval_or_short_circuit ... ok
+test formula::eval::tests::eval_subtract_numbers ... ok
+test formula::eval::tests::eval_today ... ok
+test formula::eval::tests::eval_workday_backward ... ok
+test docsy_engine::typesetting::tests::repeated_and_unreferenced_notes_are_not_lost ... ok
+test formula::eval::tests::eval_workday_forward ... ok
+test formula::parser::tests::parse_comparison_eq ... ok
+test formula::parser::tests::parse_and_function ... ok
+test formula::parser::tests::parse_concat ... ok
+test formula::parser::tests::parse_comparison_lt ... ok
+test formula::parser::tests::parse_cross_table_ref ... ok
+test formula::parser::tests::parse_edate ... ok
+test formula::parser::tests::parse_hearing_status_formula ... ok
+test formula::parser::tests::parse_nested_if_or ... ok
+test formula::parser::tests::parse_not_isblank ... ok
+test formula::parser::tests::parse_simple_if ... ok
+test formula::parser::tests::parse_task_deadline_formula ... ok
+test formula::parser::tests::parse_today_function ... ok
+test formula::parser::tests::parse_workday ... ok
+test formula::tests::dependency_graph_cascade ... ok
+test formula::tests::parse_and_evaluate_case_status_ongoing ... ok
+test formula::tests::parse_and_evaluate_case_status_completed ... ok
+test formula::tests::parse_and_evaluate_edate ... ok
+test formula::tests::parse_and_evaluate_hearing_status ... ok
+test formula::tests::parse_and_evaluate_workday ... ok
+test mcp::server::tests::invalid_json_returns_parse_error ... ok
+test mcp::server::tests::get_method_rejected ... ok
+test mcp::server::tests::notification_returns_202 ... ok
+test mcp::server::tests::missing_token_returns_401 ... ok
+test mcp::server::tests::ping_returns_jsonrpc_result ... ok
+test mcp::server::tests::write_tool_queued_for_confirmation_in_readonly_mode ... ok
+test mcp::server::tests::wrong_token_returns_401 ... ok
+test mcp::tests::test_resolve_pending_write ... ok
+test mcp::tests::test_submit_and_list_pending_writes ... ok
+test parse::text_document::tests::docx_keeps_headings_tables_and_chinese_text ... ok
+test parse::text_document::tests::segments_keep_all_content_and_bound_cjk_chunks ... ok
+test runtime_paths::tests::default_subdirectories_share_the_same_root_contract ... ok
+test runtime_paths::tests::profile_lock_excludes_other_handles_and_releases_on_drop ... ok
+test sync::caldav::tests::passive_configuration_checks_require_local_metadata_only ... ok
+test sync::caldav::tests::test_build_reminder_ics ... ok
+test sync::caldav::tests::test_delivery_unknown_classification ... ok
+test deadline::procedure::tests::state_revision_retraction_and_audit_are_atomic ... ok
+test docsy_engine::typesetting::tests::diagrams_lists_images_and_cache ... ok
+test watcher::tests::files_to_import_only_keeps_new_real_files ... ok
+test watcher::tests::is_temp_file_flags_hidden_and_download_tails ... ok
+test watcher::tests::scan_existing_files_skips_temp_files ... ok
+test workspace_sync::tests::naming_ignores_quoted_or_code_titles_and_preserves_extensions ... ok
+test db::schema::tests::test_run_migrations_restores_foreign_keys_state ... ok
+test parse::text_document::tests::accepts_text_source_and_extracted_markdown_larger_than_64_mib ... ok
+test deadline::procedure::tests::validation_rejects_invalid_scope_dates_parties_and_parent_cycles ... ok
+test document_pipeline::tests::standalone_engine_waits_for_process_instead_of_cancelling_missing_job ... ok
+test deadline::procedure::tests::winning_result_does_not_auto_close_case_and_next_hearing_uses_active_rounds ... ok
+test document_pipeline::tests::engine_output_streams_past_128_mib_and_removes_temporary_files ... ok
+test deadline::recalc::tests::recalc_counts_only_cases_with_results ... ok
+test sync::webdav::archive_transfer_tests::upload_deadline_tracks_progress_instead_of_total_duration ... ok
+test sync::webdav::archive_transfer_tests::archive_stream_roundtrip_and_failure_do_not_clobber_local_files ... ok
+
+test result: ok. 280 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 53.96s
+
+     Running unittests src/main.rs (target/debug/deps/casy-5233b593d4d303f4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ai_gateway_test.rs (target/debug/deps/ai_gateway_test-68565f686416b2a5)
+
+running 4 tests
+test test_unauthorized_ai_write_rejected_by_default ... ok
+test test_state_hash_mismatch_prevents_race_condition ... ok
+test test_payload_mismatch_is_rejected_without_consuming_token ... ok
+test test_proposal_lifecycle_and_single_use_token ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ai_profiles_test.rs (target/debug/deps/ai_profiles_test-bc1b354c6051a68a)
+
+running 5 tests
+test profiles_validate_identity_and_endpoint ... ok
+test keyless_profiles_roundtrip_and_invalid_save_preserves_state ... ok
+test compatible_api_sends_model_key_and_messages ... ok
+test local_ollama_does_not_require_a_key ... ok
+test empty_and_http_error_responses_are_not_success ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+     Running tests/backup_restore_test.rs (target/debug/deps/backup_restore_test-0a0abc4fe31d8818)
+
+running 3 tests
+test test_maintenance_mode_lifecycle_and_blocking ... ok
+test test_path_traversal_rejection ... ok
+test test_encrypted_backup_integrity_and_sha256 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/calendar_delivery_test.rs (target/debug/deps/calendar_delivery_test-0e7526aafbfd4f6c)
+
+running 1 test
+test retry_keeps_actual_time_and_cancelled_remote_deletion_survives_failure ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+     Running tests/connected_workspace_test.rs (target/debug/deps/connected_workspace_test-bf724d9f3ce66e18)
+
+running 1 test
+test note_task_schedule_and_draft_share_identity_without_moving_deadlines ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/dashboard_data_test.rs (target/debug/deps/dashboard_data_test-bcbac327737b0c60)
+
+running 1 test
+test dashboard_matches_live_records_and_preserves_hearing_boundaries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/delivery_lifecycle_test.rs (target/debug/deps/delivery_lifecycle_test-857f3b6d61c144ce)
+
+running 1 test
+test full_backup_calendar_and_editor_recovery_survive_reopening ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.31s
+
+     Running tests/editor_workflow_test.rs (target/debug/deps/editor_workflow_test-d164c304eb833192)
+
+running 1 test
+test checklist_links_are_idempotent_bidirectional_and_do_not_delete_tasks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+     Running tests/excel_import_test.rs (target/debug/deps/excel_import_test-676da2f15d3954d5)
+
+running 7 tests
+test test_track_and_route_inference ... ok
+test test_amount_and_array_cleaning ... ok
+test test_real_user_excel_file_inspection_and_import ... ok
+test test_subtable_tasks_and_hearings_relational_import ... ok
+test test_end_to_end_excel_import_with_header_offset_and_conflict ... ok
+test test_excel_serial_and_multi_format_date_cleaning ... ok
+test test_multi_row_case_hearings_and_notes_aggregation ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+     Running tests/feishu_import_test.rs (target/debug/deps/feishu_import_test-0b3ca36be408b760)
+
+running 3 tests
+test test_convert_feishu_field_values_to_normalized_string ... ok
+test test_user_feishu_table_25_columns_matching ... ok
+test test_extract_feishu_tokens_from_various_url_formats ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/feishu_snapshot_test.rs (target/debug/deps/feishu_snapshot_test-62cc4a669a99d2be)
+
+running 5 tests
+test real_snapshot_roundtrip ... ignored, Requires a private local snapshot; performs no network requests
+test field_types_control_dates_and_decode_options ... ok
+test failed_snapshot_rolls_back_source_and_business_rows ... ok
+test selected_case_import_follows_record_ids_and_is_repeatable ... ok
+test intake_roundtrip_and_child_failure_rollback ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
+     Running tests/file_lifecycle_test.rs (target/debug/deps/file_lifecycle_test-7770078fb694b07b)
+
+running 1 test
+test files_preserve_bytes_identity_and_relations_through_lifecycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+     Running tests/holiday_import_test.rs (target/debug/deps/holiday_import_test-6a2c2029df72a3d3)
+
+running 1 test
+test reviewed_holidays_commit_with_receipt_and_are_visible_to_calendar ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/inbox_capture_test.rs (target/debug/deps/inbox_capture_test-bb2e8d341ec9f9d7)
+
+running 1 test
+test reviewed_capture_is_atomic_retryable_and_preserves_sources ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests/knowledge_index_test.rs (target/debug/deps/knowledge_index_test-1bfaac395df382ad)
+
+running 3 tests
+test embedding_protocols_preserve_model_credentials_and_input_order ... ok
+test migration_backfills_cjk_search_and_invalidates_only_changed_vectors ... ok
+test durable_index_handles_full_text_retry_cancel_edits_and_model_changes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+
+     Running tests/local_retrieval_test.rs (target/debug/deps/local_retrieval_test-ab4795de2ae9abdd)
+
+running 1 test
+test local_multilingual_retrieval_and_compact_storage ... ignored, requires bundled E5-base model and CASY_DOC_ENGINE
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/modular_review_test.rs (target/debug/deps/modular_review_test-a01f8ecd99e3f8fe)
+
+running 1 test
+test modular_integrity_and_connection_lifecycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/production_validation_test.rs (target/debug/deps/production_validation_test-4b2637ad5f0b9c9a)
+
+running 1 test
+test deadline_mutations_rollback_when_audit_fails_and_sync_reports_observed_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running tests/schema_v20_test.rs (target/debug/deps/schema_v20_test-997ff51a5b7fd8cf)
+
+running 8 tests
+test smart_rules_action_check ... ok
+test notifications_inbox_zero_semantics ... ok
+test fact_nodes_cascade_with_whiteboard ... ok
+test links_support_anchor_and_backlink_index ... ok
+test persons_kind_check_and_case_link_fk ... ok
+test v20_is_current_and_migrates_clean ... ok
+test decisions_accepts_recommendation_entity_type ... ok
+test v20_migration_is_idempotent ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.13s
+
+     Running tests/schema_v21_document_test.rs (target/debug/deps/schema_v21_document_test-894f28521c6c8031)
+
+running 3 tests
+test v21_has_durable_document_jobs_and_page_ir ... ok
+test document_pages_fts_tracks_page_text ... ok
+test document_status_constraints_reject_false_completion_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s
+
+     Running tests/task_lifecycle_test.rs (target/debug/deps/task_lifecycle_test-4cedc93b9de6a300)
+
+running 1 test
+test recurring_tasks_complete_undo_and_reschedule_without_losing_relationships ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/task_patch_test.rs (target/debug/deps/task_patch_test-74e50843cdc8f3e5)
+
+running 3 tests
+test test_validation_rejects_invalid_inputs ... ok
+test test_explicit_null_clears_field ... ok
+test test_partial_patch_preserves_other_fields ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/text_documents_test.rs (target/debug/deps/text_documents_test-f7875f0b09fc889e)
+
+running 1 test
+test native_text_queue_preserves_source_backup_latest_index_and_knowledge_import ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.07s
+
+     Running tests/webdav_full_backup_test.rs (target/debug/deps/webdav_full_backup_test-36f1780668b14a8a)
+
+running 1 test
+test complete_webdav_backup_restores_cases_tasks_settings_and_attachments ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.26s
+
+     Running tests/workspace_sync_test.rs (target/debug/deps/workspace_sync_test-bf15290f5965864a)
+
+running 1 test
+test local_folder_lifecycle_preserves_originals_ids_notes_and_opt_in ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/zvec_index_test.rs (target/debug/deps/zvec_index_test-a1f9281b1f26f394)
+
+running 4 tests
+test zvec_recall_latency_and_total_disk ... ignored, nontrivial HNSW recall and disk benchmark; run explicitly
+test zvec_diversifies_long_documents_and_recovers_missing_collection ... ok
+test zvec_resynchronizes_after_restoring_an_older_database_snapshot ... ok
+test zvec_handles_edits_archival_deletion_reopening_and_corrupt_cache ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.53s
+
+   Doc-tests casy_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

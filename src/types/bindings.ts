@@ -489,6 +489,10 @@ export type TaskDto = { id: string; caseId: string | null; taskName: string; des
 
 export type TaskFilter = { completed: boolean | null; caseId: string | null; areaId: string | null; taskType: string | null; startBucket: string | null }
 
+export type TaskPlan = { taskId: string; startDate: string | null; endDate: string | null; revision: number }
+
+export type TaskPlanInput = { taskId: string; startDate: string | null; endDate: string | null; expectedRevision: number }
+
 export type TaskTemplate = { id: string; name: string; triggerType: string | null; tasksJson: string; caseTypes: string | null; enabled: boolean; createdAt: string | null }
 
 /**
