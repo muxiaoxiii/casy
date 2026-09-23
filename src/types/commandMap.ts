@@ -301,6 +301,8 @@ export type CommandMap = {
   // ── 同步域 ──
   get_sync_status: Cmd<{}, SyncStatus>
   test_webdav_connection: Cmd<{ url: string; username: string; password: string }, string>
+  webdav_backup_full: Cmd<{ url: string; username: string; password: string; backupPassword: string }, string>
+  webdav_restore_full: Cmd<{ url: string; username: string; password: string; backupPassword: string }, boolean>
   webdav_push: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_pull: Cmd<{ url: string; username: string; password: string }, SyncResult>
   webdav_startup_sync: Cmd<{ url: string; username: string; password: string }, SyncResult>
@@ -463,6 +465,7 @@ export type CommandMap = {
   file_inbox_item: Cmd<{ itemId: string; caseId: string; category: string }, void>
   dismiss_inbox_item: Cmd<{ id: string }, void>
   get_inbox_progress: Cmd<{}, InboxProgress>
+  get_inbox_action_result: Cmd<{ inboxItemId: string }, IpcJsonObject | null>
   parse_holiday_notice: Cmd<{ content: string }, HolidayNotice>
   confirm_inbox_action: Cmd<{
     inboxItemId: string

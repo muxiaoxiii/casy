@@ -3,10 +3,10 @@ import { ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { Cpu, Lock, Document, Connection, Refresh } from '../../../shared/icons'
 
-const appVersion = ref('4.0.0-pro')
+import { version as appVersion } from '../../../../package.json'
 const dbStatus = ref('SQLite (Local Encrypted)')
 const rustCoreStatus = ref('Running (Tauri v2 Core)')
-const buildTime = ref('2026.08')
+const buildTime = '2026.09.23 · 主题、备份与日历修订'
 
 const dbInfo = ref<Record<string, unknown>>({})
 const loading = ref(false)
@@ -51,7 +51,7 @@ onMounted(() => {
           <span class="badge-version">v{{ appVersion }}</span>
           <span class="badge-status">
             <span class="status-dot"></span>
-            本地环境安全就绪
+            0.1.3 生产验证修订版
           </span>
         </div>
       </div>

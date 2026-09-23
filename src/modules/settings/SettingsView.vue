@@ -31,7 +31,7 @@ const mobileTabs = [
   ['profile', '律师画像'], ['general', '常规设置'], ['ai', 'AI 引擎配置'],
   ['briefing-styles', '早报/周报样式'], ['folder-template', '文件夹模板'],
   ['reminder', '智能提醒'], ['deadline-rules', '期限规则'], ['smart-rules', '智能规则'],
-  ['webdav', 'WebDAV 同步'], ['feishu', '飞书集成'], ['imap', '邮箱监听'],
+  ['webdav', 'WebDAV 备份'], ['feishu', '飞书集成'], ['imap', '邮箱监听'],
   ['smtp-mcp', 'SMTP / MCP'], ['backup', '数据备份'], ['about', '关于 Casy'],
 ]
 
@@ -132,7 +132,7 @@ onMounted(async () => {
         <div class="nav-title">同步与连接</div>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'webdav' }" @click="activeTab = 'webdav'">
           <el-icon><Cloudy /></el-icon>
-          <span>WebDAV 同步</span>
+          <span>WebDAV 备份</span>
         </button>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'feishu' }" @click="activeTab = 'feishu'">
           <el-icon><Link /></el-icon>

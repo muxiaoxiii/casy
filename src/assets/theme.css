@@ -1,7 +1,7 @@
 /* ── Casy 主题变量 ────────────────────────────────────────── *
  *
  * 按 casy-design-philosophy.md 第十二章设计规范与 Stitch UI 设计系统
- * 包含 6 套主题（Slate, Luminous Terra, Solarized Light, Solarized Dark, Dark, System）
+ * 保留原有 5 套配色与 System；卷宗明亮、卷宗墨色、黄宣纸在 docket.css 独立定义
  * ──────────────────────────────────────────────────────────── */
 
 :root {
@@ -303,9 +303,9 @@
   --c-primary-container: #268BD2;
   --c-on-primary-container: #EBF4FC;
 
-  --gray-50:  #FDF6E3;
-  --gray-100: #F4EEDC;
-  --gray-200: #EEE8D5;
+  --gray-50:  #FAF7ED;
+  --gray-100: #F4F0E4;
+  --gray-200: #F0ECDF;
   --gray-300: #D6CEB5;
   --gray-400: #93A1A1;
   --gray-500: #839496;
@@ -341,16 +341,16 @@
   --c-text-heading: #073642;
   --slate-gray-light: #93A1A1;
 
-  --c-bg: #FDF6E3;
-  --c-bg-page: #FDF6E3;
-  --c-bg-card: #FFFDF5;
-  --c-bg-sidebar: #EEE8D5;
-  --c-bg-topbar: rgba(253, 246, 227, 0.92);
-  --c-bg-elevated: #FFFDF5;
-  --c-surface: #FFFDF5;
+  --c-bg: #FAF7ED;
+  --c-bg-page: #FAF7ED;
+  --c-bg-card: #FFFDF7;
+  --c-bg-sidebar: #F0ECDF;
+  --c-bg-topbar: rgba(250, 247, 237, 0.92);
+  --c-bg-elevated: #FFFDF7;
+  --c-surface: #FFFDF7;
   --c-text-muted: #697D80;
   --c-bg-hover: #E4DEC8;
-  --c-bg-subtle: #F4EEDC;
+  --c-bg-subtle: #F4F0E4;
   --c-bg-selected: #DDECF5;
   --c-border: #D6CEB5;
   --c-border-light: #E0D9C3;

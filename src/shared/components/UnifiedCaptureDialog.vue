@@ -18,12 +18,16 @@ import { casyContext } from '../../core/plugin/context'
 import { parseWhen } from '../nlp/parseWhen'
 import type { IpcJsonObject } from '../../types/ipc'
 import { isTauriRuntime } from '../../core/mockData'
+import HolidayImportReview from './HolidayImportReview.vue'
+import type { HolidayDraft } from '../holidayNotice'
 import CaseWizard from '../../modules/cases/components/CaseWizard.vue'
 import { newIntake, parseIntakeText } from '../../modules/cases/components/caseIntake'
 import { useRouter } from 'vue-router'
 const router = useRouter()
 const nativeFiles = isTauriRuntime()
 const caseLoading = ref(false)
+const holidayDraft = ref<HolidayDraft | null>(null)
+const holidayBusy = ref(false)
 const reviewTitle = ref('')
 const reviewDate = ref('')
 const reviewTime = ref('')
@@ -83,6 +87,8 @@ const actionOptions = [
 const canSubmit = computed(() => Boolean(text.value.trim() || filePaths.value.length))
 
 function reset() {
+  holidayDraft.value = null
+  holidayBusy.value = false
   targetCaseId.value = ''
   text.value = ''
   action.value = props.initialAction
@@ -309,7 +315,8 @@ async function capture() {
 async function confirmRecommendation() {
   const recommendation = selectedRecommendation.value
   const inboxItemId = capturedIds.value[0]
-  if (!recommendation || !inboxItemId || saving.value) return
+  if (!recommendation || !inboxItemId || saving.value || holidayBusy.value) return
+  if (recommendation.action === 'update_holidays' && !holidayDraft.value) { ElMessage.error('请先核对有效的节假日日期预览'); return }
   if (recommendation.action === 'create_case') {
     const initial = { ...newIntake(), ...recommendation.intent, ...parseIntakeText(text.value).fields }
     initial.caseName = reviewTitle.value.trim()
@@ -332,7 +339,8 @@ async function confirmRecommendation() {
   }
   saving.value = true
   try {
-  const intent: IpcJsonObject = { ...recommendation.intent, caseId: targetCaseId.value || null }
+  const intent: IpcJsonObject = recommendation.action === 'update_holidays'
+    ? { ...holidayDraft.value! } : { ...recommendation.intent, caseId: targetCaseId.value || null }
   if (['create_task', 'create_event', 'create_case', 'save_knowledge'].includes(recommendation.action)) {
     Object.assign(intent, { taskName: reviewTitle.value.trim(), title: reviewTitle.value.trim(), name: reviewTitle.value.trim() })
   }
@@ -433,6 +441,7 @@ function actionLabel(value: string) {
         <el-radio v-for="(recommendation, index) in recommendations" :key="index" :value="index" :disabled="saving">{{ actionLabel(recommendation.action) }}</el-radio>
       </el-radio-group>
       <p v-if="selectedRecommendation?.reason" class="recommendation-reason">{{ selectedRecommendation.reason }}</p>
+      <HolidayImportReview v-if="selectedRecommendation?.action === 'update_holidays'" :content="text" :disabled="saving" @change="holidayDraft = $event" @busy="holidayBusy = $event" />
       <el-form label-position="top" class="review-form">
         <el-form-item v-if="['create_task', 'create_event', 'create_case', 'save_knowledge'].includes(selectedRecommendation?.action || '')" label="标题">
           <el-input v-model="reviewTitle" aria-label="标题" :disabled="saving" />
@@ -452,13 +461,17 @@ function actionLabel(value: string) {
       <el-icon :size="32"><Check /></el-icon><h3>{{ confirmed ? '处理完成' : '已存入收件箱' }}</h3>
       <p v-if="confirmed && capturedIds.length > 1 && !targetCaseId && !actionResult?.case">{{ capturedIds.length - 1 }} 个附件待整理</p>
       <el-button v-if="confirmed && ['create_task','create_event','create_case','save_knowledge'].includes(selectedRecommendation?.action || '')" type="primary" @click="openCreated">查看{{ actionLabel(selectedRecommendation?.action || '') }}</el-button>
+      <template v-if="confirmed && actionResult?.action === 'holidays_updated'">
+        <p>已写入日历：放假 {{ actionResult.holidaysCount }} 天，补班 {{ actionResult.workdaysCount }} 天。<span v-if="actionResult.changedDates === 0">这些日期与现有日历一致，无新增变动。</span><span v-else-if="actionResult.changedDates != null">实际更新 {{ actionResult.changedDates }} 个日期。</span></p>
+        <el-button type="primary" @click="close(); router.push({ path: '/calendar', query: { view: 'year', date: `${actionResult.year}-01-01` } })">查看导入后的日历</el-button>
+      </template>
       <el-button text @click="openInbox">查看收件箱</el-button>
     </div>
     <template #footer>
       <div class="capture-footer">
         <el-button :disabled="saving" @click="close">{{ stage === 'compose' ? '取消' : stage === 'review' ? '稍后处理' : '关闭' }}</el-button>
         <el-button v-if="stage === 'compose'" type="primary" :disabled="!canSubmit" :loading="saving" @click="capture">{{ action === 'auto' ? '存入收件箱' : '继续' }}</el-button>
-        <el-button v-else-if="stage === 'review'" type="primary" :disabled="!selectedRecommendation" :loading="saving" @click="confirmRecommendation">{{ selectedRecommendation?.action === 'create_case' ? '完善案件信息' : '确认处理' }}</el-button>
+        <el-button v-else-if="stage === 'review'" type="primary" :disabled="!selectedRecommendation || holidayBusy || (selectedRecommendation.action === 'update_holidays' && !holidayDraft)" :loading="saving" @click="confirmRecommendation">{{ selectedRecommendation?.action === 'create_case' ? '完善案件信息' : '确认处理' }}</el-button>
       </div>
     </template>
   </el-dialog>

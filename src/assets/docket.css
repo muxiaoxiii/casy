@@ -1,6 +1,6 @@
 /* Judicial Docket: product tokens derived from designs/casy-ui-upgrade.
    Alternative reading themes retain their palettes; all share the same geometry. */
-:root, html[data-theme="slate"] {
+html[data-theme="docket-light"] {
   --c-primary: #1a4fd6; --c-primary-hover: #123fab; --c-primary-light: #edf2ff;
   --c-primary-lighter: #d6e1fc; --c-primary-soft: #edf2ff;
   --c-primary-container: #1a4fd6; --c-on-primary-container: #fff;
@@ -18,7 +18,7 @@
   --c-info: #5b6b7f; --c-info-light: #edf1f7;
   --focus-ring: #1a4fd622; --c-primary-contrast: #fff;
 }
-html[data-theme="dark"] {
+html[data-theme="docket-dark"] {
   --c-primary: #8aafff; --c-primary-hover: #a9c4ff; --c-primary-light: #1a2946;
   --c-primary-lighter: #304e80; --c-primary-soft: #1a2946;
   --c-primary-container: #264b96; --c-on-primary-container: #e7edf5;
@@ -35,6 +35,37 @@ html[data-theme="dark"] {
   --c-success: #83d3ae; --c-success-light: #18372e; --status-success: #83d3ae;
   --c-info: #a2b5d0; --c-info-light: #22314a;
   --focus-ring: #8aafff30; --c-primary-contrast: #0c1526;
+}
+html[data-theme="rice-paper"] {
+  --c-primary: #924536; --c-primary-hover: #773628; --c-primary-light: #f5e4d6;
+  --c-primary-lighter: #e7c8b7; --c-primary-soft: #f5e4d6;
+  --c-primary-container: #924536; --c-on-primary-container: #fff8e9;
+  --c-text: #342e25; --c-text-heading: #30291f; --c-text-regular: #504638;
+  --c-text-secondary: #71624f; --c-text-placeholder: #7c6c56;
+  --c-bg: #f3ead7; --c-bg-page: #f3ead7; --c-bg-card: #fcf6e8;
+  --c-bg-sidebar: #e9dfc8; --c-bg-subtle: #f0e3c7; --c-bg-elevated: #fff7e5;
+  --c-bg-hover: #e9dab8; --c-bg-selected: #ead1bc; --c-surface: #fcf6e8;
+  --c-bg-topbar: #f3ead7; --c-border: #d6c5a3; --c-border-light: #e3d4b6;
+  --c-border-lighter: #ecdfc5; --c-border-strong: #ac9470;
+  --c-danger: #a0392f; --c-danger-light: #f6e1d4;
+  --c-warning: #825a19; --c-warning-light: #f3e4b9;
+  --c-waiting: #426b69; --c-waiting-light: #e2e9d9;
+  --c-success: #466346; --c-success-light: #e5ebd5;
+  --c-info: #6e607b; --c-info-light: #ece3e9;
+  --c-primary-contrast: #fff8e9; --c-overlay: #342e2580;
+}
+/* Derive legacy aliases on the active root too; otherwise they inherit Slate colors. */
+html:is([data-theme="docket-light"], [data-theme="docket-dark"], [data-theme="rice-paper"]) {
+  --gray-50: var(--c-bg-page); --gray-100: var(--c-bg-subtle);
+  --gray-200: var(--c-border-light); --gray-300: var(--c-border-strong);
+  --gray-400: var(--c-text-secondary); --gray-500: var(--c-text-placeholder);
+  --gray-600: var(--c-text-secondary); --gray-700: var(--c-text-regular);
+  --gray-800: var(--c-text); --gray-900: var(--c-text-heading);
+  --c-text-muted: var(--c-text-secondary);
+  --bg-success-weak: var(--c-success-light); --status-success: var(--c-success);
+  --bg-warning-weak: var(--c-warning-light); --status-warning: var(--c-warning);
+  --bg-risk-weak: var(--c-danger-light); --status-risk: var(--c-danger);
+  --bg-discovery-weak: var(--c-info-light); --status-discovery: var(--c-info);
 }
 :root, html[data-theme] {
   --sidebar-width: 216px; --sidebar-width-expanded: 216px;
@@ -117,4 +148,11 @@ html[data-theme="dark"] {
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* Paper grain belongs to the paper theme only; no raster-generation dependency. */
+html[data-theme="rice-paper"] :is(.app-sidebar, .topbar, .content-scroll, .settings-sidebar, .el-card, .el-dialog, .el-drawer, .el-message-box) {
+  background-image: url('./rice-paper-grain.svg');
+  background-repeat: repeat;
+  background-size: 180px 180px;
 }

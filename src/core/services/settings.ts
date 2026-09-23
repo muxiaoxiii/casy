@@ -18,7 +18,9 @@ export class SettingsService extends Service {
   }
 
   async save(settings: Record<string, SettingsValue>): Promise<{ ok: boolean; error?: string }> {
-    return tauriCallSafe('save_settings', { settings })
+    const result = await tauriCallSafe('save_settings', { settings })
+    if (result.ok && 'personal_calendar_days' in settings) this.ctx.emit('holiday:updated', {})
+    return result
   }
 
   async configureAi(opts: { mode: string; apiUrl?: string; apiKey?: string; model?: string; dailyLimit?: number }): Promise<{ ok: boolean; error?: string }> {
@@ -113,7 +115,9 @@ export class SettingsService extends Service {
   }
 
   async importHolidaysJson(jsonPath: string): Promise<{ ok: boolean; data?: IpcJsonObject; error?: string }> {
-    return tauriCallSafe('import_holidays_json', { jsonPath })
+    const result = await tauriCallSafe('import_holidays_json', { jsonPath })
+    if (result.ok) this.ctx.emit('holiday:imported', result.data)
+    return result
   }
 
   // ── 邮件监听（IMAP） ──

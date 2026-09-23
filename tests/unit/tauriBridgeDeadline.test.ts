@@ -44,7 +44,7 @@ it('retains deadlines for ordinary requests and explicit overrides', async () =>
   expect(vi.getTimerCount()).toBe(0)
 })
 
-for (const command of ['export_full_backup', 'import_full_backup', 'create_backup', 'restore_backup', 'webdav_push']) {
+for (const command of ['export_full_backup', 'import_full_backup', 'create_backup', 'restore_backup', 'webdav_push', 'webdav_backup_full', 'webdav_restore_full']) {
   it(`waits for the actual result of ${command}`, async () => {
     vi.useFakeTimers()
     let finish!: () => void

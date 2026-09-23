@@ -2,7 +2,7 @@
 
 本地优先的律师案件工作台，覆盖案件、程序期限、任务、日历、卷宗、知识笔记、文书与事实白板。
 
-文档核对日期：**2026-09-22**，以当前工作区源码为准。历史记录位于 [docs/Archive](docs/Archive/README.md)。
+文档核对日期：**2026-09-23**，以当前工作区源码为准。历史记录位于 [docs/Archive](docs/Archive/README.md)。
 
 ## 版本与交付
 
@@ -12,6 +12,8 @@
 | 已交付安装包 | **0.1.3**，Apple Silicon / macOS 26+ |
 | 数据库 | SQLCipher / SQLite，schema **41** |
 | 分发 | 本地生产验证包，ad-hoc 签名，未公证 |
+
+0.1.3 修订已恢复独立主题，新增黄宣纸纹理，并在 WebDAV 页面接通全部数据备份与恢复。修订包使用 `themes-webdav` 文件名标记。
 
 0.1.3 集成 Judicial Docket（卷宗墨卷）视觉系统，修复导出图片迁移、转换超时误报、期限规则事务和同步状态。用户导出的 Markdown 配图存入 `casy-images-…` 目录；64 MiB 文本转换硬限制已移除。实际验收范围与剩余限制见 [项目状态](Casy-STATUS.md)，生产验证版不等同于已完成公证、跨平台和全部外部服务验收。
 
@@ -25,7 +27,7 @@
 | 知识与文书 | Markdown/富文本、版本恢复、全文/向量检索、统一编辑器、Typst PDF、DOCX | 引用层级回归已修复；导出保真有边界 |
 | 白板 | Excalidraw 场景、事实来源、修订冲突保护、历史 | 不等同于完整双时间图谱或自动法律推理 |
 | 收件箱 | 文字/文件捕获、文本剪贴板、录音保存、归卷、知识入口 | 截图、自动剪贴板监听、转写及部分批量/重试仍为占位 |
-| 外部服务 | AI/Ollama、飞书、WebDAV、CalDAV、IMAP/SMTP、MCP | 需显式配置和真实服务验收；WebDAV 仅同密钥数据库快照 |
+| 外部服务 | AI/Ollama、飞书、WebDAV、CalDAV、IMAP/SMTP、MCP | 需显式配置和真实服务验收；WebDAV 支持手动完整加密备份；旧快照同步仍限同密钥 |
 | 备份 | 数据库快照、含附件的加密完整备份及恢复 | 数据库备份与完整备份需区分 |
 
 ## 技术组成
@@ -58,3 +60,5 @@ npm run tauri -- dev
 - [程序期限](docs/procedure-deadline-rules.md)、[运行时分发](docs/runtime-distribution-plan.md)、[数据与安全](docs/DATA_AND_SECURITY.md)
 
 代码入口：`src/modules` 与 `src/shared` 为界面；`src/core` 为服务/插件/IPC；`src-tauri/src` 为数据库和领域逻辑；`tools/casy-doc-engine` 为文档引擎；`scripts` 为资源准备与校验；`tests`、`src-tauri/tests` 为测试。`release` / `outputs` 是本地产物，不是自动发布证明。
+
+2026-09-23 修订增加主题恢复与黄宣纸纹理、WebDAV 全数据备份/恢复、节假日日期预览及写入回执、年度任务热力日历。详见 [0.1.3 发布记录](docs/RELEASE_0.1.3.md)。

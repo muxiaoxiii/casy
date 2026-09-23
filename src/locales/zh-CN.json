@@ -95,11 +95,12 @@
     "insert_party": "当事人"
   },
   "calendar": {
+    "year": "年",
     "timeline": "时间线",
     "month": "月",
     "week": "周",
     "day": "日",
-    "forecast": "排期预测",
+    "forecast": "排期",
     "today": "今天",
     "previous": "上一时段",
     "next": "下一时段",

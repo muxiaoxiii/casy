@@ -89,13 +89,21 @@ pub(super) fn confirm(
             json!({"success":true,"action":"project_created","project":project})
         }
         "update_holidays" => {
-            let notice = super::inbox::parse_holiday_dates(&content).map_err(anyhow::Error::msg)?;
+            let notice = if let Some(value) = intent.filter(|value| value.get("holidays").is_some() || value.get("workdays").is_some()) {
+                let notice = serde_json::from_value(value.clone())?;
+                super::inbox::validate_holiday_notice(notice)
+            } else { super::inbox::parse_holiday_dates(&content) }.map_err(anyhow::Error::msg)?;
             let mut calendar = db::get_setting(&tx, "holidays_json")?.and_then(|value|
                 crate::deadline::holidays::HolidayCalendar::from_json_str(&value).ok())
                 .unwrap_or_else(crate::deadline::holidays::HolidayCalendar::builtin);
+            let current: std::collections::HashMap<_, _> = notice.holidays.iter().chain(&notice.workdays)
+                .filter_map(|date| date.get(..4)?.parse::<i32>().ok()).collect::<std::collections::BTreeSet<_>>()
+                .into_iter().flat_map(|year| calendar.entries_for_year(year)).map(|entry| (entry.date, entry.kind)).collect();
+            let changed = notice.holidays.iter().filter(|date| current.get(*date).map(String::as_str) != Some("holiday")).count()
+                + notice.workdays.iter().filter(|date| current.get(*date).map(String::as_str) != Some("workday")).count();
             calendar.merge_dates(&notice.holidays, &notice.workdays).map_err(anyhow::Error::msg)?;
             tx.execute("INSERT INTO settings(key,value) VALUES('holidays_json',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[calendar.to_json()])?;
-            json!({"success":true,"action":"holidays_updated","year":notice.year,"holidaysCount":notice.holidays.len(),"workdaysCount":notice.workdays.len()})
+            json!({"success":true,"action":"holidays_updated","year":notice.year,"changedDates":changed,"holidaysCount":notice.holidays.len(),"workdaysCount":notice.workdays.len(),"holidays":notice.holidays,"workdays":notice.workdays})
         }
         _ => anyhow::bail!("未知收件箱动作: {action}"),
     };

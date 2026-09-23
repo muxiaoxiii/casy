@@ -22,6 +22,53 @@ pub async fn test_webdav_connection(
     Ok("连接成功".into())
 }
 
+// Keep full archives separate from the historical same-key database snapshot.
+const FULL_BACKUP_REMOTE: &str = "casy-full-backup.casy";
+static FULL_BACKUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn full_backup_staging() -> Result<tempfile::TempDir, String> {
+    let dir = super::backup::backups_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    tempfile::Builder::new().prefix(".webdav-full-").tempdir_in(dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn webdav_backup_full(
+    url: String, username: String, password: String, backup_password: String,
+) -> Result<String, String> {
+    let _lock = FULL_BACKUP_LOCK.try_lock().map_err(|_| "完整备份或恢复正在进行，请勿重复提交")?;
+    let password = webdav_password(&url, &username, password)?;
+    let client = sync::webdav::WebDavClient::for_archive(&url, &username, &password).map_err(|e| e.to_string())?;
+    let staging = full_backup_staging()?;
+    let archive = staging.path().join("full.casy");
+    super::portable_backup::export_full_backup(archive.to_string_lossy().into_owned(), backup_password).await?;
+    let temporary = format!(".casy-full-{}.upload", uuid::Uuid::new_v4());
+    let result: anyhow::Result<()> = async {
+        client.put_file(&temporary, &archive).await?;
+        client.move_resource(&temporary, FULL_BACKUP_REMOTE).await?;
+        Ok(())
+    }.await;
+    if result.is_err() { let _ = client.delete(&temporary).await; }
+    result.map_err(|e| e.to_string())?;
+    Ok("全部数据已加密备份到 WebDAV（casy-full-backup.casy）".into())
+}
+
+#[tauri::command]
+pub async fn webdav_restore_full(
+    url: String, username: String, password: String, backup_password: String,
+) -> Result<bool, String> {
+    let _lock = FULL_BACKUP_LOCK.try_lock().map_err(|_| "完整备份或恢复正在进行，请勿重复提交")?;
+    if backup_password.is_empty() { return Err("请输入创建备份时使用的备份密码".into()); }
+    let password = webdav_password(&url, &username, password)?;
+    let client = sync::webdav::WebDavClient::for_archive(&url, &username, &password).map_err(|e| e.to_string())?;
+    let staging = full_backup_staging()?;
+    let archive = staging.path().join("full.casy");
+    client.get_file(FULL_BACKUP_REMOTE, &archive).await.map_err(|e| e.to_string())?;
+    // Authentication, attachment hashes, cross-device rekeying and a pre-restore
+    // protection archive all complete before the live database is replaced.
+    super::portable_backup::import_full_backup(archive.to_string_lossy().into_owned(), backup_password).await
+}
+
 /// WebDAV 同步：启动时检查
 #[tauri::command]
 pub async fn webdav_startup_sync(

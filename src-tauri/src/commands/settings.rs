@@ -48,6 +48,7 @@ pub async fn save_settings(settings: HashMap<String, serde_json::Value>) -> Resu
             if key.starts_with("ai_") || key == "caseFolderBase" || key.ends_with("_configured") || key.ends_with("_needs_migration") {
                 continue;
             }
+            if key == "personal_calendar_days" { validate_personal_days(value)?; }
             if key == "workspace_sync" { serde_json::from_value::<crate::workspace_sync::Options>(value.clone())?; }
             if key == "quote_sources" {
                 let names = value.as_array().filter(|v|v.len()==4).ok_or_else(||anyhow::anyhow!("引用来源须为四项"))?;
@@ -118,6 +119,22 @@ pub async fn get_holidays_summary() -> Result<serde_json::Value, String> {
     .await
 }
 
+/// Personal availability is independent of the statutory deadline calendar.
+fn validate_personal_days(value: &serde_json::Value) -> anyhow::Result<()> {
+    let entries = value.as_array().filter(|entries| entries.len() <= 3000)
+        .ok_or_else(|| anyhow::anyhow!("个人调休数据格式错误或超过 3000 天"))?;
+    let mut dates = std::collections::HashSet::new();
+    for entry in entries {
+        let date = entry["date"].as_str().unwrap_or_default();
+        let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
+        anyhow::ensure!(parsed.to_string() == date && date >= "1900-01-01" && date <= "2200-12-31", "个人调休日期无效");
+        anyhow::ensure!(matches!(entry["kind"].as_str(), Some("holiday" | "workday")), "个人调休类型无效");
+        anyhow::ensure!(dates.insert(date), "同一天只能设置一个个人调休安排");
+        anyhow::ensure!(entry["name"].as_str().is_some_and(|name| name.chars().count() <= 80), "个人调休备注过长或格式错误");
+    }
+    Ok(())
+}
+
 /// 获取日历展示用的年度法定节假日与调休工作日。
 #[tauri::command]
 pub async fn get_holiday_calendar(year: i32) -> Result<serde_json::Value, String> {
@@ -130,10 +147,20 @@ pub async fn get_holiday_calendar(year: i32) -> Result<serde_json::Value, String
                 crate::deadline::holidays::HolidayCalendar::from_json_str(&value).ok()
             })
             .unwrap_or_else(crate::deadline::holidays::HolidayCalendar::builtin);
-        Ok(serde_json::json!({
-            "year": year,
-            "entries": cal.entries_for_year(year),
-        }))
+        let mut entries: Vec<serde_json::Value> = cal.entries_for_year(year).into_iter().map(|entry| {
+            let mut value = serde_json::to_value(entry).expect("serializable holiday entry");
+            value["source"] = serde_json::json!("official"); value
+        }).collect();
+        if let Some(raw) = db::get_setting(&conn, "personal_calendar_days")? {
+            let personal: serde_json::Value = serde_json::from_str(&raw)?;
+            validate_personal_days(&personal)?;
+            for entry in personal.as_array().unwrap() {
+                if entry["date"].as_str().is_some_and(|date| date.starts_with(&format!("{year}-"))) {
+                    let mut entry = entry.clone(); entry["source"] = serde_json::json!("personal"); entries.push(entry);
+                }
+            }
+        }
+        Ok(serde_json::json!({ "year": year, "entries": entries }))
     })
     .await
 }

@@ -29,6 +29,14 @@ export class SyncService extends Service {
     return tauriCallSafe('test_webdav_connection', { url, username, password })
   }
 
+  async backupFull(url: string, username: string, password: string, backupPassword: string) {
+    return tauriCallSafe('webdav_backup_full', { url, username, password, backupPassword })
+  }
+
+  async restoreFull(url: string, username: string, password: string, backupPassword: string) {
+    return tauriCallSafe('webdav_restore_full', { url, username, password, backupPassword })
+  }
+
   async push(url: string, username: string, password: string): Promise<{ ok: boolean; data?: SyncResult; error?: string }> {
     return tauriCallSafe('webdav_push', { url, username, password })
   }

@@ -24,3 +24,9 @@ export function eventDuration(start?: string | null, end?: string | null) {
   const total = minutes(end) - minutes(start)
   return total > 0 ? `${total} 分钟` : ''
 }
+
+/** Personal availability takes precedence for planning, never legal deadlines. */
+export function isPlanningWorkday(date: Date, entries: { kind: string; source?: string }[]) {
+  const entry = entries.find(entry => entry.source === 'personal') || entries.find(entry => entry.source !== 'personal')
+  return entry ? entry.kind === 'workday' : date.getDay() !== 0 && date.getDay() !== 6
+}

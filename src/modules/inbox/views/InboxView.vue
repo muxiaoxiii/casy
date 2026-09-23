@@ -1,4 +1,6 @@
 <script setup>
+import HolidayImportReview from '../../../shared/components/HolidayImportReview.vue'
+import { useRouter } from 'vue-router'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { AI_PROMPTS } from '../../../core/prompts'
@@ -43,6 +45,24 @@ async function captureText(){if(await captureClipboard())await loadItems()}
 async function toggleRecording(){if(isRecording.value)stopRecording();else try{await startRecording()}catch(error){ElMessage.error(`无法录音：${error}`)}}
 watch(voiceSaving,(saving,wasSaving)=>{if(wasSaving && !saving)void loadItems()})
 
+const router = useRouter()
+const holidayDraft = ref(null)
+const holidayBusy = ref(false)
+const receipt = ref(null)
+const holidayCandidate = computed(() => /节假日|放假|调休|"holidays"/.test(selectedItem.value?.contentText || ''))
+let receiptRequest = 0
+async function confirmHolidays() {
+  if (!holidayDraft.value || holidayBusy.value || processing.value || !selectedItem.value) return
+  processing.value = true
+  try {
+    const result = await casyContext.inbox.confirmAction({ inboxItemId: selectedItem.value.id, action: 'update_holidays', intent: { ...holidayDraft.value } })
+    if (!result.ok) throw new Error(result.error || '节假日写入失败')
+    ElMessage.success(`已写入日历：放假 ${result.data.holidaysCount} 天，补班 ${result.data.workdaysCount} 天`)
+    await loadItems()
+    router.push({ path: '/calendar', query: { view: 'year', date: `${result.data.year}-01-01` } })
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { processing.value = false }
+}
 const items = ref([])
 const loading = ref(false)
 const processing = ref(false)
@@ -96,6 +116,14 @@ const filteredPendingItems = computed(() => {
 const selectedItem = computed(() => {
   const list = filteredPendingItems.value
   return list.find((item) => item.id === selectedItemId.value) || list[0] || null
+})
+
+watch(() => [selectedItem.value?.id, selectedItem.value?.status], async ([id, status]) => {
+  const request = ++receiptRequest
+  receipt.value = null; holidayDraft.value = null
+  if (!id || status !== 'filed') return
+  const result = await casyContext.inbox.actionResult(id)
+  if (request === receiptRequest && result.ok) receipt.value = result.data
 })
 
 
@@ -379,6 +407,8 @@ async function dismissItem(item) {
         </header>
         <div class="clarify-body">
           <template v-if="selectedItem.status === 'pending'">
+            <HolidayImportReview v-if="holidayCandidate" :content="selectedItem.contentText" :disabled="processing" @change="holidayDraft = $event" @busy="holidayBusy = $event" />
+            <el-button v-if="holidayCandidate" type="primary" :disabled="!holidayDraft || holidayBusy || processing" @click="confirmHolidays">确认节假日并更新日历</el-button>
             <el-form label-position="top" :disabled="processing" @submit.prevent>
               <el-form-item label="任务标题"><el-input v-model="clarifyTitle" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" aria-label="任务标题" /></el-form-item>
               <el-form-item label="处理方式">
@@ -410,7 +440,7 @@ async function dismissItem(item) {
               <el-form-item label="备注"><el-input v-model="clarifyNotes" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" aria-label="备注" /></el-form-item>
             </el-form>
           </template>
-          <template v-else><h2>{{ selectedItem.title }}</h2><p class="original-content">{{ selectedItem.contentText || selectedItem.sourcePath || selectedItem.filePath }}</p></template>
+          <template v-else><div v-if="receipt?.action === 'holidays_updated'" class="holiday-receipt"><strong>日历写入回执</strong><p>{{ receipt.year }} 年 · 放假 {{ receipt.holidaysCount }} 天 · 补班 {{ receipt.workdaysCount }} 天</p><p v-if="receipt.changedDates === 0">导入日期与已有日历一致，无新增变动。</p><p v-else-if="receipt.changedDates != null">实际更新 {{ receipt.changedDates }} 个日期。</p><p v-if="receipt.holidays?.length">放假：{{ receipt.holidays.join('、') }}</p><p v-if="receipt.workdays?.length">补班：{{ receipt.workdays.join('、') }}</p><el-button @click="router.push({ path: '/calendar', query: { view: 'year', date: `${receipt.year}-01-01` } })">查看日历</el-button></div><h2>{{ selectedItem.title }}</h2><p class="original-content">{{ selectedItem.contentText || selectedItem.sourcePath || selectedItem.filePath }}</p></template>
         </div>
         <footer v-if="selectedItem.status === 'pending'" class="clarify-footer">
           <span>{{ sourceLabel(selectedItem.sourceType) }}</span>

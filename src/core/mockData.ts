@@ -421,8 +421,10 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
         runId: null,
       }
     }
+    case 'get_holiday_calendar':
+      return { year: args.year, entries: [] } // Browser preview only; native calendar reads persisted dates.
     case 'get_sync_status':
-      return { webdav: { connected: false }, feishu: { connected: false } }
+      return { configured: false, connectionState: 'unconfigured', lastCheckedAt: null, lastError: null, webdavConnected: false, webdavUrl: '', lastSyncAt: null, deviceVersion: null, remoteEtag: null, pendingChanges: null }
     default:
       return undefined
   }

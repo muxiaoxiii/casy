@@ -95,6 +95,7 @@
     "insert_party": "Party"
   },
   "calendar": {
+    "year": "Year",
     "timeline": "Timeline",
     "month": "Month",
     "week": "Week",

@@ -57,7 +57,7 @@ export const useCalendarStore = defineStore('calendar', {
       if (year) this.currentYear = year
       if (month) this.currentMonth = month
       const p1 = casyContext.calendar.events(this.currentYear, this.currentMonth)
-      const p2 = this.holidayEntries.length === 0 ? this.loadHolidays(this.currentYear) : Promise.resolve()
+      const p2 = this.loadHolidays(this.currentYear)
       
       const [result] = await Promise.all([p1, p2])
       if (result.ok && result.data) {

@@ -1,8 +1,11 @@
 <script setup>
+import HolidayBadges from '../components/HolidayBadges.vue'
+import PersonalDaysDialog from '../components/PersonalDaysDialog.vue'
+import YearHeatmap from '../components/YearHeatmap.vue'
 import CalendarComposer from '../components/CalendarComposer.vue'
 import TimeGrid from '../components/TimeGrid.vue'
 import { timeString } from '../parseCalendarCapture'
-import { surroundingMonths, monthWorkingDays, eventDuration } from '../calendarDates'
+import { surroundingMonths, monthWorkingDays, eventDuration, isPlanningWorkday } from '../calendarDates'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
@@ -45,17 +48,22 @@ function dateFromQuery(value) {
 const currentDate = ref(dateFromQuery(route.query.date))
 const events = ref([])
 const tasks = ref([])
+const allTasks = ref([])
+const taskError = ref('')
+const holidayError = ref('')
+let holidayRequest = 0
 const completedTaskIds = ref(new Set())
 const todayTasks = ref([])
 const cases = ref([])
 const deadlineWarnings = ref([])
 const holidayEntries = ref([])
+const showPersonalDays = ref(false)
 const loading = ref(false)
 const eventError = ref('')
 let eventRequest = 0
 
 // 视图切换: 'timeline' | 'month' | 'week' | 'day' | 'forecast'
-const activeView = ref(['timeline', 'month', 'week', 'day', 'forecast'].includes(route.query.view) ? route.query.view : 'month')
+const activeView = ref(['year', 'timeline', 'month', 'week', 'day', 'forecast'].includes(route.query.view) ? route.query.view : 'month')
 
 // Forecast 预测视图筛选: 'all' | 'risk_only' | 'free_only'
 const forecastFilter = ref('all')
@@ -358,7 +366,7 @@ async function deleteEditingItem() {
 // ============================================================
 // 真实数据视图计算 (Zero Mock Data)
 // ============================================================
-const viewOptions = computed(() => ['timeline', 'month', 'week', 'day', 'forecast'].map(key => ({ key, label: t(`calendar.${key}`) })))
+const viewOptions = computed(() => ['day', 'week', 'month', 'year', 'timeline', 'forecast'].map(key => ({ key, label: t(`calendar.${key}`) })))
 
 const weekDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const weekDaysCn = ['一', '二', '三', '四', '五', '六', '日']
@@ -395,12 +403,12 @@ const monthInsights = computed(() => {
   const deadlinesCount = monthEvs.filter(e => e.type === 'court' || e.type === 'hearing' || e.type?.startsWith('deadline')).length
   const totalMinutes = monthTs.reduce((acc, t) => acc + (t.estimatedMinutes || 0), 0)
   const workloadHours = Math.round(totalMinutes / 60)
-  const holidaysCount = holidayEntries.value.filter(e => e.date?.startsWith(currentMonthStr) && e.kind === 'holiday').length
+  const holidaysCount = holidayEntries.value.filter(e => e.date?.startsWith(currentMonthStr) && e.kind === 'holiday' && e.source !== 'personal').length
 
   return {
     deadlines: deadlinesCount,
     workload: `${workloadHours}h`,
-    workdays: monthWorkingDays(currentDate.value, holidayEntries.value),
+    workdays: monthWorkingDays(currentDate.value, holidayEntries.value.filter(entry => entry.source !== 'personal')),
     holidays: holidaysCount,
   }
 })
@@ -502,6 +510,10 @@ const timelineStream = computed(() => {
     })
   }
 
+  // Include holiday-only days in the visible month, even when there are no tasks.
+  for (const entry of holidayEntries.value) {
+    if (entry.date.startsWith(formatDate(currentDate.value).slice(0, 7)) && !map.has(entry.date)) map.set(entry.date, [])
+  }
   // 排序
   const sortedDates = Array.from(map.keys()).sort()
   return sortedDates.map(dateStr => {
@@ -602,8 +614,9 @@ const forecast14Days = computed(() => {
     const hasCourt = dayEvs.some(e => e.type === 'court' || e.type === 'hearing')
     const hasDeadline = dayEvs.some(e => e.type?.startsWith('deadline') || e.type === 'appeal') || deadlineWarnings.value.some(w => w.deadlineDate === dateStr)
 
-    let riskLevel = 'free'
-    let riskTag = '排期充裕 · 专注窗口'
+    const available = isPlanningWorkday(d, holidaysOn(dateStr))
+    let riskLevel = available ? 'free' : 'rest'
+    let riskTag = available ? '排期充裕 · 专注窗口' : '休息安排 · 留意个人计划'
 
     if (hasCourt || hasDeadline) {
       riskLevel = 'risk'
@@ -657,7 +670,7 @@ const forecastOverviewStats = computed(() => {
 
     if (hasCourt) {
       riskDays++
-    } else if (mins <= 120) {
+    } else if (mins <= 120 && isPlanningWorkday(d, holidaysOn(d))) {
       freeDays++
     }
   }
@@ -707,7 +720,7 @@ const tankTasks = computed(() => {
 onMounted(async () => {
   await loadData()
 })
-onUnmounted(observeChanges(casyContext, ['task', 'calendar', 'case', 'inbox'], loadData))
+onUnmounted(observeChanges(casyContext, ['task', 'calendar', 'case', 'inbox', 'holiday'], loadData))
 
 async function loadData() {
   loading.value = true
@@ -725,7 +738,7 @@ async function loadData() {
 async function loadEvents() {
   const request = ++eventRequest
   eventError.value = ''
-  const months = surroundingMonths(currentDate.value)
+  const months = activeView.value === 'year' ? Array.from({ length: 12 }, (_, month) => ({ year: currentDate.value.getFullYear(), month: month + 1 })) : surroundingMonths(currentDate.value)
   const [results, independent] = await Promise.all([
     casyContext.calendar.events(months[0].year, months[0].month, months.length).then(result => [result]),
     casyContext.calendar.listEvents(formatDate(new Date(months[0].year, months[0].month - 1, 1)), formatDate(new Date(months[months.length - 1].year, months[months.length - 1].month, 0))),
@@ -747,7 +760,9 @@ async function loadEvents() {
 
 async function loadTasks() {
   const result = await casyContext.tasks.list({})
+  taskError.value = result.ok && Array.isArray(result.data) ? '' : result.error || '任务加载失败'
   if (result.ok && Array.isArray(result.data)) {
+    allTasks.value = result.data
     completedTaskIds.value = new Set(result.data.filter(task => task.completed).map(task => task.id))
     tasks.value = result.data.filter(task => !task.completed)
   }
@@ -779,16 +794,22 @@ async function loadDeadlineWarnings() {
 }
 
 async function loadHolidays() {
+  const request = ++holidayRequest
   const year = currentDate.value.getFullYear()
-  const result = await casyContext.calendar.holidays(year)
-  if (result.ok && Array.isArray(result.data?.entries)) {
-    holidayEntries.value = result.data.entries
-  }
+  // Include adjacent years for weeks/month grids and forecasts crossing New Year.
+  const results = await Promise.all([year - 1, year, year + 1].map(value => casyContext.calendar.holidays(value)))
+  if (request !== holidayRequest) return
+  const failure = results.find(result => !result.ok || !Array.isArray(result.data?.entries))
+  holidayError.value = failure ? failure.error || '节假日加载失败' : ''
+  if (!failure) holidayEntries.value = results.flatMap(result => result.data.entries)
 }
 
 function prevPeriod() {
   const d = new Date(currentDate.value)
-  if (activeView.value === 'day') {
+  if (activeView.value === 'year') {
+    d.setMonth(0, 1)
+    d.setFullYear(d.getFullYear() + -1)
+  } else if (activeView.value === 'day') {
     d.setDate(d.getDate() - 1)
   } else if (activeView.value === 'week') {
     d.setDate(d.getDate() - 7)
@@ -804,7 +825,10 @@ function prevPeriod() {
 
 function nextPeriod() {
   const d = new Date(currentDate.value)
-  if (activeView.value === 'day') {
+  if (activeView.value === 'year') {
+    d.setMonth(0, 1)
+    d.setFullYear(d.getFullYear() + 1)
+  } else if (activeView.value === 'day') {
     d.setDate(d.getDate() + 1)
   } else if (activeView.value === 'week') {
     d.setDate(d.getDate() + 7)
@@ -837,9 +861,21 @@ async function onCalendarCreated(date) {
 }
 watch(() => [route.query.date, route.query.view], ([date, view]) => {
   if (date) currentDate.value = dateFromQuery(date)
-  if (['timeline', 'month', 'week', 'day', 'forecast'].includes(view)) activeView.value = view
+  if (['year', 'timeline', 'month', 'week', 'day', 'forecast'].includes(view)) activeView.value = view
   void loadData()
 })
+watch(activeView, () => { void loadEvents() })
+const holidayByDate = computed(() => {
+  const map = new Map()
+  for (const entry of holidayEntries.value) map.set(entry.date, [...(map.get(entry.date) || []), entry])
+  return map
+})
+function holidaysOn(date) { return holidayByDate.value.get(typeof date === 'string' ? date : formatDate(date)) || [] }
+function openYearDate(date, view) {
+  currentDate.value = dateFromQuery(date)
+  activeView.value = view
+  void loadData()
+}
 const jumpDate = computed({ get: () => formatDate(currentDate.value), set: value => { currentDate.value = dateFromQuery(value); void loadData() } })
 function timedItems(date) {
   const dayEvents = eventsForDay(date).filter(e => e.time && e.type !== 'task')
@@ -875,12 +911,13 @@ async function scheduleTaskBlock(event, date, hour) {
 <template>
   <div class="stitch-calendar-workspace">
     <div v-if="eventError" class="calendar-data-error" role="alert">日程加载失败 <el-button text @click="loadEvents">重试</el-button></div>
+    <div v-if="holidayError || taskError" class="calendar-data-error" role="alert">{{ holidayError || taskError }} <el-button text @click="loadData">重试</el-button></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
     <div class="calendar-top-header">
       <div class="header-titles">
         <div class="month-title-row">
           <h1 class="month-display-title">
-            {{ activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? `未来 14 天诉讼与排期预测` : currentMonthInfo.label }}
+            {{ activeView === 'year' ? `${currentDate.getFullYear()} 年` : activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? `未来 14 天诉讼与排期预测` : currentMonthInfo.label }}
           </h1>
           <div class="month-nav-btns">
             <button class="nav-arrow-btn" @click="prevPeriod" :title="t('calendar.previous')" :aria-label="t('calendar.previous')">
@@ -912,6 +949,9 @@ async function scheduleTaskBlock(event, date, hour) {
         </div>
       </div>
     </div>
+
+    <div class="calendar-holiday-legend"><span>实色：法定休 / 班</span><span>虚线：个人自休 / 自班（可与法定安排并存）</span><el-button @click="showPersonalDays = true">个人调休</el-button></div>
+    <PersonalDaysDialog v-model="showPersonalDays" :date="formatDate(currentDate)" @saved="loadHolidays" />
 
     <!-- ═══ 2. 时间线视图 (Global Timeline · 真实数据库流) ═══ -->
     <div v-if="activeView === 'timeline'" class="timeline-global-layout">
@@ -953,7 +993,7 @@ async function scheduleTaskBlock(event, date, hour) {
             :key="group.dateStr"
             class="timeline-date-group"
           >
-            <div class="group-date-label"><span>{{ group.dateLabel }}</span></div>
+            <div class="group-date-label"><span>{{ group.dateLabel }}</span><HolidayBadges :entries="holidaysOn(group.dateStr)" /></div>
             <div class="group-axis-big-node" />
             <div class="group-cards-stack">
               <div
@@ -990,6 +1030,7 @@ async function scheduleTaskBlock(event, date, hour) {
     </div>
 
     <!-- ═══ 3. 主工作区：月视图 / 周视图 / 日视图 / 预测视图 统一联动 Holding Tank ═══ -->
+    <YearHeatmap v-else-if="activeView === 'year'" :year="currentDate.getFullYear()" :tasks="allTasks" :holidays="holidayEntries" :loading="loading" @month="openYearDate($event, 'month')" @day="openYearDate($event, 'day')" @task="openEditDetail($event, 'task')" />
     <div v-else class="calendar-unified-workspace-grid">
       <!-- ── A. 左侧主视图区域 ── -->
       <div class="calendar-main-stage">
@@ -1043,6 +1084,7 @@ async function scheduleTaskBlock(event, date, hour) {
                   <span v-if="cell.hasWaiting" class="dot-indicator dot-warning" title="Waiting on Client" />
                   <span v-if="cell.hasPlan" class="dot-indicator dot-primary" title="Flexible Task" />
                 </div>
+                <HolidayBadges :entries="holidaysOn(cell.date)" compact />
                 <span class="cell-number-badge" :class="{ 'today-pill': isToday(cell.date) }">
                   {{ cell.date.getDate() }}
                 </span>
@@ -1125,6 +1167,7 @@ async function scheduleTaskBlock(event, date, hour) {
               class="week-col-header-cell"
               :class="{ 'is-today-col': col.isToday }"
             >
+              <HolidayBadges :entries="holidaysOn(col.date)" />
               <span class="week-col-name">周{{ col.weekDayCn }}</span>
               <span class="week-col-date-pill" :class="{ active: col.isToday }">{{ col.dayNum }}</span>
             </div>
@@ -1162,7 +1205,7 @@ async function scheduleTaskBlock(event, date, hour) {
         <div v-else-if="activeView === 'day'" class="day-full-card">
           <div class="day-schedule-header">
             <div>
-              <h2 class="day-schedule-heading">{{ formatDate(currentDate) }}</h2>
+              <h2 class="day-schedule-heading">{{ formatDate(currentDate) }}</h2><HolidayBadges :entries="holidaysOn(currentDate)" />
               <span class="day-schedule-sub">
                 {{ isToday(currentDate) ? '今日时间表' : '单日日程' }} · {{ tasksForDay(currentDate).length + eventsForDay(currentDate).length }} 项安排
               </span>
@@ -1263,7 +1306,7 @@ async function scheduleTaskBlock(event, date, hour) {
               <div class="f-date-col">
                 <span class="f-day-badge" :class="day.riskLevel">{{ day.dayLabel }}</span>
                 <strong class="f-day-date">{{ day.monthDayStr }}</strong>
-                <small class="f-day-weekday">周{{ day.weekdayCn }}</small>
+                <small class="f-day-weekday">周{{ day.weekdayCn }}</small><HolidayBadges :entries="holidaysOn(day.dateStr)" />
               </div>
 
               <!-- 中间：当日事项概览与预警标签 -->
@@ -1312,7 +1355,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
                   <!-- 无排期 -->
                   <div v-if="!day.events.length && !day.tasks.length && !day.multiDayTasks.length" class="f-empty-slot">
-                    <span>适宜深度起草与案件推演 · 支持将右侧任务拖入落位</span>
+                    <span>{{ holidaysOn(day.dateStr).some(entry => entry.kind === 'holiday') ? '当日有休息安排，请结合个人计划排期' : '暂无已排期事项 · 支持将右侧任务拖入落位' }}</span>
                   </div>
                 </div>
               </div>
@@ -1332,7 +1375,7 @@ async function scheduleTaskBlock(event, date, hour) {
       >
         <div class="agenda-mini">
           <label>跳转日期 <input v-model="jumpDate" type="date" /></label>
-          <div class="agenda-mini-title"><strong>{{ formatDate(currentDate) }}</strong><button type="button" @click="activeView = 'day'">展开当日 ↗</button></div>
+          <HolidayBadges :entries="holidaysOn(currentDate)" /><div class="agenda-mini-title"><strong>{{ formatDate(currentDate) }}</strong><button type="button" @click="activeView = 'day'">展开当日 ↗</button></div>
           <p v-if="!eventsForDay(currentDate).length">当天暂无日程</p>
           <button v-for="event in eventsForDay(currentDate)" :key="event.type + event.id" class="agenda-mini-item" type="button" @click="openEditDetail(event, 'event')"><time>{{ event.time || '全天' }}</time><span>{{ event.title }}</span></button>
         </div>
@@ -1578,6 +1621,8 @@ async function scheduleTaskBlock(event, date, hour) {
 </template>
 
 <style scoped>
+.calendar-holiday-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--c-text-secondary); font-size: 12px; }
+
 .calendar-data-error { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--c-danger); }
 .calendar-event-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-left: 3px solid var(--c-danger); border-radius: 4px; background: var(--c-bg-hover); color: var(--c-text); text-align: left; font: inherit; cursor: pointer; margin-block: 4px; }
 .calendar-event-item strong, .calendar-event-item span { overflow-wrap: anywhere; min-width: 0; }

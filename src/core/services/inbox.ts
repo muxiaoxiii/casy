@@ -73,6 +73,14 @@ export class InboxService extends Service {
     return result
   }
 
+  async parseHolidays(content: string) {
+    return tauriCallSafe('parse_holiday_notice', { content })
+  }
+
+  async actionResult(inboxItemId: string) {
+    return tauriCallSafe('get_inbox_action_result', { inboxItemId })
+  }
+
   /** 语音转写（需 OpenAI 兼容 STT） */
   async transcribeVoiceNote(inboxItemId: string): Promise<{ ok: boolean; data?: string; error?: string }> {
     return tauriCallSafe('transcribe_voice_note', { voiceNoteId: inboxItemId })

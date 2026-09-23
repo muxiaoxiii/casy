@@ -114,7 +114,7 @@ pub struct ProcessedInboxResult {
 }
 
 /// 节假日解析结果（B1 类型化）
-#[derive(Debug, serde::Serialize, specta::Type)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HolidayNotice {
     pub year: i32,
@@ -677,10 +677,33 @@ fn auto_import_legal_provisions(
 }
 
 /// 解析节假日日期（B1 类型化）
+pub(super) fn validate_holiday_notice(mut notice: HolidayNotice) -> Result<HolidayNotice, String> {
+    use std::collections::BTreeSet;
+    if !(1900..=2200).contains(&notice.year) || notice.holidays.len() + notice.workdays.len() > 1500 {
+        return Err("节假日年份或日期数量异常".into());
+    }
+    let validate = |dates: &mut Vec<String>| -> Result<(), String> {
+        for date in dates.iter() {
+            let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| format!("无效日期：{date}"))?;
+            if parsed.to_string() != *date || !(1900..=2200).contains(&parsed.year()) { return Err(format!("无效日期：{date}")); }
+        }
+        dates.sort(); dates.dedup(); Ok(())
+    };
+    validate(&mut notice.holidays)?; validate(&mut notice.workdays)?;
+    let holidays: BTreeSet<_> = notice.holidays.iter().collect();
+    if notice.workdays.iter().any(|date| holidays.contains(date)) { return Err("同一天不能同时为放假和补班，请核对预览".into()); }
+    if notice.holidays.is_empty() && notice.workdays.is_empty() { return Err("未识别到任何节假日或补班日期".into()); }
+    Ok(notice)
+}
+
 pub(super) fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String> {
     use chrono::{Duration, NaiveDate};
     use std::collections::BTreeSet;
 
+    if content.trim_start().starts_with('{') {
+        let notice = serde_json::from_str(content).map_err(|e| format!("节假日 JSON 格式错误：{e}"))?;
+        return validate_holiday_notice(notice);
+    }
     let year_re = regex::Regex::new(r"(\d{4})\s*年").unwrap();
     let year = year_re
         .captures(content)
@@ -695,7 +718,20 @@ pub(super) fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String
     let mut holidays = BTreeSet::new();
     let mut workdays = BTreeSet::new();
 
-    for segment in content.split(['。', '；', ';', '\n']) {
+    // Split mixed rest/work sentences at commas, carrying bare date lists to
+    // the next classification word instead of classifying the whole sentence as work.
+    let mut clauses = Vec::new();
+    for sentence in content.split(['。', '；', ';', '\n']) {
+        let mut pending = String::new();
+        for fragment in sentence.split(['，', ',']) {
+            pending.push_str(fragment);
+            if ["放假", "休假", "调休", "上班", "补班"].iter().any(|word| fragment.contains(word)) {
+                clauses.push(std::mem::take(&mut pending));
+            } else { pending.push('，'); }
+        }
+        if !pending.is_empty() { clauses.push(pending); }
+    }
+    for segment in &clauses {
         let segment = segment.trim();
         if segment.is_empty() {
             continue;
@@ -705,6 +741,9 @@ pub(super) fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String
             || segment.contains("休假")
             || segment.contains("节假日")
             || segment.contains("调休");
+        if is_workday_segment && (segment.contains("放假") || segment.contains("休假")) {
+            return Err("同一句包含放假和上班，无法可靠分组，请使用 AI 解析或核对日期 JSON".into());
+        }
         if !is_workday_segment && !is_holiday_segment {
             continue;
         }
@@ -763,7 +802,7 @@ pub(super) fn parse_holiday_dates(content: &str) -> Result<HolidayNotice, String
         return Err("未从通知中识别到放假或调休上班日期".to_string());
     }
 
-    Ok(HolidayNotice {
+    validate_holiday_notice(HolidayNotice {
         year,
         holidays: holidays.into_iter().map(|date| date.to_string()).collect(),
         workdays: workdays.into_iter().map(|date| date.to_string()).collect(),
@@ -1508,24 +1547,19 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
     };
 
     // 0.5) 法定节假日通知：先解析，确认后才覆盖本地日历数据。
-    if ["节假日", "放假安排", "放假调休", "调休上班", "国务院办公厅"]
+    if ["节假日", "放假安排", "放假调休", "调休上班", "国务院办公厅", "\"holidays\""]
         .iter()
         .any(|word| text.contains(word))
     {
-        if let Ok(notice) = parse_holiday_dates(text) {
-            recommendations.push(QuickRecommendation {
-                action: "update_holidays".to_string(),
-                target_case_id: None,
-                target_case_name: None,
-                target_folder: None,
-                intent: Some(serde_json::json!({
-                    "year": notice.year,
-                    "holidays": notice.holidays,
-                    "workdays": notice.workdays,
-                })),
-                reason: "检测到法定节假日或调休通知，确认后更新日历".to_string(),
-            });
-        }
+        let notice = parse_holiday_dates(text).ok();
+        recommendations.push(QuickRecommendation {
+            action: "update_holidays".to_string(), target_case_id: None,
+            target_case_name: None, target_folder: None,
+            intent: notice.as_ref().map(|notice| serde_json::json!({
+                "year": notice.year, "holidays": notice.holidays, "workdays": notice.workdays,
+            })),
+            reason: if notice.is_some() { "已由本地规则解析，请核对日期后写入日历" } else { "检测到节假日通知，请先核对原文或使用 AI 解析日期" }.into(),
+        });
     }
 
     // 1) 期限意图
@@ -2690,4 +2724,14 @@ mod tests {
             Some(format!("{}-10-01", today.year()))
         );
     }
+}
+
+#[tauri::command]
+pub async fn get_inbox_action_result(inbox_item_id: String) -> Result<Option<serde_json::Value>, String> {
+    run_blocking(move || {
+        use rusqlite::OptionalExtension;
+        let conn = db::open_db()?;
+        let value: Option<String> = conn.query_row("SELECT result_json FROM inbox_action_results WHERE inbox_item_id=?1", [inbox_item_id], |row| row.get(0)).optional()?;
+        value.map(|value| serde_json::from_str(&value).map_err(Into::into)).transpose()
+    }).await
 }

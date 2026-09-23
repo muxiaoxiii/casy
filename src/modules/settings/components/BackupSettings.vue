@@ -1,4 +1,5 @@
 <script setup>
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { open, save } from '@tauri-apps/plugin-dialog'
@@ -105,7 +106,7 @@ async function restoreBackup(b) {
       '数据已恢复。点击确定关闭应用，重新打开即可使用恢复的数据。',
       '恢复完成',
       { confirmButtonText: '立即退出' },
-    ).finally(() => window.close())
+    ).finally(() => getCurrentWindow().close())
   } else {
     ElMessage.error(result.error || '恢复失败')
   }

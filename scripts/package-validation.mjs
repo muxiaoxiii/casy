@@ -10,7 +10,10 @@ assert.equal(process.platform, 'darwin', 'This validation distribution targets m
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
 const app = resolve('src-tauri/target/release/bundle/macos/Casy.app')
 const release = resolve('release')
-const evidence = resolve(`outputs/release-${version}`)
+const labelArg = process.argv.find(arg => arg.startsWith('--label='))
+const label = labelArg ? labelArg.slice('--label='.length) : ''
+assert.match(label, /^[a-z0-9-]*$/, 'Package label must contain lowercase letters, numbers or hyphens')
+const evidence = resolve(`outputs/release-${version}${label ? `-${label}` : ''}`)
 mkdirSync(release, { recursive: true }); mkdirSync(evidence, { recursive: true })
 if (!process.argv.includes('--skip-build')) run('npm', ['run', 'build:desktop', '--', '--bundles', 'app'])
 const actualVersion = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim()
@@ -20,7 +23,7 @@ for (const script of ['verify-bundle', 'smoke-bundle']) {
   writeFileSync(join(evidence, `${script}.json`), output)
   process.stdout.write(output)
 }
-const name = `Casy-${version}-production-validation-macOS-${process.arch}.dmg`
+const name = `Casy-${version}-production-validation${label ? `-${label}` : ''}-macOS-${process.arch}.dmg`
 const dmg = join(release, name)
 const staging = mkdtempSync(join(tmpdir(), 'casy-package-'))
 try {
@@ -35,5 +38,5 @@ const sha256 = hash.digest('hex')
 writeFileSync(`${dmg}.sha256`, `${sha256}  ${name}\n`)
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const dirty = Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim())
-writeFileSync(`${dmg}.json`, JSON.stringify({ version, revision, dirty, sha256, arch: process.arch, minimumMacOS: '26.0', signing: 'ad-hoc', notarized: false, validatedAt: new Date().toISOString() }, null, 2) + '\n')
+writeFileSync(`${dmg}.json`, JSON.stringify({ version, label, revision, dirty, sha256, arch: process.arch, minimumMacOS: '26.0', signing: 'ad-hoc', notarized: false, validatedAt: new Date().toISOString() }, null, 2) + '\n')
 console.log(`Validated package: ${dmg}\nSHA256: ${sha256}`)
