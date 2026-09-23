@@ -1,6 +1,6 @@
 # 文档处理与转换
 
-核对日期：2026-09-22。适用于 0.1.3 生产验证版；最新状态见 [项目状态](../Casy-STATUS.md)。
+核对日期：2026-09-23。适用于 0.1.3 生产验证版；最新状态见 [项目状态](../Casy-STATUS.md)。
 
 ## 输入与处理
 
@@ -9,7 +9,10 @@
 | PDF | 逐页渲染、OCR、韩文候选识别、版面/表格分析，利用原生文字辅助校核 | Markdown、可搜索 PDF、两者 |
 | PNG/JPEG/WebP/BMP/TIFF 等单帧图片 | 图像识别；仅 Markdown 时可跳过生成 PDF | Markdown、可搜索 PDF、两者 |
 | MD/Markdown/TXT | UTF-8 文本读取与分段 | Markdown |
-| DOC/DOCX/DOCM/RTF/ODT | anydoc 转 Markdown，再分段 | Markdown；旧 DOC 解析失败需另存 DOCX |
+| DOC | **anydoc 原生解析 `.doc`（主路径）**；仅当 anydoc 拒绝该文件时，再用侧车 `bin/doc2x`（b2xtranslator 派生）转成 DOCX 后重试。两者都失败才提示另存 DOCX | Markdown |
+| DOCX/DOCM/RTF/ODT | anydoc 转 Markdown，再分段 | Markdown |
+
+说明：`.doc` 不是“不支持”。anydoc（已锁定 **0.2.4**）自带 MS-DOC 解析；“请另存为 DOCX”只表示**该文件**解析失败。侧车是兜底，不是主路径。方案与钉版本校验见 [DOC_IMPORT_PLAN](DOC_IMPORT_PLAN.md)。`scripts/prepare-doc2x.mjs` 写入 `runtime/bin/doc2x` 与 BSD-3 声明；`CASY_DOC2X_PATH` / `CASY_DOC2X_TIMEOUT_MS` 可覆盖路径与超时（默认 120s）。浮动图/艺术字/复杂矢量仍可能丢失，失败不发布半成品正文。
 
 文字或混合批次只允许 Markdown，后端也在产出文件前验证格式能力。文字排版 PDF 请用文书编辑器导出。多帧图片需先转换 PDF，避免仅取一帧。
 
@@ -54,6 +57,7 @@
 | OCR 校订输入 | 128 MiB |
 | 工作区全文读取 | 16 MiB，超限建议分页对照 |
 | 统一编辑器导出 | JSON 和 Markdown 各 40 MiB |
+| 旧 `.doc` 侧车 | 单次转换默认 120s 超时；产物必须 ZIP + `word/document.xml` |
 
 仍不是端到端有界内存：引擎累积 `Vec<Page>`，主程序物化结果页，文字解析器与图片外置入口读取完整 Markdown。单页 PDF 也可能因巨幅图片、复杂矢量或大量嵌入对象占用大量资源。移除文件字节硬限制不等于无限容量保证。
 

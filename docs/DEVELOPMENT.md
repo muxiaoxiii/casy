@@ -13,6 +13,7 @@
 ```bash
 npm ci
 node scripts/prepare-zvec.mjs
+node scripts/prepare-doc2x.mjs
 npm run tauri -- dev
 ```
 
@@ -83,3 +84,5 @@ npm run release:validation
 定向验证：`npx vitest run tests/unit/taskPlanning.test.ts tests/unit/TaskGantt.test.ts tests/unit/calendarTimeline.test.ts tests/unit/calendarProjection.test.ts`；原生计划校验：`cd src-tauri && cargo test task_plans`，休息提醒：`cargo test rest_day_reminders`。全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。
 
 时段 fixture：`mode=availability`、`date=2026-09-28&view=day`，预置 13:00–18:00 请假，支持表单内存保存与各视图切换。`tests/unit/personalAvailability.test.ts` 覆盖保存、失败草稿与时间范围；`task_plan_chain_test` 使用真正原生命令验证任务全链路及重复实例，`webdav_full_backup_test` 验证计划和休息时段随完整档案恢复。
+
+旧 `.doc`：主路径为 anydoc **0.2.4**（`cargo update -p anydoc` 跟上游）；侧车兜底 `node scripts/prepare-doc2x.mjs` 钉住 `@jitword/doc2docx-<platform>@0.1.0` 并校验 tarball SHA-256，产出 `src-tauri/runtime/bin/doc2x` 与 BSD-3 声明。定向验证：`cargo test --lib parse::doc2docx`、`cargo test --lib text_document`（含 `anydoc_parses_legacy_doc_without_sidecar` 与 `extracts_legacy_doc_when_sidecar_ready`）。方案见 [DOC_IMPORT_PLAN](DOC_IMPORT_PLAN.md)。完整 `runtime:prepare` 会自动调用 prepare-doc2x。

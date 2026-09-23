@@ -21,25 +21,52 @@ pub fn extract_markdown(path: &Path) -> Result<String> {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let markdown = if matches!(ext.as_str(), "md" | "markdown" | "txt") {
+    if matches!(ext.as_str(), "md" | "markdown" | "txt") {
         let mut text = std::fs::read_to_string(path)
             .context("TEXT_ENCODING: 无法读取文件，文本需要 UTF-8 编码")?;
         if text.starts_with('\u{feff}') {
             text.drain(..'\u{feff}'.len_utf8());
         }
-        text
+        return finish_markdown(text);
+    }
+
+    let mut bytes = std::fs::read(path).context("无法读取文档")?;
+    // anydoc already implements .doc (MS-DOC). Sidecar doc2x is only a fallback
+    // when anydoc rejects a hard legacy binary.
+    if ext == "doc" {
+        match anydoc::to_markdown_bytes(&bytes, anydoc::Format::Doc) {
+            Ok(markdown) if !markdown.trim().is_empty() => return finish_markdown(markdown),
+            Ok(_) => {}
+            Err(primary) => match crate::parse::doc2docx::convert_doc_to_docx(&bytes) {
+                Ok(converted) => bytes = converted,
+                Err(sidecar) => {
+                    return Err(anyhow::anyhow!(
+                        "DOCUMENT_PARSE: 无法解析此旧版 Word 文件，请另存为 DOCX 后重试。anydoc: {primary}；doc2x: {sidecar}"
+                    ));
+                }
+            },
+        }
+    }
+    let format = if ext == "doc" && bytes.starts_with(b"PK") {
+        anydoc::Format::Docx
     } else {
-        let bytes = std::fs::read(path).context("无法读取文档")?;
-        anydoc::to_markdown_bytes(&bytes, anydoc::Format::from_extension(&ext)).map_err(|e| {
-            if ext == "doc" {
-                anyhow::anyhow!(
-                    "DOCUMENT_PARSE: 无法解析此旧版 Word 文件，请另存为 DOCX 后重试。{e}"
-                )
-            } else {
-                anyhow::anyhow!("DOCUMENT_PARSE: {e}")
-            }
-        })?
+        anydoc::Format::from_extension(&ext)
+            .or_else(|| anydoc::Format::from_bytes(&bytes))
+            .unwrap_or(anydoc::Format::Doc)
     };
+    let markdown = anydoc::to_markdown_bytes(&bytes, format).map_err(|e| {
+        if ext == "doc" {
+            anyhow::anyhow!(
+                "DOCUMENT_PARSE: 无法解析此旧版 Word 文件，请另存为 DOCX 后重试。anydoc: {e}"
+            )
+        } else {
+            anyhow::anyhow!("DOCUMENT_PARSE: {e}")
+        }
+    })?;
+    finish_markdown(markdown)
+}
+
+fn finish_markdown(markdown: String) -> Result<String> {
     if markdown.trim().is_empty() {
         bail!("NO_TEXT: 文件没有可提取的正文");
     }
@@ -120,7 +147,7 @@ pub fn process(request: &ProcessRequest) -> Result<ProcessResult> {
         elapsed_ms: 0,
         source_sha256: request.source_sha256.clone(),
         engine: "text-document".into(),
-        model_version: Some("anydoc-0.1.8".into()),
+        model_version: Some("anydoc-0.2.4".into()),
         searchable_pdf_path: None,
         page_ir_path: page_ir_path.display().to_string(),
         markdown_path: markdown_path.display().to_string(),
@@ -200,5 +227,43 @@ mod tests {
         for term in ["证据清单", "第三人", "乙公司", "125000.25", "|"] {
             assert!(md.contains(term), "{md}");
         }
+    }
+
+    #[test]
+    fn extracts_legacy_doc_when_sidecar_ready() {
+        if crate::parse::doc2docx::converter_path().is_none() {
+            eprintln!("skip: doc2x not prepared");
+            return;
+        }
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/doc-import/sample.doc");
+        if !sample.is_file() {
+            eprintln!("skip: sample.doc missing");
+            return;
+        }
+        let md = extract_markdown(&sample).expect("extract sample.doc");
+        assert!(!md.trim().is_empty());
+        assert!(
+            md.contains("Test Document") || md.contains("sample") || md.contains("document"),
+            "unexpected markdown: {md}"
+        );
+    }
+
+    #[test]
+    fn anydoc_parses_legacy_doc_without_sidecar() {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/doc-import/sample.doc");
+        if !sample.is_file() {
+            eprintln!("skip: sample.doc missing");
+            return;
+        }
+        let bytes = std::fs::read(&sample).unwrap();
+        let md = anydoc::to_markdown_bytes(&bytes, anydoc::Format::Doc)
+            .expect("anydoc must parse .doc without doc2x");
+        assert!(!md.trim().is_empty(), "anydoc produced empty markdown");
+        assert!(
+            md.to_ascii_lowercase().contains("document") || md.contains("sample"),
+            "unexpected anydoc .doc output: {md}"
+        );
     }
 }

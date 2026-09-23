@@ -1,3 +1,4 @@
+pub mod doc2docx;
 pub mod pdf_extractor;
 pub mod text_document;
 use regex::Regex;

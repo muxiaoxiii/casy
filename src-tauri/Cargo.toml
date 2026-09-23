@@ -82,7 +82,7 @@ ttf-parser = "0.25.1"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 docx-rs = "0.4.22"
 quick-xml = "0.41"
-anydoc = "=0.1.8"
+anydoc = "=0.2.4"
 pulldown-cmark = "0.13"
 typst = "0.15.1"
 typst-layout = "0.15.1"

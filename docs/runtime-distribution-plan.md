@@ -1,12 +1,12 @@
 # 运行时分发与后续拆包
 
-代码核对日期：2026-09-22。当前方案为完整离线包，没有启用首次启动下载模型。0.1.3 为生产验证版，详见[项目状态](../Casy-STATUS.md)。
+代码核对日期：2026-09-23。当前方案为完整离线包，没有启用首次启动下载模型。0.1.3 为生产验证版，详见[项目状态](../Casy-STATUS.md)。
 
 ## 当前交付边界
 
 已验证安装包平台为 Apple Silicon / macOS 26+；[tauri.full.conf.json](../src-tauri/tauri.full.conf.json) 设置最低系统 26.0、ad-hoc 签名和 runtime 资源目录。没有完成 Developer ID 公证。不能把 Rust 的 Linux/macOS 测试矩阵等同于三平台安装包可用。
 
-完整包包括文档引擎、Poppler、OCR/版面模型、E5 embedding、Noto 字体、Zvec 运行库及对应许可证和需要随附的源码。推理不依赖用户安装 Python、Node 或另启 Python 服务；开发准备阶段仍需要工具链与网络下载。
+完整包包括文档引擎、Poppler、OCR/版面模型、E5 embedding、Noto 字体、Zvec 运行库、旧 Word `.doc` 侧车 `doc2x` 及对应许可证和需要随附的源码。推理不依赖用户安装 Python、Node 或另启 Python 服务；开发准备阶段仍需要工具链与网络下载。
 
 | 组件 | 当前用途 |
 | --- | --- |
@@ -15,6 +15,7 @@
 | PP-DocLayout Plus-L | 版面检测，配合表格/裁图逻辑 |
 | multilingual E5-base INT8 | 768 维本地 embedding |
 | Poppler / casy-doc-engine | PDF 渲染与文档处理 |
+| doc2x（b2xtranslator 派生） | 旧 `.doc → .docx` 侧车，再进 anydoc |
 | Noto 字体 | 多语言派生 PDF 文字层等 |
 | Zvec | FP16 HNSW 向量索引 |
 | 第三方声明与匹配源码 | 依赖许可交付 |
@@ -44,7 +45,7 @@
 
 SDK 下载归档放在 `target/runtime-cache`；运行时保留库、声明和固定版本构建信息。依赖声明递归保留。许可策略允许的宽松许可包源码进入构建缓存，清单记录版本、来源与哈希；需要随附的 copyleft/未知许可或缺少独立声明的依赖源码继续随包。
 
-相关代码：[prepare-notices.mjs](../scripts/prepare-notices.mjs)、[license-policy.mjs](../scripts/license-policy.mjs)、[prepare-zvec.mjs](../scripts/prepare-zvec.mjs)。Poppler 包含 GPL 组件，不能笼统宣称产品没有 GPL 依赖；机械校验不能替代许可审定。
+相关代码：[prepare-notices.mjs](../scripts/prepare-notices.mjs)、[license-policy.mjs](../scripts/license-policy.mjs)、[prepare-zvec.mjs](../scripts/prepare-zvec.mjs)、[prepare-doc2x.mjs](../scripts/prepare-doc2x.mjs)。Poppler 包含 GPL 组件，不能笼统宣称产品没有 GPL 依赖；机械校验不能替代许可审定。`doc2x` 为 BSD-3-Clause（b2xtranslator 派生），声明与 provenance 随 `runtime/licenses/` 分发。
 
 旧合规原文迁至 [Archive](Archive/2026-09-22/compliance/)，`docs/compliance` 保留兼容符号链接，构建读取的 LICENSES/MinerU/E5 文本未改写。隐私和密钥实际边界见[数据与安全](DATA_AND_SECURITY.md)。
 

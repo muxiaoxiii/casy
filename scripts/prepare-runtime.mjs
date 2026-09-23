@@ -18,6 +18,7 @@ const run = (command, args, options = {}) => {
 const exists = async path => Boolean(await stat(path).catch(() => null))
 for (const folder of ['bin', 'lib', 'models', 'fonts', 'licenses']) await mkdir(join(runtime, folder), { recursive: true })
 run(process.execPath, ['scripts/prepare-zvec.mjs'], { stdio: 'inherit' })
+run(process.execPath, ['scripts/prepare-doc2x.mjs'], { stdio: 'inherit' })
 
 run('cargo', ['build', '--release', '--locked', '--features', 'models', '--manifest-path', 'tools/casy-doc-engine/Cargo.toml'], { stdio: 'inherit' })
 const exe = process.platform === 'win32' ? '.exe' : ''
