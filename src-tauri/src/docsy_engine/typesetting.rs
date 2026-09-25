@@ -552,7 +552,8 @@ pub fn compile(root: &Value, options: &LayoutOptions) -> Result<Arc<Compiled>> {
         hash.update(bytes.as_slice());
     }
     let key = format!("{:x}", hash.finalize());
-    static CACHE: OnceLock<Mutex<Option<(String, Arc<Compiled>)>>> = OnceLock::new();
+    type CompiledCache = (String, Arc<Compiled>);
+    static CACHE: OnceLock<Mutex<Option<CompiledCache>>> = OnceLock::new();
     let mut cache = CACHE
         .get_or_init(|| Mutex::new(None))
         .lock()

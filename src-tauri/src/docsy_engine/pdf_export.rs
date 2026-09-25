@@ -2,6 +2,9 @@
 use anyhow::Result;
 use serde_json::Value;
 
+/// Thin wrapper over `typesetting::compile` for unit tests; production export
+/// goes through `commands::docs` → `typesetting` directly.
+#[allow(dead_code)]
 pub fn export_pdf(root: &Value) -> Result<Vec<u8>> {
     Ok(
         super::typesetting::compile(root, &super::typesetting::LayoutOptions::default())?

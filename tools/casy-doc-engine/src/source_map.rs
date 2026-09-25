@@ -77,7 +77,7 @@ pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write
     for (i, p) in pages.iter().enumerate() {
         if i > 0 {
             markdown.push_str("\n\n---\n\n")?;
-            text.push_str("\n");
+            text.push('\n');
         }
         markdown.push_str(&format!("<!-- page {} -->\n", p.page_number))?;
         let start = markdown.len();
@@ -131,7 +131,7 @@ pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write
         } else {
             for (index, r) in p.regions.iter().enumerate() {
                 if index > 0 {
-                    text.push_str("\n");
+                    text.push('\n');
                 }
                 let start = text.len();
                 text.push_str(&r.text);

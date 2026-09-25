@@ -92,6 +92,7 @@ pub fn emit_conversion_progress(job_id: &str, source_path: &str, phase: &str, cu
     emit_progress_snapshot(job_id, source_path, phase, current, total, elapsed, None, None, true)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_progress_snapshot(
     job_id: &str,
     source_path: &str,
@@ -353,7 +354,7 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
                             tracing::info!(job_id = %request.job_id, current_page, total_pages = progress.total_pages, "Document engine progress");
                         }
                         if progress.total_pages > 0 && progress.current_page <= progress.total_pages {
-                            let phase = progress.phase.as_deref().unwrap_or_else(|| if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" });
+                            let phase = progress.phase.as_deref().unwrap_or(if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" });
                             if current_phase != phase { current_phase = phase.to_string(); last_progress = std::time::Instant::now(); }
                             let elapsed = if progress.elapsed_ms > 0 { progress.elapsed_ms as f64 / 1000.0 } else { started.elapsed().as_secs_f64() };
                             let remaining = progress.remaining_ms.map(|value| value as f64 / 1000.0);

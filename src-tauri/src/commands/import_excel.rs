@@ -364,13 +364,7 @@ pub fn infer_track_and_route(
 
     let validate_route = |r: &str| -> String {
         let trimmed = r.trim();
-        let normalized = trimmed
-            .replace('＋', "+")
-            .replace('、', "+")
-            .replace('，', "+")
-            .replace(',', "+")
-            .replace('/', "+")
-            .replace('／', "+");
+        let normalized = trimmed.replace(['＋', '、', '，', ',', '/', '／'], "+");
         let has_civil = normalized.contains("民事") || normalized.contains("侵权");
         let has_invalidation = normalized.contains("无效");
         let has_admin = normalized.contains("行政");

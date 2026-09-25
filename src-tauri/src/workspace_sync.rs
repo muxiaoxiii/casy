@@ -204,26 +204,7 @@ fn content_name(markdown: &str, original: &str) -> Option<String> {
     Some(format!("{title}.{ext}"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn naming_ignores_quoted_or_code_titles_and_preserves_extensions() {
-        assert_eq!(
-            content_name(
-                "```\n# Wrong Heading\n```\n\n> # Other Source\n\n# Actual **Patent** Title",
-                "scan.pdf"
-            ),
-            Some("Actual Patent Title.pdf".into())
-        );
-        assert_eq!(content_name("> 北京市某法院民事判决书", "scan.pdf"), None);
-        assert_eq!(
-            content_name("北京市某法院民事判决书", "scan.pdf"),
-            Some("北京市某法院民事判决书.pdf".into())
-        );
-        assert_eq!(content_name("正文没有可靠标题", "scan.pdf"), None);
-    }
-}
+
 
 impl Reconciler {
     pub fn tick(&mut self) -> Result<SyncStatus> {
@@ -543,4 +524,25 @@ pub fn start() {
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn naming_ignores_quoted_or_code_titles_and_preserves_extensions() {
+        assert_eq!(
+            content_name(
+                "```\n# Wrong Heading\n```\n\n> # Other Source\n\n# Actual **Patent** Title",
+                "scan.pdf"
+            ),
+            Some("Actual Patent Title.pdf".into())
+        );
+        assert_eq!(content_name("> 北京市某法院民事判决书", "scan.pdf"), None);
+        assert_eq!(
+            content_name("北京市某法院民事判决书", "scan.pdf"),
+            Some("北京市某法院民事判决书.pdf".into())
+        );
+        assert_eq!(content_name("正文没有可靠标题", "scan.pdf"), None);
+    }
 }

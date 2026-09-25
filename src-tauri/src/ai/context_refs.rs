@@ -56,7 +56,8 @@ fn resolve_one(conn: &Connection, kind: &str, id: &str) -> Result<Option<(UsedRe
     let kind = kind.trim().to_lowercase();
     match kind.as_str() {
         "task" => {
-            let row: Option<(String, Option<String>, Option<String>, Option<String>)> = conn
+            type TaskRefRow = (String, Option<String>, Option<String>, Option<String>);
+            let row: Option<TaskRefRow> = conn
                 .query_row(
                     "SELECT task_name, description, COALESCE(NULLIF(due_date,''),deadline), priority FROM tasks WHERE id = ?1 AND deleted_at IS NULL",
                     params![id],
@@ -84,7 +85,8 @@ fn resolve_one(conn: &Connection, kind: &str, id: &str) -> Result<Option<(UsedRe
             }))
         }
         "case" => {
-            let row: Option<(String, Option<String>, String, String, Option<String>, Option<String>)> = conn
+            type CaseRefRow = (String, Option<String>, String, String, Option<String>, Option<String>);
+            let row: Option<CaseRefRow> = conn
                 .query_row(
                     "SELECT case_name, case_no, client_name, opponent_name, case_progress, case_result FROM cases WHERE id = ?1",
                     params![id],

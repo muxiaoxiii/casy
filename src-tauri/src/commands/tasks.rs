@@ -238,7 +238,7 @@ pub async fn create_task(data: serde_json::Value) -> Result<serde_json::Value, S
 pub(super) fn create_task_in_transaction(conn: &rusqlite::Connection, data: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
         crate::ai::gateway::verify_ai_mutation_authorized(
-            &conn,
+            conn,
             data["origin"].as_str(),
             data["proposalToken"].as_str(),
             "create_task",
@@ -335,7 +335,7 @@ pub(super) fn create_task_in_transaction(conn: &rusqlite::Connection, data: serd
             ],
         )?;
 
-        super::task_lifecycle::refresh_sequence(&conn, &id)?;
+        super::task_lifecycle::refresh_sequence(conn, &id)?;
         if let Some(source) = data["inboxSourceId"].as_str() {
             conn.execute("UPDATE tasks SET inbox_source_id=?2 WHERE id=?1", rusqlite::params![id, source])?;
         }
@@ -349,7 +349,7 @@ pub(super) fn create_task_in_transaction(conn: &rusqlite::Connection, data: serd
         // 设置即交接（设计哲学 §11.2）：任务带截止日期 + 日历同步启用 → 立即同步提醒到外部日历
         if let Some(due) = data["dueDate"].as_str().or(data["deadline"].as_str()) {
             let _ = crate::commands::reminder::sync_task_reminder_calendar(
-                &conn,
+                conn,
                 &id,
                 due,
                 data["dueTime"].as_str(),

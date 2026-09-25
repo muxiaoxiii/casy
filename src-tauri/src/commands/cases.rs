@@ -43,7 +43,7 @@ pub(super) fn create_case_in_transaction(conn: &rusqlite::Connection, mut data: 
 
         // P0-2: AI 授权网关（origin='ai' 必须携带有效 proposal token）
         crate::ai::gateway::verify_ai_mutation_authorized(
-            &conn,
+            conn,
             data["origin"].as_str(),
             data["proposalToken"].as_str(),
             "create_case",
@@ -95,8 +95,8 @@ pub(super) fn create_case_in_transaction(conn: &rusqlite::Connection, mut data: 
             );
         }
 
-        db::cases::insert_case(&conn, &case)?;
-        db::intake::insert_children(&conn, &case.id, &data)?;
+        db::cases::insert_case(conn, &case)?;
+        db::intake::insert_children(conn, &case.id, &data)?;
 
         // 自动创建案件文件夹（7 个子目录）
         match crate::files::ensure_case_folder(&case) {

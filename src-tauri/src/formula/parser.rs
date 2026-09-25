@@ -9,6 +9,10 @@
 //! - Functions: IF, AND, OR, NOT, ISBLANK, TODAY, EDATE, WORKDAY, LISTCOMBINE, FILTER
 //! - Operators: ==, !=, <, >, <=, >=, &&, ||, & (concat), +, -
 //! - Lookup chains: table.FILTER(cond).$column[fld].LISTCOMBINE()
+//!
+//! Case recalculation builds ASTs without this parser; helpers stay for unit
+//! tests and formula-text import (Feishu).
+#![allow(dead_code)]
 
 use nom::{
     branch::alt,

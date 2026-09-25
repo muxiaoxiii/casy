@@ -36,7 +36,7 @@ fn canonicalize_json(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             let mut entries: Vec<_> = map.iter().collect();
-            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            entries.sort_by_key(|a| a.0.clone());
             let mut sorted = serde_json::Map::new();
             for (key, value) in entries {
                 sorted.insert(key.clone(), canonicalize_json(value));
@@ -366,6 +366,7 @@ pub fn validate_and_consume_token(
 }
 
 /// 服务端写命令通用 AI 授权守卫（P0-2：未授权默认拒绝）
+#[allow(clippy::too_many_arguments)]
 pub fn verify_ai_mutation_authorized(
     conn: &Connection,
     origin: Option<&str>,

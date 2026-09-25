@@ -18,12 +18,14 @@ async fn local_multilingual_retrieval_and_compact_storage() {
     db::enable_test_mode();
     let mut conn = db::open_db().unwrap();
     db::init_db(&conn).unwrap();
-    let mut config = AiProfiles::default();
-    config.embedding = Some(EmbeddingSettings {
-        profile_id: local_embedding::PROFILE.into(),
-        model: local_embedding::MODEL.into(),
-        chunk_chars: 384,
-    });
+    let config = AiProfiles {
+        embedding: Some(EmbeddingSettings {
+            profile_id: local_embedding::PROFILE.into(),
+            model: local_embedding::MODEL.into(),
+            chunk_chars: 384,
+        }),
+        ..AiProfiles::default()
+    };
     profiles::save(&mut conn, config).unwrap();
     let passages = [
         (

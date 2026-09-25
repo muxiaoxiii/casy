@@ -2,9 +2,11 @@
 //!
 //! 匹配语义：对 match_field（filename / ocr_text）做大小写不敏感的子串匹配。
 //! 动作：
-//!   - set_category: action_payload 写入 case_files.category（须为合法枚举）
-//!   - mark_urgent:  给案件写一条 urgent 通知（通知中心）
-//!   - add_keyword:  追加到 case_files.knowledge_keywords
+//!
+//! - set_category: action_payload 写入 case_files.category（须为合法枚举）
+//! - mark_urgent: 给案件写一条 urgent 通知（通知中心）
+//! - add_keyword: 追加到 case_files.knowledge_keywords
+//!
 //! OCR 执行：提交持久文档队列，由本地 Rust 文档引擎处理。
 use rusqlite::params;
 use serde::Serialize;

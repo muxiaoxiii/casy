@@ -63,7 +63,7 @@ fn v20_migration_is_idempotent() {
     let conn = migrated_db();
     // 二次执行不报错、版本不变
     run_migrations(&conn, 0).unwrap();
-    let version: i64 = conn
+    let _version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     // 版本号随迁移演进，与 CURRENT_SCHEMA_VERSION 保持一致即可（上文已断言）

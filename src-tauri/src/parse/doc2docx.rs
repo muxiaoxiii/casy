@@ -108,10 +108,6 @@ fn describe_output(stdout: &str, stderr: &str, killed: bool, limit_ms: u64) -> S
     }
 }
 
-fn utf16le(ascii: &str) -> Vec<u8> {
-    ascii.encode_utf16().flat_map(|unit| unit.to_le_bytes()).collect()
-}
-
 fn run_doc2x(bin: &Path, input: &Path, output: &Path) -> Result<Vec<u8>> {
     let limit = timeout();
     let limit_ms = limit.as_millis() as u64;
@@ -217,6 +213,11 @@ pub fn convert_doc_to_docx(bytes: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn utf16le(ascii: &str) -> Vec<u8> {
+        ascii.encode_utf16().flat_map(|unit| unit.to_le_bytes()).collect()
+    }
+
 
     #[test]
     fn classifies_zip_as_docx_passthrough() {

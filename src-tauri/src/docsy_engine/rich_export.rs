@@ -39,6 +39,7 @@ struct EvidenceReference {
     anchor: Option<String>,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum RichBlock {
     Paragraph(Paragraph),
     Table(Table),

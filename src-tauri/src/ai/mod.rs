@@ -1153,12 +1153,11 @@ pub async fn ai_chat(
         }
     }
     if let Some(u) = api_url {
-        if !u.trim().is_empty() {
-            if config.api_url.as_deref().map(|v| v.trim_end_matches('/'))
+        if !u.trim().is_empty()
+            && config.api_url.as_deref().map(|v| v.trim_end_matches('/'))
                 != Some(u.trim_end_matches('/'))
-            {
-                return Err("接口地址与所选配置不一致，请在设置中保存独立配置".into());
-            }
+        {
+            return Err("接口地址与所选配置不一致，请在设置中保存独立配置".into());
         }
     }
     if let Some(m) = model {

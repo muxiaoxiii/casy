@@ -212,7 +212,7 @@ async fn files_preserve_bytes_identity_and_relations_through_lifecycle() {
     );
     assert!(!Path::new(&current.file_path).exists());
     let current = by_id(&id).await;
-    let hits = retrieval::search(&conn, "赔偿金额", &[id.clone()], 10).unwrap();
+    let hits = retrieval::search(&conn, "赔偿金额", std::slice::from_ref(&id), 10).unwrap();
     assert!(hits[0].content.contains("125000.25"));
     assert_eq!(hits[0].source_path, current.file_path);
     assert_eq!(
@@ -260,7 +260,7 @@ async fn files_preserve_bytes_identity_and_relations_through_lifecycle() {
             .id,
         id
     );
-    assert!(retrieval::search(&conn, "赔偿金额", &[id.clone()], 10)
+    assert!(retrieval::search(&conn, "赔偿金额", std::slice::from_ref(&id), 10)
         .unwrap()
         .is_empty());
     assert!(!search::global_search("renamed".into())
@@ -315,7 +315,7 @@ async fn files_preserve_bytes_identity_and_relations_through_lifecycle() {
     );
     assert!(docs::retry_document_job(newer.id).await.is_err());
     files::restore_case_file(id.clone()).await.unwrap();
-    assert!(retrieval::search(&conn, "赔偿金额", &[id.clone()], 10)
+    assert!(retrieval::search(&conn, "赔偿金额", std::slice::from_ref(&id), 10)
         .unwrap()
         .is_empty());
     assert_eq!(
@@ -342,7 +342,7 @@ async fn files_preserve_bytes_identity_and_relations_through_lifecycle() {
     docs::queue_document_processing(id.clone()).await.unwrap();
     background_jobs::process_next_document_job().await.unwrap();
     assert!(
-        retrieval::search(&conn, "赔偿金额", &[id.clone()], 10).unwrap()[0]
+        retrieval::search(&conn, "赔偿金额", std::slice::from_ref(&id), 10).unwrap()[0]
             .content
             .contains("500")
     );

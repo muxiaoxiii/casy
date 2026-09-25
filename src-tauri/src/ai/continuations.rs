@@ -57,11 +57,11 @@ pub fn detect(pages: &[PageText]) -> Vec<Continuation> {
             .iter()
             .enumerate()
             .filter(|(_, r)| {
-                !r.text.trim().is_empty()
-                    && !(is_margin(p, r.bbox)
+                !(r.text.trim().is_empty()
+                    || (is_margin(p, r.bbox)
                         && margins
                             .get(&signature(&r.text))
-                            .is_some_and(|s| s.len() > 1))
+                            .is_some_and(|s| s.len() > 1)))
             })
             .collect();
         let &(index, r) = if last {

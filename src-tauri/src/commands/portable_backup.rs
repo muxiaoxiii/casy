@@ -140,7 +140,7 @@ pub(crate) fn relocate_markdown(value: &str, mappings: &[(PathBuf, PathBuf)]) ->
             ));
         }
     }
-    replacements.sort_by(|a, b| b.0.start.cmp(&a.0.start));
+    replacements.sort_by_key(|a| std::cmp::Reverse(a.0.start));
     let mut result = value.to_string();
     for (range, replacement) in replacements {
         result.replace_range(range, &replacement);

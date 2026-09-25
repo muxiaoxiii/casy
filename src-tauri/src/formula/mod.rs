@@ -13,6 +13,10 @@ use eval::{FormulaEvaluator, RecordContext};
 use rusqlite::Connection;
 
 /// Parse a Feishu formula string into an AST.
+///
+/// Case formula recalculation builds ASTs directly; this string entry is
+/// exercised by unit tests and reserved for formula-text import (Feishu sync).
+#[allow(dead_code)]
 pub fn parse_formula(input: &str) -> Result<ast::Expr, String> {
     parser::parse_formula(input)
 }

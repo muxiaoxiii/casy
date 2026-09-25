@@ -25,7 +25,8 @@ export default defineConfig({
     watch: { ignored: ['**/src-tauri/**', '**/outputs/**', '**/release/**'] },
   },
   resolve: {
-    dedupe: ['@tiptap/core', '@tiptap/pm', 'prosemirror-model', 'prosemirror-state', 'prosemirror-transform', 'prosemirror-view'],
+    // Duplicate heavy editors/math deps split across lazy chunks.
+    dedupe: ['@tiptap/core', '@tiptap/pm', 'prosemirror-model', 'prosemirror-state', 'prosemirror-transform', 'prosemirror-view', 'katex'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },

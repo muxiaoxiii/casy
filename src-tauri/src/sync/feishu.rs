@@ -99,6 +99,12 @@ pub struct FeishuAuth {
     token: Option<FeishuTokenInfo>,
 }
 
+impl Default for FeishuAuth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuAuth {
     pub fn new() -> Self {
         let client = Client::builder()
@@ -2010,6 +2016,12 @@ pub struct AutoPushManager {
     enabled: Arc<AtomicBool>,
     /// 变更计数器（由 tx 驱动）
     change_counter: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Default for AutoPushManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AutoPushManager {

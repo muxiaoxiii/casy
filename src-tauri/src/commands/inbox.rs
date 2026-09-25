@@ -1077,7 +1077,7 @@ pub async fn file_inbox_item(
                     ));
                 }
 
-                let target = crate::files::file_to_case(source, &case, &category)
+                let target = crate::files::file_to_case(source, &case, category)
                     .map_err(|e| anyhow::anyhow!("文件归档失败，收件项未标记完成: {e}"))?;
                 let source_len = std::fs::metadata(source).ok().map(|m| m.len()).unwrap_or(0);
                 let target_len = std::fs::metadata(&target)

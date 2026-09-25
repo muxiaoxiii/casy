@@ -293,11 +293,12 @@ async fn durable_index_handles_full_text_retry_cancel_edits_and_model_changes() 
     let original = status.jobs[0].id.clone();
     assert!(status.jobs[0].total_chunks > 20);
     assert_eq!(index::embed_all_knowledge().await.unwrap().up_to_date, 1);
-    let seen = server.requests.lock().unwrap();
-    assert!(seen
-        .iter()
-        .any(|(_, body)| body["input"].to_string().contains("125000.25")));
-    drop(seen);
+    {
+        let seen = server.requests.lock().unwrap();
+        assert!(seen
+            .iter()
+            .any(|(_, body)| body["input"].to_string().contains("125000.25")));
+    }
     let found = search::search("损失数额", 10, true).await.unwrap();
     assert_eq!(found.semantic_status, "ready", "{:?}", found.warning);
     assert!(found.results[0].content.contains("125000.25"));

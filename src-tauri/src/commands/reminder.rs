@@ -1320,21 +1320,21 @@ pub async fn start_reminder_engine(interval_secs: Option<u64>) -> Result<(), Str
 
         while running.load(Ordering::SeqCst) {
             match db::open_db() {
-                Ok(conn) => match {
+                Ok(conn) => {
                     crate::processing::service("reminders","期限与开庭提醒检查","running","检查提醒规则",None);
-                    let result=engine.check_and_trigger(&conn);
+                    let result = engine.check_and_trigger(&conn);
                     crate::processing::service("reminders","期限与开庭提醒检查",if result.is_ok(){"waiting"}else{"failed"},"按提醒引擎配置周期检查",result.as_ref().err().map(ToString::to_string).as_deref());
-                    result
-                } {
-                    Ok(triggered) => {
-                        if !triggered.is_empty() {
-                            log::info!("提醒引擎触发 {} 条提醒", triggered.len());
+                    match result {
+                        Ok(triggered) => {
+                            if !triggered.is_empty() {
+                                log::info!("提醒引擎触发 {} 条提醒", triggered.len());
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("提醒检查失败: {}", e);
                         }
                     }
-                    Err(e) => {
-                        log::error!("提醒检查失败: {}", e);
-                    }
-                },
+                }
                 Err(e) => {
                     log::error!("提醒引擎打开数据库失败: {}", e);
                 }
@@ -1668,6 +1668,34 @@ pub async fn record_reminder_feedback(
         Ok(())
     })
     .await
+}
+
+
+// ============================================================
+
+/// 到期提醒落入应用内通知中心。
+/// best-effort 语义：调用方以 `let _ =` 忽略错误，绝不改变提醒状态机行为。
+/// payload_json 携带 taskId/caseId/level，供前端点击跳转与分级展示。
+fn push_inbox_notification(
+    conn: &Connection,
+    case_id: Option<&str>,
+    task_id: Option<&str>,
+    level: &str,
+    message: &str,
+) -> Result<()> {
+    let title = message.lines().next().unwrap_or("Casy 提醒").to_string();
+    let payload = serde_json::json!({
+        "caseId": case_id,
+        "taskId": task_id,
+        "level": level,
+    })
+    .to_string();
+    conn.execute(
+        "INSERT INTO notifications (id, type, title, body, payload_json) VALUES (?1, 'reminder', ?2, ?3, ?4)",
+        params![db::new_id(), title, message, payload],
+    )?;
+    Ok(())
+
 }
 
 #[cfg(test)]
@@ -2118,29 +2146,4 @@ mod tests {
 
 // ============================================================
 // W2 通知中心联动（Linear 式安静通知：提醒落 inbox，处理即消失）
-// ============================================================
 
-/// 到期提醒落入应用内通知中心。
-/// best-effort 语义：调用方以 `let _ =` 忽略错误，绝不改变提醒状态机行为。
-/// payload_json 携带 taskId/caseId/level，供前端点击跳转与分级展示。
-fn push_inbox_notification(
-    conn: &Connection,
-    case_id: Option<&str>,
-    task_id: Option<&str>,
-    level: &str,
-    message: &str,
-) -> Result<()> {
-    let title = message.lines().next().unwrap_or("Casy 提醒").to_string();
-    let payload = serde_json::json!({
-        "caseId": case_id,
-        "taskId": task_id,
-        "level": level,
-    })
-    .to_string();
-    conn.execute(
-        "INSERT INTO notifications (id, type, title, body, payload_json) VALUES (?1, 'reminder', ?2, ?3, ?4)",
-        params![db::new_id(), title, message, payload],
-    )?;
-    Ok(())
-
-}

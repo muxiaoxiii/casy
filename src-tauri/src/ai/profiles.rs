@@ -213,7 +213,7 @@ pub fn save(conn: &mut Connection, mut config: AiProfiles) -> Result<AiProfiles>
             });
             if let Some(key) = change.as_ref().filter(|k| !k.is_empty()) {
                 let account = format!("profile-{}", uuid::Uuid::new_v4());
-                credentials::store_credential(CredentialType::AiApiKey, &account, &key)?;
+                credentials::store_credential(CredentialType::AiApiKey, &account, key.as_str())?;
                 created.push(account.clone());
                 if credentials::get_credential(CredentialType::AiApiKey, &account)?.as_deref()
                     != Some(key.as_str())

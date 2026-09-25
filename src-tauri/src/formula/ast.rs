@@ -3,6 +3,10 @@
 //! Mirrors the Feishu formula language: IF, AND, OR, NOT, ISBLANK, TODAY,
 //! EDATE, WORKDAY, FILTER, LISTCOMBINE, comparison/logic operators, string
 //! concatenation, and cross-table references via `bitable::$table[xxx].$field[yyy]`.
+//!
+//! Case recalculation currently builds `Call`/`Literal` only; the remaining
+//! nodes stay for the string parser and evaluator match arms.
+#![allow(dead_code)]
 
 use chrono::{NaiveDate, NaiveDateTime};
 

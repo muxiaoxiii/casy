@@ -536,6 +536,7 @@ fn owner(c: &Case, actor: &str) -> String {
     }
     .into()
 }
+#[allow(clippy::too_many_arguments)]
 fn item(
     c: &Case,
     e: &ProcedureEvent,
@@ -917,7 +918,7 @@ pub fn case_items_with_context(c: &Case, context: &ProjectionContext) -> Result<
     let cal = &context.calendar;
     let mut items: Vec<_> = events
         .iter()
-        .flat_map(|e| derive(c, e, &events, &cal))
+        .flat_map(|e| derive(c, e, &events, cal))
         .collect();
     for i in &mut items {
         let state = context.states.get(&i.id).cloned();

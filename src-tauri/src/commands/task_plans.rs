@@ -46,8 +46,7 @@ fn save_inner(conn: &mut Connection, data: TaskPlanInput) -> Result<TaskPlan> {
                 ensure!(
                     value.len() == 10
                         && date.to_string() == value
-                        && value >= "1900-01-01"
-                        && value <= "9999-12-31",
+                        && ("1900-01-01"..="9999-12-31").contains(&value),
                     "计划日期无效"
                 );
                 Ok(date)

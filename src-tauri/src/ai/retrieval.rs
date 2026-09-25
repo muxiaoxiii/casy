@@ -239,7 +239,7 @@ pub fn search(
             (score, passage)
         })
         .collect();
-    ranked.sort_by(|a, b| b.0.cmp(&a.0));
+    ranked.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     Ok(ranked
         .into_iter()
         .take(limit.min(50))
