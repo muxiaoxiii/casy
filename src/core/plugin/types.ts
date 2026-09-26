@@ -203,6 +203,9 @@ export interface CasyContext {
   getTools(): CasyTool[]
   getTool(name: string): CasyTool | null
   getToolDefinitions(): Array<Pick<CasyTool, 'name' | 'description' | 'parameters'>>
+  /** 用户级工具策略：禁用名单 + 写操作审批（always_ask / always_approve / always_reject） */
+  setToolPolicy(policies: { disabled?: string[]; writeApproval?: Record<string, 'always_ask' | 'always_approve' | 'always_reject'> }): void
+  getToolPolicy(): { disabled: string[]; writeApproval: Record<string, 'always_ask' | 'always_approve' | 'always_reject'> }
   /** opts.origin='ai' 时执行结果发 tool:executed 内部事件（audit_events 归因，K-3） */
   executeTool(
     name: string,

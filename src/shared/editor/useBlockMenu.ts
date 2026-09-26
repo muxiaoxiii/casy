@@ -16,6 +16,9 @@ export const blockCommands: Array<{ id: string; label: string; hint: string; key
   { id: 'mermaid', label: '流程图', hint: 'Mermaid 源码与预览', keywords: 'mermaid diagram 图表 流程图', apply: c => c.insertContent({type:'codeBlock',attrs:{language:'mermaid'},content:[{type:'text',text:'graph LR\n  A[立案] --> B[开庭]'}]}) },
   { id: 'wiki', label: '链接笔记', hint: '[[ 双向链接', keywords: 'wiki link 笔记 双链', apply: c => c.insertContent('[[') },
   { id: 'divider', label: '分隔线', hint: '---', keywords: 'divider hr', apply: c => c.setHorizontalRule() },
+  { id: 'insert-break', label: '换行', hint: 'Shift+Enter', keywords: 'break newline 换行', apply: c => c.setHardBreak() },
+  { id: 'clear-format', label: '清除格式', hint: '变回正文', keywords: 'clear format 清除', apply: c => c.clearNodes().unsetAllMarks() },
+  { id: 'select-all', label: '全选', hint: '方便批量操作', keywords: 'select all 全选', apply: c => c.selectAll() },
 ]
 
 export function useBlockMenu() {

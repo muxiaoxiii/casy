@@ -94,6 +94,57 @@ export class WorkspacePlugin implements CasyPlugin {
         policy: { write: false, level: 'L1' }, parameters: { type: 'object', properties: {} },
         execute: () => ctx.backup.list(),
       }),
+      defineTool<{ query?: string }>({
+        name: 'list_confirmed_facts', category: 'workspace',
+        description: '读取用户已确认的长期事实/偏好（跨会话记忆）。回答前可检索，禁止编造。',
+        policy: { write: false, level: 'L1' },
+        parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词，空则最近 20 条' } } },
+        execute: async p => {
+          const settings = await ctx.settings.get()
+          const all = (settings.ok && Array.isArray(settings.data?.confirmed_facts)
+            ? settings.data?.confirmed_facts as Array<Record<string, string>>
+            : [])
+          const q = String(p.query || '').trim().toLowerCase()
+          const rows = q
+            ? all.filter(f => `${f.text || ''} ${f.topic || ''}`.toLowerCase().includes(q))
+            : all.slice(-20)
+          return { ok: true, data: { facts: rows.slice(0, 50), total: all.length } }
+        },
+      }),
+      defineTool<{ text: string; topic?: string }>({
+        name: 'record_confirmed_fact', category: 'workspace',
+        description: '写入用户已确认的事实/偏好（需确认）。仅用于用户明示认可的内容。',
+        policy: {
+          write: true, level: 'L2',
+          title: '记录长期事实',
+          message: p => `确认将写入长期记忆：${String(p.text || '').slice(0, 120)}`,
+        },
+        parameters: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: '事实/偏好一句话' },
+            topic: { type: 'string', description: '主题，如 偏好/案件习惯/当事人' },
+          },
+          required: ['text'],
+        },
+        execute: async p => {
+          const text = String(p.text || '').trim()
+          if (text.length < 4) return { ok: false, error: '内容过短' }
+          if (text.length > 400) return { ok: false, error: '内容过长（≤400 字）' }
+          const settings = await ctx.settings.get()
+          const all = (settings.ok && Array.isArray(settings.data?.confirmed_facts)
+            ? [...(settings.data?.confirmed_facts as Array<Record<string, string>>)]
+            : [])
+          const entry = {
+            text,
+            topic: String(p.topic || 'general').slice(0, 40),
+            at: new Date().toISOString(),
+          }
+          const next = [...all.filter(f => f.text !== text), entry].slice(-200)
+          const saved = await ctx.settings.save({ confirmed_facts: next as never })
+          return saved.ok ? { ok: true, data: entry } : { ok: false, error: saved.error }
+        },
+      }),
     ]
     this.names = tools.map(tool => tool.name)
     tools.forEach(tool => ctx.registerTool(tool))

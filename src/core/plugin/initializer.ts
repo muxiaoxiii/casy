@@ -65,6 +65,20 @@ export async function initializePluginSystem(): Promise<void> {
     await casyContext.use(plugin)
   }
 
+  // 工具策略（用户禁用 / 写审批）：从设置读取，失败不阻断
+  try {
+    const settings = await casyContext.settings.get()
+    const raw = settings.ok ? (settings.data?.ai_tool_policy as Record<string, unknown> | undefined) : undefined
+    if (raw) {
+      casyContext.setToolPolicy({
+        disabled: Array.isArray(raw.disabled) ? (raw.disabled as string[]) : [],
+        writeApproval: (raw.writeApproval as Record<string, 'always_ask' | 'always_approve' | 'always_reject'>) || {},
+      })
+    }
+  } catch (e) {
+    console.warn('[Casy] 工具策略加载失败（使用默认全开）:', e)
+  }
+
   // 2. AI 提供商
   try {
     await registerProviders()

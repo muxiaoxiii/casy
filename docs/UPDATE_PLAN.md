@@ -15,6 +15,17 @@
 | P3 | 分发与平台 | 完整 Windows/Linux 运行时、真实机器验收；模型拆包、升级兼容与回滚 |
 | P3 | 产品补全 | 截图、自动剪贴板监听、语音转写和占位批处理逐项实现；保持未实现项明确提示 |
 
+## 2026-09-23 AI / MCP / 编辑器体验升级
+
+对标 Kaku（Agent 改 MD + Diff）与 WeKnora（知识工具面 + MCP + 可引用检索），详见 [AI_MCP_EDITOR_UPGRADE](AI_MCP_EDITOR_UPGRADE.md)。
+
+- P0：知识读取三件套与 citation、对外 MCP 增 `knowledge_read`/`document_list`、工具级禁用与写审批策略（`ai_tool_policy`）。
+- P1：`read_document` 可带反链；版本 Diff API 保留，hunk 级接受/拒绝 UI 待续。
+- 编辑器：写作统计条、专注写作、块菜单（换行/清格式/全选）。
+- P2：`record_confirmed_fact` / `list_confirmed_facts` 跨会话确认事实。
+
+后续：Diff hunk UI、块拖拽排序、主题级写作模式打磨；不引入沙箱/自动 Wiki。
+
 本轮不宣称任意大小文件、断点续跑、所有网络服务或正式公证已经完成。后续每项以独立提交、故障测试和可复核证据关闭；过程日志进入 Archive，现行根文档只保留最新结论。
 
 

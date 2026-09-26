@@ -217,6 +217,24 @@ const blockMenu = useBlockMenu();
 const blockMenuState = blockMenu.state;
 const blockMenuItems = blockMenu.items;
 const taskState = useEditorTasks(() => editor.value || undefined, props);
+/** 写作状态：字数/段落，便于长文写作时感知进度 */
+const writingStats = ref({ chars: 0, words: 0, paragraphs: 0, headings: 0 })
+const focusWriting = ref(false)
+function refreshWritingStats() {
+  const ed = editor.value
+  if (!ed) return
+  const text = ed.getText({ blockSeparator: '\n' })
+  const chars = text.replace(/\s/g, '').length
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0
+  let paragraphs = 0, headings = 0
+  ed.state.doc.descendants((node) => {
+    if (node.isBlock) {
+      if (node.type.name === 'heading') headings += 1
+      else if (node.type.name === 'paragraph' && node.textContent.trim()) paragraphs += 1
+    }
+  })
+  writingStats.value = { chars, words, paragraphs, headings }
+}
 const editor = useEditor({
   content:
     props.contentFormat === "html"
@@ -296,6 +314,7 @@ const editor = useEditor({
     else scheduleSerialize();
     emit("transaction");
     taskState.changed();
+    refreshWritingStats();
     if (outlineTimer) clearTimeout(outlineTimer);
     outlineTimer = setTimeout(() => collectOutline(editor.value), 180);
     if (editor.value && props.contentFormat === 'markdown' && !props.compact) blockMenu.update(editor.value);
@@ -307,6 +326,7 @@ const editor = useEditor({
   onCreate: ({ editor: activeEditor }) => {
     if (props.contentFormat === 'markdown') markdownPreservation.bind(props.modelValue || '', activeEditor.state.doc);
     collectOutline(activeEditor);
+    refreshWritingStats();
     emit("ready", activeEditor);
     void taskState.refresh();
   },
@@ -479,6 +499,7 @@ defineExpose({
   openTable: () => toolbarRef.value?.openTable(),
   getEditor: () => editor.value,
   focus: () => editor.value?.commands.focus(),
+  getWritingStats: () => writingStats.value,
   setMarkdown: (markdown: string) => {
     const next = String(markdown ?? "");
     editor.value?.commands.setContent(mdToHtml(next), { emitUpdate: false });
@@ -504,7 +525,7 @@ defineExpose({
 <template>
   <div
     class="md-wysiwyg"
-    :class="{ compact }"
+    :class="{ compact, 'focus-writing': focusWriting }"
     :style="{
       '--document-font-size': `${(documentStyle.bodySize * 4) / 3}px`,
       '--document-line-height': documentStyle.lineHeight,
@@ -595,6 +616,19 @@ defineExpose({
       </button>
     </BubbleMenu>
     <div
+      v-if="!compact"
+      class="writing-stats"
+      role="status"
+      aria-live="polite"
+    >
+      <span>{{ writingStats.chars }} 字</span>
+      <span>{{ writingStats.paragraphs }} 段</span>
+      <span>{{ writingStats.headings }} 标题</span>
+      <button type="button" class="focus-toggle" :class="{ active: focusWriting }" @click="focusWriting = !focusWriting">
+        {{ focusWriting ? '退出专注' : '专注写作' }}
+      </button>
+    </div>
+    <div
       v-if="taskState.status.value || editor?.isActive('taskItem')"
       class="document-task-status"
     >
@@ -664,6 +698,48 @@ defineExpose({
 
 <style scoped>
 .document-task-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--c-text-secondary);
+}
+.writing-stats {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--c-text-secondary);
+  border-top: 1px solid var(--c-border-light);
+}
+.writing-stats .focus-toggle {
+  margin-left: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: transparent;
+  padding: 2px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.writing-stats .focus-toggle.active {
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+  border-color: var(--c-primary);
+}
+.md-wysiwyg.focus-writing .document-toolbar {
+  display: none;
+}
+.md-wysiwyg.focus-writing :deep(.ProseMirror) {
+  max-width: 42rem;
+  margin-inline: auto;
+  padding-block: 24px;
+}
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -103,7 +103,7 @@ const baseLogger: CasyLogger = {
 // 上下文实现
 // ============================================================
 
-class CasyContextImpl implements CasyContext {
+export class CasyContextImpl implements CasyContext {
   private plugins = new Map<string, CasyPlugin>()
   private pluginFibers = new Map<string, FiberImpl>()
   private tools = new Map<string, CasyTool>()
@@ -266,6 +266,22 @@ class CasyContextImpl implements CasyContext {
   }
 
   // ── 工具注册 ──
+  /** 用户在设置中禁用的工具名（不进入 AI / MCP 可见面） */
+  private disabledTools = new Set<string>()
+  /** 写工具审批策略：always_ask | always_approve | always_reject */
+  private writeApproval = new Map<string, 'always_ask' | 'always_approve' | 'always_reject'>()
+
+  setToolPolicy(policies: { disabled?: string[]; writeApproval?: Record<string, 'always_ask' | 'always_approve' | 'always_reject'> }): void {
+    this.disabledTools = new Set(policies.disabled || [])
+    this.writeApproval = new Map(Object.entries(policies.writeApproval || {}))
+  }
+
+  getToolPolicy() {
+    return {
+      disabled: [...this.disabledTools],
+      writeApproval: Object.fromEntries(this.writeApproval),
+    }
+  }
 
   registerTool(tool: CasyTool): void {
     this.tools.set(tool.name, tool)
@@ -276,10 +292,11 @@ class CasyContextImpl implements CasyContext {
   }
 
   getTools(): CasyTool[] {
-    return [...this.tools.values()]
+    return [...this.tools.values()].filter(t => !this.disabledTools.has(t.name))
   }
 
   getTool(name: string): CasyTool | null {
+    if (this.disabledTools.has(name)) return null
     return this.tools.get(name) ?? null
   }
 
@@ -296,14 +313,15 @@ class CasyContextImpl implements CasyContext {
     params: Record<string, unknown>,
     opts?: { origin?: 'user' | 'ai'; turnId?: string; runId?: string | null }
   ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-    const tool = this.tools.get(name)
+    const tool = this.getTool(name)
     if (!tool) {
-      return { ok: false, error: '工具不存在: ' + name }
+      return { ok: false, error: '工具不存在或已停用: ' + name }
     }
     // ── 声明式确认策略（V5 授权宪法）：内核统一强制，未声明策略默认拒绝 ──
     let result: { ok: boolean; data?: unknown; error?: string }
     const policy = tool.policy
     let declined = false
+    const writeMode = this.writeApproval.get(name)
 
     if (!policy) {
       if (opts?.origin === 'ai') {
@@ -311,11 +329,15 @@ class CasyContextImpl implements CasyContext {
         return { ok: false, error: `权限拦截：工具「${name}」未声明安全策略，系统默认拒绝自动调用` }
       }
     } else if (policy.write || policy.level) {
+      if (policy.write && writeMode === 'always_reject') {
+        return { ok: false, error: `工具「${name}」已被用户策略禁止写入` }
+      }
+      const skipConfirm = policy.write && writeMode === 'always_approve' && policy.level !== 'L2' && policy.level !== 'L3'
       const level = this.calculateEffectiveLevel({
         isExternalWrite: policy.write,
         userPolicy: policy.level,
       })
-      if (level !== 'L1') {
+      if (!skipConfirm && level !== 'L1') {
         const confirmed = await this.requestConfirm({
           level,
           title: policy.title ?? tool.name,
@@ -490,7 +512,7 @@ class CasyContextImpl implements CasyContext {
  * 服务动态属性（cordis 风格）：运行时经 Proxy 拦截 get 解析到已注册的 Service
  * （见构造器与 provide()）；类型同源于 services/index.ts 的 ServicesMap（K-2 单一事实来源）。
  */
-interface CasyContextImpl extends ServicesMap {}
+export interface CasyContextImpl extends ServicesMap {}
 
 /** 全局唯一的 Casy 上下文实例（Proxy：ctx.cases 等服务属性自动解析） */
 export const casyContext: CasyContext = new CasyContextImpl()

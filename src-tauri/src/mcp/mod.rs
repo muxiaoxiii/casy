@@ -299,6 +299,29 @@ impl McpServer {
                 }),
             },
             McpToolDefinition {
+                name: "knowledge_read".to_string(),
+                description: "读取知识条目正文（分页）。返回 citation 与 nextOffset。".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string", "description": "知识 ID" },
+                        "offset": { "type": "integer", "default": 0 }
+                    },
+                    "required": ["id"]
+                }),
+            },
+            McpToolDefinition {
+                name: "document_list".to_string(),
+                description: "列出知识笔记与文书草稿目录（不含正文）。".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" },
+                        "limit": { "type": "integer", "default": 30 }
+                    }
+                }),
+            },
+            McpToolDefinition {
                 name: "case_create_task".to_string(),
                 description: "为指定案件创建任务（需确认）。".to_string(),
                 input_schema: serde_json::json!({
@@ -650,6 +673,8 @@ async fn execute_tool_by_name(
         "case_query" => execute_case_query(args).await,
         "task_query" => execute_task_query(args).await,
         "knowledge_search" => execute_knowledge_search(args).await,
+        "knowledge_read" => execute_knowledge_read(args).await,
+        "document_list" => execute_document_list(args).await,
         "calendar_events" => execute_calendar_events(args).await,
         "deadline_warnings" => execute_deadline_warnings().await,
         "dashboard_stats" => execute_dashboard_stats().await,
@@ -745,6 +770,65 @@ async fn execute_deadline_warnings() -> Result<serde_json::Value, String> {
 async fn execute_dashboard_stats() -> Result<serde_json::Value, String> {
     let stats = crate::commands::cases::get_dashboard_stats().await?;
     serde_json::to_value(stats).map_err(|e| e.to_string())
+}
+
+async fn execute_knowledge_read(args: serde_json::Value) -> Result<serde_json::Value, String> {
+    let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if id.is_empty() {
+        return Err("id 必填".into());
+    }
+    let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+    let (title, category, content): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT title, COALESCE(category,''), content FROM knowledge_items WHERE id=?1 AND (parent_id IS NULL OR parent_id='')",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| format!("知识不存在: {e}"))?;
+    let text = content.unwrap_or_default();
+    let total = text.chars().count();
+    Ok(serde_json::json!({
+        "id": id,
+        "title": title,
+        "category": category,
+        "citation": format!("knowledge:{id}"),
+        "content": text.chars().skip(offset).take(6000).collect::<String>(),
+        "offset": offset,
+        "totalCharacters": total,
+        "nextOffset": (offset + 6000 < total).then_some(offset + 6000),
+    }))
+}
+
+async fn execute_document_list(args: serde_json::Value) -> Result<serde_json::Value, String> {
+    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(30).min(100) as i64;
+    let conn = crate::db::open_db().map_err(|e| e.to_string())?;
+    let like = format!("%{}%", query.trim());
+    let rows = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id,title,COALESCE(category,'') FROM knowledge_items
+                 WHERE (parent_id IS NULL OR parent_id='')
+                   AND (?1 = '' OR title LIKE ?2)
+                 ORDER BY COALESCE(updated_at,created_at) DESC LIMIT ?3",
+            )
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map(rusqlite::params![query.trim().to_string(), like, limit], |r| {
+                Ok(serde_json::json!({
+                    "kind": "knowledge",
+                    "id": r.get::<_, String>(0)?,
+                    "title": r.get::<_, String>(1)?,
+                    "category": r.get::<_, String>(2)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        mapped
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?
+    };
+    Ok(serde_json::json!({ "documents": rows }))
 }
 
 async fn execute_case_create_task(args: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -1032,5 +1116,16 @@ mod tests {
             resolve_pending_write(&conn, "no-such", "rejected", None).unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn build_tools_includes_knowledge_trio() {
+        let names: Vec<_> = McpServer::build_tools().into_iter().map(|t| t.name).collect();
+        for expect in ["knowledge_search", "knowledge_read", "document_list", "case_query", "task_query"] {
+            assert!(names.contains(&expect.to_string()), "missing tool {expect}: {names:?}");
+        }
+        assert!(names.contains(&"case_create_task".to_string()));
+        assert!(WRITE_TOOLS.contains(&"case_create_task"));
+        assert!(WRITE_TOOLS.contains(&"task_update_status"));
     }
 }
