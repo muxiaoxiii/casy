@@ -13,13 +13,14 @@
 
     <!-- 模板列表 -->
     <div class="template-list" v-loading="loading">
+      <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button text @click="loadTemplates">重试</el-button></el-alert>
       <!-- 按分类分组显示 -->
       <div
         v-for="(templates, category) in filteredByCategory"
         :key="category"
         class="template-category"
       >
-        <div class="category-header" @click="toggleCategory(category)">
+        <div class="category-header" role="button" tabindex="0" :aria-expanded="!!expandedCategories[category]" @keydown.enter="toggleCategory(category)" @keydown.space.prevent="toggleCategory(category)" @click="toggleCategory(category)">
           <el-icon>
             <ArrowRight v-if="!expandedCategories[category]" />
             <ArrowDown v-else />
@@ -34,7 +35,7 @@
               v-for="tpl in templates"
               :key="tpl.id"
               :class="['template-card', { active: selected?.id === tpl.id }]"
-              @click="selectTemplate(tpl)"
+              role="button" tabindex="0" :aria-label="`使用模板 ${tpl.name}`" @keydown.enter="selectTemplate(tpl)" @keydown.space.prevent="selectTemplate(tpl)" @click="selectTemplate(tpl)"
             >
               <div class="template-icon">📄</div>
               <div class="template-info">
@@ -53,7 +54,7 @@
 
       <!-- 空状态 -->
       <el-empty
-        v-if="!loading && Object.keys(filteredByCategory).length === 0"
+        v-if="!loading && !error && Object.keys(filteredByCategory).length === 0"
         description="暂无模板"
         :image-size="60"
       >
@@ -82,7 +83,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'select'])
 
-const { templates, loading, loadTemplates, searchTemplates, templatesByCategory } =
+const { templates, loading, error, loadTemplates, searchTemplates, templatesByCategory } =
   useDocsyBridge()
 
 const searchText = ref('')

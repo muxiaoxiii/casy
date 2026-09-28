@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import ContextMenu from "../../../shared/components/ContextMenu.vue"
+import { useContextActions } from "../../../shared/composables/useContextActions"
+const { contextMenu, showContextMenu } = useContextActions()
+
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Edit, Delete, Phone, Message, User } from '../../../shared/icons'
-import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import PersonFormDrawer from '../components/PersonFormDrawer.vue'
 import PersonDetailDrawer from '../components/PersonDetailDrawer.vue'
@@ -16,6 +20,8 @@ import {
 } from '../types'
 
 const loading = ref(false)
+const loadError = ref('')
+let loadRevision = 0
 const persons = ref<PersonDto[]>([])
 
 // 顶部筛选
@@ -25,14 +31,21 @@ const keyword = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 async function load() {
+  const request = ++loadRevision
   loading.value = true
-  const data = await tauriCall('list_persons', {
-    kind: activeKind.value || null,
-    keyword: keyword.value.trim() || null,
-  })
-  persons.value = data ?? []
-  loading.value = false
+  loadError.value = ''
+  try {
+    const result = await tauriCallSafe('list_persons', {
+      kind: activeKind.value || null,
+      keyword: keyword.value.trim() || null,
+    })
+    if (request !== loadRevision) return
+    if (!result.ok) throw new Error(result.error || '实体列表加载失败')
+    persons.value = result.data ?? []
+  } catch (e) { if (request === loadRevision) loadError.value = String(e) }
+  finally { if (request === loadRevision) loading.value = false }
 }
+onBeforeUnmount(() => { loadRevision++; if (searchTimer) clearTimeout(searchTimer) })
 
 onMounted(load)
 
@@ -149,12 +162,16 @@ async function onDetailChanged() {
     </div>
 
     <!-- 实体卡片列表 -->
-    <div v-loading="loading" class="persons-body">
+    <div v-loading="loading" class="persons-body" :aria-busy="loading">
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="load">重试</el-button></el-alert>
       <div v-if="persons.length" class="person-grid">
         <div
           v-for="p in persons"
           :key="p.id"
           class="person-card"
+          @contextmenu="showContextMenu($event, p.name, [{ label: '查看详情', run: () => openDetail(p) }, { label: '编辑', run: () => openEdit(p) }, { label: '删除', danger: true, separator: true, run: () => remove(p) }])"
+          role="button" tabindex="0" :aria-label="`查看实体 ${p.name}`"
+          @keydown.enter.self="openDetail(p)" @keydown.space.prevent.self="openDetail(p)"
           @click="openDetail(p)"
         >
           <div class="card-top">
@@ -165,8 +182,8 @@ async function onDetailChanged() {
               <el-icon :size="18"><component :is="kindMeta(p.kind).icon" /></el-icon>
             </div>
             <div class="card-actions" @click.stop>
-              <el-button size="small" text :icon="Edit" @click="openEdit(p)" />
-              <el-button size="small" text type="danger" :icon="Delete" @click="remove(p)" />
+              <el-button size="small" text :icon="Edit" :aria-label="`编辑 ${p.name}`" @click="openEdit(p)" />
+              <el-button size="small" text type="danger" :icon="Delete" :aria-label="`删除 ${p.name}`" @click="remove(p)" />
             </div>
           </div>
 
@@ -197,7 +214,7 @@ async function onDetailChanged() {
       </div>
 
       <EmptyState
-        v-else-if="!loading"
+        v-else-if="!loading && !loadError"
         type="custom"
         :icon="User"
         :title="keyword || activeKind ? '没有匹配的实体' : '还没有实体'"
@@ -229,6 +246,7 @@ async function onDetailChanged() {
       @changed="onDetailChanged"
     />
   </div>
+  <ContextMenu v-bind="contextMenu" @close="contextMenu.open = false" />
 </template>
 
 <style scoped>

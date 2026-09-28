@@ -19,6 +19,7 @@
     </div>
 
     <div v-loading="loading" class="projects-body">
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="load">重试</el-button></el-alert>
       <!-- 非案件项目 -->
       <section class="proj-section">
         <div class="section-head">
@@ -37,15 +38,15 @@
             @keyup.enter="saveCreate"
           />
           <el-button :loading="saving" type="primary" @click="saveCreate">创建</el-button>
-          <el-button @click="creating = false">取消</el-button>
+          <el-button :disabled="saving" @click="creating = false">取消</el-button>
         </div>
 
         <div v-if="personalProjects.length" class="proj-list">
-          <div v-for="p in personalProjects" :key="p.id" class="proj-row" data-kind="personal">
+          <div v-for="p in personalProjects" :key="p.id" class="proj-row" data-kind="personal" @contextmenu="!editingId && showContextMenu($event, p.name, [{ label: '编辑项目', disabled: mutating, run: () => startEdit(p) }, { label: '删除项目', danger: true, disabled: mutating, run: () => removeProject(p) }])">
             <template v-if="editingId === p.id">
               <el-input v-model="editName" size="small" @keyup.enter="saveEdit(p)" />
               <div class="row-actions">
-                <el-button size="small" type="primary" text @click="saveEdit(p)">存</el-button>
+                <el-button size="small" type="primary" text :disabled="mutating" @click="saveEdit(p)">保存</el-button>
                 <el-button size="small" text @click="editingId = null">取消</el-button>
               </div>
             </template>
@@ -55,8 +56,8 @@
               <span v-if="p.description" class="proj-desc">{{ p.description }}</span>
               <span class="proj-status">{{ statusLabel(p.status) }}</span>
               <div class="row-actions">
-                <el-button size="small" text @click="startEdit(p)"><el-icon><Edit /></el-icon></el-button>
-                <el-button size="small" text type="danger" @click="removeProject(p)">
+                <el-button size="small" text :disabled="mutating" :aria-label="`编辑项目 ${p.name}`" @click="startEdit(p)"><el-icon><Edit /></el-icon></el-button>
+                <el-button size="small" text type="danger" :disabled="mutating" :aria-label="`删除项目 ${p.name}`" @click="removeProject(p)">
                   <el-icon><Delete /></el-icon>
                 </el-button>
               </div>
@@ -64,27 +65,35 @@
           </div>
         </div>
         <EmptyState
-          v-else-if="!loading && !creating"
+          v-else-if="!loading && !creating && !loadError"
           type="custom"
-          title="还没有非案件项目"
+          :title="searchQuery ? '没有匹配的项目' : '还没有非案件项目'"
           description="用于承载非诉、顾问、研究或个人长期事项；诉讼和争议案件仍在案件模块管理。"
-          action-text="新建第一个项目"
-          @action="startCreate"
+          :action-text="searchQuery ? '清除搜索' : '新建项目'"
+          @action="searchQuery ? (searchQuery = '', load()) : startCreate()"
         />
       </section>
     </div>
   </div>
+  <ContextMenu v-bind="contextMenu" @close="contextMenu.open = false" />
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import ContextMenu from "../../../shared/components/ContextMenu.vue"
+import { useContextActions } from "../../../shared/composables/useContextActions"
+const { contextMenu, showContextMenu } = useContextActions()
+
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const projects = ref([])
 const loading = ref(false)
+const loadError = ref('')
+const mutating = ref(false)
+let loadRevision = 0
 const searchQuery = ref('')
 
 const creating = ref(false)
@@ -103,19 +112,24 @@ function statusLabel(s) {
 }
 
 async function load() {
+  const request = ++loadRevision
   loading.value = true
+  loadError.value = ''
   const result = await casyContext.projects.list(searchQuery.value.trim() || undefined)
+  if (request !== loadRevision) return
   loading.value = false
   if (result.ok) projects.value = result.data || []
-  else ElMessage.error(result.error || '加载项目失败')
+  else loadError.value = result.error || '加载项目失败'
 }
 
-function startCreate() {
+async function startCreate() {
   creating.value = true
-  setTimeout(() => createInputRef.value?.focus?.(), 30)
+  await nextTick()
+  createInputRef.value?.focus?.()
 }
 
 async function saveCreate() {
+  if (saving.value) return
   const name = createForm.value.name.trim()
   if (!name) {
     ElMessage.warning('请输入项目名称')
@@ -143,12 +157,15 @@ function startEdit(p) {
 }
 
 async function saveEdit(p) {
+  if (mutating.value) return
   const name = editName.value.trim()
   if (!name) {
     ElMessage.warning('名称不能为空')
     return
   }
+  mutating.value = true
   const result = await casyContext.projects.updatePersonal(p.id, { name })
+  mutating.value = false
   if (result.ok) {
     editingId.value = null
     await load()
@@ -158,7 +175,12 @@ async function saveEdit(p) {
 }
 
 async function removeProject(p) {
+  if (mutating.value) return
+  try { await ElMessageBox.confirm(`删除项目「${p.name}」？有未完成任务的项目不能删除。`, '删除项目', { type: 'warning', confirmButtonText: '删除项目', cancelButtonText: '取消' }) } catch { return }
+  if (mutating.value) return
+  mutating.value = true
   const result = await casyContext.projects.remove(p.id)
+  mutating.value = false
   if (result.ok) {
     ElMessage.success(`已删除「${p.name}」`)
     await load()
@@ -212,7 +234,7 @@ onMounted(() => {
 }
 
 .proj-list {
-  background: #fff;
+  background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
@@ -226,7 +248,7 @@ onMounted(() => {
   transition: background var(--motion-fast) var(--ease-out);
 }
 .proj-row:last-child { border-bottom: none; }
-.proj-row:hover { background: var(--gray-50); }
+.proj-row:hover { background: var(--c-bg-subtle); }
 .proj-row:hover .row-actions { opacity: 1; }
 
 .proj-dot {
@@ -253,7 +275,7 @@ onMounted(() => {
 .row-actions {
   display: flex;
   gap: 2px;
-  opacity: 0;
+  opacity: 1;
   transition: opacity var(--motion-fast) var(--ease-out);
 }
 
@@ -264,6 +286,7 @@ onMounted(() => {
   font-size: 13px;
   color: var(--c-text-secondary);
   line-height: 1.7;
-  background: var(--gray-50);
+  background: var(--c-bg-subtle);
 }
+@media(max-width:600px){.toolbar{align-items:flex-start;flex-direction:column;gap:12px}.proj-row{flex-wrap:wrap}.proj-create{flex-wrap:wrap}.shortcut-hint{margin-left:0}.toolbar-right,.toolbar-right .el-input{width:100%!important}}
 </style>

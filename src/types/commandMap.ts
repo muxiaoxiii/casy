@@ -47,6 +47,7 @@ import type {
   DeadlineResult,
   DeadlineWarning,
   Draft,
+  DraftVersion,
   ExportResponse,
   FeishuSyncReport,
   FieldGroup,
@@ -523,6 +524,8 @@ export type CommandMap = {
   // ── 草稿 ──
   list_drafts: Cmd<{}, Draft[]>
   get_draft: Cmd<{ id: string }, Draft>
+  list_draft_versions: Cmd<{ id: string; offset?: number }, DraftVersion[]>
+  restore_draft_version: Cmd<{ id: string; version: number; expectedVersion: number }, Draft>
   create_draft: Cmd<
     { title: string; content?: string | null; caseId?: string | null; templatePath?: string | null },
     Draft

@@ -176,6 +176,8 @@ export type DocumentRegion = { text: string; bbox: number[]; confidence: number 
  */
 export type Draft = { id: string; caseId: string | null; title: string; content: string | null; templatePath: string | null; status: string; version: number; createdAt: string; updatedAt: string }
 
+export type DraftVersion = { version: number; title: string; content: string | null; savedAt: string }
+
 export type EditorTask = { id: string; title: string; completed: boolean; missing: boolean }
 
 export type EmbeddingSettings = { profileId: string; model: string; chunkChars: number }

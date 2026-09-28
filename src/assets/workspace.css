@@ -110,3 +110,13 @@ button { touch-action: manipulation; }
     --c-border: var(--c-border-strong);
   }
 }
+
+/* Hover-revealed actions remain reachable by keyboard and on touch screens. */
+.content-scroll :is(.person-card, .draft-item, .task-card, .file-card, .area-row, .whiteboard-entry__row):focus-within :is(.card-actions, .draft-delete, .task-actions, .row-actions, .f-ops, .area-actions, .whiteboard-entry__arrow) { opacity: 1; }
+@media (hover: none) {
+  .content-scroll :is(.card-actions, .draft-delete, .task-actions, .row-actions, .f-ops, .area-actions, .whiteboard-entry__arrow) { opacity: 1; }
+}
+/* Tall forms scroll inside the dialog so footer actions stay reachable. */
+.el-dialog { max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+.el-dialog__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.el-dialog__header, .el-dialog__footer { flex-shrink: 0; }

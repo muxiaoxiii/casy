@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ArrowRight, Refresh } from '../../../shared/icons'
 import { casyContext } from '../../../core/plugin/context'
@@ -18,17 +18,27 @@ const page = ref(1)
 const total = ref(0)
 const filteredClients = computed(() => clients.value.filter(c => c.client.toLowerCase().includes(search.value.trim().toLowerCase())))
 let requestId = 0
+let summaryRequestId = 0
+onBeforeUnmount(() => { requestId++; summaryRequestId++ })
 
 async function loadClients() {
+  const request = ++summaryRequestId
   loading.value = true
   error.value = ''
-  const result = await casyContext.cases.stats()
-  loading.value = false
-  if (!result.ok || !result.data) { error.value = result.error || '客户案件汇总加载失败'; return }
-  clients.value = result.data.byClient.filter(c => c.client.trim()).sort((a, b) => b.count - a.count)
-  const selected = clients.value.find(c => c.client === selectedName.value) || clients.value[0]
-  if (selected) await selectClient(selected.client)
-  else { selectedName.value = ''; clientCases.value = []; total.value = 0 }
+  try {
+    const result = await casyContext.cases.stats()
+    if (request !== summaryRequestId) return
+    if (!result.ok || !result.data) throw new Error(result.error || '客户案件汇总加载失败')
+    clients.value = result.data.byClient.filter(c => c.client.trim()).sort((a, b) => b.count - a.count)
+    const selected = clients.value.find(c => c.client === selectedName.value) || clients.value[0]
+    if (selected) await selectClient(selected.client)
+    else {
+      ++requestId
+      selectedName.value = ''; clientCases.value = []; total.value = 0
+      detailsLoading.value = false; detailsError.value = ''
+    }
+  } catch (e) { if (request === summaryRequestId) error.value = String(e) }
+  finally { if (request === summaryRequestId) loading.value = false }
 }
 async function selectClient(name: string) {
   selectedName.value = name
@@ -37,15 +47,19 @@ async function selectClient(name: string) {
 }
 async function loadCases() {
   const id = ++requestId
+  if (!selectedName.value) return
   detailsLoading.value = true
   detailsError.value = ''
   clientCases.value = []
-  const result = await casyContext.cases.list({ client: selectedName.value, page: page.value, perPage: 20 })
-  if (id !== requestId) return
-  detailsLoading.value = false
-  if (!result.ok || !result.data) { detailsError.value = result.error || '关联案件加载失败'; return }
-  clientCases.value = result.data.items
-  total.value = result.data.total
+  total.value = 0
+  try {
+    const result = await casyContext.cases.list({ client: selectedName.value, page: page.value, perPage: 20 })
+    if (id !== requestId) return
+    if (!result.ok || !result.data) throw new Error(result.error || '关联案件加载失败')
+    clientCases.value = result.data.items
+    total.value = result.data.total
+  } catch (e) { if (id === requestId) detailsError.value = String(e) }
+  finally { if (id === requestId) detailsLoading.value = false }
 }
 const trackLabel = (track: string) => ({ patent_invalidation: '专利无效', civil_tort: '民事诉讼', admin_litigation: '行政诉讼', arbitration: '仲裁', other: '其他' }[track] || track)
 onMounted(loadClients)
@@ -54,7 +68,7 @@ onMounted(loadClients)
 <template>
   <div class="client-page">
     <header class="page-header"><div><h1>客户</h1><span>{{ clients.length }} 位关联客户</span></div><el-button :icon="Refresh" :loading="loading" circle title="刷新客户汇总" aria-label="刷新客户汇总" @click="loadClients" /></header>
-    <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button text :loading="loading" @click="loadClients">重试</el-button></el-alert>
     <div class="client-layout" v-loading="loading">
       <aside class="client-list-panel">
         <el-input v-model="search" :prefix-icon="Search" placeholder="搜索客户" aria-label="搜索客户" clearable />
@@ -63,13 +77,14 @@ onMounted(loadClients)
             <span class="client-name">{{ client.client }}</span><span class="count">{{ client.count }}</span>
           </button>
         </nav>
-        <p v-if="!loading && !filteredClients.length" class="empty">{{ search ? '没有匹配的客户' : '暂无关联客户' }}</p>
+        <p v-if="!loading && !error && !filteredClients.length" class="empty">{{ search ? '没有匹配的客户' : '暂无关联客户' }}</p>
       </aside>
       <section class="client-detail" v-loading="detailsLoading">
         <template v-if="selectedName">
-          <header class="detail-header"><h2>{{ selectedName }}</h2><span>{{ total }} 件案件</span></header>
-          <el-alert v-if="detailsError" :title="detailsError" type="error" :closable="false" />
+          <header class="detail-header"><h2>{{ selectedName }}</h2><span>{{ detailsLoading ? '正在加载…' : detailsError ? '暂不可用' : `${total} 件案件` }}</span></header>
+          <el-alert v-if="detailsError" :title="detailsError" type="error" :closable="false"><el-button text @click="loadCases">重试</el-button></el-alert>
           <div v-else class="case-list">
+            <p v-if="!detailsLoading && !clientCases.length" class="empty">该客户暂无关联案件</p>
             <button v-for="item in clientCases" :key="item.id" class="case-row" @click="router.push({ name: 'case-detail', params: { id: item.id } })">
               <span class="case-copy"><strong>{{ item.caseName }}</strong><span>{{ item.caseNo || '案号未填写' }}</span></span>
               <span class="case-track">{{ trackLabel(item.track) }}</span><span class="case-status" :class="{ closed: item.caseStatus === '已完结' }">{{ item.caseStatus }}</span><el-icon><ArrowRight /></el-icon>
@@ -77,7 +92,7 @@ onMounted(loadClients)
           </div>
           <el-pagination v-if="total > 20" v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next" @current-change="loadCases" />
         </template>
-        <div v-else-if="!loading" class="empty"><p>暂无客户案件</p><el-button text @click="router.push('/cases')">查看案件<el-icon><ArrowRight /></el-icon></el-button></div>
+        <div v-else-if="!loading && !error" class="empty"><p>暂无客户案件</p><el-button text @click="router.push('/cases')">查看案件<el-icon><ArrowRight /></el-icon></el-button></div>
       </section>
     </div>
   </div>

@@ -49,6 +49,7 @@ export class SettingsPlugin implements CasyPlugin {
   private createSaveSettingsTool(ctx: CasyContext): CasyTool {
     return defineTool<{ data: Record<string, SettingsValue> }>({
       name: 'save_settings',
+      policy: { write: true, level: 'L3' },
       description: '保存设置',
       category: 'settings',
       parameters: {
@@ -68,6 +69,7 @@ export class SettingsPlugin implements CasyPlugin {
   private createConfigureAiTool(ctx: CasyContext): CasyTool {
     return defineTool<{ mode: string; endpoint?: string; apiKey?: string; model?: string }>({
       name: 'configure_ai',
+      policy: { write: true, level: 'L3' },
       description: '配置 AI 后端',
       category: 'settings',
       parameters: {

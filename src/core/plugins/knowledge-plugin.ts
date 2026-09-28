@@ -117,7 +117,7 @@ export class KnowledgePlugin implements CasyPlugin {
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: '知识 ID' },
+          id: { type: 'string', description: '知识 ID、knowledge:ID 或 draft:ID' },
           offset: { type: 'integer', description: '字符偏移，默认 0' },
           withBacklinks: { type: 'boolean', description: '是否附反链/相关笔记摘要' },
         },
@@ -126,7 +126,17 @@ export class KnowledgePlugin implements CasyPlugin {
       execute: async (params) => {
         const offset = Number(params.offset) || 0
         if (offset < 0) return { ok: false, error: 'offset 不能小于 0' }
-        const result = await ctx.knowledge.getWithBlocks(String(params.id))
+        const sourceId = String(params.id)
+        if (sourceId.startsWith('draft:')) {
+          const id = sourceId.slice(6)
+          const result = await ctx.docs.getDraft(id)
+          if (!result.ok || !result.data) return result
+          const { content, ...item } = result.data
+          const text = content || ''
+          return { ok: true, data: { item: { ...item, content: text.slice(offset, offset + 6000) }, citation: `draft:${id}`, offset, totalCharacters: text.length, nextOffset: offset + 6000 < text.length ? offset + 6000 : null, backlinks: [] } }
+        }
+        const id = sourceId.replace(/^knowledge:/, '')
+        const result = await ctx.knowledge.getWithBlocks(id)
         if (!result.ok || !result.data) return result
         const { content, ...item } = result.data.item as { content?: string | null; [k: string]: unknown }
         const text = content || ''
@@ -141,9 +151,9 @@ export class KnowledgePlugin implements CasyPlugin {
               return n?.name || id
             }
             backlinks = edges
-              .filter((e: { source: string; target: string }) => e.source === String(params.id) || e.target === String(params.id))
+              .filter((e: { source: string; target: string }) => e.source === id || e.target === id)
               .map((e: { source: string; target: string }) => {
-                const other = e.source === String(params.id) ? e.target : e.source
+                const other = e.source === id ? e.target : e.source
                 return { id: other, title: titleOf(other) }
               })
               .slice(0, 12)
@@ -153,7 +163,7 @@ export class KnowledgePlugin implements CasyPlugin {
           ok: true,
           data: {
             item: { ...item, content: text.slice(offset, offset + 6000) },
-            citation: `knowledge:${params.id}`,
+            citation: `knowledge:${id}`,
             offset,
             totalCharacters: text.length,
             nextOffset: offset + 6000 < text.length ? offset + 6000 : null,
@@ -203,6 +213,7 @@ export class KnowledgePlugin implements CasyPlugin {
   private createCreateKnowledgeTool(ctx: CasyContext): CasyTool {
     return defineTool<Partial<CreateKnowledgeInput>>({
       name: 'create_knowledge',
+      policy: { write: true, level: 'L2' },
       description: '创建知识条目',
       category: 'knowledge',
       parameters: {
@@ -228,6 +239,7 @@ export class KnowledgePlugin implements CasyPlugin {
   private createUpdateKnowledgeTool(ctx: CasyContext): CasyTool {
     return defineTool<{ id: string; data: KnowledgePatchInput }>({
       name: 'update_knowledge',
+      policy: { write: true, level: 'L2' },
       description: '更新知识条目',
       category: 'knowledge',
       parameters: {
@@ -259,6 +271,7 @@ export class KnowledgePlugin implements CasyPlugin {
       },
       // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
       policy: {
+        write: true,
         level: 'L2',
         title: '确认删除知识',
         message: (p) => `确定要删除知识条目 ${String(p.id)} 吗？`,

@@ -23,6 +23,7 @@ interface CasesState {
   cases: Case[]
   currentCase: Case | null
   loading: boolean
+  listError: string
   total: number
   page: number
   perPage: number
@@ -38,6 +39,7 @@ export const useCasesStore = defineStore('cases', {
     cases: [],
     currentCase: null,
     loading: false,
+    listError: '',
     total: 0,
     page: 1,
     perPage: 50,
@@ -118,6 +120,7 @@ export const useCasesStore = defineStore('cases', {
     async loadCases(): Promise<void> {
       const request = ++this.listRequest
       this.loading = true
+      this.listError = ''
       try {
       const result = await casyContext.cases.list({
         track: this.filter.track || null,
@@ -140,8 +143,8 @@ export const useCasesStore = defineStore('cases', {
       if (result.ok && result.data) {
         this.cases = result.data.items || []
         this.total = result.data.total || 0
-      }
-      } finally {if(request===this.listRequest)this.loading = false}
+      } else this.listError = result.error || '案件加载失败'
+      } catch (e) { if (request === this.listRequest) this.listError = String(e) } finally {if(request===this.listRequest)this.loading = false}
     },
 
     async loadCase(id: string): Promise<{ ok: boolean; data?: Case; error?: string }> {

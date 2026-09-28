@@ -7,7 +7,7 @@
  * 判断依据：window.__TAURI_INTERNALS__ 是否存在。
  */
 
-import type { TaskPlan, CalendarEventRow, Draft } from '../types/bindings'
+import type { TaskPlan, CalendarEventRow, Draft, DraftVersion } from '../types/bindings'
 import { addDaysLocalISO, todayLocalISO, toLocalISODate, daysUntil } from '../shared/utils/date'
 
 export function isTauriRuntime(): boolean {
@@ -70,6 +70,12 @@ mockKnowledge[2].linkedCaseId = 'c1'
 const mockLinks: any[] = []
 const mockKnowledgeVersions: any[] = []
 
+const mockSettings: Record<string, unknown> = {}
+const mockDraftVersions: Array<DraftVersion & { draftId: string }> = []
+function snapshotDraft(row: Draft) {
+  if (!mockDraftVersions.some(v => v.draftId === row.id && v.version === row.version)) mockDraftVersions.push({ draftId: row.id, version: row.version, title: row.title, content: row.content, savedAt: row.updatedAt })
+}
+
 const mockStats = {
   hardSchedule: 2,
   dueToday: 3,
@@ -84,6 +90,17 @@ const mockStats = {
 // ── Mock 命令处理 ────────────────────────────────────────
 function handleMockCommand(command: string, args: Record<string, unknown>): unknown {
   switch (command) {
+    case 'get_settings': return structuredClone(mockSettings)
+    case 'save_settings': Object.assign(mockSettings, structuredClone(args.settings)); return null
+    case 'list_draft_versions': return mockDraftVersions.filter(v => v.draftId === args.id).sort((a,b) => b.version - a.version).slice(Number(args.offset || 0), Number(args.offset || 0) + 50).map(v => ({ ...v }))
+    case 'restore_draft_version': {
+      const row = mockDrafts.find(d => d.id === args.id)
+      const version = mockDraftVersions.find(v => v.draftId === args.id && v.version === args.version)
+      if (!row || !version || row.version !== args.expectedVersion) return undefined
+      if (row.title !== version.title || row.content !== version.content) snapshotDraft(row)
+      row.title = version.title; row.content = version.content; row.version++; row.updatedAt = new Date().toISOString()
+      return { ...row }
+    }
     case 'get_track_distribution': {
       const counts = new Map<string, number>()
       mockCases.forEach(c => counts.set(c.track, (counts.get(c.track) || 0) + 1))
@@ -329,6 +346,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
     case 'update_draft': {
       const row = mockDrafts.find(d => d.id === args.id)
       if (!row || (args.expectedVersion != null && args.expectedVersion !== row.version)) return undefined
+      if ((typeof args.title === 'string' && args.title !== row.title) || (typeof args.content === 'string' && args.content !== row.content)) snapshotDraft(row)
       for (const key of ['title', 'content', 'status', 'caseId'] as const) if (key in args) Object.assign(row, { [key]: args[key] })
       row.version++; row.updatedAt = new Date().toISOString()
       return { ...row }

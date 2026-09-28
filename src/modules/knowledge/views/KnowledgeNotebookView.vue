@@ -1,4 +1,8 @@
 <script setup>
+import ContextMenu from "../../../shared/components/ContextMenu.vue"
+import { useContextActions } from "../../../shared/composables/useContextActions"
+const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
+
 import "../../../shared/editor/checklist.css"
 import {exportDocument} from '../../../shared/editor/exportDocument'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -27,6 +31,7 @@ import WorkspaceDocumentPreview from '../components/WorkspaceDocumentPreview.vue
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
+const loadError = ref('')
 const writingFocus = ref(false)
 const notes = ref([])
 const cases = ref([])
@@ -254,7 +259,8 @@ async function loadAll(preferredId = '') {
   ])
   if (request !== loadRevision) return
   loading.value = false
-  if (!noteRes.ok) return ElMessage.error(noteRes.error || '无法读取笔记列表')
+  loadError.value = noteRes.ok ? '' : noteRes.error || '无法读取笔记列表'
+  if (!noteRes.ok) return
   notes.value = normalizeList(noteRes.data)
   if (caseRes.ok) cases.value = normalizeList(caseRes.data)
   const queryId = typeof route.query.select === 'string' ? route.query.select : ''
@@ -494,16 +500,17 @@ async function openSearchHit(id) {
         </button>
       </div>
       <div class="note-scroll" v-loading="loading">
+        <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadAll()">重试</el-button></el-alert>
         <el-alert v-if="sourceError" :title="sourceError" type="error" :closable="false" />
         <div v-if="visibleSources.length" class="source-group-title">案卷正文</div>
         <button v-for="source in visibleSources" :key="source.fileId" class="note-card" :class="{ active: selectedSource?.fileId === source.fileId }" @click="selectSource(source)"><div class="note-card-top"><strong>{{ source.fileName }}</strong><span class="note-category">案卷</span></div><p>{{ source.missing ? '原件缺失' : source.status === 'completed' ? 'Markdown' : source.status === 'running' ? '正文提取中' : source.status === 'queued' ? '等待提取正文' : source.status === 'failed' ? '提取失败' : '待提取正文' }}</p></button>
         <div v-if="visibleSources.length && visibleNotes.length" class="source-group-title">知识笔记与快照</div>
-        <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: !selectedSource && note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)">
+        <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: !selectedSource && note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)" @contextmenu="showObjectMenu($event, note.title, [{ label: '打开笔记', disabled: documentBusy, run: () => selectNote(note) }, { label: '新建子笔记', disabled: documentBusy, run: () => createNote(note.id) }])">
           <div class="note-card-top"><strong>{{ note.title || '无标题笔记' }}</strong><span class="note-category">{{ categories.find(c => c.value === note.category)?.label || '其他' }}</span></div>
           <p>{{ noteSummary(note) }}</p>
           <div class="note-meta"><span><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span></div>
         </button>
-        <div v-if="!loading && !filteredNotes.length && !visibleSources.length" class="empty-notes"><Document /><p>这里还没有笔记</p><button @click="createNote">写第一篇</button></div>
+        <div v-if="!loading && !loadError && !filteredNotes.length && !visibleSources.length" class="empty-notes"><Document /><p>{{ search || category !== 'all' ? '没有匹配的笔记' : '这里还没有笔记' }}</p><button v-if="search || category !== 'all'" @click="search = ''; category = 'all'">清除筛选</button><button v-else @click="createNote">新建笔记</button></div>
       </div>
       <div class="list-utilities">
         <button @click="router.push({ name: 'knowledge-graph' })"><Link />知识图谱</button>
@@ -576,6 +583,7 @@ async function openSearchHit(id) {
       <KnowledgeImportPanel v-else @navigate="id => selectNote(notes.find(item => item.id === id))" @imported="id => loadAll(id)" />
     </aside>
   </div>
+  <ContextMenu v-bind="objectMenu" @close="objectMenu.open = false" />
 </template>
 
 <style scoped>

@@ -10,6 +10,7 @@ const syncStatus = ref({
   feishu: { configured: false, lastPullAt: null, lastPushAt: null },
 })
 const loading = ref(false)
+const loadError = ref('')
 
 const settings = useSettingsStore()
 // WebDAV 配置
@@ -45,6 +46,7 @@ const feishuSyncInfo = ref({
 
 async function loadSyncStatus() {
   loading.value = true
+  loadError.value = ''
   const result = await casyContext.sync.status()
   if (result.ok && result.data) {
     syncStatus.value.webdav = {
@@ -54,7 +56,7 @@ async function loadSyncStatus() {
       lastSync: result.data.lastSyncAt,
       error: result.data.lastError,
     }
-  }
+  } else loadError.value = result.error || '同步状态加载失败'
   loading.value = false
 }
 
@@ -267,6 +269,7 @@ onMounted(() => {
 
 <template>
   <div class="sync-status-view">
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadSyncStatus">重试</el-button></el-alert>
     <el-row :gutter="16">
       <!-- WebDAV 同步 -->
       <el-col :span="12">

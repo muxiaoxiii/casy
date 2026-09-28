@@ -39,6 +39,7 @@ export const useSettingsStore = defineStore('settings', {
     mcp_server_enabled: false,
     daily_brief_style: 'gazette',
     weekly_report_style: 'dossier',
+    ai_tool_policy: { disabled: [] as string[], writeApproval: {} as Record<string, 'always_ask' | 'always_approve' | 'always_reject'> },
     loading: false,
   }),
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { KIND_META, KIND_OPTIONS, type PersonDto, type PersonKind } from '../types'
 
@@ -43,6 +43,7 @@ const blank = (kind: PersonKind): PersonForm => ({
 
 const form = reactive<PersonForm>(blank('contact'))
 const saving = ref(false)
+let savedForm = ''
 
 watch(
   () => props.modelValue,
@@ -60,10 +61,15 @@ watch(
     } else {
       Object.assign(form, blank(props.presetKind || 'contact'))
     }
+    savedForm = JSON.stringify(form)
   }
 )
 
-function close() {
+async function close() {
+  if (saving.value) return
+  if (JSON.stringify(form) !== savedForm) {
+    try { await ElMessageBox.confirm('尚未保存的修改会被丢弃。', '放弃修改？', { confirmButtonText: '放弃修改', cancelButtonText: '继续编辑', type: 'warning' }) } catch { return }
+  }
   emit('update:modelValue', false)
 }
 
@@ -73,6 +79,7 @@ function nullIfEmpty(s: string): string | null {
 }
 
 async function save() {
+  if (saving.value) return
   if (!form.name.trim()) {
     ElMessage.warning('请填写名称')
     return
@@ -95,6 +102,7 @@ async function save() {
   }
   ElMessage.success(props.person ? '已更新' : '已创建')
   emit('saved', res.data)
+  savedForm = JSON.stringify(form)
   close()
 }
 </script>
@@ -104,9 +112,10 @@ async function save() {
     :model-value="modelValue"
     :title="person ? '编辑实体' : '新建实体'"
     size="440px"
-    @update:model-value="emit('update:modelValue', $event)"
+    :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving"
+    :before-close="close"
   >
-    <el-form label-position="top" class="person-form">
+    <el-form label-position="top" class="person-form" :disabled="saving">
       <el-form-item label="类型" required>
         <el-select v-model="form.kind" style="width: 100%">
           <el-option v-for="k in KIND_OPTIONS" :key="k" :value="k" :label="KIND_META[k].label">
@@ -150,7 +159,7 @@ async function save() {
     </el-form>
 
     <template #footer>
-      <el-button @click="close">取消</el-button>
+      <el-button :disabled="saving" @click="close">取消</el-button>
       <el-button type="primary" :loading="saving" @click="save">
         {{ person ? '保存修改' : '创建' }}
       </el-button>

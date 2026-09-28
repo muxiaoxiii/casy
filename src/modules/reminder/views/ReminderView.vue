@@ -1,7 +1,8 @@
 <script setup>
+import { useRouter } from 'vue-router'
 import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
-import { ElMessage, ElMessageBox } from 'element-plus'
+const router = useRouter()
 import { Bell, Warning, CircleCheck, View, Hide, RefreshRight, Timer, AlarmClock, Notification } from '../../../shared/icons'
 
 // ============================================================
@@ -130,21 +131,9 @@ function getDaysText(days) {
   return `${days} 天后`
 }
 
-async function markRead(entry) {
-  ElMessage.success(`已标记「${entry.parsed.caseName || entry.parsed.type}」为已读`)
-}
-
-async function ignoreEntry(entry) {
-  try {
-    await ElMessageBox.confirm('确认忽略此提醒？', '忽略提醒', { type: 'warning' })
-    ElMessage.info('已忽略')
-  } catch {}
-}
-
 function viewDetail(entry) {
-  if (entry.caseId) {
-    window.location.hash = `#/cases/${entry.caseId}`
-  }
+  if (entry.caseId) router.push({ name: 'case-detail', params: { id: entry.caseId } })
+  else if (entry.taskId) router.push({ path: '/tasks', query: { edit: entry.taskId } })
 }
 
 // ============================================================
@@ -161,6 +150,7 @@ onMounted(loadLogs)
         v-for="(cfg, key) in levelConfig"
         :key="key"
         class="stat-card"
+        role="button" tabindex="0" :aria-pressed="activeTab === key" @keydown.enter="activeTab = key" @keydown.space.prevent="activeTab = key"
         :class="{ active: activeTab === key }"
         :style="{ borderColor: cfg.color }"
         @click="activeTab = key"
@@ -236,15 +226,10 @@ onMounted(loadLogs)
 
           <!-- 右侧操作 -->
           <div class="item-actions">
-            <el-button size="small" text type="primary" @click="viewDetail(item)">
+            <el-button v-if="item.caseId || item.taskId" size="small" text type="primary" @click="viewDetail(item)">
               <el-icon><View /></el-icon> 查看
             </el-button>
-            <el-button size="small" text @click="markRead(item)">
-              <el-icon><CircleCheck /></el-icon> 已读
-            </el-button>
-            <el-button size="small" text type="info" @click="ignoreEntry(item)">
-              <el-icon><Hide /></el-icon> 忽略
-            </el-button>
+
           </div>
         </div>
       </div>
@@ -271,7 +256,7 @@ onMounted(loadLogs)
 }
 
 .stat-card {
-  background: #fff;
+  background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-left: 3px solid #ddd;
   border-radius: 8px;
@@ -309,7 +294,7 @@ onMounted(loadLogs)
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: 8px;
   overflow: hidden;
@@ -395,7 +380,7 @@ onMounted(loadLogs)
   border-radius: 8px;
   margin-bottom: 8px;
   transition: all var(--motion-fast)  ease;
-  background: #fff;
+  background: var(--c-bg-card);
 }
 
 .reminder-item:hover {

@@ -1,4 +1,8 @@
 <script setup>
+import ContextMenu from "../../../shared/components/ContextMenu.vue"
+import { useContextActions } from "../../../shared/composables/useContextActions"
+const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { observeChanges } from '../../../core/observeChanges'
@@ -43,6 +47,7 @@ const tasks = ref([])
 const cases = ref([])
 const areas = ref([])
 const loading = ref(false)
+const loadError = ref('')
 const savingTask = ref(false)
 const busyTasks = new Set()
 const undoAvailable = computed(canUndo)
@@ -64,6 +69,25 @@ const selectedCaseFilter = ref('all')
 const showDrawer = ref(false)
 const editingTask = ref(null)
 const editForm = ref(emptyEditForm())
+const originalEditForm = ref('')
+let discardPrompt = null
+async function canLeaveTaskEditor() {
+  if (savingTask.value) return false
+  if (!showDrawer.value || JSON.stringify(editForm.value) === originalEditForm.value) return true
+  if (!discardPrompt) {
+    discardPrompt = ElMessageBox.confirm('任务修改尚未保存。离开后将丢弃这些修改。', '保留任务修改？', {
+      type: 'warning', confirmButtonText: '放弃修改', cancelButtonText: '继续编辑',
+    }).then(() => true, () => false).finally(() => { discardPrompt = null })
+  }
+  return discardPrompt
+}
+async function closeTaskEditor(done) {
+  if (await canLeaveTaskEditor()) {
+    if (typeof done === 'function') done()
+    else showDrawer.value = false
+  }
+}
+
 
 // 弹窗状态
 const showCreateDialog = ref(false)
@@ -130,7 +154,7 @@ const secondaryPerspectives = computed(() => perspectives.filter(p => !primaryPe
 const currentPerspective = computed(() => perspectives.find(p => p.key === activePerspective.value) || { label: customPerspectives.value.find(p => p.id === activePerspective.value)?.name || '任务', desc: '按你的方式组织工作' })
 const capturePreview = computed(() => parseWhen(captureInput.value))
 async function flushQuickEditor() { return (await quickEditors.value?.[0]?.saveIfDirty()) !== false }
-onBeforeRouteLeave(flushQuickEditor)
+onBeforeRouteLeave(async () => (await canLeaveTaskEditor()) && (await flushQuickEditor()))
 async function inspectTask(task) { if (await flushQuickEditor()) inspectedTaskId.value = inspectedTaskId.value === task.id ? '' : task.id }
 async function selectCase(id) { if (!(await flushQuickEditor())) return; selectedCaseFilter.value = id; await switchPerspective('all') }
 function advancedTask(task) { inspectedTaskId.value = ''; openDrawer(tasks.value.find(t => t.id === task.id) || task) }
@@ -213,18 +237,7 @@ onMounted(async () => {
   await loadData()
   filtersStore.loadFilters('tasks')
 
-  // 消费 ?edit=<taskId>（证据链接/通知中心跳转约定）：定位并打开任务抽屉
-  const editId = route.query.edit
-  if (editId) {
-    const target = tasks.value.find(t => t.id === editId)
-    if (target) {
-      openDrawer(target)
-    } else {
-      ElMessage.warning('未找到对应任务（可能已被删除）')
-    }
-    const { edit, ...query } = route.query
-    router.replace({ query })
-  }
+  openTaskFromRoute()
 
   unregisterKeys.push(
     registerShortcut('meta+t', () => captureInputRef.value?.focus(), { description: '聚焦快速捕获' }),
@@ -234,6 +247,17 @@ onMounted(async () => {
     registerShortcut('ctrl+z', () => undoTaskAction(), { description: '撤销上一步任务操作' })
   )
 })
+
+function openTaskFromRoute() {
+  const editId = route.query.edit
+  if (typeof editId !== 'string' || loading.value || loadError.value) return
+  const target = tasks.value.find(t => t.id === editId)
+  if (target) openDrawer(target)
+  else ElMessage.warning('未找到对应任务（可能已被删除）')
+  const { edit, ...query } = route.query
+  void router.replace({ query })
+}
+watch(() => route.query.edit, openTaskFromRoute)
 
 onUnmounted(() => {
   if (dayTimer) window.clearInterval(dayTimer)
@@ -256,7 +280,9 @@ async function loadTasks() {
   const request = ++tasksRequest
   // 加载包含已完成在内的全量任务以支持已完成归档透视
   const result = await casyContext.tasks.list({})
-  if (request === tasksRequest && result.ok && Array.isArray(result.data)) {
+  if (request !== tasksRequest) return
+  loadError.value = result.ok && Array.isArray(result.data) ? '' : result.error || '任务列表加载失败'
+  if (result.ok && Array.isArray(result.data)) {
     tasks.value = result.data
   }
 }
@@ -398,15 +424,19 @@ function onDragOver(e) {
 }
 
 // 打开编辑抽屉
-function openDrawer(task) {
+async function openDrawer(task) {
+  if (!(await canLeaveTaskEditor())) return
   editingTask.value = task
   editForm.value = toEditForm(task)
+  originalEditForm.value = JSON.stringify(editForm.value)
   showDrawer.value = true
 }
 
-function openNewTask() {
+async function openNewTask() {
+  if (!(await canLeaveTaskEditor())) return
   editingTask.value = { id: null, taskName: '' }
   editForm.value = emptyEditForm('inbox')
+  originalEditForm.value = JSON.stringify(editForm.value)
   showDrawer.value = true
 }
 
@@ -432,7 +462,7 @@ async function saveTask() {
   } else {
     ElMessage.error(result.error || '保存失败')
   }
-  } finally { savingTask.value = false }
+  } catch (error) { ElMessage.error(String(error)); } finally { savingTask.value = false }
 }
 
 async function moveTaskToday(task) {
@@ -652,6 +682,7 @@ function getCustomPerspectiveCount(perspectiveId) {
       <button type="button" class="task-nav-calendar" @click="router.push('/calendar')"><el-icon><Calendar /></el-icon> 在日历中安排时间 <span>↗</span></button>
     </aside>
     <main class="task-focus-pane">
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadData">重试</el-button></el-alert>
       <div class="task-mobile-filters"><select :value="activePerspective" aria-label="选择任务视角" @change="switchPerspective($event.target.value)"><option v-for="p in perspectives" :key="p.key" :value="p.key">{{ p.label }}</option><option v-for="p in customPerspectives" :key="p.id" :value="p.id">{{ p.name }}</option></select><select :value="selectedCaseFilter" aria-label="筛选关联案件" @change="selectCase($event.target.value)"><option value="all">全部案件</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option></select></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
     <div class="tasks-top-header">
@@ -728,7 +759,7 @@ function getCustomPerspectiveCount(perspectiveId) {
           <div
             v-for="task in quad.tasks"
             :key="task.id"
-            class="quad-task-item"
+            class="quad-task-item" @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
             draggable="true"
             @dragstart="onDragStartTask($event, task)"
             @click="openDrawer(task)"
@@ -766,6 +797,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         <div class="cg-tasks-list">
           <template v-for="task in cg.tasks" :key="task.id"><TaskRow
             :task="task"
+            @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
             :perspective="activePerspective"
             :snooze-options="snoozeOptions"
             :resolve-case-name="getCaseName"
@@ -790,7 +822,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         </div>
       </div>
       <StateFeedback
-        v-if="loading || !caseGroupSections.length"
+        v-if="!loadError && (loading || !caseGroupSections.length)"
         :state="loading ? 'loading' : 'empty'"
         empty-text="暂无案件相关待办"
       />
@@ -812,6 +844,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         <template v-for="task in gtdTasks" :key="task.id">
           <TaskRow
             :task="task"
+            @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
             :perspective="activePerspective"
             :snooze-options="snoozeOptions"
             :resolve-case-name="getCaseName"
@@ -859,7 +892,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         </template>
 
         <StateFeedback
-          v-if="loading || !gtdTasks.length"
+          v-if="!loadError && (loading || !gtdTasks.length)"
           :state="loading ? 'loading' : 'empty'"
           :empty-text="activePerspective === 'completed' ? '暂无已完成归档记录' : activePerspective === 'deferred' ? '暂无推迟中的任务，可在任务菜单选择「推迟到…」' : '当前视角下暂无任务，输入上方输入框快速记录'"
         />
@@ -871,6 +904,7 @@ function getCustomPerspectiveCount(perspectiveId) {
     <!-- ═══ 5. 任务编辑详情抽屉 (Task Detail Drawer) ═══ -->
     <el-drawer
       v-model="showDrawer"
+      :before-close="closeTaskEditor"
       :title="editingTask?.id ? '任务详细信息' : '新建任务（可直接关联案件）'"
       size="min(480px, 100vw)"
       :close-on-click-modal="!savingTask"
@@ -878,7 +912,7 @@ function getCustomPerspectiveCount(perspectiveId) {
       :show-close="!savingTask"
       destroy-on-close
     >
-      <div v-if="editingTask" class="drawer-body">
+      <fieldset v-if="editingTask" class="drawer-body" :disabled="savingTask">
         <div class="form-item">
           <label for="task-edit-name">任务名称</label>
           <input id="task-edit-name" v-model="editForm.taskName" class="form-input" placeholder="输入任务名称..." />
@@ -984,7 +1018,7 @@ function getCustomPerspectiveCount(perspectiveId) {
           <label>备注与案情要点</label>
           <textarea v-model="editForm.description" rows="4" class="form-textarea" placeholder="记录事项细节、会见要点或草案说明..." />
         </div>
-      </div>
+      </fieldset>
 
       <template #footer>
         <div class="drawer-footer">
@@ -993,7 +1027,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             <span>删除</span>
           </button>
           <div class="drawer-right-btns">
-            <button class="btn-cancel" :disabled="savingTask" @click="showDrawer = false">取消</button>
+            <button class="btn-cancel" :disabled="savingTask" @click="closeTaskEditor">取消</button>
             <button class="btn-primary" :disabled="savingTask" @click="saveTask">{{ savingTask ? '保存中...' : editingTask?.id ? '保存修改' : '创建任务' }}</button>
           </div>
         </div>
@@ -1038,6 +1072,7 @@ function getCustomPerspectiveCount(perspectiveId) {
       @save="handlePerspectiveSave"
     />
   </div>
+  <ContextMenu v-bind="objectMenu" @close="objectMenu.open = false" />
 </template>
 
 <style scoped>
@@ -1562,6 +1597,9 @@ function getCustomPerspectiveCount(perspectiveId) {
 
 /* ── 5. 抽屉样式 ─────────────────────────────────────────── */
 .drawer-body {
+  border: 0;
+  margin: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;

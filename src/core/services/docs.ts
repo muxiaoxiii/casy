@@ -5,6 +5,7 @@ import { tauriCallSafe } from '../tauriBridge'
 // 与生成类型重复，且已确认无外部 import 引用，随本次收口统一到 bindings（删除重复）。
 import type {
   Draft,
+  DraftVersion,
   ExportResponse,
   RenderResponse,
   TemplateListResponse,
@@ -60,6 +61,14 @@ export class DocsService extends Service {
   /** 获取单个草稿 */
   async getDraft(id: string): Promise<{ ok: boolean; data?: Draft; error?: string }> {
     return tauriCallSafe('get_draft', { id })
+  }
+
+  async draftVersions(id: string, offset = 0): Promise<{ ok: boolean; data?: DraftVersion[]; error?: string }> {
+    return tauriCallSafe('list_draft_versions', { id, offset })
+  }
+
+  async restoreDraftVersion(id: string, version: number, expectedVersion: number): Promise<{ ok: boolean; data?: Draft; error?: string }> {
+    return this.mutation('doc', tauriCallSafe('restore_draft_version', { id, version, expectedVersion }))
   }
 
   /** 新建草稿 */

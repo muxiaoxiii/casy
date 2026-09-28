@@ -6,6 +6,8 @@ import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const loading = ref(false)
+const loadError = ref('')
+const activeGroups = ref(['same_patent', 'same_party', 'appeal_of', 'cross_reference'])
 const cases = ref([])
 const relations = ref([])
 const selectedCaseId = ref(null)
@@ -20,12 +22,11 @@ const relationTypeMap = {
 
 // 加载所有案件
 async function loadCases() {
-  loading.value = true
   const result = await casyContext.cases.list({})
   if (result.ok) {
     cases.value = result.data?.items || []
   }
-  loading.value = false
+  else throw new Error(result.error || '案件加载失败')
 }
 
 // 加载所有关系
@@ -33,6 +34,7 @@ async function loadAllRelations() {
   const allRelations = []
   for (const c of cases.value) {
     const result = await casyContext.cases.relations(c.id)
+    if (!result.ok) throw new Error(result.error || '案件关系加载失败')
     if (result.ok) {
       for (const rel of result.data) {
         // 避免重复（双向关系只记录一次）
@@ -96,10 +98,16 @@ function selectCase(caseId) {
   selectedCaseId.value = selectedCaseId.value === caseId ? null : caseId
 }
 
-onMounted(async () => {
-  await loadCases()
-  await loadAllRelations()
-})
+async function reload() {
+  if (loading.value) return
+  loading.value = true
+  loadError.value = ''
+  try { await loadCases(); await loadAllRelations() }
+  catch (e) { loadError.value = String(e) }
+  finally { loading.value = false }
+}
+onMounted(reload)
+
 </script>
 
 <template>
@@ -107,12 +115,13 @@ onMounted(async () => {
     <el-card v-loading="loading">
       <template #header>
         <div class="card-header">
-          <strong>🕸️ 案件关系网络</strong>
-          <el-button size="small" @click="loadCases(); loadAllRelations()">刷新</el-button>
+          <strong>案件关系网络</strong>
+          <el-button size="small" :loading="loading" @click="reload">刷新</el-button>
         </div>
       </template>
 
-      <el-empty v-if="!loading && cases.length === 0" description="暂无案件数据" />
+      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="reload">重试</el-button></el-alert>
+      <el-empty v-else-if="!loading && cases.length === 0" description="暂无案件数据" />
 
       <template v-else>
         <!-- 关系统计 -->

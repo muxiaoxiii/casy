@@ -200,6 +200,7 @@ export interface CasyContext {
   // ── 工具注册 ──
   registerTool(tool: CasyTool): void
   unregisterTool(name: string): void
+  getRegisteredTools(): CasyTool[]
   getTools(): CasyTool[]
   getTool(name: string): CasyTool | null
   getToolDefinitions(): Array<Pick<CasyTool, 'name' | 'description' | 'parameters'>>

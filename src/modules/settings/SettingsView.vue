@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from '../../stores/settings'
 import FeishuSettings from './components/FeishuSettings.vue'
 import WebDAVSettings from './components/WebDAVSettings.vue'
+import ToolPolicySettings from './components/ToolPolicySettings.vue'
 import AISettings from './components/AISettings.vue'
 import ImapSettings from './components/ImapSettings.vue'
 import GeneralSettings from './components/GeneralSettings.vue'
@@ -25,15 +26,25 @@ import {
 
 const settingsStore = useSettingsStore()
 const activeTab = ref('profile')
+const visitedTabs = ref(new Set<string>())
 const route = useRoute()
-watch(() => route.query.tab, tab => { if (tab === 'ai') activeTab.value = 'ai' }, { immediate: true })
+const router = useRouter()
 const mobileTabs = [
   ['profile', '律师画像'], ['general', '常规设置'], ['ai', 'AI 引擎配置'],
-  ['briefing-styles', '早报/周报样式'], ['folder-template', '文件夹模板'],
+  ['tools', 'AI 工具策略'], ['briefing-styles', '早报/周报样式'], ['folder-template', '文件夹模板'],
   ['reminder', '智能提醒'], ['deadline-rules', '期限规则'], ['smart-rules', '智能规则'],
   ['webdav', 'WebDAV 备份'], ['feishu', '飞书集成'], ['imap', '邮箱监听'],
   ['smtp-mcp', 'SMTP / MCP'], ['backup', '数据备份'], ['about', '关于 Casy'],
 ]
+
+watch(() => route.query.tab, tab => {
+  activeTab.value = mobileTabs.some(([key]) => key === tab) ? String(tab) : 'profile'
+  visitedTabs.value.add(activeTab.value)
+}, { immediate: true })
+watch(activeTab, tab => {
+  visitedTabs.value.add(tab)
+  if (tab !== route.query.tab) void router.replace({ query: { ...route.query, tab } })
+})
 
 const seeding = ref(false)
 const seedDisabled = ref(false)
@@ -106,6 +117,7 @@ onMounted(async () => {
           <el-icon><Cpu /></el-icon>
           <span>{{ $t('settings.ai_model') }}</span>
         </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'tools' }" @click="activeTab = 'tools'"><el-icon><SetUp /></el-icon><span>AI 工具策略</span></button>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'briefing-styles' }" @click="activeTab = 'briefing-styles'">
           <el-icon><MagicStick /></el-icon>
           <span>{{ $t('settings.briefing_style') }}</span>
@@ -162,8 +174,8 @@ onMounted(async () => {
     </div>
 
     <div class="settings-content">
-      <div v-show="activeTab === 'profile'"><ProfileSettings /></div>
-      <div v-show="activeTab === 'general'">
+      <div v-if="visitedTabs.has('profile')" v-show="activeTab === 'profile'"><ProfileSettings /></div>
+      <div v-if="visitedTabs.has('general')" v-show="activeTab === 'general'">
         <GeneralSettings />
         <el-divider style="margin: 20px 0" />
         <div class="demo-seed">
@@ -176,18 +188,19 @@ onMounted(async () => {
           </el-button>
         </div>
       </div>
-      <div v-show="activeTab === 'ai'"><AISettings /></div>
-      <div v-show="activeTab === 'briefing-styles'"><BriefingStyleSettings /></div>
-      <div v-show="activeTab === 'folder-template'"><FolderTemplateSettings /></div>
-      <div v-show="activeTab === 'reminder'"><ReminderSettings /></div>
-      <div v-show="activeTab === 'deadline-rules'"><DeadlineRulesSettings /></div>
-      <div v-show="activeTab === 'smart-rules'"><SmartRulesSettings /></div>
-      <div v-show="activeTab === 'webdav'"><WebDAVSettings /></div>
-      <div v-show="activeTab === 'feishu'"><FeishuSettings /></div>
-      <div v-show="activeTab === 'imap'"><ImapSettings /></div>
-      <div v-show="activeTab === 'smtp-mcp'"><SmtpMcpSettings /></div>
-      <div v-show="activeTab === 'backup'"><BackupSettings /></div>
-      <div v-show="activeTab === 'about'"><AboutSettings /></div>
+      <div v-if="visitedTabs.has('ai')" v-show="activeTab === 'ai'"><AISettings /></div>
+      <ToolPolicySettings v-if="activeTab === 'tools'" />
+      <div v-if="visitedTabs.has('briefing-styles')" v-show="activeTab === 'briefing-styles'"><BriefingStyleSettings /></div>
+      <div v-if="visitedTabs.has('folder-template')" v-show="activeTab === 'folder-template'"><FolderTemplateSettings /></div>
+      <div v-if="visitedTabs.has('reminder')" v-show="activeTab === 'reminder'"><ReminderSettings /></div>
+      <div v-if="visitedTabs.has('deadline-rules')" v-show="activeTab === 'deadline-rules'"><DeadlineRulesSettings /></div>
+      <div v-if="visitedTabs.has('smart-rules')" v-show="activeTab === 'smart-rules'"><SmartRulesSettings /></div>
+      <div v-if="visitedTabs.has('webdav')" v-show="activeTab === 'webdav'"><WebDAVSettings /></div>
+      <div v-if="visitedTabs.has('feishu')" v-show="activeTab === 'feishu'"><FeishuSettings /></div>
+      <div v-if="visitedTabs.has('imap')" v-show="activeTab === 'imap'"><ImapSettings /></div>
+      <div v-if="visitedTabs.has('smtp-mcp')" v-show="activeTab === 'smtp-mcp'"><SmtpMcpSettings /></div>
+      <div v-if="visitedTabs.has('backup')" v-show="activeTab === 'backup'"><BackupSettings /></div>
+      <div v-if="visitedTabs.has('about')" v-show="activeTab === 'about'"><AboutSettings /></div>
     </div>
   </div>
 </template>

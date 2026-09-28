@@ -57,6 +57,7 @@ export class InboxPlugin implements CasyPlugin {
   private createAddInboxItemTool(ctx: CasyContext): CasyTool {
     return defineTool<{ content?: string; sourceType?: string; sourcePath?: string }>({
       name: 'add_inbox_item',
+      policy: { write: true, level: 'L2' },
       description: '添加收件箱条目（文本/文件/邮件）',
       category: 'inbox',
       parameters: {
@@ -86,6 +87,7 @@ export class InboxPlugin implements CasyPlugin {
   private createProcessInboxItemTool(ctx: CasyContext): CasyTool {
     return defineTool<{ id: string }>({
       name: 'process_inbox_item',
+      policy: { write: true, level: 'L2' },
       description: '处理收件箱条目（AI 分类 + 案件匹配）',
       category: 'inbox',
       parameters: {
@@ -105,6 +107,7 @@ export class InboxPlugin implements CasyPlugin {
   private createFileInboxItemTool(ctx: CasyContext): CasyTool {
     return defineTool<{ id: string; caseId: string; category?: string }>({
       name: 'file_inbox_item',
+      policy: { write: true, level: 'L2' },
       description: '归档收件箱条目到案件',
       category: 'inbox',
       parameters: {
@@ -130,6 +133,7 @@ export class InboxPlugin implements CasyPlugin {
   private createDismissInboxItemTool(ctx: CasyContext): CasyTool {
     return defineTool<{ id: string }>({
       name: 'dismiss_inbox_item',
+      policy: { write: true, level: 'L2' },
       description: '忽略收件箱条目',
       category: 'inbox',
       parameters: {

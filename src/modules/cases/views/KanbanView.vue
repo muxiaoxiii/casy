@@ -245,6 +245,7 @@ onMounted(async () => {
       </div>
     </div>
 
+    <el-alert v-if="casesStore.listError" :title="casesStore.listError" type="error" :closable="false"><el-button text @click="casesStore.loadCases()">重试</el-button></el-alert>
     <div v-if="loading" class="kanban-loading">加载中...</div>
 
     <div v-else class="kanban-board">

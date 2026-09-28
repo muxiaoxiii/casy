@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
                 .unwrap(),
-            42
+            crate::db::schema::CURRENT_SCHEMA_VERSION as i32
         );
         assert_eq!(
             conn.query_row("SELECT due_date FROM tasks WHERE id='t'", [], |r| r

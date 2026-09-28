@@ -6,6 +6,8 @@ import { useAiSettingsStore } from '../../../stores/aiSettings'
 import { AI_PROMPTS } from '../../../core/prompts'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import AIStatusBadge from '../../../shared/components/AIStatusBadge.vue'
+import { useRouter } from 'vue-router'
+const router = useRouter()
 
 const store = useAiSettingsStore()
 const selectedId = ref('')
@@ -125,10 +127,14 @@ async function migrateLegacy() {
       <el-button :icon="RefreshLeft" @click="store.config.systemPrompt = AI_PROMPTS.SYSTEM_DEFAULT">恢复默认提示词</el-button>
       <el-button type="primary" :icon="Check" :loading="store.loading" @click="save">保存配置</el-button>
     </el-form>
+    <el-divider />
+    <div class="tool-policy-entry"><div><h3>AI 工具策略</h3><p>管理各模块工具的启用状态与写入审批。</p></div><el-button @click="router.push({ path: '/settings', query: { tab: 'tools' } })">管理工具策略</el-button></div>
   </section>
 </template>
 
 <style scoped>
+.tool-policy-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.tool-policy-entry h3{font-size:14px;margin:0 0 6px}.tool-policy-entry p{font-size:12px;color:var(--c-text-secondary);margin:0}
+
 .ai-settings { max-width: 780px; }
 .usage-status { margin-left: 12px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }

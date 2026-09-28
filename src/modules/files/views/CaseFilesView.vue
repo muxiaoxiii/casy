@@ -489,7 +489,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
   <div class="case-files-view" v-loading="loading">
     <header class="workspace-header">
       <div class="workspace-identity">
-        <button class="back-button" type="button" aria-label="返回案件" @click="router.back()">
+        <button class="back-button" type="button" aria-label="返回案件" @click="router.push(caseId ? `/cases/${caseId}` : '/cases')">
           <el-icon><ArrowLeft /></el-icon>
         </button>
         <div>

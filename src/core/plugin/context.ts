@@ -266,7 +266,7 @@ export class CasyContextImpl implements CasyContext {
   }
 
   // ── 工具注册 ──
-  /** 用户在设置中禁用的工具名（不进入 AI / MCP 可见面） */
+  /** 用户在设置中禁用的工具名（不进入内置 AI 可见面；Rust MCP 独立审批） */
   private disabledTools = new Set<string>()
   /** 写工具审批策略：always_ask | always_approve | always_reject */
   private writeApproval = new Map<string, 'always_ask' | 'always_approve' | 'always_reject'>()
@@ -274,6 +274,7 @@ export class CasyContextImpl implements CasyContext {
   setToolPolicy(policies: { disabled?: string[]; writeApproval?: Record<string, 'always_ask' | 'always_approve' | 'always_reject'> }): void {
     this.disabledTools = new Set(policies.disabled || [])
     this.writeApproval = new Map(Object.entries(policies.writeApproval || {}))
+    this.emit('tools:policy-changed', {})
   }
 
   getToolPolicy() {
@@ -289,6 +290,11 @@ export class CasyContextImpl implements CasyContext {
 
   unregisterTool(name: string): void {
     this.tools.delete(name)
+  }
+
+  /** Complete registry for settings, including tools disabled by the user. */
+  getRegisteredTools(): CasyTool[] {
+    return [...this.tools.values()]
   }
 
   getTools(): CasyTool[] {

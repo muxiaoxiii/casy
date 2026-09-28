@@ -21,6 +21,6 @@ describe('case identity under delayed responses',()=>{
     const store=useCasesStore();const old=store.loadCases();store.filter.search='b';await store.loadCases()
     finish({ok:true,data:{items:[{id:'a'}],total:4}});await old
     expect(store.cases.map(c=>c.id)).toEqual(['b']);expect(store.total).toBe(1)
-    service.list.mockRejectedValueOnce(new Error('offline'));await expect(store.loadCases()).rejects.toThrow('offline');expect(store.loading).toBe(false)
+    service.list.mockRejectedValueOnce(new Error('offline'));await store.loadCases();expect(store.loading).toBe(false);expect(store.listError).toContain('offline');expect(store.cases.map(c=>c.id)).toEqual(['b'])
   })
 })

@@ -11,6 +11,7 @@
 import { watch, ref, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import { BubbleMenu } from "@tiptap/vue-3/menus";
+import { TextSelection } from "@tiptap/pm/state";
 import { Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -21,6 +22,10 @@ import { useEditorTasks } from "./useEditorTasks";
 import { tauriCallSafe } from "../../core/tauriBridge";
 import { ResizableImage } from "./ResizableImage";
 import { useBlockMenu } from './useBlockMenu';
+import ContextMenu, { type ContextAction } from "../components/ContextMenu.vue";
+import { blockAt, editBlock } from "./blockActions";
+import { moveBlock } from "./blockDrag";
+import { useBlockDrag } from './blockDrag';
 import EditorToolbar from "./EditorToolbar.vue";
 import { documentExtensions } from "./schema";
 import documentStyle from "./document-style.json";
@@ -103,6 +108,7 @@ const emit = defineEmits<{
   ready: [editor: any];
   transaction: [];
   "active-block": [index: number];
+  "capture-selection": [event: MouseEvent];
   save: [];
   change: [];
   blur: [];
@@ -210,7 +216,73 @@ function shouldShowBubble({
   from: number;
   to: number;
 }) {
-  return from !== to && !activeEditor.isActive("codeBlock");
+  return !context.value.open && activeEditor.isFocused && from !== to && !activeEditor.isActive("codeBlock");
+}
+
+const context = ref({ open: false, x: 0, y: 0, label: '', actions: [] as ContextAction[] })
+function openBlockActions(event: MouseEvent, index = blockDrag.state.index) {
+  const ed = editor.value
+  if (!ed || props.compact || !ed.isEditable) return
+  flushSourceEditors(ed)
+  const block = blockAt(ed, index)
+  if (!block) return
+  event.preventDefault(); event.stopPropagation()
+  const snapshot = ed.state.doc
+  const safe = (action: () => void) => () => { if (!ed.isDestroyed && ed.state.doc === snapshot) action() }
+  const select = () => ed.view.dispatch(ed.state.tr.setSelection(TextSelection.between(ed.state.doc.resolve(block.pos + 1), ed.state.doc.resolve(block.pos + block.node.nodeSize - 1))))
+  const format = (action: (chain: any) => any) => safe(() => { select(); action(ed.chain().focus()).run() })
+  const canConvert = ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'blockquote', 'codeBlock'].includes(block.node.type.name)
+  const actions: ContextAction[] = [
+    { label: '在上方插入正文', run: safe(() => { editBlock(ed, index, 'before') }) },
+    { label: '在下方插入正文', run: safe(() => { editBlock(ed, index, 'after') }) },
+    { label: '转换块类型', separator: true, children: [
+    { label: '转换为正文', disabled: !canConvert, run: format(c => c.clearNodes().setParagraph()) },
+    ...([1, 2, 3] as const).map(level => ({ label: `转换为${['一','二','三'][level - 1]}级标题`, disabled: !canConvert, run: format(c => c.clearNodes().setHeading({ level })) })),
+    { label: '转换为项目列表', disabled: !canConvert, run: format(c => c.toggleBulletList()) },
+    { label: '转换为编号列表', disabled: !canConvert, run: format(c => c.toggleOrderedList()) },
+    { label: '转换为待办清单', disabled: !canConvert, run: format(c => c.toggleTaskList()) },
+    { label: '转换为引用', disabled: !canConvert, run: format(c => c.toggleBlockquote()) },
+    ] },
+    { label: '对齐方式', children: [
+    { label: '左对齐', disabled: !canConvert, run: format(c => c.setTextAlign('left')) },
+    { label: '居中', disabled: !canConvert, run: format(c => c.setTextAlign('center')) },
+    { label: '右对齐', disabled: !canConvert, run: format(c => c.setTextAlign('right')) },
+    ] },
+    { label: '清除文字样式', disabled: !canConvert, run: format(c => c.unsetAllMarks()) },
+    { label: '上移', separator: true, shortcut: 'Alt ⇧ ↑', disabled: index === 0, run: safe(() => { moveBlock(ed, index, index - 1) }) },
+    { label: '下移', shortcut: 'Alt ⇧ ↓', disabled: index === ed.state.doc.childCount - 1, run: safe(() => { moveBlock(ed, index, index + 2) }) },
+    { label: '创建副本', run: safe(() => { editBlock(ed, index, 'duplicate') }) },
+    { label: '复制块文本', disabled: !block.node.textContent, run: safe(() => { void copyText(block.node.textContent) }) },
+    { label: '删除此块', separator: true, danger: true, shortcut: '可撤销', run: safe(() => { editBlock(ed, index, 'delete') }) },
+  ]
+  blockMenu.close()
+  context.value = { open: true, x: event.clientX || blockDrag.state.x, y: event.clientY || blockDrag.state.y + 28, label: '内容块操作', actions }
+}
+async function copyText(text: string) {
+  try { await navigator.clipboard.writeText(text); ElMessage.success('已复制') } catch { ElMessage.error('无法访问剪贴板，请使用系统复制快捷键') }
+}
+function editorContextMenu(event: MouseEvent) {
+  const ed = editor.value
+  if (!ed || props.compact || !(event.target instanceof HTMLElement) || !ed.view.dom.contains(event.target)) return
+  if (ed.state.selection.empty) {
+    const found = ed.view.posAtCoords({ left: event.clientX, top: event.clientY })
+    if (found) openBlockActions(event, ed.state.doc.resolve(found.pos).index(0))
+    return
+  }
+  event.preventDefault(); event.stopPropagation()
+  const { from, to } = ed.state.selection
+  const snapshot = ed.state.doc
+  const action = (fn: (chain: any) => any) => () => { if (!ed.isDestroyed && ed.state.doc === snapshot) fn(ed.chain().focus().setTextSelection({ from, to })).run() }
+  context.value = { open: true, x: event.clientX, y: event.clientY, label: '选中文字', actions: [
+    { label: '复制', shortcut: '⌘ / Ctrl C', run: () => { void copyText(snapshot.textBetween(from, to, '\n')) } },
+    { label: '粗体', separator: true, run: action(c => c.toggleBold()) },
+    { label: '斜体', run: action(c => c.toggleItalic()) },
+    { label: '下划线', run: action(c => c.toggleUnderline()) },
+    { label: '删除线', run: action(c => c.toggleStrike()) },
+    { label: '高亮', run: action(c => c.toggleHighlight()) },
+    { label: '清除文字样式', run: action(c => c.unsetAllMarks()) },
+    ...(props.sourceType === 'doc' ? [{ label: '沉淀至知识库…', separator: true, run: () => emit('capture-selection', event) }] : []),
+  ] }
 }
 
 const blockMenu = useBlockMenu();
@@ -220,6 +292,7 @@ const taskState = useEditorTasks(() => editor.value || undefined, props);
 /** 写作状态：字数/段落，便于长文写作时感知进度 */
 const writingStats = ref({ chars: 0, words: 0, paragraphs: 0, headings: 0 })
 const focusWriting = ref(false)
+const blockDrag = useBlockDrag(() => editor.value, () => { if (editor.value) flushSourceEditors(editor.value) })
 function refreshWritingStats() {
   const ed = editor.value
   if (!ed) return
@@ -272,6 +345,9 @@ const editor = useEditor({
     handleKeyDown(_view, event) {
       if (event.isComposing || _view.composing) return false;
       if (editor.value && blockMenu.keydown(editor.value, event)) return true;
+      if (!props.compact && event.altKey && event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+        event.preventDefault(); blockDrag.selectCurrent(); blockDrag.move(event.key === 'ArrowUp' ? -1 : 1); return true;
+      }
       const mod = event.metaKey || event.ctrlKey;
       // Cmd/Ctrl+S 保存（对齐既有 @save 语义）
       if (mod && event.key.toLowerCase() === "s") {
@@ -308,6 +384,7 @@ const editor = useEditor({
     },
   },
   onUpdate: () => {
+    context.value.open = false;
     contentChanged = true;
     emit("change");
     if (props.contentFormat === "html") flushSerialize();
@@ -344,6 +421,8 @@ watch(
     const ed = editor.value;
     if (!ed) return;
     const next = String(value ?? "");
+    context.value.open = false;
+    blockDrag.hide();
     if (next === lastEmitted) return;
     lastEmitted = next;
     contentChanged = false;
@@ -526,6 +605,8 @@ defineExpose({
   <div
     class="md-wysiwyg"
     :class="{ compact, 'focus-writing': focusWriting }"
+    @pointermove="!compact && !context.open && blockDrag.hover($event)"
+    @contextmenu="editorContextMenu"
     :style="{
       '--document-font-size': `${(documentStyle.bodySize * 4) / 3}px`,
       '--document-line-height': documentStyle.lineHeight,
@@ -578,43 +659,56 @@ defineExpose({
       :should-show="shouldShowBubble"
       :options="{ placement: 'top', offset: 8, flip: true, shift: true }"
       class="md-bubble-menu"
+      @mousedown.prevent
+      role="toolbar" aria-label="选中文字样式"
     >
       <button
         type="button"
-        :class="{ active: editor.isActive('bold') }"
+        :class="{ active: editor.isActive('bold') }" aria-label="粗体" title="粗体" :aria-pressed="editor.isActive('bold')"
         @click="cmd((c) => c.toggleBold())"
       >
         <b>B</b>
       </button>
       <button
         type="button"
-        :class="{ active: editor.isActive('italic') }"
+        :class="{ active: editor.isActive('italic') }" aria-label="斜体" title="斜体" :aria-pressed="editor.isActive('italic')"
         @click="cmd((c) => c.toggleItalic())"
       >
         <i>I</i>
       </button>
       <button
         type="button"
-        :class="{ active: editor.isActive('underline') }"
+        :class="{ active: editor.isActive('underline') }" aria-label="下划线" title="下划线" :aria-pressed="editor.isActive('underline')"
         @click="cmd((c) => c.toggleUnderline())"
       >
         <u>U</u>
       </button>
       <button
         type="button"
-        :class="{ active: editor.isActive('highlight') }"
+        :class="{ active: editor.isActive('highlight') }" aria-label="高亮" title="高亮" :aria-pressed="editor.isActive('highlight')"
         @click="cmd((c) => c.toggleHighlight())"
       >
         高亮
       </button>
       <button
         type="button"
-        :class="{ active: editor.isActive('link') }"
+        :class="{ active: editor.isActive('link') }" aria-label="链接" title="链接" :aria-pressed="editor.isActive('link')"
         @click="setLink"
       >
         链接
       </button>
+      <button type="button" aria-haspopup="menu" @click="openBlockActions($event, editor.state.selection.$from.index(0))">段落设置</button>
+      <button type="button" aria-label="删除线" title="删除线" :aria-pressed="editor.isActive('strike')" :class="{ active: editor.isActive('strike') }" @click="cmd(c => c.toggleStrike())"><s>S</s></button>
+      <button type="button" title="清除文字样式" @click="cmd(c => c.unsetAllMarks())">清除样式</button>
     </BubbleMenu>
+    <Teleport to="body">
+      <button v-if="!compact && blockDrag.state.index >= 0" type="button" class="writing-drag-handle" :class="{ dragging: blockDrag.state.active }" :style="{ left: blockDrag.state.x + 'px', top: blockDrag.state.y + 'px' }" aria-label="移动当前内容块，上下方向键调整位置" title="点击或右键打开块菜单 · 拖动调整顺序" aria-haspopup="menu" :aria-expanded="context.open" @click="openBlockActions($event)" @contextmenu.prevent.stop="openBlockActions($event)" @pointerdown="blockDrag.start" @keydown.up.prevent="blockDrag.move(-1)" @keydown.down.prevent="blockDrag.move(1)" @keydown.esc="blockDrag.hide">
+        <svg width="16" height="20" viewBox="0 0 16 20" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="5" cy="5" r="1.5"/><circle cx="11" cy="5" r="1.5"/><circle cx="5" cy="10" r="1.5"/><circle cx="11" cy="10" r="1.5"/><circle cx="5" cy="15" r="1.5"/><circle cx="11" cy="15" r="1.5"/></svg>
+      </button>
+      <div v-if="blockDrag.state.active && blockDrag.state.gap >= 0" class="writing-drop-line" :style="{ left: blockDrag.state.lineX + 'px', top: blockDrag.state.lineY + 'px', width: blockDrag.state.lineWidth + 'px' }" />
+    </Teleport>
+    <ContextMenu v-bind="context" @close="context.open = false" />
+    <span class="sr-only" role="status">{{ blockDrag.state.message }}</span>
     <div
       v-if="!compact"
       class="writing-stats"
@@ -708,6 +802,7 @@ defineExpose({
   font-size: 12px;
   color: var(--c-text-secondary);
 }
+.writing-drag-handle{position:fixed;z-index:100;width:24px;height:28px;display:grid;place-items:center;border:1px solid var(--c-border);border-radius:5px;background:var(--c-bg-card);color:var(--c-text-secondary);font-size:20px;cursor:grab;touch-action:none}.writing-drag-handle:hover,.writing-drag-handle.dragging{color:var(--c-primary);background:var(--c-bg-selected)}.writing-drag-handle.dragging{cursor:grabbing}.writing-drop-line{position:fixed;z-index:101;height:3px;background:var(--c-primary);pointer-events:none;border-radius:2px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .writing-stats {
   display: flex;
   gap: 12px;
@@ -740,6 +835,7 @@ defineExpose({
   margin-inline: auto;
   padding-block: 24px;
 }
+.document-task-status {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -866,6 +962,9 @@ defineExpose({
 }
 .md-bubble-menu {
   display: flex;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: calc(100vw - 24px);
   align-items: center;
   gap: 2px;
   padding: 5px;

@@ -34,3 +34,29 @@ describe('AI tool surface (P0)', () => {
     expect(allowed.ok).toBe(true)
   })
 })
+
+it('declares read/write behavior for every registered business tool', async () => {
+  const plugins = await import('../../src/core/plugins')
+  const { WorkspacePlugin } = await import('../../src/core/plugins/workspace-plugin')
+  const ctx = new CasyContextImpl()
+  for (const Plugin of [...Object.values(plugins), WorkspacePlugin]) await ctx.use(new Plugin())
+  expect(ctx.getRegisteredTools().length).toBeGreaterThan(40)
+  expect(ctx.getRegisteredTools().filter(t => typeof t.policy?.write !== 'boolean').map(t => t.name)).toEqual([])
+  for (const tool of ctx.getRegisteredTools().filter(t => t.policy?.write)) {
+    ctx.setToolPolicy({ writeApproval: { [tool.name]: 'always_reject' } })
+    expect(await ctx.executeTool(tool.name, {}, { origin: 'ai' })).toMatchObject({ ok: false, error: expect.stringContaining('禁止写入') })
+  }
+})
+
+it('reads prefixed knowledge and draft citations without confusing the two sources', async () => {
+  const { KnowledgePlugin } = await import('../../src/core/plugins/knowledge-plugin')
+  const tools: any[] = []
+  const knowledge = { getWithBlocks: vi.fn(async () => ({ ok: true, data: { item: { id: 'k', content: '知识正文' } } })) }
+  const docs = { getDraft: vi.fn(async () => ({ ok: true, data: { id: 'd', title: '文书', content: '字'.repeat(7000) } })) }
+  await new KnowledgePlugin().install({ registerTool: tool => tools.push(tool), knowledge, docs } as any)
+  const read = tools.find(t => t.name === 'read_document')
+  expect(await read.execute({ id: 'draft:d', offset: 6000 })).toMatchObject({ ok: true, data: { citation: 'draft:d', nextOffset: null, item: { content: '字'.repeat(1000) } } })
+  expect(knowledge.getWithBlocks).not.toHaveBeenCalled()
+  expect(await read.execute({ id: 'knowledge:k' })).toMatchObject({ ok: true, data: { citation: 'knowledge:k' } })
+  expect(knowledge.getWithBlocks).toHaveBeenCalledWith('k')
+})

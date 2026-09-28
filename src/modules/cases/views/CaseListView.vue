@@ -1,4 +1,8 @@
 <script setup>
+import ContextMenu from "../../../shared/components/ContextMenu.vue"
+import { useContextActions } from "../../../shared/composables/useContextActions"
+const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
+
 import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -119,13 +123,6 @@ const eventForm = ref({
 // ── 任务编辑抽屉 ──
 const showTaskDrawer = ref(false)
 const editingTask = ref(null)
-// 右键菜单状态
-const contextMenu = ref({
-  visible: false,
-  x: 0,
-  y: 0,
-  file: null,
-})
 const fileCategories = FILE_CATEGORIES
 // 案件要素编辑表单
 const trackOptions = [
@@ -595,16 +592,13 @@ async function copyFilePath(file) {
     ElMessage.info(file.filePath)
   }
 }
-function onFileContextMenu(e, file) {
-  contextMenu.value = {
-    visible: true,
-    x: Math.min(e.clientX, window.innerWidth - 200),
-    y: Math.min(e.clientY, window.innerHeight - 220),
-    file,
-  }
-}
-function closeContextMenu() {
-  contextMenu.value.visible = false
+function onFileContextMenu(event, file) {
+  showObjectMenu(event, file.fileName, [
+    { label: '系统默认方式打开', run: () => openFile(file) },
+    { label: '在访达/资源管理器中显示', run: () => revealFile(file) },
+    { label: '复制文件完整路径', run: () => copyFilePath(file) },
+    { label: '从卷宗中移除', separator: true, danger: true, run: () => deleteFile(file) },
+  ])
 }
 async function createSubdir() {
   if (!selectedCase.value) return
@@ -676,10 +670,6 @@ onMounted(async () => {
     await loadCaseFiles()
     await loadCaseEvents()
   }
-  window.addEventListener('click', closeContextMenu)
-})
-onUnmounted(() => {
-  window.removeEventListener('click', closeContextMenu)
 })
 watch(
   () => casesStore.cases,
@@ -728,6 +718,7 @@ async function handleCreateCase(formData) {
 </script>
 <template>
   <div class="stitch-cases-view">
+    <el-alert v-if="casesStore.listError && casesStore.cases.length" :title="casesStore.listError" type="error" :closable="false"><el-button text @click="casesStore.loadCases()">重试</el-button></el-alert>
     <!-- ═══ 顶部 Action Bar (完整工作区模式下切换返回按钮) ═══ -->
     <div class="cases-topbar">
       <div class="topbar-heading">
@@ -803,7 +794,8 @@ async function handleCreateCase(formData) {
         <!-- 仅在无数据时展示加载/空态；翻页期间保留当前列表，避免整列闪烁 -->
         <StateFeedback
           v-if="!casesStore.cases.length"
-          :state="casesStore.loading ? 'loading' : 'empty'"
+          :state="casesStore.loading ? 'loading' : casesStore.listError ? 'error' : 'empty'"
+          :error-text="casesStore.listError" @retry="casesStore.loadCases()"
           empty-text="暂无匹配案件"
           style="padding-top: 20px"
         />
@@ -815,7 +807,7 @@ async function handleCreateCase(formData) {
               type="button"
               class="case-index-card"
               :class="{ active: selectedCase?.id === item.id }"
-              @click="selectCase(item)"
+              @click="selectCase(item)" @contextmenu="showObjectMenu($event, item.caseName, [{ label: '查看案件概览', run: () => selectCase(item) }, { label: '进入完整工作区', run: () => { selectCase(item); enterFullWorkspace() } }])"
               @dblclick="enterFullWorkspace"
               title="单击查看概览 · 双击进入案件完整工作区"
             >
@@ -1497,36 +1489,6 @@ async function handleCreateCase(formData) {
         </div>
       </div>
     </el-drawer>
-    <!-- ═══ 右键上下文菜单 ═══ -->
-    <transition name="el-zoom-in-top">
-      <div
-        v-if="contextMenu.visible && contextMenu.file"
-        class="custom-context-menu"
-        :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
-        @click.stop
-      >
-        <div class="menu-item-header">
-          <span class="menu-file-name">{{ contextMenu.file.fileName }}</span>
-        </div>
-        <div class="menu-item" @click="openFile(contextMenu.file); closeContextMenu()">
-          <el-icon><View /></el-icon>
-          <span>系统默认方式打开</span>
-        </div>
-        <div class="menu-item" @click="revealFile(contextMenu.file); closeContextMenu()">
-          <el-icon><FolderOpened /></el-icon>
-          <span>在访达/资源管理器中显示</span>
-        </div>
-        <div class="menu-item" @click="copyFilePath(contextMenu.file); closeContextMenu()">
-          <el-icon><CopyDocument /></el-icon>
-          <span>复制文件完整路径</span>
-        </div>
-        <div class="menu-divider" />
-        <div class="menu-item text-risk" @click="deleteFile(contextMenu.file); closeContextMenu()">
-          <el-icon><Delete /></el-icon>
-          <span>从卷宗中移除</span>
-        </div>
-      </div>
-    </transition>
     <!-- ═══ 编辑案件要素弹窗 ═══ -->
     <el-dialog v-model="showEditOverviewDialog" title="编辑案件要素" width="min(820px, calc(100vw - 24px))" destroy-on-close :close-on-click-modal="false">
       <CaseAttributes v-if="selectedCase" :case-data="selectedCase" initially-editing @saved="showEditOverviewDialog = false; casesStore.loadCases()" />
@@ -1536,6 +1498,7 @@ async function handleCreateCase(formData) {
     <!-- ═══ Excel 案件批量导入向导 ═══ -->
     <CaseImportDialog v-model="showExcelImportDialog" @imported="casesStore.loadCases" />
   </div>
+  <ContextMenu v-bind="objectMenu" @close="objectMenu.open = false" />
 </template>
 <style scoped>
 /* ═══════════════════════════════════════════════════════════
@@ -3001,54 +2964,6 @@ async function handleCreateCase(formData) {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-}
-/* 右键上下文菜单 */
-.custom-context-menu {
-  position: fixed;
-  z-index: 3000;
-  width: 200px;
-  background: var(--c-bg-card);
-  border: 1px solid var(--c-border);
-  border-radius: var(--c-radius-lg);
-  box-shadow: var(--shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.15));
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.menu-item-header {
-  padding: 4px 8px;
-  font-size: 11px;
-  color: var(--slate-gray-light);
-  border-bottom: 1px solid var(--c-border);
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  color: var(--c-text);
-  cursor: pointer;
-  transition: all var(--motion-fast);
-}
-.menu-item:hover {
-  background: var(--c-primary-light);
-  color: var(--c-primary);
-}
-.menu-item.text-risk:hover {
-  background: var(--bg-risk-weak);
-  color: var(--status-risk);
-}
-.menu-divider {
-  height: 1px;
-  background: var(--c-border);
-  margin: 4px 0;
 }
 .empty-selection-view {
   display: flex;

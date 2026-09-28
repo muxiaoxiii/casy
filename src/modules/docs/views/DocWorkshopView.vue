@@ -1,5 +1,6 @@
 <template>
   <div class="doc-workshop" :class="'mobile-pane-' + mobilePane">
+    <DraftHistoryDialog v-model="historyOpen" :draft="currentDraft" :before-restore="saveDraft" @restored="onVersionRestored" />
     <nav class="draft-mobile-nav" aria-label="文书工作区">
       <button :aria-pressed="mobilePane === 'list'" @click="mobilePane = 'list'">草稿与模板</button>
       <button :aria-pressed="mobilePane === 'editor'" @click="mobilePane = 'editor'">编辑文书</button>
@@ -25,7 +26,7 @@
       <template v-if="activeTab === 'drafts'">
         <div class="draft-header">
           <h3>{{ $t('docs.drafts') }}</h3>
-          <button class="btn-new-draft" @click="createNewDraft">
+          <button class="btn-new-draft" :disabled="creatingDraft" @click="createNewDraft">
             + {{ $t('common.create') }}
           </button>
         </div>
@@ -39,11 +40,15 @@
         />
 
         <div class="draft-list" v-loading="loading">
+          <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadDrafts">重试</el-button></el-alert>
           <div
             v-for="draft in filteredDrafts"
             :key="draft.id"
             :class="['draft-item', { active: currentDraftId === draft.id }]"
+            role="button" tabindex="0" :aria-label="`打开文书 ${draft.title || '未命名文书'}`"
+            @keydown.enter.self="selectDraft(draft.id)" @keydown.space.prevent.self="selectDraft(draft.id)"
             @click="selectDraft(draft.id)"
+            @contextmenu="showContextMenu($event, draft.title || '未命名文书', [{ label: '打开文书', run: () => selectDraft(draft.id) }, { label: '删除文书', danger: true, separator: true, run: () => deleteDraft(draft.id) }])"
           >
             <div class="draft-title">{{ draft.title || '未命名文书' }}</div>
             <div class="draft-meta">
@@ -54,6 +59,7 @@
             </div>
             <el-button
               class="draft-delete"
+              :disabled="!!deletingDraftId" :loading="deletingDraftId === draft.id"
               size="small"
               type="danger"
               text
@@ -64,8 +70,8 @@
           </div>
 
           <el-empty
-            v-if="!loading && filteredDrafts.length === 0"
-            description="暂无草稿"
+            v-if="!loading && !loadError && filteredDrafts.length === 0"
+            :description="searchText ? '没有匹配的草稿' : '暂无草稿'"
             :image-size="60"
           />
         </div>
@@ -115,6 +121,7 @@
               />
             </el-select>
             <el-dropdown trigger="click" :disabled="exporting" @command="exportToDocx"><el-button type="primary" size="small" :loading="exporting">导出</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="md">Markdown（.md）</el-dropdown-item><el-dropdown-item command="pdf">PDF 文档（.pdf）</el-dropdown-item><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+            <el-button size="small" @click="openHistory">历史版本</el-button>
             <el-button :type="showTypesetPreview ? 'primary' : 'default'" plain size="small" @click="showTypesetPreview = !showTypesetPreview">A4 预览</el-button>
             <el-button plain size="small" @click="openEvidenceLinkPicker">
               <el-icon><Link /></el-icon> 证据链接
@@ -166,11 +173,17 @@
       <KnowledgeSidebar @close="showKnowledgeSidebar = false" />
     </div>
   </div>
+  <ContextMenu v-bind="contextMenu" @close="contextMenu.open = false" />
 </template>
 
 <script setup>
+import ContextMenu from "../../../shared/components/ContextMenu.vue"
+import { useContextActions } from "../../../shared/composables/useContextActions"
+const { contextMenu, showContextMenu } = useContextActions()
+
 import TypesetPreview from '../../../shared/editor/TypesetPreview.vue'
 import {exportDocument} from '../../../shared/editor/exportDocument'
+import DraftHistoryDialog from '../components/DraftHistoryDialog.vue'
 import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
 import { useDraftRecovery } from '../../../composables/useDraftRecovery'
 import { useRoute } from 'vue-router'
@@ -181,7 +194,7 @@ import { Collection, Link } from '../../../shared/icons'
 import LegalEditor from '../components/LegalEditor.vue'
 import KnowledgeSidebar from '../../knowledge/components/KnowledgeSidebar.vue'
 import TemplateBrowser from './TemplateBrowser.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import debounce from 'lodash-es/debounce'
 
 const showKnowledgeSidebar = ref(false)
@@ -206,11 +219,22 @@ const mobilePane = ref('list')
 watch(currentDraftId, id => { if (id) mobilePane.value = 'editor' })
 const currentDraft = ref(null)
 const loading = ref(false)
+const creatingDraft = ref(false)
+const loadError = ref('')
 const searchText = ref('')
 const saveStatus = ref('idle') // idle | saving | saved | error
 const saveTimer = ref(null)
 const activeTab = ref('drafts') // drafts | templates
 const exporting = ref(false)
+const historyOpen = ref(false)
+async function openHistory() { if (await saveDraft()) historyOpen.value = true }
+function onVersionRestored(draft) {
+  if (draft.id !== currentDraftId.value) return
+  currentDraft.value = draft
+  savedRevision = editRevision
+  saveStatus.value = 'saved'
+  void loadDrafts()
+}
 
 // 过滤草稿列表
 const filteredDrafts = computed(() => {
@@ -246,11 +270,13 @@ const saveStatusText = computed(() => {
 // 加载草稿列表
 async function loadDrafts() {
   loading.value = true
-  const result = await casyContext.docs.listDrafts()
-  if (result.ok) {
+  loadError.value = ''
+  try {
+    const result = await casyContext.docs.listDrafts()
+    if (!result.ok) throw new Error(result.error || '草稿列表加载失败')
     drafts.value = result.data || []
-  }
-  loading.value = false
+  } catch (error) { loadError.value = String(error) }
+  finally { loading.value = false }
 }
 
 // 加载案件列表
@@ -265,6 +291,7 @@ async function loadCases() {
 let selectionRevision = 0
 let selectingId = null
 async function selectDraft(id) {
+  if (deletingDraftId.value === id) return
   if (currentDraft.value?.id === id || selectingId === id) return
   const selection = ++selectionRevision
   if (currentDraft.value && !(await saveDraft())) return
@@ -282,14 +309,16 @@ async function selectDraft(id) {
 
 // 新建草稿（开箱即写）
 async function createNewDraft() {
-  const result = await casyContext.docs.createDraft({
-    title: '未命名法律文书',
-    content: '',
-  })
-  if (result.ok && result.data) {
-    await loadDrafts()
-    selectDraft(result.data.id)
-  }
+  if (creatingDraft.value) return
+  creatingDraft.value = true
+  try {
+    if (!(await saveDraft())) return
+    const result = await casyContext.docs.createDraft({ title: '未命名法律文书', content: '' })
+    if (!result.ok || !result.data) { ElMessage.error(result.error || '创建文书失败'); return }
+    drafts.value = [result.data, ...drafts.value]
+    await selectDraft(result.data.id)
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { creatingDraft.value = false }
 }
 
 // 保存草稿
@@ -323,6 +352,7 @@ function saveDraft(commitSources = true) {
 
   if (result.ok) {
     currentDraft.value.version = result.data.version
+    currentDraft.value.updatedAt = result.data.updatedAt
     savedRevision = revision
     saveStatus.value = 'saved'
     const idx = drafts.value.findIndex(d => d.id === currentDraft.value.id)
@@ -355,21 +385,32 @@ function scheduleSave() {
   }, 1500)
 }
 
-// 删除草稿
+// 删除其他草稿不切走当前编辑器；删除当前稿先等正在保存的请求结束。
+const deletingDraftId = ref(null)
 async function deleteDraft(id) {
-  const result = await casyContext.docs.deleteDraft(id)
-  if (result.ok) {
-    if (currentDraftId.value === id) {
+  if (deletingDraftId.value) return
+  deletingDraftId.value = id
+  try {
+    try { await ElMessageBox.confirm('删除文书将同时删除其历史版本，无法撤销。', '删除文书', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '保留' }) } catch { return }
+    if (currentDraftId.value === id && !(await saveDraft())) return
+    const result = await casyContext.docs.deleteDraft(id)
+    if (!result.ok) { ElMessage.error(result.error || '删除失败，文书已保留'); return }
+    const deletedCurrent = currentDraftId.value === id
+    if (deletedCurrent) {
+      ++selectionRevision
+      selectingId = null
+      if (saveTimer.value) clearTimeout(saveTimer.value)
       currentDraftId.value = null
       currentDraft.value = null
+      savedRevision = editRevision
+      saveStatus.value = 'idle'
+      await recovery.clear()
     }
-    await loadDrafts()
-    if (drafts.value.length > 0) {
-      selectDraft(typeof route.query.select === 'string' ? route.query.select : drafts.value[0].id)
-    } else {
-      await createNewDraft()
-    }
-  }
+    drafts.value = drafts.value.filter(draft => draft.id !== id)
+    ElMessage.success('文书已删除')
+    if (deletedCurrent && drafts.value.length) await selectDraft(drafts.value[0].id)
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { deletingDraftId.value = null }
 }
 
 // 导出为 Docx
@@ -405,7 +446,7 @@ onMounted(async () => {
   await Promise.all([loadDrafts(), loadCases()])
   if (drafts.value.length > 0) {
     selectDraft(typeof route.query.select === 'string' ? route.query.select : drafts.value[0].id)
-  } else {
+  } else if (!loadError.value) {
     await createNewDraft()
   }
 })
@@ -414,16 +455,21 @@ watch(() => route.query.select, id => { if (typeof id === 'string') void selectD
 
 // 模板选择回调
 async function onTemplateSelect(template) {
-  const result = await casyContext.docs.createDraft({
-    title: template.name,
-    content: `<p>基于模板 <strong>${template.name}</strong> 创建</p>`,
-    templatePath: template.path,
-  })
-  if (result.ok) {
-    await loadDrafts()
-    selectDraft(result.data.id)
+  if (creatingDraft.value) return
+  creatingDraft.value = true
+  try {
+    if (!(await saveDraft())) return
+    const result = await casyContext.docs.createDraft({
+      title: template.name,
+      content: `<p>基于模板 <strong>${template.name}</strong> 创建</p>`,
+      templatePath: template.path,
+    })
+    if (!result.ok || !result.data) { ElMessage.error(result.error || '根据模板创建文书失败'); return }
+    drafts.value = [result.data, ...drafts.value]
+    await selectDraft(result.data.id)
     activeTab.value = 'drafts'
-  }
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { creatingDraft.value = false }
 }
 
 onUnmounted(() => {

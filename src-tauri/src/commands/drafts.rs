@@ -236,3 +236,77 @@ mod tests {
         assert!(obj.get("updated_at").is_none(), "snake_case updated_at 不得出现");
     }
 }
+
+
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftVersion {
+    pub version: i32,
+    pub title: String,
+    pub content: Option<String>,
+    pub saved_at: String,
+}
+
+#[tauri::command]
+pub async fn list_draft_versions(id: String, offset: Option<i64>) -> Result<Vec<DraftVersion>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare("SELECT version,title,content,saved_at FROM draft_versions WHERE draft_id=?1 ORDER BY version DESC LIMIT 50 OFFSET ?2")?;
+        let rows = stmt.query_map(rusqlite::params![id, offset.unwrap_or(0).max(0)], |row| Ok(DraftVersion {
+            version: row.get(0)?, title: row.get(1)?, content: row.get(2)?, saved_at: row.get(3)?,
+        }))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await
+}
+
+fn restore_version(conn: &mut rusqlite::Connection, id: &str, version: i32, expected_version: i32) -> anyhow::Result<Draft> {
+    let tx = conn.transaction()?;
+    let (title, content): (String, Option<String>) = tx.query_row(
+        "SELECT title,content FROM draft_versions WHERE draft_id=?1 AND version=?2",
+        rusqlite::params![id, version], |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let changed = tx.execute(
+        "UPDATE drafts SET title=?1,content=?2,version=version+1,updated_at=?3 WHERE id=?4 AND version=?5",
+        rusqlite::params![title, content, db::now_local(), id, expected_version],
+    )?;
+    anyhow::ensure!(changed == 1, "EDIT_CONFLICT: 文书已在其他页面修改，请重新打开后核对，当前正文未被替换");
+    let restored = tx.query_row(
+        "SELECT id,case_id,title,content,template_path,status,version,created_at,updated_at FROM drafts WHERE id=?1", [id],
+        |row| Ok(Draft { id:row.get(0)?,case_id:row.get(1)?,title:row.get(2)?,content:row.get(3)?,template_path:row.get(4)?,status:row.get(5)?,version:row.get(6)?,created_at:row.get(7)?,updated_at:row.get(8)? }),
+    )?;
+    tx.commit()?;
+    Ok(restored)
+}
+
+#[tauri::command]
+pub async fn restore_draft_version(id: String, version: i32, expected_version: i32) -> Result<Draft, String> {
+    run_blocking(move || {
+        let mut conn = db::open_db()?;
+        restore_version(&mut conn, &id, version, expected_version)
+    }).await
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+    #[test]
+    fn snapshots_restore_and_conflict_are_atomic() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::schema::run_migrations(&conn, 0).unwrap();
+        conn.execute("INSERT INTO drafts(id,title,content,status,version,created_at,updated_at) VALUES('d','原稿','<p>原稿</p>','draft',1,'2026-09-28','2026-09-28')", []).unwrap();
+        conn.execute("UPDATE drafts SET title='新稿',content='<p>新稿</p>',version=2 WHERE id='d'", []).unwrap();
+        assert_eq!(conn.query_row("SELECT content FROM draft_versions WHERE draft_id='d' AND version=1", [], |r| r.get::<_,String>(0)).unwrap(), "<p>原稿</p>");
+        assert!(restore_version(&mut conn, "d", 1, 1).is_err());
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM draft_versions", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
+        let restored = restore_version(&mut conn, "d", 1, 2).unwrap();
+        assert_eq!(restored.version, 3);
+        assert_eq!(restored.content.as_deref(), Some("<p>原稿</p>"));
+        assert_eq!(conn.query_row("SELECT content FROM draft_versions WHERE draft_id='d' AND version=2", [], |r| r.get::<_,String>(0)).unwrap(), "<p>新稿</p>");
+        let reverted = restore_version(&mut conn, "d", 2, 3).unwrap();
+        assert_eq!(reverted.content.as_deref(), Some("<p>新稿</p>"));
+        assert!(restore_version(&mut conn, "other", 1, 4).is_err());
+        let before: i64 = conn.query_row("SELECT COUNT(*) FROM draft_versions", [], |r| r.get(0)).unwrap();
+        conn.execute("UPDATE drafts SET status='final',version=version+1 WHERE id='d'", []).unwrap();
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM draft_versions", [], |r| r.get::<_,i64>(0)).unwrap(), before);
+    }
+}

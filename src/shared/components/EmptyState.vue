@@ -35,7 +35,7 @@ const presets = {
   cases: {
     icon: Briefcase,
     title: '还没有案件',
-    description: '创建你的第一个案件，开始管理专利事务',
+    description: '创建你的第一个案件，集中管理案件资料与进度',
     actionText: '创建案件',
   },
   tasks: {

@@ -46,6 +46,7 @@ export class ReminderPlugin implements CasyPlugin {
   private createCreateReminderRuleTool(ctx: CasyContext): CasyTool {
     return defineTool<{ name: string; triggerType: string; triggerValue?: number; channels?: string }>({
       name: 'create_reminder_rule',
+      policy: { write: true, level: 'L2' },
       description: '创建提醒规则',
       category: 'reminder',
       parameters: {
@@ -96,6 +97,7 @@ export class ReminderPlugin implements CasyPlugin {
   private createStartReminderEngineTool(ctx: CasyContext): CasyTool {
     return defineTool<{ intervalSeconds?: number }>({
       name: 'start_reminder_engine',
+      policy: { write: true, level: 'L2' },
       description: '启动提醒引擎',
       category: 'reminder',
       parameters: {

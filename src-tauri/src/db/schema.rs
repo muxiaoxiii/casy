@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 42;
+pub const CURRENT_SCHEMA_VERSION: i64 = 43;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -719,6 +719,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("40", MIGRATION_V40_SQL),
     ("41", MIGRATION_V41_SQL),
     ("42", MIGRATION_V42_SQL),
+    ("43", MIGRATION_V43_SQL),
 ];
 
 
@@ -4760,4 +4761,24 @@ CREATE TABLE IF NOT EXISTS task_plans (
   CHECK((start_date IS NULL AND end_date IS NULL) OR
         (start_date IS NOT NULL AND end_date IS NOT NULL AND start_date <= end_date))
 );
+"#;
+
+/// Preserve document content before every substantive update, including restores.
+/// Version numbers identify immutable snapshots; no-op/metadata-only saves add no history.
+pub const MIGRATION_V43_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS draft_versions (
+    draft_id TEXT NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT,
+    saved_at TEXT NOT NULL,
+    PRIMARY KEY (draft_id, version)
+);
+CREATE TRIGGER IF NOT EXISTS draft_content_history
+BEFORE UPDATE OF title, content ON drafts
+WHEN OLD.title IS NOT NEW.title OR OLD.content IS NOT NEW.content
+BEGIN
+    INSERT OR IGNORE INTO draft_versions(draft_id, version, title, content, saved_at)
+    VALUES(OLD.id, OLD.version, OLD.title, OLD.content, COALESCE(OLD.updated_at, datetime('now', 'localtime')));
+END;
 "#;

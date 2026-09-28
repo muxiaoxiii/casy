@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { todayLocalISO } from '../../../shared/utils/date'
 import { ElMessage } from 'element-plus'
@@ -20,6 +20,7 @@ import { useTasksStore } from '../../../stores/tasks'
 const tasksStore = useTasksStore()
 
 const route = useRoute()
+const router = useRouter()
 
 // 工具统计（插件系统异步初始化，就绪后刷新）
 const tools = ref([])
@@ -37,6 +38,7 @@ function refreshTools() {
 }
 
 let stopTools = () => {}
+const stopPolicy = casyContext.on('tools:policy-changed', refreshTools)
 let refreshTimer
 onMounted(() => {
   refreshTools()
@@ -45,7 +47,7 @@ onMounted(() => {
   refreshTimer = setTimeout(refreshTools, 600)
 })
 
-onBeforeUnmount(() => { stopTools(); clearTimeout(refreshTimer) })
+onBeforeUnmount(() => { stopPolicy(); stopTools(); clearTimeout(refreshTimer) })
 
 // 支持从外部跳转定位 tab（如决策复核横幅 → /ai?tab=decisions）
 // 工具系统未接入（getTools 恒空）时不开放 tools tab
@@ -60,10 +62,11 @@ watch(() => route.query.tab, (tab) => {
 const aiConfig = ref(null)
 const aiUsage = ref(null)
 const loading = ref(false)
+const configError = ref('')
 
 // AI 状态摘要
 const statusSummary = computed(() => {
-  const todayCalls = aiUsage.value?.todayCalls ?? 0
+  const todayCalls = aiUsage.value?.usedToday ?? 0
   const dailyLimit = aiConfig.value?.dailyLimit ?? 50
   const remaining = dailyLimit === 0 ? '不限' : Math.max(0, dailyLimit - todayCalls)
   const mode = aiConfig.value?.mode ?? 'noop'
@@ -80,6 +83,7 @@ const statusSummary = computed(() => {
 
 async function loadAIData() {
   loading.value = true
+  configError.value = ''
   const [configResult, usageResult] = await Promise.all([
     casyContext.settings.aiConfig(),
     casyContext.settings.aiUsage(),
@@ -91,6 +95,8 @@ async function loadAIData() {
   if (usageResult.ok) {
     aiUsage.value = usageResult.data
   }
+  const failure = [configResult, usageResult].find(result => !result.ok)
+  if (failure) configError.value = failure.error || 'AI 状态加载失败'
   loading.value = false
 }
 
@@ -428,6 +434,7 @@ onMounted(async () => {
 
 <template>
   <div class="ai-companion-page">
+    <el-alert v-if="configError" :title="configError" type="error" :closable="false"><el-button text @click="loadAIData">重试</el-button></el-alert>
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-left">
@@ -447,13 +454,13 @@ onMounted(async () => {
       <el-divider direction="vertical" />
       <div class="status-item">
         <span class="status-label">今日调用</span>
-        <span class="status-value">{{ statusSummary.todayCalls }}</span>
+        <span class="status-value">{{ configError ? '暂不可用' : statusSummary.todayCalls }}</span>
       </div>
       <el-divider direction="vertical" />
       <div class="status-item">
         <span class="status-label">剩余配额</span>
         <span class="status-value" :class="{ 'text-warning': statusSummary.remaining !== '不限' && statusSummary.remaining < 10 }">
-          {{ statusSummary.remaining }}
+          {{ configError ? '暂不可用' : statusSummary.remaining }}
         </span>
       </div>
       <el-divider direction="vertical" />
@@ -754,13 +761,13 @@ onMounted(async () => {
       <el-tab-pane name="tools" v-if="toolStats.total > 0">
         <template #label>
           <el-icon><Setting /></el-icon>
-          <span>工具管理</span>
+          <span>工具目录</span>
         </template>
         <div class="tools-section">
           <el-card shadow="never">
             <template #header>
               <div class="card-header">
-                <span>已注册工具</span>
+                <span>已启用工具</span><el-button text @click="router.push({path:'/settings',query:{tab:'tools'}})">管理工具策略</el-button>
                 <el-tag size="small">{{ toolStats.total }} 个</el-tag>
               </div>
             </template>

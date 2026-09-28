@@ -1,4 +1,5 @@
 <script setup>
+import DraftHistoryDialog from '../components/DraftHistoryDialog.vue'
 import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
 import { useDraftRecovery } from '../../../composables/useDraftRecovery'
 import { ref, shallowRef, reactive, onMounted, watch, onBeforeUnmount } from 'vue'
@@ -41,6 +42,27 @@ const loading = ref(false)
 // 草稿
 const draftId = ref(null)
 const recovery = useDraftRecovery()
+const historyOpen = ref(false)
+const historyDraft = ref(null)
+async function openHistory() {
+  if (!await saveDraft() || !draftId.value) return
+  const result = await casyContext.docs.getDraft(draftId.value)
+  if (!result.ok) return ElMessage.error(result.error || '文书读取失败')
+  historyDraft.value = result.data
+  historyOpen.value = true
+}
+async function beforeHistoryRestore() {
+  if (!await saveDraft()) return false
+  if (historyDraft.value) historyDraft.value.version = draftVersion
+  return true
+}
+function onVersionRestored(draft) {
+  if (draft.id !== draftId.value) return
+  draftVersion = draft.version
+  draftTitle.value = draft.title
+  documentContent.value = draft.content || ''
+  savedRevision = editRevision
+}
 let draftVersion = undefined
 const draftTitle = ref('未命名文档')
 const saving = ref(false)
@@ -335,6 +357,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <DraftHistoryDialog v-model="historyOpen" :draft="historyDraft" :before-restore="beforeHistoryRestore" @restored="onVersionRestored" />
   <div class="writing-view">
     <!-- 顶部工具栏 -->
     <div class="writing-toolbar">
@@ -363,6 +386,7 @@ onBeforeUnmount(() => {
           />
         </el-select>
         <el-dropdown trigger="click" :disabled="exporting" @command="exportWriting"><el-button :loading="exporting">导出</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="md">Markdown</el-dropdown-item><el-dropdown-item command="pdf">PDF</el-dropdown-item><el-dropdown-item command="docx">Word</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+        <el-button :disabled="!draftId" @click="openHistory">历史版本</el-button>
         <el-button type="primary" :loading="saving" @click="saveDraft">
           {{ saving ? '保存中...' : '保存' }}
         </el-button>
@@ -390,7 +414,7 @@ onBeforeUnmount(() => {
 
         <!-- 编辑器区域 -->
         <div class="editor-container">
-          <DocumentEditor ref="docEditorRef" v-model="documentContent" content-format="html" :extra-extensions="writingExtensions" source-type="doc" :source-id="draftId || undefined" :case-id="caseId" @ready="editorReady" @update:model-value="scheduleAutoSave" @save="saveDraft" @contextmenu="handleContextMenu" />
+          <DocumentEditor ref="docEditorRef" v-model="documentContent" content-format="html" :extra-extensions="writingExtensions" source-type="doc" :source-id="draftId || undefined" :case-id="caseId" @ready="editorReady" @update:model-value="scheduleAutoSave" @save="saveDraft" @capture-selection="handleContextMenu" />
         </div>
       </div>
 

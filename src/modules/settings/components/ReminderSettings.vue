@@ -1,9 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Edit, VideoPlay, RefreshRight, Bell } from '../../../shared/icons'
 
+const saving = ref(false)
+const loadError = ref('')
 const rules = ref([])
 const logs = ref([])
 const engineRunning = ref(false)
@@ -23,11 +25,13 @@ const channelLabels = { local: '本地弹窗', system: '系统通知', feishu_me
 
 async function loadRules() {
   const res = await casyContext.reminder.rules()
-  if (res.ok && res.data) rules.value = res.data
+  if (res.ok && res.data) { rules.value = res.data; loadError.value = '' }
+  else loadError.value = res.error || '提醒规则加载失败'
 }
 async function loadLogs() {
   const res = await casyContext.reminder.log(20)
   if (res.ok && res.data) logs.value = res.data
+  else ElMessage.error(res.error || '提醒记录加载失败')
 }
 async function checkEngine() {
   // 引擎是否在运行：通过启动命令幂等探测（已在运行则直接返回）
@@ -51,26 +55,29 @@ function openEdit(rule) {
   dialogVisible.value = true
 }
 async function saveRule() {
-  const payload = {
-    ...form.value,
-    channels: JSON.stringify(form.value.channels),
-  }
-  if (editingRule.value) {
-    const res = await casyContext.reminder.updateRule(editingRule.value.id, payload)
-    if (res.ok) ElMessage.success('规则已更新')
-  } else {
-    const res = await casyContext.reminder.createRule(payload)
-    if (res.ok) ElMessage.success('规则已创建')
-  }
-  dialogVisible.value = false
-  loadRules()
+  if (saving.value) return
+  if (!form.value.name.trim()) return ElMessage.warning('请填写规则名称')
+  if (!form.value.channels.length) return ElMessage.warning('请至少选择一个提醒通道')
+  saving.value = true
+  try {
+    const payload = { ...form.value, name: form.value.name.trim(), channels: JSON.stringify(form.value.channels) }
+    const res = editingRule.value
+      ? await casyContext.reminder.updateRule(editingRule.value.id, payload)
+      : await casyContext.reminder.createRule(payload)
+    if (!res.ok) return ElMessage.error(res.error || '保存失败，输入已保留')
+    ElMessage.success(editingRule.value ? '规则已更新' : '规则已创建')
+    dialogVisible.value = false
+    await loadRules()
+  } finally { saving.value = false }
 }
+
 async function removeRule(id) {
+  try { await ElMessageBox.confirm('删除后将不再按此规则触发提醒，已有记录会保留。', '删除提醒规则', { type: 'warning', confirmButtonText: '删除规则', cancelButtonText: '取消' }) } catch { return }
   const res = await casyContext.reminder.removeRule(id)
   if (res.ok) {
     ElMessage.success('已删除')
     loadRules()
-  }
+  } else ElMessage.error(res.error || '删除失败')
 }
 async function testRule(rule) {
   const res = await casyContext.reminder.test({
@@ -79,6 +86,7 @@ async function testRule(rule) {
     message: `测试提醒：${rule.name}`,
   })
   if (res.ok) ElMessage.success('测试提醒已发送（本地弹窗）')
+  else ElMessage.error(res.error || '测试提醒发送失败')
 }
 async function startEngine() {
   const res = await casyContext.reminder.startEngine(300)
@@ -97,6 +105,7 @@ onMounted(() => {
 
 <template>
   <div class="reminder-settings">
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadRules">重试</el-button></el-alert>
     <el-alert title="休息日前工作提醒" type="info" :closable="false" description="法定节假日、周末及自己添加的休息日，如果当天仍有未完成任务、日程或期限，或休息前一天仍有工作，通知中心会特别提醒。同一事项每天最多一条；完成或改期后自动撤下，个人上班日不额外提醒。" style="margin-bottom: 20px" />
     <div class="section-head">
       <div>
@@ -164,8 +173,8 @@ onMounted(() => {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editingRule ? '编辑提醒规则' : '新建提醒规则'" width="460px">
-      <el-form label-width="80px">
+    <el-dialog v-model="dialogVisible" :title="editingRule ? '编辑提醒规则' : '新建提醒规则'" width="460px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
+      <el-form label-width="80px" :disabled="saving">
         <el-form-item label="规则名称">
           <el-input v-model="form.name" placeholder="如：期限前 7 天提醒" />
         </el-form-item>
@@ -190,8 +199,8 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveRule">保存</el-button>
+        <el-button :disabled="saving" @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>
   </div>

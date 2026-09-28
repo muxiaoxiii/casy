@@ -1,6 +1,6 @@
 <template>
   <div class="notion-legal-editor-shell" ref="editorContainer">
-    <DocumentEditor ref="documentEditorRef" :model-value="modelValue" content-format="html" :extra-extensions="legalExtensions" :source-id="sourceId || undefined" source-type="doc" :case-id="caseId" placeholder="开始撰写，使用工具栏设置正文格式…" @ready="editorReady" @update:model-value="emit('update:modelValue',$event)" @save="emit('save')" @transaction="documentChanged" @active-block="emit('active-block',$event)" @click="handleEditorClick" @contextmenu="handleContextMenu" @drop="handleDrop" />
+    <DocumentEditor ref="documentEditorRef" :model-value="modelValue" content-format="html" :extra-extensions="legalExtensions" :source-id="sourceId || undefined" source-type="doc" :case-id="caseId" placeholder="开始撰写，选中文字设置样式，点击块手柄调整结构…" @ready="editorReady" @update:model-value="emit('update:modelValue',$event)" @save="emit('save')" @transaction="documentChanged" @active-block="emit('active-block',$event)" @click="handleEditorClick" @capture-selection="handleContextMenu" @drop="handleDrop" />
     <!-- 文书专用建议 -->
     <SlashCommandMenu
       v-if="editor"

@@ -369,6 +369,8 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         drafts::create_draft,
         drafts::list_drafts,
         drafts::get_draft,
+        drafts::list_draft_versions,
+        drafts::restore_draft_version,
         drafts::update_draft,
         drafts::delete_draft,
         // Docsy 模板命令

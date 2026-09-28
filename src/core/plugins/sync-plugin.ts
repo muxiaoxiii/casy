@@ -46,6 +46,7 @@ export class SyncPlugin implements CasyPlugin {
   private createTestWebdavConnectionTool(ctx: CasyContext): CasyTool {
     return defineTool<{}>({
       name: 'test_webdav_connection',
+      policy: { write: false, level: 'L1' },
       description: '测试 WebDAV 连接',
       category: 'sync',
       parameters: { type: 'object', properties: {} },
@@ -66,6 +67,7 @@ export class SyncPlugin implements CasyPlugin {
       parameters: { type: 'object', properties: {} },
       // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
       policy: {
+        write: true,
         level: 'L2',
         title: '确认推送同步',
         message: () => '确定要将本地数据推送到远程吗？',
@@ -87,6 +89,7 @@ export class SyncPlugin implements CasyPlugin {
       parameters: { type: 'object', properties: {} },
       // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
       policy: {
+        write: true,
         level: 'L2',
         title: '确认拉取同步',
         message: () => '确定要从远程拉取数据吗？这会覆盖本地数据。',

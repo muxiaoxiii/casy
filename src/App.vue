@@ -166,6 +166,7 @@ const navGroups = [
     label: '事项',
     items: [
       { name: 'cases', label: '案件', sublabel: 'Cases', icon: Briefcase, routePrefix: '/cases' },
+      { name: 'projects', label: '项目', sublabel: 'Projects', icon: Folder, routePrefix: '/projects' },
       { name: 'tasks', label: '任务', sublabel: 'Tasks', icon: Finished, routePrefix: '/tasks' },
       { name: 'calendar', label: '日历', sublabel: 'Calendar', icon: Calendar, routePrefix: '/calendar' },
     ],
@@ -182,6 +183,10 @@ const navGroups = [
 
 const utilityModules = [
   { name: 'clients', label: '客户', sublabel: 'Clients', icon: User },
+  { name: 'persons', label: '实体', sublabel: 'People', icon: User },
+  { name: 'ai', label: 'AI 智伴', sublabel: 'Assistant', icon: Cpu },
+  { name: 'reminder', label: '提醒', sublabel: 'Reminders', icon: Bell },
+  { name: 'sync', label: '同步状态', sublabel: 'Sync', icon: Switch },
   { name: 'dashboard', label: '数据看板', sublabel: 'Dashboard', icon: DataBoard },
 ]
 

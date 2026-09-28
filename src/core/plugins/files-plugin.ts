@@ -50,6 +50,7 @@ export class FilesPlugin implements CasyPlugin {
   private createAddCaseFileTool(ctx: CasyContext): CasyTool {
     return defineTool<{ caseId: string; filePath: string; category?: string }>({
       name: 'add_case_file',
+      policy: { write: true, level: 'L2' },
       description: '上传文件到案件',
       category: 'files',
       parameters: {
@@ -87,6 +88,7 @@ export class FilesPlugin implements CasyPlugin {
       },
       // 需要 L2 确认（策略声明，由 executeTool 统一强制执行）
       policy: {
+        write: true,
         level: 'L2',
         title: '确认删除文件',
         message: (p) => `确定要删除文件 ${String(p.fileId)} 吗？`,

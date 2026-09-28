@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useSettingsStore } from '../../../stores/settings'
+import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 import {
   View,
@@ -18,17 +19,20 @@ const previewVisible = ref(false)
 const previewType = ref<'daily' | 'weekly'>('daily')
 const previewStyle = ref('')
 
-async function selectDailyStyle(id: string) {
-  settingsStore.daily_brief_style = id
-  await settingsStore.save()
-  ElMessage.success('已切换并保存早报样式')
+const saving = ref(false)
+async function saveStyle(key: 'daily_brief_style' | 'weekly_report_style', id: string) {
+  if (saving.value || settingsStore[key] === id) return
+  saving.value = true
+  try {
+    const result = await casyContext.settings.save({ [key]: id })
+    if (!result.ok) throw new Error(result.error || '样式保存失败，请重试')
+    settingsStore[key] = id
+    ElMessage.success('样式已保存')
+  } catch (e) { ElMessage.error(String(e)) }
+  finally { saving.value = false }
 }
-
-async function selectWeeklyStyle(id: string) {
-  settingsStore.weekly_report_style = id
-  await settingsStore.save()
-  ElMessage.success('已切换并保存周报样式')
-}
+function selectDailyStyle(id: string) { return saveStyle('daily_brief_style', id) }
+function selectWeeklyStyle(id: string) { return saveStyle('weekly_report_style', id) }
 
 function openPreview(type: 'daily' | 'weekly', styleId: string) {
   previewType.value = type
@@ -38,7 +42,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
 </script>
 
 <template>
-  <div class="briefing-settings-container">
+  <div class="briefing-settings-container" :aria-busy="saving">
     <div class="settings-section-header">
       <div class="header-titles">
         <h3 class="sec-title">早报与周报样式 (Briefing & Reports)</h3>
@@ -65,7 +69,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           class="style-card"
           :class="{ active: settingsStore.daily_brief_style === item.id }"
           tabindex="0"
-          role="button"
+          role="button" :aria-disabled="saving"
           :aria-label="`应用${item.label}`"
           :aria-pressed="settingsStore.daily_brief_style === item.id"
           @keydown.enter.self.prevent="selectDailyStyle(item.id)"
@@ -140,7 +144,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
           class="style-card"
           :class="{ active: settingsStore.weekly_report_style === item.id }"
           tabindex="0"
-          role="button"
+          role="button" :aria-disabled="saving"
           :aria-label="`应用${item.label}`"
           :aria-pressed="settingsStore.weekly_report_style === item.id"
           @keydown.enter.self.prevent="selectWeeklyStyle(item.id)"
