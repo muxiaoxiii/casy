@@ -19,7 +19,7 @@ export const useAiSettingsStore = defineStore('aiSettings', () => {
       loaded.value = true
       error.value = ''
       return true
-    } catch (cause) { error.value = String(cause); return false }
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false }
     finally { loading.value = false }
   }
   async function save() {
@@ -39,7 +39,7 @@ export const useAiSettingsStore = defineStore('aiSettings', () => {
       })))
       casyContext.emit('ai:configured', { activeId: result.data.activeId })
       return true
-    } catch (cause) { error.value = String(cause); return false }
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false }
     finally { loading.value = false }
   }
   return { config, loading, loaded, error, load, save }

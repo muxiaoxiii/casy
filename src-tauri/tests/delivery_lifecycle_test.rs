@@ -6,10 +6,8 @@ use serde_json::json;
 
 #[tokio::test]
 async fn full_backup_calendar_and_editor_recovery_survive_reopening() {
-    assert!(
-        std::env::var_os("CASY_TEST_DATA_DIR").is_some(),
-        "Use an isolated profile"
-    );
+    let profile = tempfile::tempdir().unwrap();
+    std::env::set_var("CASY_TEST_DATA_DIR", profile.path());
     let conn = db::open_db().unwrap();
     db::init_db(&conn).unwrap();
     let id = db::new_id();

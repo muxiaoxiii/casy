@@ -344,7 +344,7 @@ async function loadFiles() {
 // ============================================================
 // 操作
 // ============================================================
-const goBack = useReturnOrigin(() => `/cases?caseId=${encodeURIComponent(caseId.value)}`)
+const goBack = useReturnOrigin(() => ({ name: 'cases', query: { caseId: caseId.value } }))
 
 async function saveGoal() {
   if (!caseData.value) return

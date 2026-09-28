@@ -8,7 +8,8 @@ use std::{
 
 #[tokio::test]
 async fn retry_keeps_actual_time_and_cancelled_remote_deletion_survives_failure() {
-    assert!(std::env::var_os("CASY_TEST_DATA_DIR").is_some());
+    let profile = tempfile::tempdir().unwrap();
+    std::env::set_var("CASY_TEST_DATA_DIR", profile.path());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/calendar/", listener.local_addr().unwrap());
     let (sender, receiver) = mpsc::channel();

@@ -6,7 +6,8 @@ use serde_json::json;
 
 #[tokio::test]
 async fn plans_project_through_task_commands_and_deadlines_remain_one_value() {
-    assert!(std::env::var_os("CASY_TEST_DATA_DIR").is_some());
+    let profile = tempfile::tempdir().unwrap();
+    std::env::set_var("CASY_TEST_DATA_DIR", profile.path());
     let conn = db::open_db().unwrap();
     db::init_db(&conn).unwrap();
     drop(conn);

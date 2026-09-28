@@ -7,7 +7,7 @@ vi.mock('../../src/core/tauriBridge',()=>({tauriCallSafe:mocks.call}))
 vi.mock('../../src/core/mockData',()=>({isTauriRuntime:()=>true}))
 vi.mock('../../src/core/plugin/context',()=>({casyContext:{files:{reveal:mocks.reveal}}}))
 vi.mock('vue-router',()=>({useRouter:()=>({push:mocks.push})}))
-vi.mock('element-plus',()=>({ElMessage:{error:vi.fn()}}))
+vi.mock('element-plus',()=>({ElMessage:{error:vi.fn(),success:vi.fn()}}))
 let view:VueWrapper|undefined
 const state=(jobs:unknown[]=[],total=jobs.length)=>({jobs,services:[],total,active:jobs.length,failed:0})
 const job=(id:string,extra={})=>({id,kind:'document',title:id,status:'running',stage:'indexing',caseId:'case-b',caseName:'案件乙',fileId:'file-b',knowledgeId:null,outputPath:null,error:null,current:3,total:3,progress:1,elapsedSeconds:65,remainingSeconds:30,pageTiming:{renderMs:500,ocrMs:2500,layoutMs:1000,totalMs:4200},createdAt:'2026-09-08',updatedAt:'2026-09-08',canCancel:false,...extra})
@@ -26,7 +26,7 @@ it('paginates complete history and supports knowledge navigation and real cancel
  mountView();await flushPromises();await button('下一页').trigger('click');await flushPromises()
  expect(mocks.call).toHaveBeenCalledWith('get_processing_center',{filter:'all',offset:30,limit:30})
  await button('查看来源').trigger('click');expect(mocks.push).toHaveBeenCalledWith({name:'knowledge',query:{select:'note'}})
- await button('取消').trigger('click');await flushPromises();expect(mocks.call).toHaveBeenCalledWith('cancel_knowledge_index_job',{jobId:'知识'})
+ await button('取消处理').trigger('click');await flushPromises();expect(mocks.call).toHaveBeenCalledWith('cancel_knowledge_index_job',{jobId:'知识'})
 })
 it('never overlaps polling, rejects stale filtered responses, and stops on unmount',async()=>{
  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']})

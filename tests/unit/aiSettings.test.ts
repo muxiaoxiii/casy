@@ -9,6 +9,11 @@ vi.mock('../../src/core/plugin/context', () => ({ casyContext: { replaceProvider
 
 beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); localStorage.clear() })
 describe('Native AI configuration', () => {
+  it('refuses saving defaults before reading existing configuration', async () => {
+    const store = useAiSettingsStore()
+    expect(await store.save()).toBe(false)
+    expect(invoke).not.toHaveBeenCalled()
+  })
   it('loads saved native profiles without using browser credentials', async () => {
     localStorage.setItem('casy_ai_settings', JSON.stringify({ apiKey: 'old-browser-key' }))
     const config = { profiles: [], activeId: null, dailyLimit: 80, systemPrompt: 'Native prompt' }
@@ -21,6 +26,8 @@ describe('Native AI configuration', () => {
   })
   it('retains an unsaved configuration when the backend rejects a save', async () => {
     const store = useAiSettingsStore()
+    invoke.mockResolvedValueOnce({ ok: true, data: JSON.parse(JSON.stringify(store.config)) })
+    expect(await store.load()).toBe(true)
     store.config.profiles.push({ id: 'one', name: 'One', mode: 'openai', apiUrl: 'https://example.com/v1', model: 'one', apiKey: 'unsaved-key', hasApiKey: false })
     invoke.mockResolvedValue({ ok: false, error: 'Keychain unavailable' })
     expect(await store.save()).toBe(false)
@@ -32,6 +39,8 @@ describe('Native AI configuration', () => {
   it('clears entered keys after successful save and refreshes selectable models', async () => {
     const store = useAiSettingsStore()
     const profile = { id: 'one', name: 'One', mode: 'openai' as const, apiUrl: 'https://example.com/v1', model: 'custom', hasApiKey: true }
+    invoke.mockResolvedValueOnce({ ok: true, data: JSON.parse(JSON.stringify(store.config)) })
+    expect(await store.load()).toBe(true)
     store.config.profiles.push({ ...profile, apiKey: 'synthetic-key' })
     invoke.mockResolvedValue({ ok: true, data: { ...store.config, profiles: [profile] } })
     expect(await store.save()).toBe(true)
