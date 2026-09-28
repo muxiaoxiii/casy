@@ -34,7 +34,7 @@ try {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const source = join(directory, entry.name)
       if (entry.isDirectory()) await collect(source)
-      else if (/^(libzvec_c_api\.(dylib|so)|zvec_c_api\.(dll|lib))$/.test(entry.name) || /^(LICENSE|NOTICE)/.test(entry.name)) {
+      else if (/^(libzvec_c_api\.(dylib|so)|zvec(?:_c_api|_ailego|_core)?\.dll|zvec_c_api\.lib)$/.test(entry.name) || /^(LICENSE|NOTICE)/.test(entry.name)) {
         const target = /^(LICENSE|NOTICE)/.test(entry.name) ? join(destination, 'notices', source.slice(temporary.length + 1)) : join(destination, entry.name)
         await mkdir(dirname(target), { recursive: true })
         await copyFile(source, target)

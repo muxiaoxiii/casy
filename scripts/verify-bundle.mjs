@@ -22,6 +22,10 @@ for(const file of manifest.files){
   const hash=createHash('sha256')
   for await(const chunk of createReadStream(absolute))hash.update(chunk)
   assert.equal(hash.digest('hex'),file.sha256,file.path)
+  if(windows && /^zvec\/.*\.dll$/.test(file.path)) {
+    const installedHash=createHash('sha256').update(await readFile(join(app,file.path.slice(5)))).digest('hex')
+    assert.equal(installedHash,file.sha256,`Loader copy: ${file.path}`)
+  }
   if(/\.(dll|exe|dylib)$/.test(file.path)||['bin/pdftoppm','bin/casy-doc-engine'].includes(file.path)) await assertBinaryTarget(absolute,manifest.platform,manifest.arch)
   if(file.path.endsWith('.dylib')||file.path==='bin/pdftoppm'){
     const libraries=execFileSync('otool',['-L',absolute],{encoding:'utf8'}).split('\n').slice(file.path.endsWith('.dylib')?2:1).map(line=>line.trim().split(' (')[0]).filter(Boolean)

@@ -2,11 +2,19 @@
   "bundle": {
     "resources": {
       "runtime/": "runtime/",
-      "runtime/zvec/zvec_c_api.dll": "zvec_c_api.dll"
+      "runtime/zvec/zvec_c_api.dll": "zvec_c_api.dll",
+      "runtime/zvec/zvec.dll": "zvec.dll",
+      "runtime/zvec/zvec_ailego.dll": "zvec_ailego.dll",
+      "runtime/zvec/zvec_core.dll": "zvec_core.dll"
     },
     "windows": {
-      "nsis": { "installMode": "currentUser" },
-      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
     }
   }
 }
