@@ -23,6 +23,12 @@ run(process.execPath, ['scripts/prepare-doc2x.mjs'], { stdio: 'inherit' })
 run('cargo', ['build', '--release', '--locked', '--features', 'models', '--manifest-path', 'tools/casy-doc-engine/Cargo.toml'], { stdio: 'inherit' })
 const exe = process.platform === 'win32' ? '.exe' : ''
 await copyFile(join(project, `tools/casy-doc-engine/target/release/casy-doc-engine${exe}`), join(runtime, `bin/casy-doc-engine${exe}`))
+// ort's build script stages its Windows DLLs beside the compiled engine.
+if (process.platform === 'win32') {
+  for (const name of await readdir(join(project, 'tools/casy-doc-engine/target/release'))) {
+    if (name.toLowerCase().endsWith('.dll')) await copyFile(join(project, 'tools/casy-doc-engine/target/release', name), join(runtime, 'bin', name))
+  }
+}
 if (process.env.CASY_MODEL_CACHE) {
   const { cp } = await import('node:fs/promises')
   await cp(resolve(process.env.CASY_MODEL_CACHE), join(runtime, 'models/ppocrv6-medium'), { recursive: true })
@@ -166,7 +172,7 @@ async function inventory(directory, prefix = '') {
 }
 await inventory(runtime)
 await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ schemaVersion: 2, delivery: 'full', platform: process.platform, arch: process.arch, components: componentInventory(files), files }, null, 2) + '\n')
-const env = { ...process.env, PATH: '/usr/bin:/bin' }
+const env = { ...process.env, PATH: process.platform === 'win32' ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : '/usr/bin:/bin' }
 for (const key of ['CASY_DOC_ENGINE', 'CASY_PPOCR_MODEL_DIR', 'CASY_KOREAN_MODEL_DIR', 'CASY_OCR_FONT', 'CASY_PDFTOPPM']) delete env[key]
 const probe = JSON.parse(run(join(runtime, `bin/casy-doc-engine${exe}`), ['probe'], { env }))
 if (!probe.available) throw new Error(`Bundled engine unavailable: ${JSON.stringify(probe)}`)

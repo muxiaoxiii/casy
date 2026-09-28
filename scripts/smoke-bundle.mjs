@@ -10,10 +10,10 @@ mkdirSync(output, { recursive: true })
 const source = resolve('tests/fixtures/ocr-chart.png')
 const sha = () => createHash('sha256').update(readFileSync(source)).digest('hex')
 const before = sha()
-const env = { ...process.env, PATH: '/usr/bin:/bin' }
+const env = { ...process.env, PATH: process.platform === 'win32' ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : '/usr/bin:/bin' }
 for (const key of Object.keys(env)) if (key.startsWith('CASY_')) delete env[key]
 const request = { jobId: 'package-smoke', sourcePath: source, sourceSha256: before, outputDir: output, markdownOnly: false }
-const result = JSON.parse(execFileSync(join(app, 'Contents/Resources/runtime/bin/casy-doc-engine'), ['process'], {
+const result = JSON.parse(execFileSync(join(app, process.platform === 'win32' ? 'runtime/bin/casy-doc-engine.exe' : 'Contents/Resources/runtime/bin/casy-doc-engine'), ['process'], {
   input: JSON.stringify(request), env, encoding: 'utf8', timeout: 600000, maxBuffer: 16 * 1024 * 1024,
 }))
 assert.equal(result.pages.length, 1)

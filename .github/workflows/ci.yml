@@ -125,7 +125,7 @@ jobs:
   # Only package the platform with a complete verified OCR renderer distribution.
   # Linux/Windows packaging resumes after their runtime distributions are supplied.
   tauri-build:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-beta.')
     needs: [frontend, rust]
     strategy:
       fail-fast: false

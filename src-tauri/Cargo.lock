@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "casy"
-version = "0.1.3"
+version = "0.1.3-beta.1"
 dependencies = [
  "age",
  "anydoc",

@@ -1,6 +1,6 @@
 [package]
 name = "casy"
-version = "0.1.3"
+version = "0.1.3-beta.1"
 description = "Casy - 跨端案件管理系统"
 authors = ["only"]
 edition = "2021"

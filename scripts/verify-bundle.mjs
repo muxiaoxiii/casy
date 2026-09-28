@@ -8,18 +8,21 @@ import { sourceArchiveRequired } from './license-policy.mjs'
 import { assertBinaryTarget } from './binary-architecture.mjs'
 
 const app=resolve(process.argv[2]||'src-tauri/target/release/bundle/macos/Casy.app')
-const runtime=join(app,'Contents/Resources/runtime')
-execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'pipe'})
+const windows=process.platform==='win32'
+const runtime=join(app,windows?'runtime':'Contents/Resources/runtime')
+const executable=join(app,windows?'casy.exe':'Contents/MacOS/casy')
+const engine=join(runtime,windows?'bin/casy-doc-engine.exe':'bin/casy-doc-engine')
+if(!windows) execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'pipe'})
 const manifest=JSON.parse(await readFile(join(runtime,'manifest.json'),'utf8'))
-assert.equal(manifest.platform, 'darwin', 'This verifier expects a macOS app bundle')
-await assertBinaryTarget(join(app,'Contents/MacOS/casy'), manifest.platform, manifest.arch)
+assert.equal(manifest.platform, process.platform)
+await assertBinaryTarget(executable, manifest.platform, manifest.arch)
 for(const file of manifest.files){
   const absolute=join(runtime,file.path)
   assert.equal((await stat(absolute)).size,file.bytes,file.path)
   const hash=createHash('sha256')
   for await(const chunk of createReadStream(absolute))hash.update(chunk)
   assert.equal(hash.digest('hex'),file.sha256,file.path)
-  if(file.path.endsWith('.dylib')||['bin/pdftoppm','bin/casy-doc-engine'].includes(file.path)) await assertBinaryTarget(absolute,manifest.platform,manifest.arch)
+  if(/\.(dll|exe|dylib)$/.test(file.path)||['bin/pdftoppm','bin/casy-doc-engine'].includes(file.path)) await assertBinaryTarget(absolute,manifest.platform,manifest.arch)
   if(file.path.endsWith('.dylib')||file.path==='bin/pdftoppm'){
     const libraries=execFileSync('otool',['-L',absolute],{encoding:'utf8'}).split('\n').slice(file.path.endsWith('.dylib')?2:1).map(line=>line.trim().split(' (')[0]).filter(Boolean)
     assert(libraries.every(library=>library.startsWith('/usr/lib/')||library.startsWith('/System/')||library.startsWith('@loader_path/')),`External library dependency: ${file.path}`)
@@ -50,13 +53,13 @@ for(const dependency of dependencies){
     assert.equal(digest.digest('hex'),dependency.sourceSha256,dependency.name)
   }else assert.equal(dependency.source,null,dependency.name)
 }
-const env={...process.env,PATH:'/usr/bin:/bin'}
+const env={...process.env,PATH:windows?`${process.env.SystemRoot}\\System32;${process.env.SystemRoot}`:'/usr/bin:/bin'}
 for(const key of Object.keys(env))if(key.startsWith('CASY_'))delete env[key]
-const probe=JSON.parse(execFileSync(join(runtime,'bin/casy-doc-engine'),['probe'],{env,encoding:'utf8'}))
+const probe=JSON.parse(execFileSync(engine,['probe'],{env,encoding:'utf8'}))
 assert(probe.available,JSON.stringify(probe))
-const embeddings=JSON.parse(execFileSync(join(runtime,'bin/casy-doc-engine'),['embed'],{env:{...env,CASY_EMBEDDING_MODEL_DIR:join(runtime,'models/embedding-e5-base')},input:JSON.stringify({inputs:['专利侵权赔偿','Prüfung français 日本語'],query:true})+'\n',encoding:'utf8',timeout:30000}))
+const embeddings=JSON.parse(execFileSync(engine,['embed'],{env:{...env,CASY_EMBEDDING_MODEL_DIR:join(runtime,'models/embedding-e5-base')},input:JSON.stringify({inputs:['专利侵权赔偿','Prüfung français 日本語'],query:true})+'\n',encoding:'utf8',timeout:30000}))
 assert.equal(embeddings.embeddings?.length,2,JSON.stringify(embeddings))
 assert(embeddings.embeddings.every(vector=>vector.length===768&&vector.every(Number.isFinite)))
-const vectors=JSON.parse(execFileSync(join(app,'Contents/MacOS/casy'),['--verify-vector-index'],{env,encoding:'utf8',timeout:30000}))
+const vectors=JSON.parse(execFileSync(executable,['--verify-vector-index'],{env,encoding:'utf8',timeout:30000}))
 assert(vectors.available && vectors.engine==='zvec',JSON.stringify(vectors))
-console.log(JSON.stringify({app,platform:manifest.platform,architecture:manifest.arch,nativeArchitecturesVerified:true,files:manifest.files.length,runtimeBytes:manifest.files.reduce((sum,file)=>sum+file.bytes,0),signature:'ad-hoc verified',probe,embeddingDimensions:768,vectors}))
+console.log(JSON.stringify({app,platform:manifest.platform,architecture:manifest.arch,nativeArchitecturesVerified:true,files:manifest.files.length,runtimeBytes:manifest.files.reduce((sum,file)=>sum+file.bytes,0),signature:windows?'unsigned':'ad-hoc verified',probe,embeddingDimensions:768,vectors}))
