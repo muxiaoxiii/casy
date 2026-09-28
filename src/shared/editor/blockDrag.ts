@@ -20,6 +20,15 @@ export function moveBlock(editor: Editor, from: number, gap: number): boolean {
   return true
 }
 
+/** Pointer proximity to a visible scroll edge; capped to keep long-document moves controllable. */
+export function edgeScrollDelta(y: number, top: number, bottom: number): number {
+  if (y < top - 20 || y > bottom + 20 || bottom <= top) return 0
+  const edge = Math.min(48, (bottom - top) / 3)
+  if (y < top + edge) return -Math.ceil(16 * Math.min(1, (top + edge - y) / edge))
+  if (y > bottom - edge) return Math.ceil(16 * Math.min(1, (y - bottom + edge) / edge))
+  return 0
+}
+
 export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare: () => void = () => {}) {
   const state = reactive({ active: false, index: -1, x: 0, y: 0, lineX: 0, lineY: 0, lineWidth: 0, gap: -1, message: '' })
   let source = -1
@@ -27,6 +36,29 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
   let pointerId = -1
   let startY = 0
   let travelled = false
+  let pointerX = 0, pointerY = 0
+  let animation = 0
+  let scrollParents: HTMLElement[] = []
+  function scrollFrame() {
+    animation = 0
+    const editor = editorRef()
+    if (!state.active || !editor || editor.state.doc !== snapshot) return hide()
+    if (travelled) {
+      const bounds = editor.view.dom.getBoundingClientRect()
+      if (pointerX >= bounds.left - 32 && pointerX <= bounds.right + 32) {
+        const visibleTop = Math.max(0, ...scrollParents.map(el => el === document.scrollingElement ? 0 : el.getBoundingClientRect().top))
+        const visibleBottom = Math.min(window.innerHeight, ...scrollParents.map(el => el === document.scrollingElement ? window.innerHeight : el.getBoundingClientRect().bottom))
+        const delta = edgeScrollDelta(pointerY, visibleTop, visibleBottom)
+        for (const parent of scrollParents) {
+          const before = parent.scrollTop
+          if (delta < 0 && before <= 0 || delta > 0 && before >= parent.scrollHeight - parent.clientHeight) continue
+          parent.scrollTop += delta
+          if (parent.scrollTop !== before) { updateTarget(); break }
+        }
+      }
+    }
+    animation = window.requestAnimationFrame(scrollFrame)
+  }
   function blocks(editor: Editor) {
     const result: { index: number; rect: DOMRect }[] = []
     editor.state.doc.forEach((_node, pos, index) => {
@@ -52,6 +84,8 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     if (block) show(block.index)
   }
   function cleanup() {
+    window.cancelAnimationFrame(animation); animation = 0
+    scrollParents = []
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
     window.removeEventListener('pointercancel', cancel)
@@ -66,10 +100,16 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     const editor = editorRef()
     if (!editor || editor.state.doc !== snapshot) return hide()
     travelled ||= Math.abs(event.clientY - startY) > 4
+    pointerX = event.clientX; pointerY = event.clientY
+    updateTarget()
+  }
+  function updateTarget() {
+    const editor = editorRef()
+    if (!editor || !state.active) return
     const bounds = editor.view.dom.getBoundingClientRect()
-    if (event.clientX < bounds.left - 32 || event.clientX > bounds.right + 32 || event.clientY < bounds.top - 20 || event.clientY > bounds.bottom + 20) { state.gap = -1; return }
+    if (pointerX < bounds.left - 32 || pointerX > bounds.right + 32 || pointerY < bounds.top - 20 || pointerY > bounds.bottom + 20) { state.gap = -1; return }
     const items = blocks(editor)
-    const next = items.find(b => event.clientY < (b.rect.top + b.rect.bottom) / 2)
+    const next = items.find(b => pointerY < (b.rect.top + b.rect.bottom) / 2)
     const anchor = next || items[items.length - 1]
     if (!anchor) return
     state.gap = next ? next.index : editor.state.doc.childCount
@@ -98,6 +138,12 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     snapshot = editor.state.doc
     pointerId = event.pointerId
     startY = event.clientY; travelled = false
+    pointerX = event.clientX; pointerY = event.clientY
+    for (let parent = editor.view.dom.parentElement; parent; parent = parent.parentElement) {
+      if (/(auto|scroll)/.test(getComputedStyle(parent).overflowY) && parent.scrollHeight > parent.clientHeight) scrollParents.push(parent)
+    }
+    const root = document.scrollingElement
+    if (root instanceof HTMLElement && !scrollParents.includes(root)) scrollParents.push(root)
     state.active = true
     state.gap = -1
     window.addEventListener('pointermove', onMove)
@@ -105,6 +151,7 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     window.addEventListener('pointercancel', cancel)
     window.addEventListener('keydown', keydown)
     window.addEventListener('blur', cancel)
+    animation = window.requestAnimationFrame(scrollFrame)
   }
   function move(direction: -1 | 1) {
     const editor = editorRef()
@@ -120,8 +167,9 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     const editor = editorRef()
     if (editor) show(editor.state.selection.$from.index(0))
   }
-  window.addEventListener('scroll', hide, true)
+  function onScroll() { if (state.active) updateTarget(); else hide() }
+  window.addEventListener('scroll', onScroll, true)
   window.addEventListener('resize', hide)
-  onBeforeUnmount(() => { cleanup(); window.removeEventListener('scroll', hide, true); window.removeEventListener('resize', hide) })
+  onBeforeUnmount(() => { cleanup(); window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', hide) })
   return { state, start, hover, hide, move, selectCurrent }
 }

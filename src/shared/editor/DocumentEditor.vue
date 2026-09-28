@@ -11,6 +11,8 @@
 import { watch, ref, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import { BubbleMenu } from "@tiptap/vue-3/menus";
+import { CellSelection } from "@tiptap/pm/tables";
+import { tableActions } from "./tableActions";
 import { TextSelection } from "@tiptap/pm/state";
 import { Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -264,6 +266,21 @@ async function copyText(text: string) {
 function editorContextMenu(event: MouseEvent) {
   const ed = editor.value
   if (!ed || props.compact || !(event.target instanceof HTMLElement) || !ed.view.dom.contains(event.target)) return
+  const cell = event.target.closest('td, th')
+  if (cell && ed.view.dom.contains(cell)) {
+    const current = ed.state.selection
+    let selectedCell = false
+    if (current instanceof CellSelection) current.forEachCell((_node, pos) => { if (ed.view.nodeDOM(pos) === cell) selectedCell = true })
+    if (!selectedCell) {
+      const found = ed.view.posAtCoords({ left: event.clientX, top: event.clientY })
+      if (!found) return
+      ed.commands.setTextSelection(found.pos)
+    }
+    event.preventDefault(); event.stopPropagation()
+    blockMenu.close()
+    context.value = { open: true, x: event.clientX, y: event.clientY, label: '表格操作', actions: tableActions(ed) }
+    return
+  }
   if (ed.state.selection.empty) {
     const found = ed.view.posAtCoords({ left: event.clientX, top: event.clientY })
     if (found) openBlockActions(event, ed.state.doc.resolve(found.pos).index(0))
