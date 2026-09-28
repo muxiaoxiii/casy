@@ -65,7 +65,10 @@ def inspect(path):
         return
     visited.add(path.name.lower())
     for name, symbols in imports(path):
-        resolved = next((directory / name for directory in paths if (directory / name).is_file()), None)
+        # API-set names are virtual contracts. Searching PATH for physical stubs
+        # incorrectly selects e.g. a JDK's compatibility DLL instead of Windows.
+        api_set = name.lower().startswith(('api-ms-', 'ext-ms-'))
+        resolved = None if api_set else next((directory / name for directory in paths if (directory / name).is_file()), None)
         handle = kernel.LoadLibraryExW(str(resolved or name), None, 0x8 if resolved else 0)
         record = {'from': path.name, 'dll': name, 'path': str(resolved), 'loadError': ctypes.get_last_error() if not handle else None}
         if handle:
@@ -93,3 +96,6 @@ for label, path in [('inherited', os.environ['PATH']), ('isolated', ';'.join(map
     result = subprocess.run([str(binary), '--list'], env={**os.environ, 'PATH': path}, capture_output=True, text=True, timeout=90)
     print(f'{label} startup: {result.returncode:#x}\n{result.stderr}')
     (output / f'{label}.txt').write_text(f'Exit: {result.returncode:#x}\n{result.stdout}\n{result.stderr}', encoding='utf-8')
+
+if result.returncode != 0:
+    sys.exit('Isolated test executable still fails to start')
