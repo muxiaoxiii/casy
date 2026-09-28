@@ -215,11 +215,13 @@ async fn test_end_to_end_excel_import_with_header_offset_and_conflict() {
 }
 
 #[tokio::test]
+#[ignore = "requires an explicit private workbook via CASY_TEST_EXCEL_PATH"]
 async fn test_real_user_excel_file_inspection_and_import() {
     let _guard = TEST_MUTEX.lock().await;
     casy_lib::db::enable_test_mode();
     casy_lib::db::init_db(&casy_lib::db::open_db().unwrap()).unwrap();
-    let path = "/Users/only/Documents/Workspace/【案件进程表】2025.07.21更新.xlsx".to_string();
+    let path = std::env::var("CASY_TEST_EXCEL_PATH")
+        .expect("Set CASY_TEST_EXCEL_PATH to a private workbook copy before running this ignored test");
     // 1. 探测工作表结构与复合表头
     let inspect_res = excel_inspect_sheet(path.clone(), "Sheet1".to_string(), None)
         .await
