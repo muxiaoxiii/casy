@@ -104,6 +104,7 @@ jobs:
         with:
           node-version: 24
       - run: node ../scripts/prepare-zvec.mjs
+      - run: node ../scripts/prepare-fonts.mjs
       - run: cargo test --locked
         env:
           CASY_TEST_DATA_DIR: ${{ runner.temp }}/casy-ci-tests

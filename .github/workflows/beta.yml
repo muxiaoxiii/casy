@@ -57,6 +57,7 @@ jobs:
         shell: pwsh
         run: ./scripts/prepare-windows-renderer.ps1
       - run: node scripts/prepare-zvec.mjs
+      - run: node scripts/prepare-fonts.mjs
       - if: runner.os == 'Windows'
         name: Make Zvec available to test binaries
         shell: pwsh
