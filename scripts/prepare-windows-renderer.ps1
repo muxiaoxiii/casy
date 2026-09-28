@@ -23,6 +23,13 @@ $installed = "$root/installed/x64-windows-static-md"
 foreach ($dir in @('bin', 'lib', 'licenses/renderer/sources', 'licenses/renderer/recipes')) { New-Item -ItemType Directory -Force "$distribution/$dir" | Out-Null }
 Copy-Item "$installed/tools/poppler/pdftoppm.exe" "$distribution/bin/"
 Get-ChildItem "$installed/tools/poppler" -Filter '*.dll' | Copy-Item -Destination "$distribution/bin/"
+# App-local VC runtime also serves the OCR sidecar; do not rely on runner PATH.
+$vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+$vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$crt = Get-ChildItem "$vs/VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT" -Directory | Sort-Object FullName -Descending | Select-Object -First 1
+if (-not $crt) { throw 'Visual C++ redistributable runtime not found' }
+Get-ChildItem $crt.FullName -Filter '*.dll' | Copy-Item -Destination "$distribution/bin/"
+Set-Content "$distribution/licenses/renderer/Visual-C-runtime.txt" 'Microsoft Visual C++ runtime, redistributed from the Visual Studio Build Tools REDIST directory. https://visualstudio.microsoft.com/license-terms/'
 Copy-Item "$installed/share" "$distribution/licenses/renderer/notices" -Recurse
 # Source trees are vcpkg's exact patched build inputs; keep all dependency recipes too.
 Get-ChildItem "$root/buildtrees" -Directory | ForEach-Object {

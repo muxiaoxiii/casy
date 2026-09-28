@@ -148,6 +148,18 @@ if (process.platform === 'darwin') {
   const { cp } = await import('node:fs/promises')
   await cp(resolve(distribution), runtime, { recursive: true })
 }
+if (process.platform === 'win32') {
+  // Tauri deduplicates resources by source path; use distinct staged copies for
+  // load-time DLLs needed both beside casy.exe and inside the runtime tree.
+  const loader = join(project, 'src-tauri/target/windows-loader')
+  await mkdir(loader, { recursive: true })
+  for (const name of await readdir(join(runtime, 'zvec'))) {
+    if (name.endsWith('.dll')) await copyFile(join(runtime, 'zvec', name), join(loader, name))
+  }
+  for (const name of await readdir(join(runtime, 'bin'))) {
+    if (/^(msvcp|vcruntime|concrt).*\.dll$/i.test(name)) await copyFile(join(runtime, 'bin', name), join(loader, name))
+  }
+}
 await copyFile(join(project, 'docs/compliance/LICENSES.md'), join(runtime, 'licenses/Casy-dependencies.md'))
 await copyFile(join(project, 'docs/compliance/MinerU-Popo-LICENSE.txt'), join(runtime, 'licenses/MinerU-Popo-LICENSE.txt'))
 await copyFile(join(project, 'docs/compliance/E5-MIT-LICENSE.txt'), join(runtime, 'licenses/E5-MIT-LICENSE.txt'))
