@@ -46,6 +46,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           workspaces: |
             src-tauri
             tools/casy-doc-engine
@@ -53,9 +54,31 @@ jobs:
       - if: runner.os == 'macOS'
         run: brew install poppler
       - if: runner.os == 'Windows'
+        uses: actions/cache/restore@v4
+        id: renderer-cache
+        with:
+          path: |
+            ${{ runner.temp }}/casy-renderer
+            ${{ runner.temp }}/casy-vcpkg/installed
+          key: windows-renderer-${{ hashFiles('scripts/prepare-windows-renderer.ps1') }}
+      - if: runner.os == 'Windows' && steps.renderer-cache.outputs.cache-hit != 'true'
         name: Build pinned Windows renderer and static OpenSSL
         shell: pwsh
         run: ./scripts/prepare-windows-renderer.ps1
+      - if: runner.os == 'Windows' && steps.renderer-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/casy-renderer
+            ${{ runner.temp }}/casy-vcpkg/installed
+          key: ${{ steps.renderer-cache.outputs.cache-primary-key }}
+      - if: runner.os == 'Windows'
+        name: Set native runtime paths
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=$env:RUNNER_TEMP/casy-vcpkg/installed/x64-windows-static-md"
+          Add-Content $env:GITHUB_ENV 'OPENSSL_STATIC=1'
+          Add-Content $env:GITHUB_ENV "CASY_RENDERER_DISTRIBUTION=$env:RUNNER_TEMP/casy-renderer"
       - run: node scripts/prepare-zvec.mjs
       - run: node scripts/prepare-fonts.mjs
       - if: runner.os == 'Windows'
