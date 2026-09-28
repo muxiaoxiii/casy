@@ -1,22 +1,36 @@
 import { onBeforeUnmount, reactive } from 'vue'
 import type { Editor } from '@tiptap/core'
-import type { Node } from '@tiptap/pm/model'
+import { Fragment, type Node } from '@tiptap/pm/model'
 import { Selection } from '@tiptap/pm/state'
+import { selectBlocks, selectedBlockRange, actionBlockIndices } from './blockSelection'
 import { closeHistory } from '@tiptap/pm/history'
 
 /** Destination is a gap between top-level nodes, in the original document. */
 export function moveBlock(editor: Editor, from: number, gap: number): boolean {
+  return moveBlocks(editor, from, from, gap)
+}
+
+export function moveBlocks(editor: Editor, first: number, last: number, gap: number): boolean {
   const doc = editor.state.doc
-  if (!editor.isEditable || from < 0 || from >= doc.childCount || gap < 0 || gap > doc.childCount || gap === from || gap === from + 1) return false
-  let source = 0, destination = 0
-  doc.forEach((node, pos, index) => { if (index === from) source = pos; if (index < gap) destination += node.nodeSize })
-  const node = doc.child(from)
-  if (gap > from) destination -= node.nodeSize
-  const tr = closeHistory(editor.state.tr).delete(source, source + node.nodeSize).insert(destination, node)
+  if (!editor.isEditable || first < 0 || last < first || last >= doc.childCount || gap < 0 || gap > doc.childCount) return false
+  const indices = actionBlockIndices(editor, first, last)
+  if (indices.length === last - first + 1 && gap >= first && gap <= last + 1) return false
+  const blocks: { node: Node; pos: number; index: number }[] = []
+  let destination = 0
+  doc.forEach((node, pos, index) => {
+    if (indices.includes(index)) blocks.push({ node, pos, index })
+    if (index < gap) destination += node.nodeSize
+  })
+  destination -= blocks.filter(block => block.index < gap).reduce((sum, block) => sum + block.node.nodeSize, 0)
+  const backward = editor.state.selection.anchor > editor.state.selection.head
+  const tr = closeHistory(editor.state.tr)
+  for (const block of [...blocks].reverse()) tr.delete(block.pos, block.pos + block.node.nodeSize)
+  tr.insert(destination, Fragment.fromArray(blocks.map(block => block.node)))
   tr.setSelection(Selection.near(tr.doc.resolve(destination)))
   editor.view.dispatch(tr.scrollIntoView())
-  // A later typing operation must not be absorbed into the move's undo step.
   editor.view.dispatch(closeHistory(editor.state.tr))
+  const start = gap - indices.filter(index => index < gap).length
+  selectBlocks(editor, start, start + indices.length - 1, backward)
   return true
 }
 
@@ -32,6 +46,7 @@ export function edgeScrollDelta(y: number, top: number, bottom: number): number 
 export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare: () => void = () => {}) {
   const state = reactive({ active: false, index: -1, x: 0, y: 0, lineX: 0, lineY: 0, lineWidth: 0, gap: -1, message: '' })
   let source = -1
+  let sourceLast = -1
   let snapshot: Node | null = null
   let pointerId = -1
   let startY = 0
@@ -120,9 +135,9 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
   function onUp(event: PointerEvent) {
     if (event.pointerId !== pointerId) return
     const editor = editorRef()
-    const from = source, gap = state.gap, original = snapshot
+    const from = source, last = sourceLast, gap = state.gap, original = snapshot
     cancel()
-    if (editor && travelled && editor.state.doc === original && moveBlock(editor, from, gap)) {
+    if (editor && travelled && editor.state.doc === original && moveBlocks(editor, from, last, gap)) {
       state.message = '内容块已移动，可撤销'
       state.index = -1
       editor.commands.focus()
@@ -134,7 +149,10 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     prepare()
     event.preventDefault()
     cancel()
-    source = state.index
+    const selected = selectedBlockRange(editor)
+    const includesHandle = selected && selected.indices.includes(state.index)
+    source = includesHandle ? selected.first : state.index
+    sourceLast = includesHandle ? selected.last : state.index
     snapshot = editor.state.doc
     pointerId = event.pointerId
     startY = event.clientY; travelled = false
@@ -157,8 +175,11 @@ export function useBlockDrag(editorRef: () => Editor | undefined | null, prepare
     const editor = editorRef()
     if (!editor) return
     prepare()
-    const from = state.index
-    if (moveBlock(editor, from, direction < 0 ? from - 1 : from + 2)) {
+    const selected = selectedBlockRange(editor)
+    const includesHandle = selected && selected.indices.includes(state.index)
+    const from = includesHandle ? selected.first : state.index
+    const last = includesHandle ? selected.last : state.index
+    if (moveBlocks(editor, from, last, direction < 0 ? from - 1 : last + 2)) {
       show(from + direction)
       state.message = direction < 0 ? '内容块已上移，可撤销' : '内容块已下移，可撤销'
     }

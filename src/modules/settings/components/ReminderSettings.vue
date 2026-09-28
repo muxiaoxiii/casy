@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useUnsavedForm } from '../../../composables/useUnsavedForm'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Edit, VideoPlay, RefreshRight, Bell } from '../../../shared/icons'
@@ -12,6 +13,19 @@ const engineRunning = ref(false)
 const dialogVisible = ref(false)
 const editingRule = ref(null)
 const form = ref({ name: '', triggerType: 'deadline_before', triggerValue: 7, channels: ['local'], enabled: true })
+
+const initialForm = ref('')
+const formDirty = computed(() => dialogVisible.value && JSON.stringify(form.value) !== initialForm.value)
+const { canLeave } = useUnsavedForm('提醒规则', () => formDirty.value, () => saving.value)
+async function closeEditor(done) {
+  if (!(await canLeave())) return
+  if (typeof done === 'function') done()
+  else dialogVisible.value = false
+}
+function parseChannels(value) {
+  try { const result = JSON.parse(value || '[]'); return Array.isArray(result) ? result.filter(item => typeof item === 'string') : [] }
+  catch { return [] }
+}
 
 const triggerTypeLabels = {
   deadline_before: '期限前 N 天',
@@ -41,6 +55,7 @@ async function checkEngine() {
 function openCreate() {
   editingRule.value = null
   form.value = { name: '', triggerType: 'deadline_before', triggerValue: 7, channels: ['local'], enabled: true }
+  initialForm.value = JSON.stringify(form.value)
   dialogVisible.value = true
 }
 function openEdit(rule) {
@@ -49,9 +64,10 @@ function openEdit(rule) {
     name: rule.name,
     triggerType: rule.triggerType,
     triggerValue: rule.triggerValue ?? 7,
-    channels: JSON.parse(rule.channels || '["local"]'),
+    channels: parseChannels(rule.channels),
     enabled: rule.enabled,
   }
+  initialForm.value = JSON.stringify(form.value)
   dialogVisible.value = true
 }
 async function saveRule() {
@@ -68,7 +84,7 @@ async function saveRule() {
     ElMessage.success(editingRule.value ? '规则已更新' : '规则已创建')
     dialogVisible.value = false
     await loadRules()
-  } finally { saving.value = false }
+  } catch (error) { ElMessage.error(String(error)) } finally { saving.value = false }
 }
 
 async function removeRule(id) {
@@ -134,7 +150,7 @@ onMounted(() => {
       </el-table-column>
       <el-table-column label="通道" min-width="180">
         <template #default="{ row }">
-          <el-tag v-for="c in JSON.parse(row.channels || '[]')" :key="c" size="small" class="chan-tag">
+          <el-tag v-for="c in parseChannels(row.channels)" :key="c" size="small" class="chan-tag">
             {{ channelLabels[c] || c }}
           </el-tag>
         </template>
@@ -173,7 +189,7 @@ onMounted(() => {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editingRule ? '编辑提醒规则' : '新建提醒规则'" width="460px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
+    <el-dialog v-model="dialogVisible" :before-close="closeEditor" :title="editingRule ? '编辑提醒规则' : '新建提醒规则'" width="460px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
       <el-form label-width="80px" :disabled="saving">
         <el-form-item label="规则名称">
           <el-input v-model="form.name" placeholder="如：期限前 7 天提醒" />
@@ -199,7 +215,7 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="saving" @click="dialogVisible = false">取消</el-button>
+        <el-button :disabled="saving" @click="closeEditor">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>

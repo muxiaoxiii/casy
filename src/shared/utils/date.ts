@@ -77,3 +77,31 @@ export function isBeforeToday(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false
   return dateStr < todayLocalISO()
 }
+
+/** SQLite timestamps without an offset are local; explicit offsets retain their meaning. */
+export function parseTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const text = value.trim()
+  if (!/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(text)) return null
+  if (!parseLocalDate(text)) return null
+  const time = text.match(/[T ](\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (time && (Number(time[1]) > 23 || Number(time[2]) > 59 || Number(time[3] || 0) > 59)) return null
+  const date = text.length === 10 ? parseLocalDate(text) : new Date(text.replace(' ', 'T'))
+  return date && Number.isFinite(date.getTime()) ? date : null
+}
+export function formatTimestamp(value: string | null | undefined): string {
+  const date = parseTimestamp(value)
+  if (!date) return '时间未知'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${toLocalISODate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+export function relativeTimestamp(value: string | null | undefined): string {
+  const date = parseTimestamp(value)
+  if (!date) return '时间未知'
+  const elapsed = Date.now() - date.getTime()
+  if (elapsed < 0) return formatTimestamp(value)
+  if (elapsed < 60000) return '刚刚'
+  if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)} 分钟前`
+  if (elapsed < 86400000) return `${Math.floor(elapsed / 3600000)} 小时前`
+  return formatTimestamp(value)
+}

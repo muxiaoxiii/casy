@@ -13,7 +13,8 @@ import { useEditor, EditorContent } from "@tiptap/vue-3";
 import { BubbleMenu } from "@tiptap/vue-3/menus";
 import { CellSelection } from "@tiptap/pm/tables";
 import { tableActions } from "./tableActions";
-import { TextSelection } from "@tiptap/pm/state";
+import { Selection, TextSelection } from "@tiptap/pm/state";
+import { BlockSelection, BlockSelectionExtension, toggleBlock, selectedBlockRange, selectBlocks, extendBlocksTo, extendBlocksBy } from "./blockSelection";
 import { Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -25,8 +26,8 @@ import { tauriCallSafe } from "../../core/tauriBridge";
 import { ResizableImage } from "./ResizableImage";
 import { useBlockMenu } from './useBlockMenu';
 import ContextMenu, { type ContextAction } from "../components/ContextMenu.vue";
-import { blockAt, editBlock } from "./blockActions";
-import { moveBlock } from "./blockDrag";
+import { blockAt, editBlocks } from "./blockActions";
+import { moveBlocks } from "./blockDrag";
 import { useBlockDrag } from './blockDrag';
 import EditorToolbar from "./EditorToolbar.vue";
 import { documentExtensions } from "./schema";
@@ -218,7 +219,7 @@ function shouldShowBubble({
   from: number;
   to: number;
 }) {
-  return !context.value.open && activeEditor.isFocused && from !== to && !activeEditor.isActive("codeBlock");
+  return !(activeEditor.state.selection instanceof BlockSelection) && !context.value.open && activeEditor.isFocused && from !== to && !activeEditor.isActive("codeBlock");
 }
 
 const context = ref({ open: false, x: 0, y: 0, label: '', actions: [] as ContextAction[] })
@@ -226,24 +227,46 @@ function openBlockActions(event: MouseEvent, index = blockDrag.state.index) {
   const ed = editor.value
   if (!ed || props.compact || !ed.isEditable) return
   flushSourceEditors(ed)
-  const block = blockAt(ed, index)
-  if (!block) return
+  const selected = selectedBlockRange(ed)
+  const includesHandle = selected && selected.indices.includes(index)
+  const first = includesHandle ? selected.first : index
+  const last = includesHandle ? selected.last : index
+  const block = blockAt(ed, first), end = blockAt(ed, last)
+  if (!block || !end) return
+  const indices = includesHandle ? selected.indices : [index]
+  const count = indices.length
+  const text = indices.map(i => ed.state.doc.child(i).textContent).join('\n')
   event.preventDefault(); event.stopPropagation()
+  if (!includesHandle) selectBlocks(ed, first, last)
   const snapshot = ed.state.doc
-  const safe = (action: () => void) => () => { if (!ed.isDestroyed && ed.state.doc === snapshot) action() }
-  const select = () => ed.view.dispatch(ed.state.tr.setSelection(TextSelection.between(ed.state.doc.resolve(block.pos + 1), ed.state.doc.resolve(block.pos + block.node.nodeSize - 1))))
-  const format = (action: (chain: any) => any) => safe(() => { select(); action(ed.chain().focus()).run() })
-  const canConvert = ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'blockquote', 'codeBlock'].includes(block.node.type.name)
+  const safe = (action: () => void) => () => { if (!ed.isDestroyed && ed.isEditable && ed.state.doc === snapshot) action() }
+  const format = (action: (chain: any) => any) => safe(() => {
+    let chain = ed.chain().focus()
+    for (const index of [...indices].reverse()) {
+      const item = blockAt(ed, index)!
+      chain = chain.command(({ tr }) => {
+        const from = tr.mapping.map(item.pos, 1), to = tr.mapping.map(item.pos + item.node.nodeSize, -1)
+        tr.setSelection(TextSelection.between(tr.doc.resolve(from), tr.doc.resolve(to)))
+        return true
+      })
+      chain = action(chain)
+    }
+    chain.run()
+  })
+  const canConvert = indices.map(index => ed.state.doc.child(index)).every(node => ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'blockquote', 'codeBlock'].includes(node.type.name))
   const actions: ContextAction[] = [
-    { label: '在上方插入正文', run: safe(() => { editBlock(ed, index, 'before') }) },
-    { label: '在下方插入正文', run: safe(() => { editBlock(ed, index, 'after') }) },
+    { label: count > 1 ? `选中这 ${count} 个完整块` : '选中此块', run: safe(() => { if (!(ed.state.selection instanceof BlockSelection) || !includesHandle) selectBlocks(ed, first, last); ed.commands.focus() }) },
+    { label: '扩选到上一块', disabled: first === 0, run: safe(() => { selectBlocks(ed, first - 1, last); ed.commands.focus() }) },
+    { label: '扩选到下一块', disabled: last === ed.state.doc.childCount - 1, run: safe(() => { selectBlocks(ed, first, last + 1); ed.commands.focus() }) },
+    { label: '在上方插入正文', run: safe(() => { editBlocks(ed, first, last, 'before') }) },
+    { label: '在下方插入正文', run: safe(() => { editBlocks(ed, first, last, 'after') }) },
     { label: '转换块类型', separator: true, children: [
     { label: '转换为正文', disabled: !canConvert, run: format(c => c.clearNodes().setParagraph()) },
     ...([1, 2, 3] as const).map(level => ({ label: `转换为${['一','二','三'][level - 1]}级标题`, disabled: !canConvert, run: format(c => c.clearNodes().setHeading({ level })) })),
-    { label: '转换为项目列表', disabled: !canConvert, run: format(c => c.toggleBulletList()) },
-    { label: '转换为编号列表', disabled: !canConvert, run: format(c => c.toggleOrderedList()) },
-    { label: '转换为待办清单', disabled: !canConvert, run: format(c => c.toggleTaskList()) },
-    { label: '转换为引用', disabled: !canConvert, run: format(c => c.toggleBlockquote()) },
+    { label: '转换为项目列表', disabled: !canConvert, run: format(c => c.clearNodes().toggleBulletList()) },
+    { label: '转换为编号列表', disabled: !canConvert, run: format(c => c.clearNodes().toggleOrderedList()) },
+    { label: '转换为待办清单', disabled: !canConvert, run: format(c => c.clearNodes().toggleTaskList()) },
+    { label: '转换为引用', disabled: !canConvert, run: format(c => c.clearNodes().toggleBlockquote()) },
     ] },
     { label: '对齐方式', children: [
     { label: '左对齐', disabled: !canConvert, run: format(c => c.setTextAlign('left')) },
@@ -251,14 +274,31 @@ function openBlockActions(event: MouseEvent, index = blockDrag.state.index) {
     { label: '右对齐', disabled: !canConvert, run: format(c => c.setTextAlign('right')) },
     ] },
     { label: '清除文字样式', disabled: !canConvert, run: format(c => c.unsetAllMarks()) },
-    { label: '上移', separator: true, shortcut: 'Alt ⇧ ↑', disabled: index === 0, run: safe(() => { moveBlock(ed, index, index - 1) }) },
-    { label: '下移', shortcut: 'Alt ⇧ ↓', disabled: index === ed.state.doc.childCount - 1, run: safe(() => { moveBlock(ed, index, index + 2) }) },
-    { label: '创建副本', run: safe(() => { editBlock(ed, index, 'duplicate') }) },
-    { label: '复制块文本', disabled: !block.node.textContent, run: safe(() => { void copyText(block.node.textContent) }) },
-    { label: '删除此块', separator: true, danger: true, shortcut: '可撤销', run: safe(() => { editBlock(ed, index, 'delete') }) },
+    { label: '上移', separator: true, shortcut: 'Alt ⇧ ↑', disabled: first === 0, run: safe(() => { moveBlocks(ed, first, last, first - 1) }) },
+    { label: '下移', shortcut: 'Alt ⇧ ↓', disabled: last === ed.state.doc.childCount - 1, run: safe(() => { moveBlocks(ed, first, last, last + 2) }) },
+    { label: count > 1 ? `创建 ${count} 个块的副本` : '创建副本', run: safe(() => { editBlocks(ed, first, last, 'duplicate') }) },
+    { label: '复制内容块', run: safe(() => { void copyBlockContent(ed, block.pos, end.pos + end.node.nodeSize) }) },
+    { label: '仅复制文本', disabled: !text, run: safe(() => { void copyText(text) }) },
+    { label: count > 1 ? `删除选中的 ${count} 个块` : '删除此块', separator: true, danger: true, shortcut: '可撤销', run: safe(() => { editBlocks(ed, first, last, 'delete') }) },
   ]
   blockMenu.close()
-  context.value = { open: true, x: event.clientX || blockDrag.state.x, y: event.clientY || blockDrag.state.y + 28, label: '内容块操作', actions }
+  context.value = { open: true, x: event.clientX || blockDrag.state.x, y: event.clientY || blockDrag.state.y + 28, label: count > 1 ? `已选择 ${count} 个内容块` : '内容块操作', actions }
+}
+async function copyBlockContent(ed: any, from: number, to: number) {
+  const slice = ed.state.selection instanceof BlockSelection ? ed.state.selection.content() : ed.state.doc.slice(from, to)
+  const { dom, text } = ed.view.serializeForClipboard(slice)
+  try {
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
+      await navigator.clipboard.writeText(text)
+      ElMessage.info('当前环境仅支持复制文本')
+      return
+    }
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([dom.innerHTML], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' }),
+    })])
+    ElMessage.success('已复制内容块，粘贴时保留格式')
+  } catch { ElMessage.error('无法写入剪贴板，请选中内容块后使用系统复制快捷键') }
 }
 async function copyText(text: string) {
   try { await navigator.clipboard.writeText(text); ElMessage.success('已复制') } catch { ElMessage.error('无法访问剪贴板，请使用系统复制快捷键') }
@@ -266,6 +306,84 @@ async function copyText(text: string) {
 function editorContextMenu(event: MouseEvent) {
   const ed = editor.value
   if (!ed || props.compact || !(event.target instanceof HTMLElement) || !ed.view.dom.contains(event.target)) return
+  const found = ed.view.posAtCoords({ left: event.clientX, top: event.clientY })
+  const evidence = event.target.closest('[data-evidence-link]')
+  if (evidence) {
+    let pos: number | undefined
+    ed.state.doc.descendants((node, offset) => { if (node.type.name === 'evidenceLink' && ed.view.nodeDOM(offset) === evidence) pos = offset })
+    if (pos !== undefined) {
+      event.preventDefault(); event.stopPropagation()
+      const position = pos, snapshot = ed.state.doc, node = snapshot.nodeAt(position)!
+      const edit = async (key: 'label' | 'anchor') => {
+        try {
+          const { value } = await ElMessageBox.prompt(key === 'label' ? '引用显示名称' : '定位信息，例如 page:12；留空取消定位', '编辑附件引用', { inputValue: node.attrs[key] || '', confirmButtonText: '保存', cancelButtonText: '取消' })
+          if (!ed.isDestroyed && ed.state.doc === snapshot) ed.view.dispatch(ed.state.tr.setNodeMarkup(position, undefined, { ...node.attrs, [key]: value || null }))
+        } catch { /* cancelled */ }
+      }
+      context.value = { open: true, x: event.clientX, y: event.clientY, label: '附件 / 证据引用', actions: [
+        { label: '修改显示名称…', run: () => { void edit('label') } },
+        { label: '设置引用页码…', disabled: node.attrs.targetType !== 'file', run: () => { void edit('anchor') } },
+        { label: '复制引用文字', run: () => { void copyText(String(node.attrs.label || '引用')) } },
+        { label: '取消引用，保留文字', run: () => {
+          if (ed.isDestroyed || ed.state.doc !== snapshot) return
+          ed.view.dispatch(ed.state.tr.replaceWith(position, position + node.nodeSize, ed.schema.text(String(node.attrs.label || '引用'))))
+        } },
+      ] }
+      return
+    }
+  }
+  const image = event.target.closest('.document-image')
+  if (image && found) {
+    let imagePos: number | undefined
+    ed.state.doc.descendants((node, pos) => { if (node.type.name === 'image' && ed.view.nodeDOM(pos) === image) imagePos = pos })
+    if (imagePos !== undefined) { ed.commands.setNodeSelection(imagePos); openImageActions(event, imagePos); return }
+  }
+  const link = event.target.closest('a[href]')
+  if (link && found) {
+    ed.commands.setTextSelection(found.pos)
+    if (ed.isActive('link')) {
+      event.preventDefault(); event.stopPropagation()
+      const snapshot = ed.state.doc, bookmark = ed.state.selection.getBookmark()
+      const restore = () => { if (ed.isDestroyed || ed.state.doc !== snapshot) return false; ed.view.dispatch(ed.state.tr.setSelection(bookmark.resolve(ed.state.doc))); return true }
+      const href = String(ed.getAttributes('link').href || '')
+      context.value = { open: true, x: event.clientX, y: event.clientY, label: '链接 / 附件引用', actions: [
+        { label: '复制地址', run: () => { void copyText(href) } },
+        { label: '修改地址…', run: async () => {
+          try {
+            const { value } = await ElMessageBox.prompt('输入链接地址', '修改链接', { inputValue: href, inputPattern: /^https?:\/\/.+/, inputErrorMessage: '请输入 http 或 https 地址', confirmButtonText: '保存', cancelButtonText: '取消' })
+            if (restore()) ed.chain().focus().extendMarkRange('link').setLink({ href: value }).run()
+          } catch { /* cancelled */ }
+        } },
+        { label: '移除链接，保留文字', run: () => { if (restore()) ed.chain().focus().extendMarkRange('link').unsetLink().run() } },
+      ] }
+      return
+    }
+  }
+  const listItem = event.target.closest('li')
+  if (listItem && found && ed.state.selection.empty) {
+    event.preventDefault(); event.stopPropagation()
+    ed.commands.setTextSelection(found.pos)
+    const itemType = ed.isActive('taskItem') ? 'taskItem' : 'listItem'
+    const snapshot = ed.state.doc, bookmark = ed.state.selection.getBookmark()
+    const run = (action: (chain: any) => any) => () => {
+      if (ed.isDestroyed || ed.state.doc !== snapshot) return
+      ed.view.dispatch(ed.state.tr.setSelection(bookmark.resolve(ed.state.doc)))
+      action(ed.chain().focus()).run()
+    }
+    context.value = { open: true, x: event.clientX, y: event.clientY, label: '列表项操作', actions: [
+      { label: '增加缩进', shortcut: 'Tab', disabled: !ed.can().sinkListItem(itemType), run: run(c => c.sinkListItem(itemType)) },
+      { label: '减少缩进', shortcut: 'Shift Tab', disabled: !ed.can().liftListItem(itemType), run: run(c => c.liftListItem(itemType)) },
+      ...(itemType === 'taskItem' ? [{ label: ed.getAttributes('taskItem').checked ? '标记未完成' : '标记完成', run: run(c => c.updateAttributes('taskItem', { checked: !ed.getAttributes('taskItem').checked })) }] : []),
+      { label: '整个列表的块操作…', separator: true, run: () => openBlockActions(event, ed.state.doc.resolve(found.pos).index(0)) },
+    ] }
+    return
+  }
+  if (ed.state.selection instanceof BlockSelection) {
+    const found = ed.view.posAtCoords({ left: event.clientX, top: event.clientY })
+    const index = found ? ed.state.doc.resolve(found.pos).index(0) : ed.state.selection.$from.index(0)
+    openBlockActions(event, index)
+    return
+  }
   const cell = event.target.closest('td, th')
   if (cell && ed.view.dom.contains(cell)) {
     const current = ed.state.selection
@@ -309,6 +427,33 @@ const taskState = useEditorTasks(() => editor.value || undefined, props);
 /** 写作状态：字数/段落，便于长文写作时感知进度 */
 const writingStats = ref({ chars: 0, words: 0, paragraphs: 0, headings: 0 })
 const focusWriting = ref(false)
+const selectedBlockCount = ref(0)
+function updateBlockCount(ed: any) {
+  const range = ed.state.selection instanceof BlockSelection ? selectedBlockRange(ed) : null
+  selectedBlockCount.value = range ? range.indices.length : 0
+}
+function startBlockPointer(event: PointerEvent) {
+  if ((event.metaKey || event.ctrlKey) && editor.value) {
+    event.preventDefault(); event.stopPropagation()
+    toggleBlock(editor.value, blockDrag.state.index)
+    editor.value.commands.focus()
+    return
+  }
+  if (event.shiftKey && editor.value) {
+    event.preventDefault(); event.stopPropagation()
+    extendBlocksTo(editor.value, blockDrag.state.index)
+    editor.value.commands.focus()
+    return
+  }
+  blockDrag.start(event)
+}
+function openSelectedBlocks(event: MouseEvent) {
+  if (editor.value) openBlockActions(event, editor.value.state.selection.$from.index(0))
+}
+function clearBlockSelection() {
+  const ed = editor.value
+  if (ed) { ed.view.dispatch(ed.state.tr.setSelection(Selection.near(ed.state.selection.$from))); ed.commands.focus() }
+}
 const blockDrag = useBlockDrag(() => editor.value, () => { if (editor.value) flushSourceEditors(editor.value) })
 function refreshWritingStats() {
   const ed = editor.value
@@ -332,6 +477,7 @@ const editor = useEditor({
       : mdToHtml(props.modelValue || ""),
   extensions: [
     ...documentExtensions(props.placeholder),
+    BlockSelectionExtension,
     ...props.extraExtensions,
     WikiLinkSuggestion.configure({
       trigger: "[[",
@@ -361,6 +507,30 @@ const editor = useEditor({
     },
     handleKeyDown(_view, event) {
       if (event.isComposing || _view.composing) return false;
+      if (_view.state.selection instanceof BlockSelection) {
+        const range = selectedBlockRange(editor.value!)
+        if (range && !event.metaKey && !event.ctrlKey && !event.altKey && ['Backspace', 'Delete'].includes(event.key)) {
+          event.preventDefault()
+          editBlocks(editor.value!, range.first, range.last, 'delete')
+          return true
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          if (range) editBlocks(editor.value!, range.first, range.last, event.shiftKey ? 'before' : 'after')
+          return true
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          _view.dispatch(_view.state.tr.setSelection(Selection.near(_view.state.selection.$from)))
+          return true
+        }
+        if (range && event.shiftKey && !event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+          event.preventDefault()
+          extendBlocksBy(editor.value!, event.key === 'ArrowUp' ? -1 : 1)
+          return true
+        }
+      }
+
       if (editor.value && blockMenu.keydown(editor.value, event)) return true;
       if (!props.compact && event.altKey && event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault(); blockDrag.selectCurrent(); blockDrag.move(event.key === 'ArrowUp' ? -1 : 1); return true;
@@ -402,6 +572,7 @@ const editor = useEditor({
   },
   onUpdate: () => {
     context.value.open = false;
+    if (editor.value) updateBlockCount(editor.value);
     contentChanged = true;
     emit("change");
     if (props.contentFormat === "html") flushSerialize();
@@ -414,6 +585,7 @@ const editor = useEditor({
     if (editor.value && props.contentFormat === 'markdown' && !props.compact) blockMenu.update(editor.value);
   },
   onSelectionUpdate: ({ editor: activeEditor }) => {
+    updateBlockCount(activeEditor);
     emit('active-block', activeEditor.state.selection.$from.index(0));
     if (props.contentFormat === 'markdown' && !props.compact) blockMenu.update(activeEditor);
   },
@@ -449,6 +621,7 @@ watch(
       { emitUpdate: false },
     );
     if (props.contentFormat === 'markdown') markdownPreservation.bind(next, ed.state.doc);
+    updateBlockCount(ed);
   },
 );
 
@@ -533,9 +706,36 @@ function scrollToHeading(id: string) {
   }
 }
 
+function openImageActions(event: MouseEvent, pos: number) {
+  const ed = editor.value!
+  const snapshot = ed.state.doc, node = snapshot.nodeAt(pos)
+  if (!node || node.type.name !== 'image') return
+  event.preventDefault(); event.stopPropagation()
+  const update = (attrs: Record<string, unknown>) => {
+    if (ed.isDestroyed || ed.state.doc !== snapshot) return
+    ed.view.dispatch(ed.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs }))
+  }
+  const editAttribute = async (key: 'alt' | 'title') => {
+    try {
+      const { value } = await ElMessageBox.prompt(key === 'alt' ? '图片无法显示时使用的说明文字' : '鼠标悬停时显示的图片标题', key === 'alt' ? '图片说明' : '图片标题', { inputValue: node.attrs[key] || '', confirmButtonText: '保存', cancelButtonText: '取消' })
+      update({ [key]: value })
+    } catch { /* cancelled */ }
+  }
+  context.value = { open: true, x: event.clientX, y: event.clientY, label: '图片操作', actions: [
+    { label: '修改图片说明…', run: () => { void editAttribute('alt') } },
+    { label: '修改图片标题…', run: () => { void editAttribute('title') } },
+    { label: '替换图片…', run: () => { imageReplacement = { doc: snapshot, pos }; imageInput.value?.click() } },
+    { label: '恢复原始尺寸', run: () => update({ width: null, height: null }) },
+    { label: '复制图片来源', run: () => { void copyText(String(node.attrs.src || '')) } },
+    { label: '块操作（移动 / 副本 / 删除）…', separator: true, run: () => openBlockActions(event, snapshot.resolve(pos).index(0)) },
+  ] }
+}
+let imageReplacement: { doc: any; pos: number } | null = null
 const toolbarRef = ref<InstanceType<typeof EditorToolbar>>();
 const imageInput = ref<HTMLInputElement>();
-async function addImage(file: File) {
+async function addImage(file: File, replacement = imageReplacement) {
+  imageReplacement = null
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) return ElMessage.warning("请选择 PNG、JPEG、WebP 或 GIF 图片")
   if (file.size > 20 * 1024 * 1024)
     return ElMessage.warning("图片超过 20 MB，请先压缩");
   const ed = editor.value;
@@ -548,6 +748,12 @@ async function addImage(file: File) {
       reader.readAsDataURL(file);
     });
     if (ed.isDestroyed) return;
+    if (replacement) {
+      if (ed.state.doc !== replacement.doc) return ElMessage.warning('文档已变更，请重新选择需要替换的图片')
+      const node = ed.state.doc.nodeAt(replacement.pos)
+      if (node?.type.name === 'image') ed.view.dispatch(ed.state.tr.setNodeMarkup(replacement.pos, undefined, { ...node.attrs, src, alt: node.attrs.alt || file.name }))
+      return
+    }
     ed.chain()
       .focus()
       .setImage({ src, alt: file.name })
@@ -637,13 +843,14 @@ defineExpose({
       :editor="editor"
       @link="setLink"
       @wiki="insertWikiLinkTrigger"
-      @image="imageInput?.click()"
+      @image="imageReplacement = null; imageInput?.click()"
       @task="linkTask"
     />
     <input
       ref="imageInput"
       type="file"
       accept="image/png,image/jpeg,image/webp,image/gif"
+      @cancel="imageReplacement = null"
       hidden
       @change="onImageFile"
     />
@@ -719,7 +926,7 @@ defineExpose({
       <button type="button" title="清除文字样式" @click="cmd(c => c.unsetAllMarks())">清除样式</button>
     </BubbleMenu>
     <Teleport to="body">
-      <button v-if="!compact && blockDrag.state.index >= 0" type="button" class="writing-drag-handle" :class="{ dragging: blockDrag.state.active }" :style="{ left: blockDrag.state.x + 'px', top: blockDrag.state.y + 'px' }" aria-label="移动当前内容块，上下方向键调整位置" title="点击或右键打开块菜单 · 拖动调整顺序" aria-haspopup="menu" :aria-expanded="context.open" @click="openBlockActions($event)" @contextmenu.prevent.stop="openBlockActions($event)" @pointerdown="blockDrag.start" @keydown.up.prevent="blockDrag.move(-1)" @keydown.down.prevent="blockDrag.move(1)" @keydown.esc="blockDrag.hide">
+      <button v-if="!compact && blockDrag.state.index >= 0" type="button" class="writing-drag-handle" :class="{ dragging: blockDrag.state.active }" :style="{ left: blockDrag.state.x + 'px', top: blockDrag.state.y + 'px' }" aria-label="移动当前内容块，上下方向键调整位置" title="点击打开块菜单 · Shift 点击扩选 · ⌘/Ctrl 点击多选 · 拖动调整顺序" aria-haspopup="menu" :aria-expanded="context.open" @click="!$event.shiftKey && !$event.metaKey && !$event.ctrlKey && openBlockActions($event)" @contextmenu.prevent.stop="openBlockActions($event)" @pointerdown="startBlockPointer" @keydown.up.prevent="blockDrag.move(-1)" @keydown.down.prevent="blockDrag.move(1)" @keydown.esc="blockDrag.hide">
         <svg width="16" height="20" viewBox="0 0 16 20" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="5" cy="5" r="1.5"/><circle cx="11" cy="5" r="1.5"/><circle cx="5" cy="10" r="1.5"/><circle cx="11" cy="10" r="1.5"/><circle cx="5" cy="15" r="1.5"/><circle cx="11" cy="15" r="1.5"/></svg>
       </button>
       <div v-if="blockDrag.state.active && blockDrag.state.gap >= 0" class="writing-drop-line" :style="{ left: blockDrag.state.lineX + 'px', top: blockDrag.state.lineY + 'px', width: blockDrag.state.lineWidth + 'px' }" />
@@ -732,6 +939,11 @@ defineExpose({
       role="status"
       aria-live="polite"
     >
+      <template v-if="selectedBlockCount">
+        <span aria-live="polite">已选 {{ selectedBlockCount }} 个块</span>
+        <button type="button" class="focus-toggle" @click="openSelectedBlocks">批量操作</button>
+        <button type="button" class="focus-toggle" @click="clearBlockSelection">取消选择</button>
+      </template>
       <span>{{ writingStats.chars }} 字</span>
       <span>{{ writingStats.paragraphs }} 段</span>
       <span>{{ writingStats.headings }} 标题</span>
@@ -990,6 +1202,13 @@ defineExpose({
   background: var(--c-bg-card);
   box-shadow: var(--shadow-lg, 0 10px 30px rgba(0, 0, 0, 0.14));
   z-index: 80;
+}
+
+.md-wysiwyg-body :deep(.casy-block-selected) {
+  background: var(--c-bg-selected);
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
+  border-radius: 3px;
 }
 
 .md-wysiwyg-body {

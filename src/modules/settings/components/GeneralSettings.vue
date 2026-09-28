@@ -26,6 +26,7 @@ async function loadHolidaysSummary() {
 }
 
 async function importHolidaysJson() {
+  if (holidaysImporting.value) return
   const { open } = await import('@tauri-apps/plugin-dialog')
   const selected = await open({
     multiple: false,
@@ -34,8 +35,8 @@ async function importHolidaysJson() {
   if (!selected) return
 
   holidaysImporting.value = true
+  try {
   const result = await casyContext.settings.importHolidaysJson(selected)
-  holidaysImporting.value = false
 
   if (result.ok) {
     ElMessage.success(`导入成功：${result.data.holidays_count} 个节假日`)
@@ -43,11 +44,14 @@ async function importHolidaysJson() {
   } else {
     ElMessage.error(result.error || '导入失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { holidaysImporting.value = false }
 }
 
 async function saveGeneralSettings() {
+  if (generalSaving.value) return
   generalSaving.value = true
-  const result = await settingsStore.save()
+  const result = await settingsStore.save(['theme', 'document_theme', 'quote_sources', 'language', 'caseFolderBase', 'workspace_sync'])
   generalSaving.value = false
   if (result.ok) {
     ElMessage.success('通用设置已保存')

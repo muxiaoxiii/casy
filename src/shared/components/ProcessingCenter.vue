@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { sessionOperations, retrySessionOperation } from '../../stores/sessionOperations'
+import { formatTimestamp } from '../utils/date'
 import { Monitor } from '../icons'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -11,6 +13,13 @@ const emit = defineEmits<{ conversion: [] }>()
 const router = useRouter()
 const open = ref(false), filter = ref('all'), page = ref(1), error = ref(''), loading = ref(false)
 const state = ref<ProcessingCenter>({ jobs: [], services: [], total: 0, active: 0, failed: 0 })
+const localActive = computed(() => sessionOperations.filter(job => job.status === 'running').length)
+const localFailed = computed(() => sessionOperations.filter(job => job.status === 'failed').length)
+const localJobs = computed(() => sessionOperations.filter(job => filter.value === 'all' || (filter.value === 'active' ? job.status === 'running' : filter.value === 'failed' ? job.status === 'failed' : filter.value === 'completed' ? ['completed','cancelled'].includes(job.status) : false)))
+async function revealLocal(path: string) {
+  try { const result = await casyContext.files.reveal(path); if (!result.ok) throw new Error(result.error || '无法显示文件') }
+  catch (cause) { ElMessage.error(String(cause)) }
+}
 const pageSize = 30
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, busy = false, revision = 0
@@ -60,16 +69,29 @@ async function locate(job: ProcessingJob) {
   else if (job.kind === 'conversion') emit('conversion')
   else if (job.caseId) await router.push(`/cases/${job.caseId}`)
 }
-async function cancel(job: ProcessingJob) {
-  const result = job.kind === 'conversion' ? await tauriCallSafe('cancel_conversion', { jobId: job.id }) : job.kind === 'document'
-    ? await tauriCallSafe('cancel_document_job', { jobId:job.id })
-    : await tauriCallSafe('cancel_knowledge_index_job', { jobId:job.id })
-  if (!result.ok) ElMessage.error(result.error || '取消失败')
-  await refresh()
+const pendingJobs = ref(new Set<string>())
+function jobKey(job: ProcessingJob) { return `${job.kind}:${job.id}` }
+async function act(job: ProcessingJob, retry = false) {
+  const key = jobKey(job)
+  if (pendingJobs.value.has(key)) return
+  pendingJobs.value.add(key)
+  try {
+    const result = retry ? await tauriCallSafe('retry_document_job', { jobId: job.id })
+      : job.kind === 'conversion' ? await tauriCallSafe('cancel_conversion', { jobId: job.id })
+      : job.kind === 'document' ? await tauriCallSafe('cancel_document_job', { jobId: job.id })
+      : await tauriCallSafe('cancel_knowledge_index_job', { jobId: job.id })
+    if (!result.ok) throw new Error(result.error || (retry ? '重试失败' : '取消失败'))
+    ElMessage.success(retry ? '已重新提交处理' : '已请求取消，请等待任务结束')
+    await refresh()
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { pendingJobs.value.delete(key) }
 }
 async function reveal(job: ProcessingJob) {
   if (!job.outputPath) return
-  try { await casyContext.files.reveal(job.outputPath) } catch(e) { ElMessage.error(String(e)) }
+  try {
+    const result = await casyContext.files.reveal(job.outputPath)
+    if (!result.ok) throw new Error(result.error || '无法显示结果文件')
+  } catch(e) { ElMessage.error(String(e)) }
 }
 onMounted(() => { void refresh() })
 onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
@@ -78,11 +100,11 @@ onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
   <button class="processing-trigger btn-secondary" type="button" aria-label="处理中心" @click="show">
     <el-icon :size="16"><Monitor /></el-icon>
     <span class="processing-label">处理中心</span>
-    <span v-if="state.active > 0 || error || state.failed > 0" :class="['processing-dot', { active:state.active > 0, problem:error || state.failed > 0 }]" /> <strong v-if="state.active">{{ state.active }}</strong><span v-else-if="error">!</span>
+    <span v-if="state.active + localActive > 0 || error || state.failed + localFailed > 0" :class="['processing-dot', { active:state.active + localActive > 0, problem:error || state.failed + localFailed > 0 }]" /> <strong v-if="state.active + localActive">{{ state.active + localActive }}</strong><span v-else-if="error">!</span>
   </button>
   <el-drawer v-model="open" title="处理中心" size="min(680px, 100vw)" append-to-body>
     <div class="processing-head">
-      <p>全部案件与文件 · {{ state.active }} 项正在处理或排队 · {{ state.failed }} 项失败或需重建</p>
+      <p>全部案件与文件 · {{ state.active + localActive }} 项正在处理或排队 · {{ state.failed + localFailed }} 项失败或需重建</p>
       <el-button :loading="loading" @click="refresh">刷新</el-button>
     </div>
     <p class="processing-note">添加文件不等于已开始 OCR。请在文件详情点击“开始识别并生成可搜索 PDF”，或在设置中启用目录自动识别。识别保留原件。</p>
@@ -90,7 +112,21 @@ onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
     <nav class="processing-filters" aria-label="任务筛选">
       <el-button v-for="item in [{id:'all',label:'全部'},{id:'active',label:'处理中'},{id:'failed',label:'失败 / 需重建'},{id:'waiting',label:'等待触发'},{id:'completed',label:'已结束'}]" :key="item.id" :type="filter === item.id ? 'primary' : 'default'" @click="changeFilter(item.id)">{{ item.label }}</el-button>
     </nav>
-    <p v-if="!state.jobs.length && !error" class="processing-empty">{{ loading ? '正在读取任务…' : '此筛选下暂无任务' }}</p>
+    <section v-if="localJobs.length" aria-label="本次会话操作">
+      <h3>本次会话</h3>
+      <article v-for="job in localJobs" :key="job.id" class="processing-job">
+        <div class="job-heading"><strong>{{ job.title }}</strong><span :class="['job-status',job.status]">{{ statuses[job.status] }}</span></div>
+        <p v-if="job.status === 'running'">正在处理，完成后会在此显示结果。此操作不支持中途取消。</p>
+        <p v-if="job.error" class="job-error">{{ job.error }}</p>
+        <p class="job-time">开始 {{ formatTimestamp(job.startedAt) }} · 更新 {{ formatTimestamp(job.updatedAt) }}</p>
+        <div class="job-actions">
+          <el-button v-if="job.outputPath" size="small" @click="revealLocal(job.outputPath)">显示结果文件</el-button>
+          <el-button v-if="job.retry" size="small" @click="retrySessionOperation(job)">重新导出…</el-button>
+          <el-button v-if="job.status === 'failed' && !job.retry" size="small" @click="router.push('/settings'); open = false">前往设置重新操作</el-button>
+        </div>
+      </article>
+    </section>
+    <p v-if="!state.jobs.length && !localJobs.length && !error" class="processing-empty">{{ loading ? '正在读取任务…' : '此筛选下暂无任务' }}</p>
     <ol class="processing-jobs" aria-label="后台任务">
       <li v-for="job in state.jobs" :key="`${job.kind}:${job.id}`" class="processing-job">
         <div class="job-heading"><strong>{{ title(job) }}</strong><span :class="['job-status',job.status]">{{ statuses[job.status] || job.status }}</span></div>
@@ -99,11 +135,13 @@ onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
         <p v-if="job.elapsedSeconds > 0" class="job-time">已用 {{ duration(job.elapsedSeconds) }}<template v-if="job.remainingSeconds != null"> · 预计剩余 {{ duration(job.remainingSeconds) }}</template><template v-if="job.pageTiming"> · 最近一页 {{ duration(job.pageTiming.totalMs/1000) }}</template></p>
         <el-progress v-if="job.status==='running' && job.total > 0 && job.stage !== 'indexing'" :percentage="Math.min(99,Math.max(0,Math.round(job.progress*100)))" :stroke-width="5" />
         <p v-if="job.error" class="job-error">{{ job.error }}</p>
-        <p class="job-time">创建 {{ job.createdAt }} · 更新 {{ job.updatedAt }}</p>
+        <p class="job-time">创建 {{ formatTimestamp(job.createdAt) }} · 更新 {{ formatTimestamp(job.updatedAt) }}</p>
         <div class="job-actions">
           <el-button v-if="job.fileId || job.knowledgeId || job.caseId || job.kind==='conversion'" size="small" @click="locate(job)">{{ job.kind==='conversion' ? '打开转换' : '查看来源' }}</el-button>
           <el-button v-if="job.outputPath" size="small" @click="reveal(job)">显示结果文件</el-button>
-          <el-button v-if="job.canCancel" size="small" @click="cancel(job)">取消</el-button>
+          <el-button v-if="job.canCancel && ['conversion','document','knowledge'].includes(job.kind)" size="small" :loading="pendingJobs.has(jobKey(job))" @click="act(job)">取消处理</el-button>
+          <el-button v-if="job.kind === 'document' && ['failed','cancelled'].includes(job.status)" size="small" :loading="pendingJobs.has(jobKey(job))" @click="act(job, true)">重新处理</el-button>
+          <span v-if="job.status === 'running' && !job.canCancel" class="job-time">此操作暂不支持中途取消</span>
         </div>
       </li>
     </ol>
@@ -113,7 +151,7 @@ onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
       <p class="processing-note">周期服务显示最近一次检查与等待计划；等待触发不计入处理数量。</p>
       <div v-for="service in state.services" :key="service.id" class="processing-job">
         <div class="job-heading"><strong>{{ service.title }}</strong><span :class="['job-status',service.status]">{{ statuses[service.status] || service.status }}</span></div>
-        <p>{{ service.stage }}</p><p v-if="service.error" class="job-error">{{ service.error }}</p><p class="job-time">{{ service.updatedAt }}</p>
+        <p>{{ service.stage }}</p><p v-if="service.error" class="job-error">{{ service.error }}</p><p class="job-time">{{ formatTimestamp(service.updatedAt) }}</p>
       </div>
     </details>
   </el-drawer>

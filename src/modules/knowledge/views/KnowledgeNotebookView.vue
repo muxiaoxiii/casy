@@ -1,4 +1,7 @@
 <script setup>
+import { useViewMemory } from '../../../composables/useViewMemory'
+import SaveConflictDialog from '../../../shared/components/SaveConflictDialog.vue'
+import { formatTimestamp, relativeTimestamp } from '../../../shared/utils/date'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
 const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
@@ -85,6 +88,7 @@ const relationPanelRef = ref(null)
 const historyPanelRef = ref(null)
 const draft = ref(emptyDraft())
 const infoTab = ref('relations')
+useViewMemory('knowledge', { search, category, selectedCaseIds, infoTab, selectedId }, ["#main-content", ".note-scroll"])
 const searchOpen = ref(false)
 const exporting = ref(false)
 const outlineItems = ref([])
@@ -95,7 +99,26 @@ let unmounted = false
 const documentBusy = ref(false)
 const mobilePane = ref('notes')
 const editorSession = crypto.randomUUID()
+const conflictDialog = ref(null)
+const localConflict = () => ({ ...draft.value })
+async function latestConflict() {
+  const result = await casyContext.knowledge.getWithBlocks(draft.value.id)
+  if (!result.ok || !result.data?.item) throw new Error(result.error || '读取最新笔记失败')
+  return result.data.item
+}
+async function copyConflict(snapshot) {
+  const { id, ...data } = snapshot
+  const result = await casyContext.knowledge.create({ ...data, title: `${snapshot.title}（本地冲突副本）`, linkedCaseId: data.linkedCaseId || null, parentId: data.parentId || null })
+  if (!result.ok) throw new Error(result.error || '副本保存失败')
+  void refreshNoteList()
+}
+function applyConflict(value) {
+  void persistence.clearRecovery().catch(() => {})
+  persistence.hydrate({ id: value.id, title: value.title || '', content: value.content || '', category: value.category || 'reference', tags: value.tags || '', linkedCaseId: value.linkedCaseId || '', parentId: value.parentId || '' })
+  void refreshNoteList()
+}
 const persistence = useNotebookSave({
+  onConflict: () => conflictDialog.value?.open(),
   draft,
   syncEditor: syncEditorContent,
   update: (id, data) => casyContext.knowledge.update(id, data),
@@ -194,10 +217,7 @@ function noteSummary(note) {
   return String(note.content || '').slice(0, 512).replace(/[#>*_`\[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110) || '空白笔记'
 }
 
-function displayTime(value) {
-  if (!value) return '刚刚'
-  return String(value).replace('T', ' ').slice(0, 16)
-}
+const displayTime = formatTimestamp
 
 function safeFileName(value) {
   return String(value || '无标题笔记').replace(/[\\/:*?"<>|]/g, '_').replace(/[. ]+$/g, '').slice(0, 120) || '无标题笔记'
@@ -264,7 +284,7 @@ async function loadAll(preferredId = '') {
   notes.value = normalizeList(noteRes.data)
   if (caseRes.ok) cases.value = normalizeList(caseRes.data)
   const queryId = typeof route.query.select === 'string' ? route.query.select : ''
-  const nextId = preferredId || queryId || selectedId.value || filteredNotes.value[0]?.id
+  const nextId = preferredId || queryId || notes.value.find(note => note.id === selectedId.value)?.id || filteredNotes.value[0]?.id
   if (nextId) await selectNote(notes.value.find(n => n.id === nextId) || { id: nextId })
 }
 
@@ -283,7 +303,7 @@ async function loadCaseOptions() {
 async function selectNote(note) {
   if (!note) return
   if (documentBusy.value) return
-  if (selectedId.value === note.id) { selectedSource.value = null; mobilePane.value = 'editor'; return }
+  if (selectedId.value === note.id && draft.value.id === note.id) { selectedSource.value = null; mobilePane.value = 'editor'; return }
   const request = ++selectionRevision
   if (!(await flushSave())) return
   if (request !== selectionRevision) return
@@ -476,6 +496,8 @@ async function openSearchHit(id) {
 </script>
 
 <template>
+  <SaveConflictDialog ref="conflictDialog" :local="localConflict" :latest="latestConflict" :copy="copyConflict" :apply="applyConflict" :prepare="syncEditorContent" />
+  <el-alert v-if="persistence.conflicted.value" title="笔记存在保存冲突，本地内容仍保留" type="warning" :closable="false"><el-button @click="conflictDialog?.open()">处理冲突</el-button></el-alert>
   <div class="notebook-shell" :class="[`mobile-${mobilePane}`, { 'source-open': !!selectedSource, 'writing-focus': writingFocus }]">
     <nav class="mobile-notebook-nav" aria-label="笔记视图">
       <button :class="{ active: mobilePane === 'notes' }" @click="mobilePane = 'notes'">笔记</button>

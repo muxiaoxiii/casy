@@ -1,4 +1,5 @@
 <script setup>
+import { useViewMemory } from '../../../composables/useViewMemory'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
 const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
@@ -64,6 +65,7 @@ const showAllPerspectives = ref(false)
 const searchQuery = ref('')
 const selectedContextFilter = ref('all')
 const selectedCaseFilter = ref('all')
+useViewMemory('tasks', { searchQuery, activePerspective, selectedContextFilter, selectedCaseFilter, showAllPerspectives }, ["#main-content"])
 
 // 抽屉与详情编辑
 const showDrawer = ref(false)

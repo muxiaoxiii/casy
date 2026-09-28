@@ -1,4 +1,5 @@
 <script setup>
+import { runSessionOperation } from '../../../stores/sessionOperations'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { computed, ref, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
@@ -46,8 +47,8 @@ async function submitFull() {
   try {
     const { url, username, password } = transferTarget.value
     const result = fullMode.value === 'backup'
-      ? await casyContext.sync.backupFull(url, username, password, backupPassword.value)
-      : await casyContext.sync.restoreFull(url, username, password, backupPassword.value)
+      ? await runSessionOperation('WebDAV 完整备份', () => casyContext.sync.backupFull(url, username, password, backupPassword.value))
+      : await runSessionOperation('WebDAV 恢复数据', () => casyContext.sync.restoreFull(url, username, password, backupPassword.value))
     if (!result.ok) { ElMessage.error(result.error || '操作失败，请核对网络与备份密码'); return }
     fullDialog.value = false
     clearFullSecrets()
@@ -72,7 +73,7 @@ async function saveWebdavConfig() {
   if (busy.value) return
   webdavSaving.value = true
   try {
-    const result = await settingsStore.save()
+    const result = await settingsStore.save(['webdavUrl', 'webdavUsername', 'webdavPassword', 'webdavAutoSync'])
     if (result.ok) {
       ElMessage.success('WebDAV 配置已保存')
       await refreshStatus()

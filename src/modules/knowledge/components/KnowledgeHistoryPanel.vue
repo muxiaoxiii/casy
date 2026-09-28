@@ -1,4 +1,5 @@
 <script setup>
+import { formatTimestamp, relativeTimestamp } from '../../../shared/utils/date'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, RefreshLeft } from '../../../shared/icons'
@@ -24,7 +25,7 @@ let loadRevision = 0
 let diffRevision = 0
 
 function normalize(value) { return Array.isArray(value) ? value : [] }
-function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '未知时间' }
+const formatTime = formatTimestamp
 function reasonLabel(reason) { return reason === 'before_restore' ? '恢复前快照' : reason === 'edit_session' ? '编辑会话' : reason || '编辑' }
 
 async function load() {

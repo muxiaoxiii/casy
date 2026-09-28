@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useFormBaseline } from '../../../composables/useFormBaseline'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Lock, Edit, Delete, Top, Bottom } from '../../../shared/icons'
@@ -18,6 +19,11 @@ const namingSettings = ref({
   folder_naming_file_format: '{date}_{category}_{case_no}_{hash}.{ext}',
 })
 const namingSaving = ref(false)
+const templateSaving = ref(false)
+const namingDraft = useFormBaseline('文件命名设置', () => namingSettings.value, () => namingSaving.value)
+const templateDraft = useFormBaseline('文件夹模板', () => showEditor.value ? editingTemplate.value : null, () => templateSaving.value)
+async function closeTemplate() { if (await templateDraft.canLeave()) { showEditor.value = false; templateDraft.markSaved() } }
+
 
 const caseTypeOptions = [
   { value: 'litigation', label: '诉讼案件' },
@@ -36,13 +42,15 @@ async function loadTemplates() {
 }
 
 async function loadNamingSettings() {
+  const snapshot = JSON.stringify(namingSettings.value)
   const result = await casyContext.settings.folderNamingSettings()
-  if (result.ok && result.data) {
+  if (result.ok && result.data && JSON.stringify(namingSettings.value) === snapshot) {
     namingSettings.value = {
       folder_naming_date_format: result.data.folder_naming_date_format || 'YYYY-MM-DD',
       folder_naming_case_no_format: result.data.folder_naming_case_no_format || '{case_no}_{short_id}',
       folder_naming_file_format: result.data.folder_naming_file_format || '{date}_{category}_{case_no}_{hash}.{ext}',
     }
+    namingDraft.markSaved()
   }
 }
 
@@ -54,7 +62,8 @@ function selectTemplate(tpl) {
   selectedTemplate.value = tpl
 }
 
-function startNewTemplate() {
+async function startNewTemplate() {
+  if (!(await templateDraft.canLeave())) return
   editingTemplate.value = {
     id: '',
     name: '',
@@ -66,12 +75,15 @@ function startNewTemplate() {
   }
   isNewTemplate.value = true
   showEditor.value = true
+  templateDraft.markSaved()
 }
 
-function startEditTemplate(tpl) {
+async function startEditTemplate(tpl) {
+  if (!(await templateDraft.canLeave())) return
   editingTemplate.value = JSON.parse(JSON.stringify(tpl))
   isNewTemplate.value = false
   showEditor.value = true
+  templateDraft.markSaved()
 }
 
 function addDirectory() {
@@ -104,19 +116,24 @@ function moveDirectory(index, direction) {
 }
 
 async function saveTemplate() {
+  if (templateSaving.value) return
   if (!editingTemplate.value) return
   if (!editingTemplate.value.name.trim()) {
     ElMessage.warning('请输入模板名称')
     return
   }
-  const result = await casyContext.settings.saveFolderTemplate(editingTemplate.value)
+  templateSaving.value = true
+  try {
+  const result = await casyContext.settings.saveFolderTemplate(JSON.parse(JSON.stringify(editingTemplate.value)))
   if (result.ok) {
     ElMessage.success(isNewTemplate.value ? '模板已创建' : '模板已保存')
     showEditor.value = false
+    templateDraft.markSaved()
     await loadTemplates()
   } else {
     ElMessage.error(result.error || '保存失败')
   }
+  } catch (error) { ElMessage.error(String(error)) } finally { templateSaving.value = false }
 }
 
 async function deleteTemplate(tpl) {
@@ -144,14 +161,16 @@ async function deleteTemplate(tpl) {
 }
 
 async function saveNamingSettings() {
+  if (namingSaving.value) return
+  const snapshot = { ...namingSettings.value }
   namingSaving.value = true
-  const result = await casyContext.settings.saveFolderNamingSettings(namingSettings.value)
-  namingSaving.value = false
-  if (result.ok) {
+  try {
+    const result = await casyContext.settings.saveFolderNamingSettings(snapshot)
+    if (!result.ok) throw new Error(result.error || '保存失败')
+    namingDraft.markSaved(snapshot)
     ElMessage.success('命名设置已保存')
-  } else {
-    ElMessage.error(result.error || '保存失败')
-  }
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { namingSaving.value = false }
 }
 
 const builtinTemplates = computed(() => templates.value.filter(t => t.isBuiltin))
@@ -216,12 +235,12 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
       <!-- 预览 / 编辑 -->
       <el-col :span="14">
         <!-- 编辑器 -->
-        <div v-if="showEditor && editingTemplate" class="template-editor">
+        <div v-if="showEditor && editingTemplate" class="template-editor" :inert="templateSaving || undefined">
           <div class="editor-header">
             <h4>{{ isNewTemplate ? '新建模板' : '编辑模板' }}</h4>
             <div>
-              <el-button size="small" @click="showEditor = false">取消</el-button>
-              <el-button type="primary" size="small" @click="saveTemplate">保存</el-button>
+              <el-button size="small" @click="closeTemplate" :disabled="templateSaving">取消</el-button>
+              <el-button type="primary" size="small" :loading="templateSaving" @click="saveTemplate">保存</el-button>
             </div>
           </div>
 

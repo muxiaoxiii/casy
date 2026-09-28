@@ -1,6 +1,6 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useProfileStore } from '../../stores/profile'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
@@ -9,6 +9,8 @@ const profileStore = useProfileStore()
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const saving = ref(false)
 const form = reactive({ name: '', practice_areas: [], start_hour: 9, end_hour: 18 })
+const baseline = ref('')
+const dirty = computed(() => visible.value && JSON.stringify(form) !== baseline.value)
 const practiceOptions = ['专利诉讼', '专利无效', '行政诉讼', '顾问', '其他']
 watch(() => props.modelValue, v => {
   if (!v) return
@@ -16,12 +18,18 @@ watch(() => props.modelValue, v => {
   form.practice_areas = [...(profileStore.practice_areas || [])]
   form.start_hour = profileStore.work_hours?.start_hour ?? 9
   form.end_hour = profileStore.work_hours?.end_hour ?? 18
+  baseline.value = JSON.stringify(form)
 }, { immediate: true })
-function later() {
+async function later() {
+  if (saving.value) return
+  if (dirty.value) {
+    try { await ElMessageBox.confirm('个人设置有未保存的修改，确认放弃？', '保留修改？', { confirmButtonText: '放弃修改', cancelButtonText: '继续编辑', type: 'warning' }) } catch { return }
+  }
   visible.value = false
   emit('dismiss')
 }
 async function finish() {
+  if (saving.value) return
   if (form.start_hour >= form.end_hour) return ElMessage.warning('结束时间须晚于开始时间')
   saving.value = true
   try {
@@ -36,13 +44,17 @@ async function finish() {
     if (!result.ok) return ElMessage.error(result.error || '保存失败')
     visible.value = false
     emit('saved')
-  } finally { saving.value = false }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { saving.value = false }
 }
+function beforeUnload(event) { if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="个人设置" width="min(480px, calc(100vw - 32px))" :close-on-click-modal="false" :show-close="false" class="onboarding-dialog">
-    <el-form label-position="top" @submit.prevent="finish">
+  <el-dialog v-model="visible" title="个人设置" width="min(480px, calc(100vw - 32px))" :close-on-click-modal="false" :show-close="false" :close-on-press-escape="false" class="onboarding-dialog">
+    <el-form :disabled="saving" label-position="top" @submit.prevent="finish">
       <el-form-item label="称呼（选填）"><el-input v-model="form.name" autocomplete="name" maxlength="60" /></el-form-item>
       <el-form-item label="执业领域（选填）">
         <el-checkbox-group v-model="form.practice_areas"><el-checkbox v-for="area in practiceOptions" :key="area" :value="area">{{ area }}</el-checkbox></el-checkbox-group>

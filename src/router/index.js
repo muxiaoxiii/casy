@@ -1,3 +1,4 @@
+import { rememberOrigin } from '../composables/useReturnOrigin'
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
@@ -154,5 +155,7 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes,
 })
+
+router.afterEach((to, from, failure) => { if (!failure) rememberOrigin(to, from) })
 
 export default router

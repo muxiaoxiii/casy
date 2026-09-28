@@ -41,30 +41,78 @@ export const useSettingsStore = defineStore('settings', {
     weekly_report_style: 'dossier',
     ai_tool_policy: { disabled: [] as string[], writeApproval: {} as Record<string, 'always_ask' | 'always_approve' | 'always_reject'> },
     loading: false,
+    loaded: false,
+    savingCount: 0,
+    loadError: '',
+    persisted: {} as Record<string, any>,
   }),
 
   actions: {
-    async load() {
-      this.loading = true
-      const result = await casyContext.settings.get()
-      if (result.ok && result.data) {
-        // 防止历史脏数据里的 loading 等键覆盖本地状态
-        const { loading: _ignored, clearedSecrets: _ignoredSecrets, workspace_sync, quote_sources, ...settings } = result.data
-        Object.assign(this, settings)
-        if (workspace_sync && typeof workspace_sync === 'object' && !Array.isArray(workspace_sync)) Object.assign(this.workspace_sync, workspace_sync)
-        if (Array.isArray(quote_sources) && quote_sources.length === 4 && quote_sources.every(v => typeof v === 'string')) this.quote_sources = quote_sources as string[]
-      }
-      this.loading = false
+    values() {
+      const { loading, loaded, loadError, persisted, clearedSecrets, savingCount, ...settings } = this.$state
+      return JSON.parse(JSON.stringify(settings)) as Record<string, any>
     },
-
-    async save() {
-      // 只发送设置键，剔除 loading 等本地状态
-      const { loading, clearedSecrets, ...state } = this.$state
-      const settings: Record<string, any> = {...state}
-      for(const key of clearedSecrets)if(!settings[key])settings[key]=null
+    isDirty(keys?: string[]) {
+      if (!this.loaded) return false
+      const values = this.values()
+      return (keys || Object.keys(values)).some(key => JSON.stringify(values[key]) !== JSON.stringify(this.persisted[key]) || this.clearedSecrets.includes(key))
+    },
+    discard(keys?: string[]) {
+      const selected = keys || Object.keys(this.persisted)
+      for (const key of selected) (this as any)[key] = JSON.parse(JSON.stringify(this.persisted[key] ?? ''))
+      this.clearedSecrets = this.clearedSecrets.filter(key => !selected.includes(key))
+    },
+    async load() {
+      if (this.loading) return
+      this.loading = true
+      try {
+        const result = await casyContext.settings.get()
+        if (!result.ok || !result.data) throw new Error(result.error || '设置加载失败')
+        const values = this.values()
+        const data = { ...result.data }
+        if (data.workspace_sync && typeof data.workspace_sync === 'object' && !Array.isArray(data.workspace_sync)) data.workspace_sync = { ...this.workspace_sync, ...data.workspace_sync }
+        else delete data.workspace_sync
+        if (!Array.isArray(data.quote_sources) || data.quote_sources.length !== 4 || !data.quote_sources.every((value: unknown) => typeof value === 'string')) delete data.quote_sources
+        for (const key of Object.keys(values)) {
+          if (!(key in data)) continue
+          // Refresh persisted values without overwriting an open unsaved form.
+          if (!this.loaded || !this.isDirty([key])) (this as any)[key] = data[key]
+          this.persisted[key] = JSON.parse(JSON.stringify(data[key]))
+        }
+        for (const key of Object.keys(values)) if (!(key in this.persisted)) this.persisted[key] = values[key]
+        this.loaded = true
+        this.loadError = ''
+      } catch (error) { this.loadError = String(error) }
+      finally { this.loading = false }
+    },
+    async save(keys?: string[]) {
+      if (!this.loaded) return { ok: false, error: '设置尚未读取成功，请重试后再保存' }
+      if (this.savingCount) return { ok: false, error: '另一组设置正在保存，请稍后重试' }
+      this.savingCount++
+      try {
+      const values = this.values()
+      const selected = (keys || Object.keys(values)).filter(key => key in values && !key.endsWith('_configured'))
+      const snapshot = Object.fromEntries(selected.map(key => [key, values[key]]))
+      const settings = { ...snapshot }
+      for (const key of this.clearedSecrets) if (selected.includes(key) && !settings[key]) settings[key] = null
       const result = await casyContext.settings.save(settings)
-      if(result.ok){this.webdavPassword='';this.smtp_pass='';this.caldav_pass='';this.clearedSecrets=[];await this.load()}
+      if (result.ok) {
+        for (const key of selected) {
+          const secret = ['webdavPassword', 'smtp_pass', 'caldav_pass', 'feishu_app_secret'].includes(key)
+          const saved = secret ? '' : snapshot[key]
+          this.persisted[key] = saved
+          if (JSON.stringify((this as any)[key]) === JSON.stringify(snapshot[key])) (this as any)[key] = saved
+          if (secret && (snapshot[key] || settings[key] === null)) {
+            const flag = `${key}_configured`
+            ;(this as any)[flag] = settings[key] !== null
+            this.persisted[flag] = (this as any)[flag]
+          }
+        }
+        this.clearedSecrets = this.clearedSecrets.filter(key => !selected.includes(key))
+      }
       return result
+      } catch (error) { return { ok: false, error: String(error) } }
+      finally { this.savingCount-- }
     },
     clearSecret(key: 'webdavPassword' | 'smtp_pass' | 'caldav_pass') {
       this[key]='';this[`${key}_configured`]=false

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFormBaseline } from '../../../composables/useFormBaseline'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Delete, Edit, Plus, RefreshRight } from '../../../shared/icons'
@@ -117,6 +118,13 @@ const form = reactive<RuleForm>({
   priority: 0,
 })
 
+const formDraft = useFormBaseline('期限规则', () => dialogVisible.value ? form : null, () => saving.value)
+async function closeDialog(done?: () => void) {
+  if (!(await formDraft.canLeave())) return
+  dialogVisible.value = false
+  formDraft.markSaved()
+  done?.()
+}
 function openCreate() {
   editingRule.value = null
   Object.assign(form, {
@@ -132,6 +140,7 @@ function openCreate() {
     priority: 0,
   })
   dialogVisible.value = true
+  formDraft.markSaved()
 }
 
 function openEdit(rule: DeadlineRuleDto) {
@@ -149,6 +158,7 @@ function openEdit(rule: DeadlineRuleDto) {
     priority: rule.priority,
   })
   dialogVisible.value = true
+  formDraft.markSaved()
 }
 
 /**
@@ -166,6 +176,7 @@ function normalizeProcedureTypes(raw: string): string | null {
 }
 
 async function saveRule() {
+  if (saving.value) return
   if (!form.track.trim()) return ElMessage.warning('请选择或输入所属轨道')
   if (!form.ruleName.trim()) return ElMessage.warning('请填写规则名称')
   if (!form.legalBasis.trim()) return ElMessage.warning('请填写法条依据')
@@ -195,6 +206,7 @@ async function saveRule() {
     })
     if (!id) return
     dialogVisible.value = false
+    formDraft.markSaved()
     await loadRules()
     await recalcTrack(form.track.trim(), editingRule.value ? '规则已更新' : '规则已创建')
   } finally {
@@ -338,11 +350,13 @@ onMounted(loadRules)
     <!-- 新建 / 编辑对话框 -->
     <el-dialog
       v-model="dialogVisible"
+      :before-close="closeDialog"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!saving"
       :title="editingRule ? '编辑期限规则' : '新建期限规则'"
       width="560px"
-      :close-on-click-modal="false"
     >
-      <el-form label-width="92px" label-position="right">
+      <el-form :disabled="saving" label-width="92px" label-position="right">
         <el-form-item label="所属轨道" required>
           <el-select
             v-model="form.track"
@@ -396,7 +410,7 @@ onMounted(loadRules)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="closeDialog()" :disabled="saving">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>

@@ -1,4 +1,5 @@
 <script setup>
+import { useViewMemory } from '../../../composables/useViewMemory'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
 const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
@@ -95,6 +96,7 @@ const fileSearchQuery = ref('')
 // 时间轴状态与过滤器
 const domainTimeline = ref([])
 const timelineFilter = ref('all') // 'all' | 'task' | 'event' | 'deadline' | 'doc' | 'memo'
+useViewMemory('cases', { selectedCaseId, groupBy, selectedTab, selectedDirRel, activeCategory, fileSortOrder, fileSearchQuery, timelineFilter }, ["#main-content"])
 const calendarEvents = ref([])
 // 办案笔记/备忘列表
 const caseMemos = ref([])
@@ -664,7 +666,7 @@ onMounted(async () => {
   if (wanted && !casesStore.cases.some(c => c.id === wanted)) {
     await router.replace({ name: 'case-detail', params: { id: wanted } }); return
   }
-  selectedCaseId.value = wanted || casesStore.cases[0]?.id || ''
+  selectedCaseId.value = wanted || casesStore.cases.find(item => item.id === selectedCaseId.value)?.id || casesStore.cases[0]?.id || ''
   if (selectedCase.value) {
     loadCaseMemos(selectedCase.value)
     await loadCaseFiles()

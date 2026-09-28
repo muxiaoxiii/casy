@@ -1,4 +1,5 @@
 <script setup>
+import SaveConflictDialog from '../../../shared/components/SaveConflictDialog.vue'
 import DraftHistoryDialog from '../components/DraftHistoryDialog.vue'
 import { useSaveBeforeLeave } from '../../../composables/useSaveBeforeLeave'
 import { useDraftRecovery } from '../../../composables/useDraftRecovery'
@@ -193,8 +194,28 @@ function scheduleAutoSave() {
   autoSaveTimer = setTimeout(() => saveDraft(false), 900)
 }
 
+const conflictDialog = ref(null)
+const conflicted = ref(false)
+const localConflict = () => ({ id: draftId.value, title: draftTitle.value, content: documentContent.value || '', caseId: caseId.value })
+async function latestConflict() {
+  const result = await casyContext.docs.getDraft(localConflict().id)
+  if (!result.ok || !result.data) throw new Error(result.error || '读取最新文书失败')
+  return result.data
+}
+async function copyConflict(snapshot) {
+  const result = await casyContext.docs.createDraft({ title: `${snapshot.title}（本地冲突副本）`, content: snapshot.content, caseId: snapshot.caseId || null })
+  if (!result.ok) throw new Error(result.error || '副本保存失败')
+  
+}
+function applyConflict(value) {
+  draftId.value = value.id; draftVersion = value.version; draftTitle.value = value.title; documentContent.value = value.content || ''; caseId.value = value.caseId || null
+  savedRevision = editRevision
+  conflicted.value = false
+  void recovery.clear()
+}
 function saveDraft(commitSources=true) {
   try{if(commitSources!==false && editor.value)flushSourceEditors(editor.value)}catch(error){ElMessage.warning(String(error));return Promise.resolve(false)}
+  if (conflicted.value) { if (commitSources !== false) conflictDialog.value?.open(); return Promise.resolve(false) }
   if (savePending) return savePending
   if (!editor.value) return Promise.resolve(true)
   // 400ms 防抖未落盘时必须先刷出最新正文，否则离开守卫会误判为干净并丢字。
@@ -226,7 +247,8 @@ function saveDraft(commitSources=true) {
   }
 
   if (!result.ok) {
-    ElMessage.error(result.error || '文书保存失败，修改仍保留')
+    if (result.error?.includes('EDIT_CONFLICT')) { conflicted.value = true; conflictDialog.value?.open() }
+    else ElMessage.error(result.error || '文书保存失败，修改仍保留')
     return false
   }
   savedRevision = revision
@@ -357,6 +379,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <SaveConflictDialog ref="conflictDialog" :local="localConflict" :latest="latestConflict" :copy="copyConflict" :apply="applyConflict" :prepare="() => docEditorRef?.flushAndGetMarkdown?.(true)" />
+  <el-alert v-if="conflicted" title="文书存在保存冲突，本地修改尚未覆盖原文书" type="warning" :closable="false"><el-button @click="conflictDialog?.open()">处理冲突</el-button></el-alert>
   <DraftHistoryDialog v-model="historyOpen" :draft="historyDraft" :before-restore="beforeHistoryRestore" @restored="onVersionRestored" />
   <div class="writing-view">
     <!-- 顶部工具栏 -->

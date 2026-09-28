@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useUnsavedForm } from '../../composables/useUnsavedForm'
 import { useSettingsStore } from '../../stores/settings'
 import FeishuSettings from './components/FeishuSettings.vue'
 import WebDAVSettings from './components/WebDAVSettings.vue'
@@ -25,6 +26,7 @@ import {
 } from '../../shared/icons'
 
 const settingsStore = useSettingsStore()
+useUnsavedForm('设置', () => settingsStore.isDirty(), () => settingsStore.loading || settingsStore.savingCount > 0, () => settingsStore.discard())
 const activeTab = ref('profile')
 const visitedTabs = ref(new Set<string>())
 const route = useRoute()
@@ -174,6 +176,9 @@ onMounted(async () => {
     </div>
 
     <div class="settings-content">
+      <el-alert v-if="settingsStore.loadError" :title="settingsStore.loadError" type="error" :closable="false"><el-button text @click="settingsStore.load()">重新读取设置</el-button></el-alert>
+      <p v-if="settingsStore.isDirty()" role="status">有未保存的设置。请在对应分类中保存，切换分类会保留输入。</p>
+      <template v-if="settingsStore.loaded">
       <div v-if="visitedTabs.has('profile')" v-show="activeTab === 'profile'"><ProfileSettings /></div>
       <div v-if="visitedTabs.has('general')" v-show="activeTab === 'general'">
         <GeneralSettings />
@@ -201,6 +206,7 @@ onMounted(async () => {
       <div v-if="visitedTabs.has('smtp-mcp')" v-show="activeTab === 'smtp-mcp'"><SmtpMcpSettings /></div>
       <div v-if="visitedTabs.has('backup')" v-show="activeTab === 'backup'"><BackupSettings /></div>
       <div v-if="visitedTabs.has('about')" v-show="activeTab === 'about'"><AboutSettings /></div>
+      </template>
     </div>
   </div>
 </template>

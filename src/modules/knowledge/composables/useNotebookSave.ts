@@ -16,6 +16,7 @@ export function useNotebookSave(options: {
   update: (id: string, data: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>
   onSaved: (id: string, data: Record<string, unknown>) => void
   onError: (message: string) => void
+  onConflict?: () => void
   recovery?: {
     write: (draft: NotebookDraft) => Promise<void>
     clear: () => Promise<void>
@@ -24,6 +25,7 @@ export function useNotebookSave(options: {
   const dirty = ref(false)
   const saving = ref(false)
   const error = ref('')
+  const conflicted = ref(false)
   let revision = 0
   let hydrating = false
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -67,6 +69,7 @@ export function useNotebookSave(options: {
     hydrating = true
     options.draft.value = value
     baselineContent = value.content
+    conflicted.value = false
     revision++
     dirty.value = false
     error.value = ''
@@ -80,6 +83,7 @@ export function useNotebookSave(options: {
       try { options.syncEditor(true) }
       catch(cause) { error.value=String(cause); options.onError(error.value); return Promise.resolve(false) }
     }
+    if (conflicted.value) { if (commitSources) options.onConflict?.(); return Promise.resolve(false) }
     if (pending) return pending
     // All callers await the entire drain, including edits made during a write.
     pending = (async () => {
@@ -114,7 +118,8 @@ export function useNotebookSave(options: {
         return false
       } catch (cause) {
         error.value = cause instanceof Error ? cause.message : String(cause)
-        options.onError(error.value)
+        if (error.value.includes('EDIT_CONFLICT')) { conflicted.value = true; options.onConflict?.() }
+        else options.onError(error.value)
         return false
       } finally {
         saving.value = false
@@ -125,6 +130,10 @@ export function useNotebookSave(options: {
     return pending
   }
 
+  function clearRecovery() {
+    checkpoint(null)
+    return recoveryPending
+  }
   onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
-  return { dirty, saving, error, hydrate, changed, flush }
+  return { dirty, saving, error, conflicted, hydrate, changed, flush, clearRecovery }
 }

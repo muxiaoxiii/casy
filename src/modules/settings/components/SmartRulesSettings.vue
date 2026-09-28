@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFormBaseline } from '../../../composables/useFormBaseline'
 // W5 · DEVONthink 式 Smart Rules 设置面板（自包含，由主代理挂载进设置页）
 // 匹配语义：对匹配字段做大小写不敏感的子串匹配；OCR 文本类规则在 OCR 完成后自动生效。
 import { ref, onMounted } from 'vue'
@@ -82,10 +83,18 @@ async function loadRules() {
   loading.value = false
 }
 
+const formDraft = useFormBaseline('智能规则', () => dialogVisible.value ? form.value : null, () => saving.value)
+async function closeDialog(done?: () => void) {
+  if (!(await formDraft.canLeave())) return
+  dialogVisible.value = false
+  formDraft.markSaved()
+  done?.()
+}
 function openCreate() {
   editingRule.value = null
   form.value = emptyForm()
   dialogVisible.value = true
+  formDraft.markSaved()
 }
 
 function openEdit(rule: SmartRule) {
@@ -99,9 +108,11 @@ function openEdit(rule: SmartRule) {
     actionPayload: rule.actionType === 'mark_urgent' ? '' : rule.actionPayload,
   }
   dialogVisible.value = true
+  formDraft.markSaved()
 }
 
 async function saveRule() {
+  if (saving.value) return
   const f = form.value
   if (!f.name.trim()) {
     ElMessage.warning('请填写规则名称')
@@ -116,6 +127,7 @@ async function saveRule() {
     return
   }
   saving.value = true
+  try {
   const payload = {
     id: editingRule.value?.id ?? null,
     name: f.name.trim(),
@@ -128,12 +140,14 @@ async function saveRule() {
   const id = await tauriCall('upsert_smart_rule', payload, {
     errorMessage: '保存规则失败',
   })
-  saving.value = false
   if (id) {
     ElMessage.success(editingRule.value ? '规则已更新' : '规则已创建')
     dialogVisible.value = false
+    formDraft.markSaved()
     await loadRules()
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { saving.value = false }
 }
 
 async function toggleRule(rule: SmartRule, enabled: boolean) {
@@ -243,10 +257,13 @@ onMounted(loadRules)
 
     <el-dialog
       v-model="dialogVisible"
+      :before-close="closeDialog"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!saving"
       :title="editingRule ? '编辑规则' : '新建规则'"
       width="480px"
     >
-      <el-form label-width="86px">
+      <el-form :disabled="saving" label-width="86px">
         <el-form-item label="规则名称">
           <el-input v-model="form.name" placeholder="如：传票自动归类" />
         </el-form-item>
@@ -290,7 +307,7 @@ onMounted(loadRules)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="closeDialog()" :disabled="saving">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>

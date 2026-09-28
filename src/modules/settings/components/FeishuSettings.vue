@@ -1,5 +1,7 @@
 <script setup>
+import { runSessionOperation } from '../../../stores/sessionOperations'
 import { ref, computed, onMounted, watch } from 'vue'
+import { useFormBaseline } from '../../../composables/useFormBaseline'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 
@@ -70,32 +72,45 @@ const savingMappings = ref(false)
 const importAllLoading = ref(false)
 const importResult2 = ref(null)
 const incrementalSince = ref('')
+const credentialDraft = useFormBaseline('飞书凭据', () => ({ id: feishuAppId.value, secret: feishuAppSecret.value }), () => configuring.value)
+const mappingDraft = useFormBaseline('飞书字段映射', () => ({ table: selectedTableId.value, local: localTable.value, fields: fieldMappings.value }), () => savingMappings.value)
 
 async function loadSyncInfo() {
+  const wasDirty = credentialDraft.dirty.value
+  const initialId = feishuAppId.value
+  const initialSecret = feishuAppSecret.value
   const result = await casyContext.sync.feishuSyncInfo()
   if (result.ok && result.data) {
     syncInfo.value = result.data
-    if (result.data.appToken) feishuAppToken.value = result.data.appToken
-    if (result.data.appId && !feishuAppId.value) feishuAppId.value = result.data.appId
+    if (result.data.appToken && !feishuAppToken.value) feishuAppToken.value = result.data.appToken
+    if (!wasDirty && initialId === feishuAppId.value && initialSecret === feishuAppSecret.value) {
+      if (result.data.appId && !feishuAppId.value) feishuAppId.value = result.data.appId
+      credentialDraft.markSaved()
+    }
   }
 }
 
 async function saveCredentials() {
+  if (configuring.value) return
   if (!feishuAppId.value.trim() || !feishuAppSecret.value.trim()) {
     ElMessage.warning('请填写 App ID 和 App Secret')
     return
   }
   configuring.value = true
+  try {
   const result = await casyContext.sync.configureFeishu(feishuAppId.value.trim(), feishuAppSecret.value.trim())
-  configuring.value = false
 
   if (result.ok) {
+    feishuAppSecret.value = ''
+    credentialDraft.markSaved()
     ElMessage.success('飞书自建应用凭证已安全保存')
     connectionStatus.value = null
     await loadSyncInfo()
   } else {
     ElMessage.error(result.error || '保存失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { configuring.value = false }
 }
 
 async function testConnection() {
@@ -118,6 +133,7 @@ async function testConnection() {
 }
 
 async function doPull() {
+  if (importAllLoading.value) return
   const appToken = feishuAppToken.value.trim() || syncInfo.value.appToken
   const tableId = selectedTableId.value || syncInfo.value.tableId
   if (!appToken || !tableId) {
@@ -125,17 +141,20 @@ async function doPull() {
     return
   }
   importAllLoading.value = true
-  const result = await casyContext.sync.feishuPull(appToken, tableId)
-  importAllLoading.value = false
+  try {
+  const result = await runSessionOperation('飞书拉取', () => casyContext.sync.feishuPull(appToken, tableId))
   if (result.ok) {
     ElMessage.success('飞书数据拉取完成')
     await loadSyncInfo()
   } else {
     ElMessage.error(result.error || '拉取失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { importAllLoading.value = false }
 }
 
 async function doPush() {
+  if (importAllLoading.value) return
   const appToken = feishuAppToken.value.trim() || syncInfo.value.appToken
   const tableId = selectedTableId.value || syncInfo.value.tableId
   if (!appToken || !tableId) {
@@ -143,14 +162,16 @@ async function doPush() {
     return
   }
   importAllLoading.value = true
-  const result = await casyContext.sync.feishuPush(appToken, tableId)
-  importAllLoading.value = false
+  try {
+  const result = await runSessionOperation('飞书推送', () => casyContext.sync.feishuPush(appToken, tableId))
   if (result.ok) {
     ElMessage.success('本地数据推送完成')
     await loadSyncInfo()
   } else {
     ElMessage.error(result.error || '推送失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { importAllLoading.value = false }
 }
 
 // === v3.0: 表发现 ===
@@ -173,6 +194,7 @@ async function discoverTables() {
 }
 
 async function loadTableFields(tableId) {
+  if (loadingFields.value || !(await mappingDraft.canLeave())) return
   selectedTableId.value = tableId
   loadingFields.value = true
   selectedTableFields.value = []
@@ -305,12 +327,15 @@ async function compareRecords() {
 
 // === v3.0: 保存映射 ===
 async function saveMappings() {
+  if (savingMappings.value) return
   const activeMappings = fieldMappings.value.filter((m) => m.selected && m.localColumn)
   if (activeMappings.length === 0) {
     ElMessage.warning('请至少选择一个字段映射')
     return
   }
   savingMappings.value = true
+  const snapshot = JSON.parse(JSON.stringify({ table: selectedTableId.value, local: localTable.value, fields: fieldMappings.value }))
+  try {
   const payload = activeMappings.map((m) => ({
     connectionId: 'default',
     feishuTableId: selectedTableId.value,
@@ -325,23 +350,27 @@ async function saveMappings() {
     isLookup: m.isLookup ? 1 : 0,
   }))
   const result = await casyContext.sync.feishuSaveMappings(payload)
-  savingMappings.value = false
 
   if (result.ok) {
+    mappingDraft.markSaved(snapshot)
     ElMessage.success(result.data)
   } else {
     ElMessage.error(result.error || '保存映射失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { savingMappings.value = false }
 }
 
 // === v3.0: 全量导入 ===
 async function doImportAll() {
+  if (importAllLoading.value) return
   const activeMappings = fieldMappings.value.filter((m) => m.selected && m.localColumn)
   if (activeMappings.length === 0) {
     ElMessage.warning('请先配置字段映射')
     return
   }
   importAllLoading.value = true
+  try {
   importResult2.value = null
   const payload = activeMappings.map((m) => ({
     feishuFieldName: m.feishuFieldName,
@@ -351,8 +380,7 @@ async function doImportAll() {
     isFormula: m.isFormula,
     isLink: m.isLink,
   }))
-  const result = await casyContext.sync.feishuImportAll(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, payload)
-  importAllLoading.value = false
+  const result = await runSessionOperation('飞书全量导入', () => casyContext.sync.feishuImportAll(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, payload))
 
   if (result.ok) {
     importResult2.value = result.data
@@ -360,10 +388,13 @@ async function doImportAll() {
   } else {
     ElMessage.error(result.error || '导入失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { importAllLoading.value = false }
 }
 
 // === v3.0: 增量导入 ===
 async function doImportIncremental() {
+  if (importAllLoading.value) return
   if (!incrementalSince.value) {
     ElMessage.warning('请输入增量起始时间')
     return
@@ -374,6 +405,7 @@ async function doImportIncremental() {
     return
   }
   importAllLoading.value = true
+  try {
   importResult2.value = null
   const payload = activeMappings.map((m) => ({
     feishuFieldName: m.feishuFieldName,
@@ -383,8 +415,7 @@ async function doImportIncremental() {
     isFormula: m.isFormula,
     isLink: m.isLink,
   }))
-  const result = await casyContext.sync.feishuImportIncremental(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, incrementalSince.value, payload)
-  importAllLoading.value = false
+  const result = await runSessionOperation('飞书增量导入', () => casyContext.sync.feishuImportIncremental(feishuAppToken.value.trim(), selectedTableId.value, localTable.value, incrementalSince.value, payload))
 
   if (result.ok) {
     importResult2.value = result.data
@@ -392,6 +423,8 @@ async function doImportIncremental() {
   } else {
     ElMessage.error(result.error || '增量导入失败')
   }
+  } catch (cause) { ElMessage.error(String(cause)) }
+  finally { importAllLoading.value = false }
 }
 
 const mappedCount = computed(() => fieldMappings.value.filter((m) => m.selected && m.localColumn).length)
@@ -443,10 +476,10 @@ onMounted(() => {
 
       <el-form label-width="100px" size="default">
         <el-form-item label="App ID">
-          <el-input v-model="feishuAppId" placeholder="飞书自建应用的 App ID" type="password" show-password />
+          <el-input :disabled="configuring" v-model="feishuAppId" placeholder="飞书自建应用的 App ID" type="password" show-password />
         </el-form-item>
         <el-form-item label="App Secret">
-          <el-input v-model="feishuAppSecret" placeholder="飞书自建应用的 App Secret" type="password" show-password />
+          <el-input :disabled="configuring" v-model="feishuAppSecret" placeholder="飞书自建应用的 App Secret" type="password" show-password />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="configuring" @click="saveCredentials">保存凭证</el-button>

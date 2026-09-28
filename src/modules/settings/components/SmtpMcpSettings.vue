@@ -14,7 +14,7 @@ const sendingTest = ref(false)
 
 async function saveSmtpConfig() {
   smtpSaving.value = true
-  const result = await settingsStore.save()
+  const result = await settingsStore.save(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass'])
   smtpSaving.value = false
   if (result.ok) {
     ElMessage.success('SMTP 配置已保存')
@@ -71,7 +71,7 @@ const maskCaseName = computed({
 
 async function saveCaldavConfig() {
   caldavSaving.value = true
-  const result = await settingsStore.save()
+  const result = await settingsStore.save(['caldav_url', 'caldav_user', 'caldav_pass', 'calendar_sync_enabled', 'calendar_mask_case_name'])
   caldavSaving.value = false
   if (result.ok) {
     ElMessage.success('CalDAV 配置已保存')
@@ -131,7 +131,7 @@ const mcpSaving = ref(false)
 
 async function saveMcpConfig() {
   mcpSaving.value = true
-  const result = await settingsStore.save()
+  const result = await settingsStore.save(['mcp_server_enabled'])
   mcpSaving.value = false
   if (result.ok) {
     ElMessage.success('已保存，重启应用后生效')

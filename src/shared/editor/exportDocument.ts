@@ -1,3 +1,4 @@
+import { runSessionOperation } from '../../stores/sessionOperations'
 import { tauriCallSafe } from "../../core/tauriBridge";
 import { htmlToMd } from "../markdown/mdBridge";
 import { documentFromContent } from "./schema";
@@ -10,7 +11,7 @@ export async function exportDocument(input: {
   format: DocumentExportFormat;
   document?: RichTextDocument | null;
   layout?: import('../../core/services/docs').DocumentLayout;
-}) {
+}): Promise<string | null> {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const name =
     input.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 120) || "未命名文档";
@@ -25,6 +26,7 @@ export async function exportDocument(input: {
     ],
   });
   if (!outputPath) return null;
+  return runSessionOperation(`导出 ${input.title || "未命名文档"}（${input.format.toUpperCase()}）`, async () => {
   const document = (input.document ||
     documentFromContent(
       input.content,
@@ -50,4 +52,5 @@ export async function exportDocument(input: {
   }
   if (!result.ok || !result.data) throw new Error(result.error || "导出失败");
   return result.data.outputPath;
+  }, () => exportDocument(input));
 }

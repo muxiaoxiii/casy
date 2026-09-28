@@ -1,4 +1,5 @@
 <script setup>
+import { useReturnOrigin } from '../../../composables/useReturnOrigin'
 import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -343,9 +344,7 @@ async function loadFiles() {
 // ============================================================
 // 操作
 // ============================================================
-function goBack() {
-  router.push({ name: 'cases', query: { caseId: caseId.value } })
-}
+const goBack = useReturnOrigin(() => `/cases?caseId=${encodeURIComponent(caseId.value)}`)
 
 async function saveGoal() {
   if (!caseData.value) return
@@ -555,7 +554,7 @@ onUnmounted(() => {
     <div class="detail-header">
       <button class="btn-back" @click="goBack">
         <el-icon :size="14"><ArrowLeft /></el-icon>
-        返回案件列表
+        返回来源页面
       </button>
     </div>
 

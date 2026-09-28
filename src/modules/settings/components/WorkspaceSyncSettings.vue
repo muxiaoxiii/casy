@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTimestamp } from '../../../shared/utils/date'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useSettingsStore } from '../../../stores/settings'
 import { tauriCallSafe } from '../../../core/tauriBridge'
@@ -21,7 +22,7 @@ onUnmounted(() => clearInterval(timer))
 <template>
   <fieldset class="workspace-settings"><legend>案卷与知识库同步</legend>
     <label v-for="[key, label] in flags" :key="key"><span>{{ label }}</span><el-switch v-model="settings.workspace_sync[key]" :aria-label="label" /></label>
-    <div v-if="status?.checkedAt" class="sync-status" role="status">最近检查 {{ status.checkedAt }}<span v-if="status.missing"> · {{ status.missing }} 份原件缺失</span></div>
+    <div v-if="status?.checkedAt" class="sync-status" role="status">最近检查 {{ formatTimestamp(status.checkedAt) }}<span v-if="status.missing"> · {{ status.missing }} 份原件缺失</span></div>
     <el-alert v-for="error in status?.errors || []" :key="error" :title="error" type="warning" :closable="false" />
   </fieldset>
 </template>

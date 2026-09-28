@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTimestamp, relativeTimestamp } from '../../../shared/utils/date'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { casyContext } from '../../../core/plugin/context'
@@ -55,7 +56,7 @@ onBeforeUnmount(() => { revision++ })
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button :disabled="restoring" text @click="load()">重新加载</el-button></el-alert>
     <div v-loading="loading" class="draft-history-layout">
       <nav aria-label="文书历史版本" class="version-list">
-        <button v-for="item in versions" :key="item.version" :aria-pressed="selected?.version === item.version" :disabled="restoring" @click="selected = item"><strong>版本 {{ item.version }}</strong><span>{{ item.savedAt.replace('T', ' ').slice(0, 19) }}</span><small>{{ item.title }}</small></button>
+        <button v-for="item in versions" :key="item.version" :aria-pressed="selected?.version === item.version" :disabled="restoring" @click="selected = item"><strong>版本 {{ item.version }}</strong><span>{{ formatTimestamp(item.savedAt) }}</span><small>{{ item.title }}</small></button>
         <el-button v-if="more" :loading="loading" :disabled="restoring" @click="load(true)">加载更早版本</el-button>
       </nav>
       <article v-if="selected" class="version-preview legal-document" aria-label="历史文书完整正文"><h3>{{ selected.title }}</h3><div v-if="selected.content" v-html="preview" /><p v-else>此版本正文为空</p></article>

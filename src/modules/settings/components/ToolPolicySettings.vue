@@ -44,6 +44,7 @@ async function update(name: string, enabled?: boolean, approval?: string) {
     casyContext.setToolPolicy(next)
     // Keep other settings forms from writing an older policy back later.
     Object.assign(settings.$state, { ai_tool_policy: next })
+    settings.persisted.ai_tool_policy = JSON.parse(JSON.stringify(next))
     policy.value = next
     status.value = '已保存并生效'
   } catch (e) { error.value = String(e); status.value = '未保存，已保留原设置' }

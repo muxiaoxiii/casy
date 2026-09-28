@@ -1,4 +1,6 @@
 <template>
+  <SaveConflictDialog ref="conflictDialog" :local="localConflict" :latest="latestConflict" :copy="copyConflict" :apply="applyConflict" :prepare="() => legalEditorRef?.getHtml()" />
+  <el-alert v-if="conflicted" title="文书存在保存冲突，本地修改尚未覆盖原文书" type="warning" :closable="false"><el-button @click="conflictDialog?.open()">处理冲突</el-button></el-alert>
   <div class="doc-workshop" :class="'mobile-pane-' + mobilePane">
     <DraftHistoryDialog v-model="historyOpen" :draft="currentDraft" :before-restore="saveDraft" @restored="onVersionRestored" />
     <nav class="draft-mobile-nav" aria-label="文书工作区">
@@ -177,6 +179,9 @@
 </template>
 
 <script setup>
+import { useViewMemory } from '../../../composables/useViewMemory'
+import SaveConflictDialog from '../../../shared/components/SaveConflictDialog.vue'
+import { formatTimestamp, relativeTimestamp } from '../../../shared/utils/date'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
 const { contextMenu, showContextMenu } = useContextActions()
@@ -225,6 +230,7 @@ const searchText = ref('')
 const saveStatus = ref('idle') // idle | saving | saved | error
 const saveTimer = ref(null)
 const activeTab = ref('drafts') // drafts | templates
+useViewMemory('docs', { searchText, activeTab, currentDraftId }, ["#main-content", ".draft-list"])
 const exporting = ref(false)
 const historyOpen = ref(false)
 async function openHistory() { if (await saveDraft()) historyOpen.value = true }
@@ -327,8 +333,28 @@ const recovery = useDraftRecovery()
 let editRevision = 0
 let savedRevision = 0
 useSaveBeforeLeave(() => editRevision !== savedRevision || saveStatus.value === 'saving' || legalEditorRef.value?.hasSourceDraft() || legalEditorRef.value?.hasPendingSerialize?.(), saveDraft)
+const conflictDialog = ref(null)
+const conflicted = ref(false)
+const localConflict = () => ({ ...currentDraft.value, title: currentDraft.value?.title || '', content: currentDraft.value?.content || '' })
+async function latestConflict() {
+  const result = await casyContext.docs.getDraft(localConflict().id)
+  if (!result.ok || !result.data) throw new Error(result.error || '读取最新文书失败')
+  return result.data
+}
+async function copyConflict(snapshot) {
+  const result = await casyContext.docs.createDraft({ title: `${snapshot.title}（本地冲突副本）`, content: snapshot.content, caseId: snapshot.caseId || null })
+  if (!result.ok) throw new Error(result.error || '副本保存失败')
+  void loadDrafts()
+}
+function applyConflict(value) {
+  currentDraft.value = value; currentDraftId.value = value.id; saveStatus.value = 'saved'; void loadDrafts()
+  savedRevision = editRevision
+  conflicted.value = false
+  void recovery.clear()
+}
 function saveDraft(commitSources = true) {
   try { if(commitSources) legalEditorRef.value?.getHtml() } catch(error) { ElMessage.error(String(error)); return Promise.resolve(false) }
+  if (conflicted.value) { if (commitSources !== false) conflictDialog.value?.open(); return Promise.resolve(false) }
   if (savePending) return savePending
   if (!currentDraft.value) return Promise.resolve(true)
   // 防抖未落盘时先刷出最新正文，避免离开守卫误判干净。
@@ -364,7 +390,8 @@ function saveDraft(commitSources = true) {
     }, 2500)
   } else {
     saveStatus.value = 'error'
-    ElMessage.error(result.error || '文书保存失败')
+    if (result.error?.includes('EDIT_CONFLICT')) { conflicted.value = true; conflictDialog.value?.open() }
+    else ElMessage.error(result.error || '文书保存失败')
     return false
   }
   }
@@ -420,17 +447,7 @@ async function exportToDocx(format='docx') {
  try{if(!await saveDraft())return;const path=await exportDocument({content:currentDraft.value.content || '',contentFormat:'html',title:currentDraft.value.title,format,document:legalEditorRef.value?.getDocumentJson?.(),layout:layoutOptions.value});if(path)ElMessage.success(`文档已保存：${path}`)}catch(error){ElMessage.error(String(error))}finally{exporting.value=false}
 }
 
-function formatTime(timeStr) {
-  if (!timeStr) return ''
-  const d = new Date(timeStr)
-  if (isNaN(d.getTime())) return timeStr
-  const now = new Date()
-  const diff = now - d
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
-  return d.toLocaleDateString('zh-CN')
-}
+const formatTime = relativeTimestamp
 
 function statusLabel(status) {
   switch (status) {
@@ -445,7 +462,7 @@ onMounted(async () => {
   await recovery.recover()
   await Promise.all([loadDrafts(), loadCases()])
   if (drafts.value.length > 0) {
-    selectDraft(typeof route.query.select === 'string' ? route.query.select : drafts.value[0].id)
+    selectDraft(typeof route.query.select === 'string' ? route.query.select : drafts.value.find(item => item.id === currentDraftId.value)?.id || drafts.value[0].id)
   } else if (!loadError.value) {
     await createNewDraft()
   }

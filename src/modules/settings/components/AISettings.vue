@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFormBaseline } from '../../../composables/useFormBaseline'
 import { computed, onMounted, ref, watch } from 'vue'
 import { Plus, Delete, Connection, Check, RefreshLeft } from '../../../shared/icons'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -28,10 +29,13 @@ function changeEmbeddingProfile(id: string) {
   store.config.embedding.chunkChars = id === 'builtin-e5-base' ? 384 : 1000
 }
 watch(() => JSON.stringify(selected.value), () => { testResult.value = '' })
+const configDraft = useFormBaseline('AI 配置', () => store.config, () => store.loading, value => { store.config = value })
 const legacyAvailable = ref(!!localStorage.getItem('casy_ai_settings'))
-onMounted(async () => {
-  if (await store.load()) selectedId.value = store.config.activeId || store.config.profiles[0]?.id || ''
-})
+async function reload() {
+  if (!(await configDraft.canLeave())) return
+  if (await store.load()) { selectedId.value = store.config.activeId || store.config.profiles[0]?.id || ''; configDraft.markSaved() }
+}
+onMounted(reload)
 function add() {
   const id = crypto.randomUUID()
   store.config.profiles.push({ id, name: '新配置', mode: 'openai', apiUrl: '', model: '', hasApiKey: false })
@@ -48,7 +52,7 @@ async function remove() {
   selectedId.value = store.config.profiles[0]?.id || ''
 }
 async function save() {
-  if (await store.save()) ElMessage.success('AI 配置已保存')
+  if (await store.save()) { configDraft.markSaved(); ElMessage.success('AI 配置已保存') }
 }
 async function test() {
   if (!selected.value) return
@@ -64,6 +68,7 @@ async function testEmbedding() {
   embeddingResult.value = ''
   try {
     if (!(await store.save())) return
+    configDraft.markSaved()
     const result = await tauriCallSafe('test_embedding_connection', {})
     embeddingFailed.value = !result.ok
     embeddingResult.value = result.ok ? result.data || '向量接口未返回测试结果' : result.error || '向量接口连接失败'
@@ -80,6 +85,7 @@ async function migrateLegacy() {
     store.config.systemPrompt = old.systemPrompt || AI_PROMPTS.SYSTEM_DEFAULT
     selectedId.value = id
     if (await store.save()) {
+      configDraft.markSaved()
       localStorage.removeItem('casy_ai_settings')
       legacyAvailable.value = false
       ElMessage.success('旧配置已迁移')
@@ -89,11 +95,11 @@ async function migrateLegacy() {
 </script>
 
 <template>
-  <section class="ai-settings" v-loading="store.loading">
-    <header><h3>AI 接口与模型</h3><el-button :icon="Plus" @click="add">添加配置</el-button></header>
-    <el-alert v-if="store.error" :title="store.error" type="error" :closable="false" />
+  <section class="ai-settings" v-loading="store.loading" :inert="store.loading || undefined">
+    <header><h3>AI 接口与模型</h3><el-button :icon="Plus" @click="add" :disabled="!store.loaded">添加配置</el-button></header>
+    <el-alert v-if="store.error" :title="store.error" type="error" :closable="false"><el-button v-if="!store.loaded" @click="reload">重新读取配置</el-button></el-alert>
     <el-button v-if="legacyAvailable" :icon="RefreshLeft" @click="migrateLegacy">迁移旧版配置</el-button>
-    <el-form label-position="top" :disabled="store.loading || testing || embeddingTesting" @submit.prevent="save">
+    <el-form label-position="top" :disabled="!store.loaded || store.loading || testing || embeddingTesting" @submit.prevent="save">
       <el-form-item label="默认 AI 配置">
         <el-select v-model="store.config.activeId" clearable @clear="store.config.activeId = null" placeholder="未启用">
           <el-option v-for="p in store.config.profiles" :key="p.id" :value="p.id" :label="p.name" />

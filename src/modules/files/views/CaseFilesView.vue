@@ -1,4 +1,5 @@
 <script setup>
+import { useReturnOrigin } from '../../../composables/useReturnOrigin'
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
@@ -15,6 +16,7 @@ import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
+const returnToOrigin = useReturnOrigin(() => caseId.value ? `/cases/${caseId.value}` : '/cases')
 const casesStore = useCasesStore()
 
 const caseId = computed(() => String(route.params.caseId || ''))
@@ -489,7 +491,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
   <div class="case-files-view" v-loading="loading">
     <header class="workspace-header">
       <div class="workspace-identity">
-        <button class="back-button" type="button" aria-label="返回案件" @click="router.push(caseId ? `/cases/${caseId}` : '/cases')">
+        <button class="back-button" type="button" aria-label="返回来源页面" @click="returnToOrigin">
           <el-icon><ArrowLeft /></el-icon>
         </button>
         <div>

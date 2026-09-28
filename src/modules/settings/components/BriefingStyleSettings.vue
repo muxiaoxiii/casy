@@ -27,6 +27,7 @@ async function saveStyle(key: 'daily_brief_style' | 'weekly_report_style', id: s
     const result = await casyContext.settings.save({ [key]: id })
     if (!result.ok) throw new Error(result.error || '样式保存失败，请重试')
     settingsStore[key] = id
+    settingsStore.persisted[key] = id
     ElMessage.success('样式已保存')
   } catch (e) { ElMessage.error(String(e)) }
   finally { saving.value = false }
