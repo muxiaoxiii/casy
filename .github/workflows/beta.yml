@@ -86,6 +86,10 @@ jobs:
         shell: pwsh
         run: Add-Content $env:GITHUB_PATH "$pwd/src-tauri/runtime/zvec"
       - run: npm run build
+      - if: runner.os == 'Windows'
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --tests --no-run
+      - if: runner.os == 'Windows'
+        run: python scripts/diagnose-windows-loader.py
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --tests
         env:
           CASY_TEST_DATA_DIR: ${{ runner.temp }}/casy-beta-tests
