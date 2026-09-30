@@ -82,8 +82,7 @@ pub async fn list_drafts() -> Result<Vec<Draft>, String> {
                     updated_at: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
                 })
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
 
         Ok(drafts)
     })

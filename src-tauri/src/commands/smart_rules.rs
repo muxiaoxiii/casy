@@ -71,7 +71,7 @@ pub async fn list_smart_rules() -> Result<Vec<SmartRuleDto>, String> {
             "SELECT {RULE_COLS} FROM smart_rules ORDER BY created_at ASC"
         ))?;
         let rows = stmt.query_map([], row_to_rule)?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -156,11 +156,11 @@ pub async fn run_smart_rules_for_all() -> Result<i64, String> {
         let mut stmt = conn.prepare("SELECT id FROM case_files WHERE deleted_at IS NULL")?;
         let ids: Vec<String> = stmt
             .query_map([], |r| r.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         drop(stmt);
         drop(conn);
         let mut applied = 0i64;
+        let mut failures = Vec::new();
         for id in ids {
             // 单文件失败不中止整批（与 ocr_all_pending 容错语义一致）
             match apply_rules_inner(&id) {
@@ -169,8 +169,11 @@ pub async fn run_smart_rules_for_all() -> Result<i64, String> {
                         applied += 1;
                     }
                 }
-                Err(e) => log::warn!("smart rules 应用失败 (file {}): {}", id, e),
+                Err(e) => failures.push(format!("{id}: {e}")),
             }
+        }
+        if !failures.is_empty() {
+            anyhow::bail!("批量规则部分失败：已匹配 {} 个文件，失败 {} 个。成功修改已保留，请核对后重试。{}", applied, failures.len(), failures.join("; "));
         }
         Ok(applied)
     })
@@ -190,8 +193,7 @@ pub(crate) fn apply_rules_inner(file_id: &str) -> Result<SmartRuleApplyResult, a
     ))?;
     let rules: Vec<SmartRuleDto> = stmt
         .query_map([], row_to_rule)?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     drop(stmt);
 
     let mut matched = Vec::new();
@@ -243,9 +245,7 @@ pub(crate) fn apply_rules_inner(file_id: &str) -> Result<SmartRuleApplyResult, a
                             "SELECT knowledge_keywords FROM case_files WHERE id = ?1",
                             params![file_id],
                             |r| r.get(0),
-                        )
-                        .ok()
-                        .flatten();
+                        )?;
                     let mut kws: Vec<String> = existing
                         .map(|s| {
                             s.split(',')
@@ -287,7 +287,7 @@ pub async fn list_pending_ocr_files() -> Result<Vec<(String, String, String)>, S
              ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -412,7 +412,7 @@ pub async fn list_case_ocr_states(case_id: String) -> Result<Vec<FileOcrStateDto
                 has_text: r.get::<_, i32>(2)? != 0,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }

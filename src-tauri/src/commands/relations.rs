@@ -160,7 +160,8 @@ pub async fn remove_relation(id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn detect_relations(case_id: String) -> Result<Vec<CaseRelation>, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut connection = db::open_db()?;
+        let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let case = db::cases::get_case(&conn, &case_id)?;
         let mut found: Vec<CaseRelation> = Vec::new();
 
@@ -172,8 +173,7 @@ pub async fn detect_relations(case_id: String) -> Result<Vec<CaseRelation>, Stri
                 )?;
                 let ids: Vec<String> = stmt
                     .query_map(params![app_no, case_id], |row| row.get(0))?
-                    .filter_map(|r| r.ok())
-                    .collect();
+                    .collect::<rusqlite::Result<_>>()?;
                 for related_id in ids {
                     if let Some(rel) = try_insert_relation(&conn, &case_id, &related_id, "same_patent", Some("同专利号"))? {
                         found.push(rel);
@@ -189,8 +189,7 @@ pub async fn detect_relations(case_id: String) -> Result<Vec<CaseRelation>, Stri
             )?;
             let ids: Vec<String> = stmt
                 .query_map(params![case.client_name, case_id], |row| row.get(0))?
-                .filter_map(|r| r.ok())
-                .collect();
+                .collect::<rusqlite::Result<_>>()?;
             for related_id in ids {
                 if let Some(rel) = try_insert_relation(&conn, &case_id, &related_id, "same_party", Some("同客户"))? {
                     found.push(rel);
@@ -210,8 +209,7 @@ pub async fn detect_relations(case_id: String) -> Result<Vec<CaseRelation>, Stri
                         let pattern = format!("%{}%", base_no);
                         let ids: Vec<String> = stmt
                             .query_map(params![pattern, case_id], |row| row.get(0))?
-                            .filter_map(|r| r.ok())
-                            .collect();
+                            .collect::<rusqlite::Result<_>>()?;
                         for related_id in ids {
                             let label = if level == "二审" { "二审关联" } else { "再审关联" };
                             if let Some(rel) = try_insert_relation(&conn, &case_id, &related_id, "appeal_of", Some(label))? {
@@ -223,6 +221,7 @@ pub async fn detect_relations(case_id: String) -> Result<Vec<CaseRelation>, Stri
             }
         }
 
+        conn.commit()?;
         Ok(found)
     })
     .await

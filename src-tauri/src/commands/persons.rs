@@ -92,7 +92,7 @@ pub async fn list_persons(
             p.case_count = Some(row.get("case_count")?);
             Ok(p)
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -162,9 +162,19 @@ pub async fn attach_person_to_case(
     role: Option<String>,
 ) -> Result<String, String> {
     run_blocking(move || {
-        let conn = db::open_db()?;
+        let mut conn = db::open_db()?;
+        let role = role.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
+        // SQLite UNIQUE permits repeated NULL roles. Serialize check and insert.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM case_persons WHERE case_id=?1 AND person_id=?2 AND COALESCE(TRIM(role),'')=COALESCE(?3,''))",
+            params![case_id, person_id, role], |row| row.get(0),
+        )?;
+        if exists {
+            anyhow::bail!("该实体已以相同角色挂载到本案");
+        }
         let id = db::new_id();
-        conn.execute(
+        tx.execute(
             "INSERT INTO case_persons (id, case_id, person_id, role) VALUES (?1, ?2, ?3, ?4)",
             params![id, case_id, person_id, role],
         )
@@ -175,6 +185,7 @@ pub async fn attach_person_to_case(
                 anyhow::anyhow!(e.to_string())
             }
         })?;
+        tx.commit()?;
         Ok(id)
     })
     .await
@@ -210,7 +221,7 @@ pub async fn list_case_persons(case_id: String) -> Result<Vec<CasePersonDto>, St
                 person: row_to_person(row)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -235,7 +246,7 @@ pub async fn list_person_cases(person_id: String) -> Result<Vec<PersonCaseDto>, 
                 role: row.get("role")?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }

@@ -575,7 +575,8 @@ pub async fn list_field_groups(case_type: Option<String>) -> Result<Vec<FieldGro
                     sort_order,
                 ))
             })?
-            .filter_map(|r| r.ok())
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
             .filter(|(_, _, _, case_types_json, _, _)| {
                 // 如果指定了 case_type，过滤掉不适用的分组
                 if let Some(ref ct) = case_type {
@@ -644,8 +645,7 @@ fn query_field_group_items(
                 sort_order,
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
     Ok(items)
 }
@@ -671,7 +671,9 @@ pub async fn get_case_unified_view(
             // 案件类型过滤
             if let Some(case_type) = f.get("caseType").and_then(|v| v.as_str()) {
                 if !case_type.is_empty() {
-                    sql.push_str(&format!(" AND cause_action LIKE '%{}%'", case_type));
+                    sql.push_str(&format!(" AND cause_action LIKE ?{}", param_idx));
+                    params.push(Box::new(format!("%{}%", case_type)));
+                    param_idx += 1;
                 }
             }
 
@@ -769,7 +771,7 @@ pub async fn get_case_unified_view(
             })
         })?;
 
-        let results: Vec<CaseUnifiedView> = rows.filter_map(|r| r.ok()).collect();
+        let results: Vec<CaseUnifiedView> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(results)
     })
     .await

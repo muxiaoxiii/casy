@@ -174,8 +174,7 @@ pub async fn get_knowledge_with_blocks(id: String) -> Result<KnowledgeWithBlocks
                             updated_at: row.get::<_, Option<String>>(8)?,
                         })
                     })?
-                    .filter_map(|r| r.ok())
-                    .collect();
+                    .collect::<rusqlite::Result<_>>()?;
                 for block in rows {
                     if blocks.len() >= MAX_BLOCKS {
                         break;
@@ -532,25 +531,26 @@ pub fn import_pageindex_inner(
         return Ok(PageIndexImportResultDto { knowledge_id: existing, child_count, reused: true });
     }
 
-    let full_markdown = markdown_path.as_deref()
+    let full_markdown = match markdown_path.as_deref()
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .filter(|text| !text.trim().is_empty())
-        .unwrap_or_else(|| {
+        .filter(|text| !text.trim().is_empty()) {
+        Some(text) => text,
+        None => {
             let mut output = String::new();
-            if let Ok(mut pages) = tx.prepare(
+            let mut pages = tx.prepare(
                 "SELECT page_number,markdown,plain_text FROM document_pages WHERE job_id=?1 ORDER BY page_number"
-            ) {
-                if let Ok(rows) = pages.query_map([latest_job.as_str()], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-                }) {
-                    for row in rows.flatten() {
-                        let content = if row.1.trim().is_empty() { row.2 } else { row.1 };
-                        output.push_str(&format!("\n\n<!-- page:{} -->\n\n{}", row.0, content));
-                    }
-                }
+            )?;
+            let rows = pages.query_map([latest_job.as_str()], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?;
+            for row in rows {
+                let (page, markdown, text) = row?;
+                let content = if markdown.trim().is_empty() { text } else { markdown };
+                output.push_str(&format!("\n\n<!-- page:{page} -->\n\n{content}"));
             }
             output
-        });
+        }
+    };
     if full_markdown.trim().is_empty() {
         return Err(anyhow::anyhow!("文档处理已完成，但没有可导入的 Markdown 内容"));
     }

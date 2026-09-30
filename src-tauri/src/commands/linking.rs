@@ -137,7 +137,7 @@ pub async fn list_links_for(
              FROM links WHERE source_type = ?1 AND source_id = ?2 ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map(params![source_type, source_id], row_to_link)?;
-        let mut out: Vec<LinkDto> = rows.filter_map(|r| r.ok()).collect();
+        let mut out: Vec<LinkDto> = rows.collect::<rusqlite::Result<_>>()?;
         for l in out.iter_mut() {
             resolve_title(&conn, l);
         }
@@ -156,7 +156,7 @@ pub async fn get_backlinks(target_type: String, target_id: String) -> Result<Vec
              FROM links WHERE target_type = ?1 AND target_id = ?2 ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map(params![target_type, target_id], row_to_link)?;
-        let mut out: Vec<LinkDto> = rows.filter_map(|r| r.ok()).collect();
+        let mut out: Vec<LinkDto> = rows.collect::<rusqlite::Result<_>>()?;
         for l in out.iter_mut() {
             resolve_title(&conn, l);
         }

@@ -83,6 +83,49 @@ fn local_reference(destination: &str) -> Option<PathBuf> {
     }
 }
 
+fn reference_source(destination: &str) -> Option<String> {
+    if !destination.starts_with("file:") {
+        return portable_absolute_path(destination).then(|| destination.to_owned());
+    }
+    let url = reqwest::Url::parse(destination).ok()?;
+    let bytes = url.path().as_bytes();
+    let mut decoded = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(index + 1..index + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    let path = String::from_utf8(decoded).ok()?;
+    if let Some(host) = url.host_str().filter(|host| *host != "localhost") {
+        return Some(format!("//{host}{path}"));
+    }
+    if path.len() >= 4 && path.as_bytes()[2] == b':' {
+        Some(path[1..].to_owned())
+    } else {
+        Some(path)
+    }
+}
+
+fn markdown_destination(path: &str) -> Option<String> {
+    // File URLs avoid Markdown escapes, spaces and parentheses in native paths.
+    let path = portable_path(path);
+    let mut url = reqwest::Url::parse("file:///").ok()?;
+    if let Some(unc) = path.strip_prefix("//") {
+        let (host, tail) = unc.split_once('/')?;
+        url.set_host(Some(host)).ok()?;
+        url.set_path(&format!("/{tail}"));
+    } else {
+        url.set_path(&path);
+    }
+    Some(url.to_string().replace('(', "%28").replace(')', "%29"))
+}
+
 fn markdown_references(value: &str) -> Vec<(std::ops::Range<usize>, String)> {
     use pulldown_cmark::{Event, LinkType, Parser, Tag};
     let parser = Parser::new(value);
@@ -117,17 +160,17 @@ fn markdown_references(value: &str) -> Vec<(std::ops::Range<usize>, String)> {
 pub(crate) fn relocate_markdown(value: &str, mappings: &[(PathBuf, PathBuf)]) -> String {
     let mut replacements = Vec::new();
     for (range, destination) in markdown_references(value) {
-        let Some(path) = local_reference(&destination) else {
+        let Some(path) = reference_source(&destination) else {
             continue;
         };
-        let relocated = relocate_string(&path.to_string_lossy(), mappings);
-        if relocated == path.to_string_lossy() {
+        let relocated = relocate_string(&path, mappings);
+        if relocated == path {
             continue;
         }
-        let replacement = if destination.starts_with("file:") {
-            reqwest::Url::from_file_path(&relocated)
-                .ok()
-                .map(String::from)
+        let replacement = if destination.starts_with("file:")
+            || relocated.contains(['\\', ' ', '(', ')', '#', '%'])
+        {
+            markdown_destination(&relocated)
         } else {
             Some(relocated)
         };
@@ -444,7 +487,7 @@ fn decrypt_archive(source: &Path, password: SecretString, target: &Path) -> Resu
         bail!("备份清单与实际文件不一致");
     }
     for root in &manifest.roots {
-        if !root.original.is_absolute()
+        if !portable_absolute_path(&root.original.to_string_lossy())
             || !root.archived.starts_with("files/")
             || Path::new(&root.archived)
                 .components()
@@ -458,11 +501,48 @@ fn decrypt_archive(source: &Path, password: SecretString, target: &Path) -> Resu
     Ok(manifest)
 }
 
+// Source roots in an archive belong to the exporting OS, not the restoring OS.
+fn portable_absolute_path(value: &str) -> bool {
+    let value = value.replace('\\', "/");
+    value.starts_with('/')
+        || (value.len() >= 3
+            && value.as_bytes()[0].is_ascii_alphabetic()
+            && &value.as_bytes()[1..3] == b":/")
+}
+
+fn portable_path(value: &str) -> String {
+    let windows = cfg!(windows) || value.starts_with("\\\\")
+        || (value.len() >= 2 && value.as_bytes()[1] == b':');
+    let value = if windows { value.replace('\\', "/") } else { value.to_owned() };
+    let value = value.strip_prefix("//?/UNC/")
+        .map(|tail| format!("//{tail}"))
+        .unwrap_or_else(|| value.strip_prefix("//?/").unwrap_or(&value).to_owned());
+    value.trim_end_matches('/').to_owned()
+}
+
 fn relocate_string(value: &str, mappings: &[(PathBuf, PathBuf)]) -> String {
-    for (old, new) in mappings {
-        if let Ok(suffix) = Path::new(value).strip_prefix(old) {
-            return new.join(suffix).to_string_lossy().into_owned();
+    let source = portable_path(value);
+    let mut roots: Vec<_> = mappings.iter().collect();
+    // Nested attachments must not accidentally resolve through a parent mapping.
+    roots.sort_by_key(|(old, _)| std::cmp::Reverse(old.as_os_str().len()));
+    for (old, new) in roots {
+        let old = portable_path(&old.to_string_lossy());
+        let prefix = format!("{old}/");
+        let suffix = if source == old {
+            ""
+        } else if let Some(suffix) = source.strip_prefix(&prefix) {
+            suffix
+        } else {
+            continue;
+        };
+        if suffix.split('/').any(|part| matches!(part, "." | "..")) {
+            continue;
         }
+        let mut target = new.clone();
+        for part in suffix.split('/').filter(|part| !part.is_empty()) {
+            target.push(part);
+        }
+        return target.to_string_lossy().into_owned();
     }
     value.to_owned()
 }
@@ -738,11 +818,86 @@ mod tests {
     }
 
     #[test]
+    fn foreign_archive_restores_database_and_attachment_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("source.db");
+        let conn = open_keyed(&database, KEY).unwrap();
+        db::schema::run_migrations(&conn, 0).unwrap();
+        conn.execute_batch(r"INSERT INTO cases(id,case_name,client_name,folder_path)
+            VALUES('c','Case','Client','C:\source');
+            INSERT INTO case_files(id,case_id,file_name,file_path,category)
+            VALUES('f','c','file.txt','C:\source\file.txt','evidence');
+            INSERT INTO knowledge_items(id,title,content,category)
+            VALUES('k','Note','[file](file:///C:/source/file.txt)','reference');").unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;").unwrap();
+        drop(conn);
+        let files = temp.path().join("files");
+        fs::create_dir_all(&files).unwrap();
+        fs::write(files.join("file.txt"), b"original evidence").unwrap();
+        let payload = temp.path().join("payload.zip");
+        let mut zip = ZipWriter::new(File::create(&payload).unwrap());
+        let mut manifest = Manifest {
+            version: 1, database_key: KEY.into(),
+            roots: vec![Root { original: PathBuf::from(r"C:\source"), archived: "files/0".into() }],
+            entries: vec![],
+        };
+        add_file(&mut zip, &database, "database.db", &mut manifest.entries).unwrap();
+        add_file(&mut zip, &files, "files/0", &mut manifest.entries).unwrap();
+        zip.start_file("manifest.json", FileOptions::default()).unwrap();
+        serde_json::to_writer(&mut zip, &manifest).unwrap();
+        zip.finish().unwrap();
+        let archive = temp.path().join("foreign.casy");
+        let password = SecretString::from("foreign-archive-test".to_owned());
+        let mut writer = age::Encryptor::with_user_passphrase(password.clone())
+            .wrap_output(File::create(&archive).unwrap()).unwrap();
+        std::io::copy(&mut File::open(payload).unwrap(), &mut writer).unwrap();
+        writer.finish().unwrap();
+        let target = temp.path().join("restored (new)");
+        let restored = prepare_restore(&archive, password, &target, NEW_KEY).unwrap();
+        let conn = open_keyed(&restored, NEW_KEY).unwrap();
+        let path: String = conn.query_row("SELECT file_path FROM case_files WHERE id='f'", [], |r| r.get(0)).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"original evidence");
+        assert!(Path::new(&path).starts_with(&target));
+        let note: String = conn.query_row("SELECT content FROM knowledge_items WHERE id='k'", [], |r| r.get(0)).unwrap();
+        let references = markdown_references(&note);
+        assert_eq!(local_reference(&references[0].1).unwrap(), PathBuf::from(path));
+    }
+
+    #[test]
+    fn foreign_source_paths_relocate_to_native_destinations() {
+        let temp = tempfile::tempdir().unwrap();
+        for original in [r"C:\Users\lawyer\case", r"\\?\C:\Users\lawyer\case", "/Users/lawyer/case", r"\\server\share\case"] {
+            assert!(portable_absolute_path(original));
+            let mappings = vec![(PathBuf::from(original), temp.path().to_owned())];
+            let source = format!("{original}/evidence/file.pdf");
+            assert_eq!(relocate_string(&source, &mappings), temp.path().join("evidence").join("file.pdf").to_string_lossy());
+            let escape = format!("{original}/../outside.pdf");
+            assert_eq!(relocate_string(&escape, &mappings), escape);
+            let sibling = format!("{original}-other/file.pdf");
+            assert_eq!(relocate_string(&sibling, &mappings), sibling);
+        }
+        assert!(!portable_absolute_path("C:relative"));
+        assert!(!portable_absolute_path("relative/path"));
+    }
+
+    #[test]
+    fn foreign_markdown_urls_keep_attachments_and_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let mappings = vec![(PathBuf::from(r"C:\case"), temp.path().join("new (case)"))];
+        let original = "[file](file:///C:/case/a%20b.pdf)\n`C:\\case\\a b.pdf`\n";
+        let moved = relocate_markdown(original, &mappings);
+        let references = markdown_references(&moved);
+        assert_eq!(references.len(), 1);
+        assert_eq!(local_reference(&references[0].1).unwrap(), temp.path().join("new (case)").join("a b.pdf"));
+        assert!(moved.contains("`C:\\case\\a b.pdf`"));
+    }
+
+    #[test]
     fn relocation_respects_path_boundaries() {
         let mappings = vec![(PathBuf::from("/old/case"), PathBuf::from("/new/case"))];
         assert_eq!(
             relocate_string("/old/case/file.pdf", &mappings),
-            "/new/case/file.pdf"
+            Path::new("/new/case").join("file.pdf").to_string_lossy()
         );
         assert_eq!(
             relocate_string("/old/case-other/file.pdf", &mappings),
@@ -759,9 +914,11 @@ mod tests {
         let mappings = vec![(PathBuf::from("/old/case"), PathBuf::from("/new/case"))];
         let original="[original](/old/case/evidence.pdf)\n![image](file:///old/case/scan%20one.png)\n[reference][ref]\n\n[ref]: /old/case/citation.pdf\n\n`/old/case/plain text`\n";
         let moved = relocate_markdown(original, &mappings);
-        assert!(moved.contains("[original](/new/case/evidence.pdf)"));
+        let destinations: Vec<_> = markdown_references(&moved).into_iter()
+            .map(|(_, destination)| reference_source(&destination).unwrap()).collect();
+        assert!(destinations.iter().any(|path| portable_path(path) == "/new/case/evidence.pdf"));
         assert!(moved.contains("file:///new/case/scan%20one.png"));
-        assert!(moved.contains("[ref]: /new/case/citation.pdf"));
+        assert!(destinations.iter().any(|path| portable_path(path) == "/new/case/citation.pdf"));
         assert!(moved.contains("`/old/case/plain text`\n"));
         assert_eq!(
             relocate_markdown("unchanged\n\n", &mappings),

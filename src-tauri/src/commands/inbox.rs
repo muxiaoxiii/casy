@@ -1390,7 +1390,8 @@ fn quick_judge(
         let case_iter = stmt.query_map(rusqlite::params![format!("%{}%", party)], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
-        for (case_id, case_name) in case_iter.flatten() {
+        for row in case_iter {
+            let (case_id, case_name) = row?;
             matches
                 .entry(case_id)
                 .or_insert_with(|| (case_name, vec![]))
@@ -1490,27 +1491,25 @@ fn quick_judge_text(conn: &rusqlite::Connection, text: &str) -> anyhow::Result<Q
         }
     }
     if matched_case.is_none() {
-        if let Ok(mut stmt) = conn.prepare(
+        let mut stmt = conn.prepare(
             "SELECT id, COALESCE(display_name, case_name) AS cname, client_name, opponent_name FROM cases"
-        ) {
-            if let Ok(rows) = stmt.query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    r.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                ))
-            }) {
-                for r in rows.flatten() {
-                    let (cid, cname, client, opponent) = r;
-                    if (!client.is_empty() && client.chars().count() >= 2 && text.contains(&client))
-                        || (!opponent.is_empty() && opponent.chars().count() >= 2 && text.contains(&opponent))
-                        || (!cname.is_empty() && cname.chars().count() >= 2 && text.contains(&cname))
-                    {
-                        matched_case = Some((cid, cname));
-                        break;
-                    }
-                }
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            ))
+        })?;
+        for row in rows {
+            let (cid, cname, client, opponent) = row?;
+            if (!client.is_empty() && client.chars().count() >= 2 && text.contains(&client))
+                || (!opponent.is_empty() && opponent.chars().count() >= 2 && text.contains(&opponent))
+                || (!cname.is_empty() && cname.chars().count() >= 2 && text.contains(&cname))
+            {
+                matched_case = Some((cid, cname));
+                break;
             }
         }
     }
@@ -2482,6 +2481,7 @@ mod tests {
     #[test]
     fn recognizes_short_date_event_intent() {
         let conn = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        conn.execute_batch("CREATE TABLE cases (id TEXT PRIMARY KEY, case_name TEXT, display_name TEXT, client_name TEXT, opponent_name TEXT, case_no TEXT);").unwrap();
         let result = quick_judge_text(&conn, "9-10 下午开庭").expect("规则判断应成功");
         assert!(result
             .recommendations
@@ -2589,6 +2589,7 @@ mod tests {
     #[test]
     fn recommends_holiday_update_before_generic_task() {
         let conn = rusqlite::Connection::open_in_memory().expect("内存数据库应可用");
+        conn.execute_batch("CREATE TABLE cases (id TEXT PRIMARY KEY, case_name TEXT, display_name TEXT, client_name TEXT, opponent_name TEXT, case_no TEXT);").unwrap();
         let result = quick_judge_text(
             &conn,
             "2027年节假日放假安排：1月1日至3日放假调休。1月4日上班。",

@@ -5,18 +5,8 @@
 #   rust      —— cargo test 三平台矩阵 + bindings 漂移校验（ubuntu 承担）
 #   tauri-build —— 仅 v* tag 触发，三平台完整打包并上传 **草稿 Release**
 #
-# ── Windows runner 前置说明（SQLCipher 编译依赖）──────────────────────────
-# rusqlite 的 bundled-sqlcipher 特性会从源码编译 SQLCipher，其加密后端在
-# Windows 上要求：
-#   1. Perl        —— 构建脚本需要（choco install strawberryperl）
-#   2. NASM        —— 汇编加速路径（choco install nasm 并入 PATH）
-#   3. OpenSSL     —— 加密后端链接需要（choco install openssl.light 且设 OPENSSL_DIR；
-#                     首跑报错即 Missing environment variable OPENSSL_DIR）
-#   4. MSVC Build Tools —— GitHub windows-latest 自带
-# 启用 Windows 构建前先本地验证：`cargo test` 在干净 PowerShell 中通过。
-# 当前 rust 矩阵已包含 windows-latest；若首次跑红，优先排查上述三项，
-# 或临时把 windows 从矩阵移出、单独排障后再回归。
-# ────────────────────────────────────────────────────────────────────────
+# Windows uses the same pinned renderer/OpenSSL preparation as beta packaging.
+# Common Controls v6 is embedded by build.rs; loader checks remain a hard gate.
 
 name: CI
 
@@ -53,13 +43,11 @@ jobs:
 
   rust:
     needs: [frontend]
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        # Windows 暂离矩阵：测试二进制启动即 STATUS_ENTRYPOINT_NOT_FOUND(0xc0000139)，
-        # PATH 剔除 Strawberry/OpenSSL 无效——疑 runner 全局 DLL 阴影，诊断现场见 issue #1。
-        # 修复后回归；ubuntu/macos 门禁持续生效。
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-2025]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -87,24 +75,45 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      # Windows SQLCipher 前置：Perl(构建脚本) + NASM(汇编) + OpenSSL(加密后端，需 OPENSSL_DIR)
       - if: runner.os == 'Windows'
+        uses: actions/cache/restore@v4
+        id: renderer-cache
+        with:
+          path: |
+            ${{ runner.temp }}/casy-renderer
+            ${{ runner.temp }}/casy-vcpkg/installed
+          key: windows-renderer-${{ hashFiles('scripts/prepare-windows-renderer.ps1') }}
+      - if: runner.os == 'Windows' && steps.renderer-cache.outputs.cache-hit != 'true'
+        name: Build pinned Windows renderer and static OpenSSL
+        shell: pwsh
+        run: ../scripts/prepare-windows-renderer.ps1
+      - if: runner.os == 'Windows' && steps.renderer-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/casy-renderer
+            ${{ runner.temp }}/casy-vcpkg/installed
+          key: ${{ steps.renderer-cache.outputs.cache-primary-key }}
+      - if: runner.os == 'Windows'
+        name: Set native runtime paths
         shell: pwsh
         run: |
-          choco install -y strawberryperl nasm
-          # runner 预装 vcpkg；静态 MD 三元组含开发库 libcrypto.lib
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static-md
-          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
-      - if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # 修 STATUS_ENTRYPOINT_NOT_FOUND：剔除 PATH 上 Perl/OpenSSL 冲突运行时 DLL
-          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch 'Strawberry|OpenSSL' }) -join ';'
+          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=$env:RUNNER_TEMP/casy-vcpkg/installed/x64-windows-static-md"
+          Add-Content $env:GITHUB_ENV 'OPENSSL_STATIC=1'
+          Add-Content $env:GITHUB_ENV "CASY_RENDERER_DISTRIBUTION=$env:RUNNER_TEMP/casy-renderer"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       - run: node ../scripts/prepare-zvec.mjs
       - run: node ../scripts/prepare-fonts.mjs
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH "$pwd/runtime/zvec"
+      - if: runner.os == 'Windows'
+        run: cargo test --locked --tests --no-run
+      - if: runner.os == 'Windows'
+        working-directory: .
+        run: python scripts/diagnose-windows-loader.py
       - run: cargo test --locked
         env:
           CASY_TEST_DATA_DIR: ${{ runner.temp }}/casy-ci-tests

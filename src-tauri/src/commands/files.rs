@@ -578,47 +578,43 @@ pub async fn scan_unregistered_files(case_id: String) -> Result<Vec<Unregistered
         let known: std::collections::HashSet<String> = {
             let mut stmt = conn.prepare("SELECT file_path FROM case_files WHERE case_id = ?1")?;
             let rows = stmt.query_map(rusqlite::params![case_id], |r| r.get::<_, String>(0))?;
-            rows.filter_map(|r| r.ok()).collect()
+            rows.collect::<rusqlite::Result<_>>()?
         };
         let mut out = Vec::new();
         fn walk(
             dir: &PathBuf,
             out: &mut Vec<UnregisteredFile>,
             known: &std::collections::HashSet<String>,
-        ) {
-            let Ok(rd) = std::fs::read_dir(dir) else {
-                return;
-            };
-            for e in rd.filter_map(|e| e.ok()) {
+        ) -> anyhow::Result<()> {
+            let rd = std::fs::read_dir(dir)?;
+            for e in rd {
+                let e = e?;
                 let p = e.path();
                 if e.file_name().to_string_lossy().starts_with('.') {
                     continue;
                 }
-                let Ok(metadata) = std::fs::symlink_metadata(&p) else {
-                    continue;
-                };
+                let metadata = std::fs::symlink_metadata(&p)?;
                 if metadata.file_type().is_symlink() {
                     continue;
                 }
                 if metadata.is_dir() {
-                    walk(&p, out, known);
+                    walk(&p, out, known)?;
                 } else if let Some(ps) = p.to_str() {
                     if !known.contains(ps) {
-                        if let Ok(meta) = e.metadata() {
                             out.push(UnregisteredFile {
                                 file_name: p
                                     .file_name()
                                     .map(|s| s.to_string_lossy().to_string())
                                     .unwrap_or_default(),
                                 path: ps.to_string(),
-                                size_bytes: meta.len(),
+                                size_bytes: metadata.len(),
                             });
-                        }
                     }
                 }
             }
+            Ok(())
         }
-        walk(&root, &mut out, &known);
+        walk(&root, &mut out, &known)?;
         Ok(out)
     })
     .await

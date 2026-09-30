@@ -110,7 +110,7 @@ pub async fn list_deadline_rules() -> Result<Vec<DeadlineRuleDto>, String> {
             "SELECT {RULE_COLS} FROM deadline_rules ORDER BY track, priority DESC"
         ))?;
         let rows = stmt.query_map([], row_to_rule)?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -277,7 +277,7 @@ pub async fn list_deadline_rule_audit(
             Some(rid) => stmt.query_map(params![rid], map)?,
             None => stmt.query_map([], map)?,
         };
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }

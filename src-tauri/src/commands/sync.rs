@@ -798,7 +798,7 @@ pub async fn feishu_get_mappings(
             }))
         })?;
 
-        let mappings: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+        let mappings: Vec<serde_json::Value> = rows.collect::<rusqlite::Result<_>>()?;
 
         Ok(serde_json::to_value(&mappings)?)
     })

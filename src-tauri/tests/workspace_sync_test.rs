@@ -138,7 +138,14 @@ async fn local_folder_lifecycle_preserves_originals_ids_notes_and_opt_in() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(link.contains("Updated Patent Evidence.md"));
+    let destination = pulldown_cmark::Parser::new(&link).find_map(|event| {
+        if let pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) = event {
+            Some(dest_url.to_string())
+        } else { None }
+    }).expect("renamed note must retain a valid Markdown link");
+    let linked_path = reqwest::Url::parse(&destination).unwrap().to_file_path().unwrap();
+    assert_eq!(linked_path, std::path::PathBuf::from(&renamed));
+    assert_eq!(std::fs::read_to_string(linked_path).unwrap(), changed);
     assert!(!link.contains("renamed.md"));
     std::fs::write(&renamed, "# Another Revision\n\nUpdated evidence.").unwrap();
     sync.tick().unwrap();

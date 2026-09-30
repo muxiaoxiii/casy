@@ -75,7 +75,7 @@ pub async fn list_whiteboards(case_id: String) -> Result<Vec<WhiteboardDto>, Str
                 updated_at: row.get("updated_at")?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -153,7 +153,7 @@ pub async fn list_fact_nodes(whiteboard_id: String) -> Result<Vec<FactNodeDto>, 
                 updated_at: row.get("updated_at")?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
@@ -254,7 +254,7 @@ pub async fn list_whiteboard_edges(whiteboard_id: String) -> Result<Vec<Whiteboa
                 created_at: row.get("created_at")?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }

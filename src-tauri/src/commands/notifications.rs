@@ -43,7 +43,7 @@ pub async fn list_notifications() -> Result<Vec<AppNotification>, String> {
         }
         let mut stmt = conn.prepare(&format!("{SELECT_ACTIVE} ORDER BY created_at DESC"))?;
         let rows = stmt.query_map([], row_to_notification)?;
-        Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
     .await
 }
