@@ -1,8 +1,54 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NodeViewWrapper, nodeViewProps } from "@tiptap/vue-3";
+import type { AssetResolver } from "./ResizableImage";
 const props = defineProps(nodeViewProps);
 const width = computed(() => Number(props.node.attrs.width) || 480);
+
+// 外置配图（`assets/<sha>.png`）按需解析为可显示 URL；node.attrs.src 保持原引用，
+// 序列化回 Markdown 时不会被 blob/data 地址污染。
+const ASSET_REF = /^assets\/([a-f0-9]{64}\.png)$/;
+const displaySrc = ref<string | null>(null);
+const failed = ref(false);
+let generation = 0;
+let revoke: string | null = null;
+
+function resolveAsset(): AssetResolver | undefined {
+  return (props.extension as { options?: { resolveAsset?: AssetResolver } })?.options
+    ?.resolveAsset;
+}
+
+watch(
+  () => [props.node.attrs.src, resolveAsset()],
+  async () => {
+    const current = ++generation;
+    const src = String(props.node.attrs.src || "");
+    const match = ASSET_REF.exec(src);
+    const resolver = resolveAsset();
+    if (!match || !resolver) {
+      displaySrc.value = src || null;
+      failed.value = false;
+      return;
+    }
+    displaySrc.value = null;
+    failed.value = false;
+    try {
+      const url = await resolver(match[1]);
+      if (current !== generation) return;
+      displaySrc.value = url;
+      revoke = url.startsWith("blob:") ? url : null;
+    } catch {
+      if (current !== generation) return;
+      failed.value = true;
+    }
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  generation++;
+  if (revoke) URL.revokeObjectURL(revoke);
+});
 function select() {
   const pos = props.getPos();
   if (typeof pos === "number") props.editor.commands.setNodeSelection(pos);
@@ -34,12 +80,16 @@ function paragraph(after: boolean) {
     }"
   >
     <img
-      :src="node.attrs.src"
+      v-if="displaySrc"
+      :src="displaySrc"
       :alt="node.attrs.alt || ''"
       :title="node.attrs.title || ''"
       draggable="false"
       @click="select"
     />
+    <div v-else class="image-pending" @click="select">
+      {{ failed ? "图片加载失败" : "图片加载中…" }}
+    </div>
     <div
       v-if="selected"
       class="image-controls"
@@ -95,6 +145,20 @@ function paragraph(after: boolean) {
   height: auto;
   max-width: 100%;
   border-radius: 2px;
+}
+.image-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+  padding: 16px;
+  color: var(--c-text-secondary);
+  background: var(--c-bg-page);
+  border: 1px dashed var(--c-border);
+  border-radius: 2px;
+  font: 12px var(--font-family);
+  line-height: 1.5;
+  cursor: pointer;
 }
 .image-controls {
   line-height: 1.5;

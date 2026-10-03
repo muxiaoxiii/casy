@@ -3,7 +3,14 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { mdToSafeHtml } from '../markdown/mdBridge'
 import { createDocumentAssetLoader, pngMemoryBytes } from '../markdown/documentAssetLoader'
 import { tauriCallSafe } from '../../core/tauriBridge'
-const props = defineProps<{ markdown: string; fileId: string; jobId: string }>()
+const props = defineProps<{
+  markdown: string
+  /** 文档配图上下文；与 read 二选一 */
+  fileId?: string
+  jobId?: string
+  /** 外置配图读取器（返回 base64），用于知识快照等自有产物目录 */
+  read?: (assetId: string) => Promise<string>
+}>()
 const root = ref<HTMLElement>()
 const html = computed(() => {
   const safe = mdToSafeHtml(props.markdown)
@@ -28,20 +35,22 @@ const html = computed(() => {
 let observer: IntersectionObserver | undefined
 let cleanup = () => {}
 let generation = 0
-watch(() => [props.markdown, props.fileId, props.jobId], async () => {
+watch(() => [props.markdown, props.fileId, props.jobId, props.read], async () => {
   const current = ++generation
   observer?.disconnect(); cleanup()
   await nextTick()
   if (current !== generation || !root.value) return
   const images = root.value.querySelectorAll<HTMLImageElement>('img[data-asset-id]')
   if (!images.length) return
-  const fileId = props.fileId, jobId = props.jobId
+  const fileId = props.fileId, jobId = props.jobId, custom = props.read
   const memoryCosts = new WeakMap<Blob, number>()
   const loader = createDocumentAssetLoader({
     read: async assetId => {
-      const result = await tauriCallSafe('read_document_asset', { fileId, jobId, assetId })
-      if (!result.ok || !result.data) throw new Error(result.error || '图片加载失败')
-      const binary = atob(result.data)
+      const encoded = custom
+        ? await custom(assetId)
+        : (await tauriCallSafe('read_document_asset', { fileId: fileId!, jobId: jobId!, assetId })).data
+      if (!encoded) throw new Error('图片加载失败')
+      const binary = atob(encoded)
       const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
       const cost = pngMemoryBytes(bytes)
       const blob = new Blob([bytes], { type: 'image/png' })

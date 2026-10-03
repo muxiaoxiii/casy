@@ -23,7 +23,7 @@ import TaskList from "@tiptap/extension-task-list";
 import { LinkedTaskItem } from "./LinkedTaskItem";
 import { useEditorTasks } from "./useEditorTasks";
 import { tauriCallSafe } from "../../core/tauriBridge";
-import { ResizableImage } from "./ResizableImage";
+import { ResizableImage, type AssetResolver } from "./ResizableImage";
 import { useBlockMenu } from './useBlockMenu';
 import ContextMenu, { type ContextAction } from "../components/ContextMenu.vue";
 import { blockAt, editBlocks } from "./blockActions";
@@ -91,6 +91,8 @@ const props = withDefaults(
     caseId?: string | null;
     /** wiki 补全源（标题含方括号者不可链接，与后端解析一致） */
     noteTitles?: NoteTitleItem[];
+    /** 外置配图解析器：`assets/<sha>.png` → 可显示 URL（仅展示，序列化仍写引用） */
+    resolveAsset?: AssetResolver;
     placeholder?: string;
     compact?: boolean;
     /** Enter 行为：paragraph=正常换段；submit=触发 submit 事件（Shift+Enter 仍换行） */
@@ -476,7 +478,7 @@ const editor = useEditor({
       ? props.modelValue
       : mdToHtml(props.modelValue || ""),
   extensions: [
-    ...documentExtensions(props.placeholder),
+    ...documentExtensions(props.placeholder, props.resolveAsset),
     BlockSelectionExtension,
     ...props.extraExtensions,
     WikiLinkSuggestion.configure({

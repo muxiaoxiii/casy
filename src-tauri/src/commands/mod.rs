@@ -433,6 +433,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         crate::workspace_sync::list_workspace_sources,
         crate::workspace_sync::get_workspace_document,
         document_assets::read_document_asset,
+        knowledge::read_knowledge_asset,
         document_assets::get_document_storage_state,
         document_assets::optimize_document_storage,
         document_assets::rollback_document_storage,

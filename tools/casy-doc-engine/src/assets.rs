@@ -227,20 +227,6 @@ pub fn rewrite_images(
     output.push_str(&markdown[offset..]);
     Ok(output)
 }
-/// Compatibility boundary for editors/exporters which do not yet resolve asset IDs.
-pub fn inline(markdown: &str, root: &Path, manifest: &Manifest) -> Result<String> {
-    rewrite_images(markdown, |reference| {
-        if let Some(id) = reference.strip_prefix("assets/") {
-            let bytes = read(root, manifest, id)?;
-            return Ok(Some(format!(
-                "data:image/png;base64,{}",
-                STANDARD.encode(bytes)
-            )));
-        }
-        Ok(None)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,9 +247,6 @@ mod tests {
             "{result}\n\nProse assets/missing.png\n\n`<img src=\"assets/missing.png\">`\n\n<figcaption>assets/{id}</figcaption>"
         );
         validate_references(&with_prose, original.path(), &manifest).unwrap();
-        let inlined = inline(&with_prose, original.path(), &manifest).unwrap();
-        assert!(inlined.contains(&format!("<figcaption>assets/{id}</figcaption>")));
-        assert!(inlined.contains(&format!("![crop]({uri})")));
         copy_to(original.path(), revision.path(), &manifest).unwrap();
         fs::remove_dir_all(original.path().join("assets")).unwrap();
         validate_references(

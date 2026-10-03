@@ -1,5 +1,6 @@
 use super::run_blocking;
 use crate::db;
+use crate::document_pipeline::assets;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -470,6 +471,20 @@ pub async fn list_knowledge_document_sources() -> Result<Vec<KnowledgeDocumentSo
     .await
 }
 
+/// 知识条目自有配图目录：正文只存 `assets/<sha>.png` 引用，字节落盘在此。
+fn knowledge_asset_root(note_id: &str) -> anyhow::Result<std::path::PathBuf> {
+    anyhow::ensure!(
+        !note_id.is_empty()
+            && note_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+        "INVALID_ASSET: 知识条目标识无效"
+    );
+    let root = crate::runtime_paths::data_root().join("knowledge-artifacts").join(note_id);
+    std::fs::create_dir_all(root.join("assets"))?;
+    Ok(root)
+}
+
 /// 将 OCR Markdown 全文作为根笔记，并把 PageIndex 结构节点作为子笔记沉淀（可测内层；
 /// pub 供 examples/real_db_regression.rs 对真实库副本做端到端回归）。
 /// 同一处理版本复用既有根笔记；新版生成独立快照，保留旧笔记及人工修改。
@@ -551,10 +566,6 @@ pub fn import_pageindex_inner(
             output
         }
     };
-    let full_markdown = if let Some(root) = markdown_path.as_deref().and_then(|path| std::path::Path::new(path).parent()).filter(|root|root.join(crate::document_pipeline::assets::MANIFEST).exists()) {
-        let manifest=crate::document_pipeline::assets::load(root)?;
-        crate::document_pipeline::assets::inline(&full_markdown,root,&manifest)?
-    } else { full_markdown };
     if full_markdown.trim().is_empty() {
         return Err(anyhow::anyhow!("文档处理已完成，但没有可导入的 Markdown 内容"));
     }
@@ -581,6 +592,20 @@ pub fn import_pageindex_inner(
     }
 
     let root_id = db::new_id();
+    // 正文只存 `assets/<sha>.png` 引用；字节落盘到本条目自有目录，避免 base64 撑爆 SQLite。
+    let note_root = knowledge_asset_root(&root_id)?;
+    let mut note_manifest = assets::Manifest::default();
+    if let Some(root) = markdown_path
+        .as_deref()
+        .and_then(|path| std::path::Path::new(path).parent())
+        .filter(|root| root.join(assets::MANIFEST).exists())
+    {
+        let source_manifest = assets::load(root)?;
+        assets::copy_to(root, &note_root, &source_manifest)?;
+        note_manifest = source_manifest;
+    }
+    let full_markdown = assets::externalize(&full_markdown, &note_root, &mut note_manifest)?;
+    assets::save(&note_root, &note_manifest)?;
     let root_title = format!("[卷宗] {}", file_name);
     let source_meta = format!(
         "> 来源案件：{}\n> 原始文件：{}\n> 可搜索 PDF：{}\n\n",
@@ -667,6 +692,28 @@ pub async fn import_pageindex_to_knowledge(
     .await
 }
 
+/// 按需取图：只接受本条目自有产物目录内的内容寻址 PNG。
+#[tauri::command]
+pub async fn read_knowledge_asset(note_id: String, asset_id: String) -> Result<String, String> {
+    super::run_blocking(move || {
+        let conn = db::open_db()?;
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM knowledge_items WHERE id=?1)",
+            [&note_id],
+            |r| r.get(0),
+        )?;
+        anyhow::ensure!(exists, "知识条目不存在");
+        let root = knowledge_asset_root(&note_id)?;
+        let manifest = assets::load(&root)?;
+        let bytes = assets::read(&root, &manifest, &asset_id)?;
+        Ok(base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            bytes,
+        ))
+    })
+    .await
+}
+
 #[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeExportDto {
@@ -702,13 +749,19 @@ fn export_knowledge_markdown_inner(
         format!("{}\n", content.trim_end())
     };
     let destination = path.parent().ok_or_else(|| anyhow::anyhow!("导出目录无效"))?;
-    let (markdown, assets) = super::markdown_export::externalize_images(&markdown, destination)?;
+    // 正文里的 `assets/<sha>.png` 指向本条目产物目录；导出时连同内嵌图一并落成真实文件。
+    let note_root = knowledge_asset_root(item_id)?;
+    let (markdown, staged) = if note_root.join(assets::MANIFEST).exists() {
+        super::markdown_export::externalize_images_from(&markdown, &note_root, destination)?
+    } else {
+        super::markdown_export::externalize_images(&markdown, destination)?
+    };
     use std::io::Write;
     let mut stage = tempfile::NamedTempFile::new_in(destination)?;
     stage.write_all(markdown.as_bytes())?;
     stage.as_file().sync_all()?;
     stage.persist(&path)?;
-    if let Some(assets) = assets { let _ = assets.keep(); }
+    if let Some(staged) = staged { let _ = staged.keep(); }
     let metadata = std::fs::metadata(&path)?;
     Ok(KnowledgeExportDto {
         output_path: path.to_string_lossy().into_owned(),
@@ -1691,6 +1744,59 @@ mod tests {
                ('pn-2', 'f1', 'pn-1', '事实认定', '事实摘要', 2, 1, 1);",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_import_pageindex_stores_references_not_base64() {
+        use base64::Engine as _;
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_var("CASY_TEST_DATA_DIR", temp.path());
+        crate::db::enable_test_mode();
+        let conn = crate::db::open_db().unwrap();
+        crate::db::init_db(&conn).unwrap();
+
+        let source = temp.path().join("source.pdf");
+        std::fs::write(&source, b"pdf").unwrap();
+        let hash = crate::document_pipeline::sha256_file(&source).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nfixture";
+        let uri = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        );
+        let root = crate::document_pipeline::artifact_dir("f1", &hash).unwrap();
+        let page = serde_json::json!({"pageNumber":1,"width":1.0,"height":1.0,"plainText":"Text","markdown":format!("<img src=\"{uri}\">"),"regions":[],"confidence":null,"layout":null,"timing":null});
+        std::fs::write(root.join("source.document.json"), serde_json::to_vec(&vec![page]).unwrap()).unwrap();
+        let markdown = root.join("source.md");
+        std::fs::write(&markdown, format!("<!-- page 1 -->\n<img src=\"{uri}\">")).unwrap();
+
+        conn.execute_batch("INSERT INTO cases(id,case_name,client_name) VALUES('c','Case','Client');").unwrap();
+        conn.execute(
+            "INSERT INTO case_files(id,case_id,file_name,file_path,category) VALUES('f1','c','source.pdf',?1,'evidence')",
+            [source.to_string_lossy().as_ref()],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO document_processing_jobs(id,file_id,source_sha256,status,engine,total_pages,current_page,progress,page_ir_path,markdown_path) VALUES('j1','f1',?1,'completed','paddle-onnx-test',1,1,1,?2,?3)",
+            rusqlite::params![hash, root.join("source.document.json").to_string_lossy(), markdown.to_string_lossy()],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown) VALUES('j1','f1',1,1,1,'Text',?1)",
+            [format!("<img src=\"{uri}\">")],
+        ).unwrap();
+
+        let mut conn = conn;
+        let imported = import_pageindex_inner(&mut conn, "f1").unwrap();
+        let content: String = conn
+            .query_row("SELECT content FROM knowledge_items WHERE id=?1", [&imported.knowledge_id], |r| r.get(0))
+            .unwrap();
+        assert!(!content.contains("base64"), "知识正文不应内联 base64");
+        assert!(content.contains("assets/"), "知识正文应保留 assets/ 引用");
+        let id = content.split("assets/").nth(1).unwrap().split('"').next().unwrap().to_string();
+        let root_dir = knowledge_asset_root(&imported.knowledge_id).unwrap();
+        let manifest = assets::load(&root_dir).unwrap();
+        assert_eq!(assets::read(&root_dir, &manifest, &id).unwrap(), png);
+
+        drop(conn);
+        crate::db::reset_shared_conn();
     }
 
     #[test]

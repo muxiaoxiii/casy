@@ -138,7 +138,10 @@ const RawHtmlBlock = Node.create({
   },
 });
 
-export function documentExtensions(placeholder = "开始输入正文…") {
+export function documentExtensions(
+  placeholder = "开始输入正文…",
+  resolveAsset?: import("./ResizableImage").AssetResolver,
+) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4, 5, 6] },
@@ -150,7 +153,9 @@ export function documentExtensions(placeholder = "开始输入正文…") {
     PreviewCodeBlock,
     TaskList,
     LinkedTaskItem,
-    ResizableImage,
+    resolveAsset
+      ? ResizableImage.configure({ resolveAsset })
+      : ResizableImage,
     Table.configure({ resizable: true }),
     TableRow,
     PreservedTableHeader,

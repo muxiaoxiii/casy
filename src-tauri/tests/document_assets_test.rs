@@ -116,8 +116,14 @@ async fn upgrade_preserves_old_version_and_serves_only_owned_verified_assets() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(snapshot.contains(&STANDARD.encode(&png)));
-    assert!(!snapshot.contains("src=\"assets/"));
+    assert!(
+        !snapshot.contains(&STANDARD.encode(&png)),
+        "知识副本不应再内联 base64"
+    );
+    assert!(
+        snapshot.contains("src=\"assets/"),
+        "知识副本应保留 assets/ 引用"
+    );
     drop(connection);
     let exported = tempfile::tempdir().unwrap();
     let out = exported.path().join("snapshot.md");

@@ -20,7 +20,7 @@ import {
 } from '../../../shared/icons'
 import MarkdownCodeMirror from '../components/MarkdownCodeMirror.vue'
 import MarkdownWysiwygEditor from '../components/MarkdownWysiwygEditor.vue'
-import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
+import DocumentMarkdown from '../../../shared/components/DocumentMarkdown.vue'
 import RelatedWork from '../../../shared/components/RelatedWork.vue'
 import KnowledgeRelationsPanel from '../components/KnowledgeRelationsPanel.vue'
 import KnowledgeHistoryPanel from '../components/KnowledgeHistoryPanel.vue'
@@ -231,18 +231,39 @@ function jumpToHeading(id) {
   editorRef.value?.scrollToHeading?.(id)
 }
 
+// 导出前展开 `assets/` 引用：导出链路按内嵌图落盘，正文引用本身不携带字节。
+async function expandNoteAssets(markdown) {
+  const pattern = /assets\/([a-f0-9]{64}\.png)/g
+  const ids = [...new Set([...markdown.matchAll(pattern)].map((m) => m[1]))]
+  if (!ids.length) return markdown
+  let output = markdown
+  for (const id of ids) {
+    const encoded = await readNoteAsset(id)
+    output = output.split(`assets/${id}`).join(`data:image/png;base64,${encoded}`)
+  }
+  return output
+}
+
 async function handleExportCommand(format) {
  if (!draft.value.id || exporting.value) return
  exporting.value=true
  try {
   if(!await flushSave())return
-  const path=await exportDocument({content:draft.value.content,contentFormat:'markdown',title:draft.value.title || '无标题笔记',format:format==='markdown'?'md':format,document:editorRef.value?.getDocumentJson?.()})
+  const path=await exportDocument({content:await expandNoteAssets(draft.value.content),contentFormat:'markdown',title:draft.value.title || '无标题笔记',format:format==='markdown'?'md':format,document:editorRef.value?.getDocumentJson?.()})
   if(path)ElMessage.success(`文档已保存：${path}`)
  }catch(error){ElMessage.error(String(error))}finally{exporting.value=false}
 }
 
 // 预览与编辑器共用同一 MD 桥（GFM 表格/任务列表/wiki 链接全量渲染，v-html 前消毒）
-const previewHtml = computed(() => mdToSafeHtml(draft.value.content))
+// 知识快照正文含 `assets/<sha>.png` 引用：编辑与预览按需取图，序列化仍保留引用。
+async function readNoteAsset(assetId) {
+  const result = await tauriCallSafe("read_knowledge_asset", {
+    noteId: draft.value.id,
+    assetId,
+  });
+  if (!result.ok || !result.data) throw new Error(result.error || "图片加载失败");
+  return result.data;
+}
 
 // wiki 补全/源码补全共用的标题源
 const noteTitleOptions = computed(() =>
@@ -578,9 +599,11 @@ async function openSearchHit(id) {
         </div>
         <div class="markdown-workspace" :class="`mode-${mode}`">
           <!-- :key 随笔记切换重建编辑器，撤销历史不跨笔记残留（对齐 CodeMirror 重建 state 的语义） -->
-          <MarkdownWysiwygEditor v-if="mode === 'rich' || mode === 'split'" :key="`rich-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-rich" :note-titles="noteTitleOptions" source-type="knowledge" :source-id="draft.id" :case-id="draft.linkedCaseId || null" @change="persistence.changed" @save="saveNow(false)" @wiki-link-click="onWikiLinkClick" @outline-change="onOutlineChange" />
+          <MarkdownWysiwygEditor v-if="mode === 'rich' || mode === 'split'" :key="`rich-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-rich" :note-titles="noteTitleOptions" source-type="knowledge" :source-id="draft.id" :resolve-asset="draft.id ? readNoteAsset : undefined" :case-id="draft.linkedCaseId || null" @change="persistence.changed" @save="saveNow(false)" @wiki-link-click="onWikiLinkClick" @outline-change="onOutlineChange" />
           <MarkdownCodeMirror v-if="mode === 'edit'" :key="`src-${selectedId}`" ref="editorRef" v-model="draft.content" class="markdown-source" :note-titles="noteTitleOptions" @save="saveNow(false)" />
-          <article v-if="mode === 'split' || mode === 'preview'" class="markdown-preview" v-html="previewHtml" />
+          <article v-if="mode === 'split' || mode === 'preview'" class="markdown-preview">
+            <DocumentMarkdown :markdown="draft.content" :read="draft.id ? readNoteAsset : undefined" />
+          </article>
         </div>
         </section>
       </template>

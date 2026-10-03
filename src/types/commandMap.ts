@@ -211,6 +211,7 @@ export type CommandMap = {
   get_document_storage_state: Cmd<{ fileId: string }, { jobId: string; externalImages: boolean; canOptimize: boolean; canRollback: boolean }>
   optimize_document_storage: Cmd<{ fileId: string; jobId: string }, string>
   read_document_asset: Cmd<{ fileId: string; jobId: string; assetId: string }, string>
+  read_knowledge_asset: Cmd<{ noteId: string; assetId: string }, string>
   get_workspace_document: Cmd<{ fileId: string }, { jobId: string; markdown: string; filePath: string; continuations: { fromPage: number; toPage: number; locations: import('./documentRetrieval').SourceLocation[] }[] }>
   reveal_path: Cmd<{ path: string }, null>
   open_file_with_default: Cmd<{ path: string }, null>
