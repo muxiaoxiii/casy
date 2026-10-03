@@ -4,6 +4,28 @@ use casy_lib::{
 };
 use serde_json::json;
 
+
+/// 恢复后的附件链接可能以 `file://` URL 形式写入笔记（含空格/反斜杠的路径会被转义）。
+/// 统一分隔符并解码百分号转义后再比对，既跨平台又不会因编码差异误判。
+fn normalize_path_text(value: &str) -> String {
+    let mut decoded = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(byte) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                decoded.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&decoded).replace('\\', "/")
+}
+
 #[tokio::test]
 async fn full_backup_calendar_and_editor_recovery_survive_reopening() {
     let profile = tempfile::tempdir().unwrap();
@@ -166,7 +188,10 @@ async fn full_backup_calendar_and_editor_recovery_survive_reopening() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(restored_note.contains(&recovered_path));
+    assert!(
+        normalize_path_text(&restored_note).contains(&normalize_path_text(&recovered_path)),
+        "附件链接应指向恢复后的路径\n note: {restored_note}\n target: {recovered_path}"
+    );
     let cases_path: String = conn
         .query_row("SELECT folder_path FROM cases WHERE id=?1", [&id], |r| {
             r.get(0)
