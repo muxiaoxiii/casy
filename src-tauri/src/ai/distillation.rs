@@ -176,8 +176,7 @@ fn persist_candidates(conn: &rusqlite::Connection, candidates: &[CandidateMemory
     )?;
     let existing: std::collections::HashSet<String> = stmt
         .query_map([], |row| row.get::<_, String>(0))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     let mut inserted: i64 = 0;
     let mut seen_this_run: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -225,8 +224,7 @@ fn merge_similar_memories(conn: &rusqlite::Connection) -> Result<i64> {
                 row.get::<_, String>(2)?,
             ))
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     // key -> (keeper_id, 已吸收来源 ID 列表)
     let mut keepers: std::collections::HashMap<String, (String, Vec<String>)> =

@@ -207,6 +207,10 @@ export type CommandMap = {
   register_existing_files: Cmd<{ caseId: string; paths: string[] }, number>
   get_workspace_sync_status: Cmd<{}, { checkedAt: string; registered: number; queued: number; mirrored: number; renamed: number; missing: number; errors: string[] }>
   list_workspace_sources: Cmd<{ caseIds: string[] }, { fileId: string; caseId: string; fileName: string; filePath: string; jobId: string | null; status: string | null; totalPages: number | null; error: string | null; missing: boolean }[]>
+  rollback_document_storage: Cmd<{ fileId: string; jobId: string }, string>
+  get_document_storage_state: Cmd<{ fileId: string }, { jobId: string; externalImages: boolean; canOptimize: boolean; canRollback: boolean }>
+  optimize_document_storage: Cmd<{ fileId: string; jobId: string }, string>
+  read_document_asset: Cmd<{ fileId: string; jobId: string; assetId: string }, string>
   get_workspace_document: Cmd<{ fileId: string }, { jobId: string; markdown: string; filePath: string; continuations: { fromPage: number; toPage: number; locations: import('./documentRetrieval').SourceLocation[] }[] }>
   reveal_path: Cmd<{ path: string }, null>
   open_file_with_default: Cmd<{ path: string }, null>
@@ -361,6 +365,7 @@ export type CommandMap = {
 
   import_feishu_data: Cmd<{ jsonPath: string }, ImportReport>
   sync_reminders_to_calendar: Cmd<{}, CalendarSyncReport>
+  configure_feishu_table: Cmd<{ appToken: string; tableId: string }, string>
   configure_feishu: Cmd<{ appId: string; appSecret: string }, string>
   test_feishu_connection: Cmd<{ appId?: string | null; appSecret?: string | null }, string>
   get_feishu_sync_info: Cmd<{}, FeishuSyncInfo>

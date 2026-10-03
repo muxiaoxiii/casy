@@ -43,8 +43,8 @@ const contentRows = computed(() => {
 
 <style scoped>
 .skeleton-card {
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   padding: 16px;
 }
@@ -82,9 +82,9 @@ const contentRows = computed(() => {
 .skeleton-bone {
   background: linear-gradient(
     90deg,
-    #F3F4F6 25%,
-    #E5E7EB 37%,
-    #F3F4F6 63%
+    var(--c-bg-page) 25%,
+    var(--c-border) 37%,
+    var(--c-bg-page) 63%
   );
   background-size: 400% 100%;
   animation: skeleton-pulse 1.4s ease infinite;
@@ -99,4 +99,5 @@ const contentRows = computed(() => {
     background-position: 0 50%;
   }
 }
+@media (prefers-reduced-motion: reduce) { .skeleton-bone { animation: none; } }
 </style>

@@ -7,7 +7,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Edit, Delete, Phone, Message, User } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
-import EmptyState from '../../../shared/components/EmptyState.vue'
+import UiDataState from '../../../shared/ui/UiDataState.vue'
 import PersonFormDrawer from '../components/PersonFormDrawer.vue'
 import PersonDetailDrawer from '../components/PersonDetailDrawer.vue'
 import {
@@ -42,7 +42,7 @@ async function load() {
     if (request !== loadRevision) return
     if (!result.ok) throw new Error(result.error || '实体列表加载失败')
     persons.value = result.data ?? []
-  } catch (e) { if (request === loadRevision) loadError.value = String(e) }
+  } catch (e) { if (request === loadRevision) loadError.value = e instanceof Error ? e.message : String(e) }
   finally { if (request === loadRevision) loading.value = false }
 }
 onBeforeUnmount(() => { loadRevision++; if (searchTimer) clearTimeout(searchTimer) })
@@ -125,7 +125,7 @@ async function onDetailChanged() {
     <div class="page-header">
       <div class="page-title-row">
         <h2 class="page-title">实体管理</h2>
-        <span class="page-count">{{ totalCount }} 个实体</span>
+        <span v-if="!loading && !loadError" class="page-count">{{ totalCount }} 个实体</span>
       </div>
       <el-button type="primary" :icon="Plus" @click="openCreate">新建实体</el-button>
     </div>
@@ -162,8 +162,10 @@ async function onDetailChanged() {
     </div>
 
     <!-- 实体卡片列表 -->
-    <div v-loading="loading" class="persons-body" :aria-busy="loading">
-      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="load">重试</el-button></el-alert>
+    <div class="persons-body" :aria-busy="loading">
+      <UiDataState :loading="loading" :error="loadError" :count="persons.length" :filtered="Boolean(keyword || activeKind)"
+        empty-title="还没有实体" empty-description="建立法官、客户、对方律师等对象档案，一次维护、全部案件同步可见"
+        action-text="新建实体" @retry="load" @create="openCreate" @clear="keyword = ''; activeKind = ''; load()">
       <div v-if="persons.length" class="person-grid">
         <div
           v-for="p in persons"
@@ -213,20 +215,7 @@ async function onDetailChanged() {
         </div>
       </div>
 
-      <EmptyState
-        v-else-if="!loading && !loadError"
-        type="custom"
-        :icon="User"
-        :title="keyword || activeKind ? '没有匹配的实体' : '还没有实体'"
-        :description="
-          keyword || activeKind
-            ? '尝试调整搜索关键词或类型筛选'
-            : '建立法官、客户、对方律师等对象档案，一次维护、全部案件同步可见'
-        "
-        :action-text="keyword || activeKind ? '' : '新建实体'"
-        :hide-action="Boolean(keyword || activeKind)"
-        @action="openCreate"
-      />
+      </UiDataState>
     </div>
 
     <!-- 新建 / 编辑抽屉 -->

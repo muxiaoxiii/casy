@@ -48,7 +48,7 @@
             class="knowledge-card"
             :class="{ expanded: expandedItemId === item.id }"
           >
-            <div class="card-header" @click="toggleExpand(item.id)">
+            <div class="card-header" @click="emit('toggle-expand', item.id)">
               <div class="card-title-row">
                 <span class="card-icon">{{ getCategoryIcon(item.category) }}</span>
                 <span class="card-title">{{ item.title }}</span>
@@ -103,7 +103,7 @@
             class="knowledge-card law-card"
             :class="{ expanded: expandedItemId === item.id }"
           >
-            <div class="card-header" @click="toggleExpand(item.id)">
+            <div class="card-header" @click="emit('toggle-expand', item.id)">
               <div class="card-title-row">
                 <span class="card-icon">📖</span>
                 <span class="card-title">
@@ -157,7 +157,7 @@
             class="knowledge-card case-card"
             :class="{ expanded: expandedItemId === item.id }"
           >
-            <div class="card-header" @click="toggleExpand(item.id)">
+            <div class="card-header" @click="emit('toggle-expand', item.id)">
               <div class="card-title-row">
                 <span class="card-icon">⚖️</span>
                 <span class="card-title">{{ item.title }}</span>

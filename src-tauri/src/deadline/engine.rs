@@ -68,11 +68,10 @@ impl DeadlineEngine {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let calendar = db::get_setting(conn, "holidays_json")
-            .ok()
-            .flatten()
-            .and_then(|value| HolidayCalendar::from_json_str(&value).ok())
-            .unwrap_or_else(HolidayCalendar::builtin);
+        let calendar = match db::get_setting(conn, "holidays_json")? {
+            Some(value) => HolidayCalendar::from_json_str(&value).map_err(anyhow::Error::msg)?,
+            None => HolidayCalendar::builtin(),
+        };
         Ok(Self { rules, calendar })
     }
 

@@ -47,6 +47,10 @@ export class SyncService extends Service {
 
   // ── 飞书同步（导入/凭证/表结构/映射/比较） ──
 
+  async configureFeishuTable(appToken: string, tableId: string) {
+    return tauriCallSafe('configure_feishu_table', { appToken, tableId })
+  }
+
   async feishuSyncInfo(): Promise<{ ok: boolean; data?: FeishuSyncInfo; error?: string }> {
     return tauriCallSafe('get_feishu_sync_info', {})
   }

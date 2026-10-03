@@ -665,7 +665,7 @@ impl McpServer {
 // 工具执行（复用现有命令）
 // ═══════════════════════════════════════════════════════════
 
-async fn execute_tool_by_name(
+pub(crate) async fn execute_tool_by_name(
     name: &str,
     args: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -908,6 +908,13 @@ pub fn get_tools() -> Vec<McpToolDefinition> {
 
 /// 执行 MCP 工具调用
 pub async fn execute_tool(call: McpToolCall) -> Result<serde_json::Value, String> {
+    if WRITE_TOOLS.contains(&call.tool.as_str()) {
+        return crate::commands::run_blocking(move || {
+            let conn = crate::db::open_db()?;
+            let write_id = submit_pending_write(&conn, &call.tool, &call.arguments)?;
+            Ok(serde_json::json!({"status":"pending_confirmation", "write_id":write_id}))
+        }).await;
+    }
     execute_tool_by_name(&call.tool, call.arguments).await
 }
 

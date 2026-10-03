@@ -1054,8 +1054,8 @@ onUnmounted(() => {
       <!-- 实时预览表格 -->
       <div class="preview-section">
         <div class="preview-header">
-          <div class="preview-title">清洗后数据预览 (前 10 行样本)</div>
-          <div class="preview-hint">日期、金额与承办人已按照底层算法完成格式归一化</div>
+          <div class="preview-title">源数据预览 (前 10 行样本)</div>
+          <div class="preview-hint">此处显示源数据；日期、金额与承办人的归一化在执行导入时完成，请核对导入结果。</div>
         </div>
 
         <div class="preview-table-wrapper">
@@ -1076,9 +1076,9 @@ onUnmounted(() => {
     <!-- ═══ 步骤 4: 导入报告 ═══ -->
     <div v-if="currentStep === 4 && importReport" class="step-content step-4">
       <div class="report-header">
-        <el-icon class="success-icon" :size="56"><CircleCheck /></el-icon>
+        <el-icon v-if="!importReport.failedCount" class="success-icon" :size="56"><CircleCheck /></el-icon>
         <h3 class="report-title">
-          {{ targetEntity === 'cases' ? '案件数据导入完成' : '关联分表导入完成' }}
+          {{ importReport.failedCount ? '导入存在失败项，请核对明细' : (targetEntity === 'cases' ? '案件数据导入完成' : '关联分表导入完成') }}
         </h3>
         <p class="report-subtitle">
           共处理 {{ importReport.totalRowsProcessed }} 行数据，所有变更已通过单事务安全写入本地加密数据库。

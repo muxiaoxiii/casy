@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
+import { Connection } from '../../../shared/icons'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -22,9 +23,9 @@ const relationTypeMap = {
 
 // 加载所有案件
 async function loadCases() {
-  const result = await casyContext.cases.list({})
+  const result = await casyContext.cases.listAll()
   if (result.ok) {
-    cases.value = result.data?.items || []
+    cases.value = result.data || []
   }
   else throw new Error(result.error || '案件加载失败')
 }
@@ -130,7 +131,7 @@ onMounted(reload)
             <el-col :span="6" v-for="(group, type) in groupedRelations" :key="type">
               <el-card class="stat-card" shadow="hover" :style="{ borderLeft: `4px solid ${group.color}` }">
                 <div class="stat-content">
-                  <span class="stat-icon">{{ group.icon }}</span>
+                  <span class="stat-icon"><el-icon><Connection /></el-icon></span>
                   <div class="stat-info">
                     <div class="stat-label">{{ group.label }}</div>
                     <div class="stat-value">{{ group.relations.length }}</div>
@@ -169,7 +170,7 @@ onMounted(reload)
                     </el-tag>
 
                     <el-icon class="relation-arrow" :style="{ color: group.color }">
-                      <el-icon-connection />
+                      <Connection />
                     </el-icon>
 
                     <el-tag

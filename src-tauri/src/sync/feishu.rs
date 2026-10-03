@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use reqwest::Client;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
@@ -957,7 +957,22 @@ pub async fn sync_feishu_pull_inner(app_token: &str, table_id: &str) -> Result<F
 }
 
 /// 处理单条飞书记录的 pull
+fn remote_record_version(item: &serde_json::Value) -> Result<String> {
+    for key in ["last_modified_time", "created_time"] {
+        let value = &item[key];
+        if let Some(timestamp) = value.as_i64() {
+            return Ok(timestamp.to_string());
+        }
+        if let Some(timestamp) = value.as_str().filter(|value| !value.is_empty()) {
+            return Ok(timestamp.to_owned());
+        }
+    }
+    anyhow::bail!("飞书记录缺少有效更新时间，未覆盖本地数据")
+}
+
 fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String> {
+    let tx = conn.unchecked_transaction()?;
+    let conn = &tx;
     let record_id = item["record_id"].as_str().context("记录缺少 record_id")?;
     let fields = &item["fields"];
 
@@ -969,21 +984,25 @@ fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String
             params![record_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .ok();
+        .optional()?;
 
     if let Some((local_id, _status, old_remote_updated)) = existing {
         // 已有映射 — 检查飞书端是否更新
-        let new_remote_updated = item["last_modified_time"]
-            .as_str()
-            .or_else(|| item["created_time"].as_str())
-            .unwrap_or("")
-            .to_string();
+        let new_remote_updated = remote_record_version(item)?;
 
         if old_remote_updated.as_deref() == Some(new_remote_updated.as_str())
             && !new_remote_updated.is_empty()
         {
             return Ok("skipped".to_string());
         }
+
+        let locally_changed: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cases c JOIN sync_map sm ON sm.local_id=c.id
+             WHERE sm.remote_id=?1 AND sm.remote_source='feishu'
+             AND (c.updated_at >= COALESCE(sm.last_synced_at,'') OR sm.sync_status != 'synced'))",
+            [record_id], |row| row.get(0),
+        )?;
+        anyhow::ensure!(!locally_changed, "飞书记录 {record_id} 与本地修改冲突，请先核对，未覆盖本地数据");
 
         // 飞书更新了 → 更新本地
         update_local_case(conn, &local_id, fields)?;
@@ -994,16 +1013,13 @@ fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String
             params![new_remote_updated, now_local(), record_id],
         )?;
 
+        tx.commit()?;
         Ok("updated".to_string())
     } else {
         // 新记录 → INSERT
         let local_id = insert_case_from_feishu(conn, fields)?;
 
-        let remote_updated = item["last_modified_time"]
-            .as_str()
-            .or_else(|| item["created_time"].as_str())
-            .unwrap_or("")
-            .to_string();
+        let remote_updated = remote_record_version(item)?;
 
         conn.execute(
             "INSERT INTO sync_map (id, local_table, local_id, remote_id, remote_source,
@@ -1012,6 +1028,7 @@ fn pull_one_record(conn: &Connection, item: &serde_json::Value) -> Result<String
             params![new_id(), local_id, record_id, remote_updated, now_local()],
         )?;
 
+        tx.commit()?;
         Ok("created".to_string())
     }
 }
@@ -2283,4 +2300,24 @@ pub async fn create_feishu_task(
 
     log::info!("飞书任务创建成功: id={}", task_id);
     Ok(task_id)
+}
+
+#[cfg(test)]
+mod pull_integrity_tests {
+    use super::*;
+    #[test]
+    fn numeric_remote_version_preserves_local_changes_and_rejects_conflicts() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::run_migrations(&conn, 0).unwrap();
+        let item = serde_json::json!({"record_id":"r", "last_modified_time":1720000000000_i64, "fields":{"案件信息":"Remote", "客户名称":"Client"}});
+        assert_eq!(pull_one_record(&conn, &item).unwrap(), "created");
+        conn.execute("UPDATE cases SET case_name='Local edit',updated_at='2099-01-01 00:00:00'", []).unwrap();
+        assert_eq!(pull_one_record(&conn, &item).unwrap(), "skipped");
+        conn.execute("UPDATE sync_map SET sync_status='local_newer' WHERE remote_id='r'", []).unwrap();
+        let mut changed = item.clone(); changed["last_modified_time"] = serde_json::json!(1720000000001_i64);
+        assert!(pull_one_record(&conn, &changed).unwrap_err().to_string().contains("冲突"));
+        assert_eq!(conn.query_row("SELECT case_name FROM cases", [], |row| row.get::<_,String>(0)).unwrap(), "Local edit");
+        assert!(remote_record_version(&serde_json::json!({})).is_err());
+        assert_eq!(remote_record_version(&serde_json::json!({"last_modified_time":"123"})).unwrap(), "123");
+    }
 }

@@ -186,6 +186,8 @@ async function onDragChange(columnKey: string, evt: Record<string, unknown>) {
 
   const statusField = getStatusFieldName()
 
+  const previousStatus = (caseItem as unknown as Record<string, unknown>)[statusField]
+
   // 更新案件状态
   const result = await casyContext.cases.update(caseItem.id, { [statusField]: newStatus })
 
@@ -197,7 +199,7 @@ async function onDragChange(columnKey: string, evt: Record<string, unknown>) {
       eventSummary: `看板拖拽: ${CASE_ROUTE_LABELS[activeRoute.value]}状态变更为「${newStatus}」`,
       eventType: 'record',
       eventDate: todayLocalISO(),
-      content: `通过看板拖拽，${statusField} 从「${(caseItem as unknown as Record<string, unknown>)[statusField] || '未分类'}」变更为「${newStatus}」`,
+      content: `通过看板拖拽，${statusField} 从「${previousStatus || '未分类'}」变更为「${newStatus}」`,
     })
     ElMessage.success('案件状态已更新')
     await casesStore.loadCases()

@@ -139,7 +139,7 @@ pub async fn list_backups() -> Result<Vec<BackupFile>, String> {
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if (!name.starts_with("casy-backup-") && !name.starts_with("pre-restore-"))
+                if (!name.starts_with("casy-backup-") && !name.starts_with("pre-restore-") && !name.starts_with("pre-migration-"))
                     || !name.ends_with(".db")
                 {
                     return None;
@@ -186,6 +186,8 @@ pub fn validate_backup_filename(filename: &str) -> Result<()> {
         s.strip_suffix(".db")
     } else if let Some(s) = filename.strip_prefix("pre-restore-") {
         s.strip_suffix(".db")
+    } else if let Some(s) = filename.strip_prefix("pre-migration-") {
+        s.strip_suffix(".db")
     } else {
         None
     };
@@ -194,7 +196,7 @@ pub fn validate_backup_filename(filename: &str) -> Result<()> {
         Some(s) if !s.is_empty() => s,
         _ => {
             return Err(anyhow!(
-                "非法备份文件名: 必须以 casy-backup- 或 pre-restore- 开头并以 .db 结尾，且时间戳不可为空"
+                "非法备份文件名: 必须以 casy-backup-、pre-restore- 或 pre-migration- 开头并以 .db 结尾，且时间戳不可为空"
             ))
         }
     };
@@ -269,7 +271,7 @@ pub async fn restore_backup(filename: String) -> Result<bool, String> {
         let next = live.with_extension("restore-next");
         let previous = live.with_extension("restore-previous");
         std::fs::copy(&can_src, &next)?;
-        std::fs::File::open(&next)?.sync_all()?;
+        std::fs::OpenOptions::new().write(true).open(&next)?.sync_all()?;
         if previous.exists() { std::fs::remove_file(&previous)?; }
         std::fs::rename(&live, &previous)?;
         if let Err(error) = std::fs::rename(&next, &live) {

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
-    "test": "npm run typecheck && npm run test:unit && cd src-tauri && cargo test",
+    "test": "node scripts/run-tests.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "runtime:prepare": "node scripts/prepare-runtime.mjs",

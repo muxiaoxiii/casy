@@ -21,7 +21,10 @@ pub(super) fn confirm(
     ).optional()?;
     if let Some((previous_action, result)) = prior {
         anyhow::ensure!(previous_action == action, "此收件项已处理，请打开已创建的记录继续编辑");
-        return Ok(serde_json::from_str(&result)?);
+        let result = serde_json::from_str(&result)?;
+        tx.execute("UPDATE inbox_items SET status='filed' WHERE id=?1", [item_id])?;
+        tx.commit()?;
+        return Ok(result);
     }
     let (content, status): (String, String) = tx.query_row(
         "SELECT COALESCE(NULLIF(content_text,''),title,''),status FROM inbox_items WHERE id=?1",

@@ -233,10 +233,16 @@ pub async fn correct_document_region(file_id: String, job_id: String, page_numbe
         let raw = stmt.query_map([&job_id], |r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<f32>>(6)?,r.get::<_,Option<String>>(7)?,r.get::<_,Option<String>>(8)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         drop(stmt);
         let mut pages = raw.into_iter().map(|(page_number,width,height,plain_text,markdown,regions,confidence,layout,timing)| Ok(document_pipeline::DocumentPage {page_number,width,height,plain_text,markdown,regions:serde_json::from_str(&regions)?,confidence,layout:layout.map(|value|serde_json::from_str(&value)).transpose()?,timing:timing.map(|value|serde_json::from_str(&value)).transpose()?})).collect::<anyhow::Result<Vec<_>>>()?;
+        let old_markdown: String = tx.query_row("SELECT markdown_path FROM document_processing_jobs WHERE id=?1",[&job_id],|r|r.get(0))?;
+        let old_root = std::path::Path::new(&old_markdown).parent().ok_or_else(||anyhow::anyhow!("文档目录无效"))?;
         let page = pages.iter_mut().find(|p|p.page_number==page_number).ok_or_else(||anyhow::anyhow!("页码不存在"))?;
+        let plain_markdown = page.markdown == page.plain_text
+            || page.markdown == page.regions.iter().map(|region| region.text.as_str()).collect::<Vec<_>>().join("\n");
         let region = page.regions.get_mut(region_index).ok_or_else(||anyhow::anyhow!("区域不存在"))?;
         anyhow::ensure!(region.text == expected_text,"OCR_VERSION_CHANGED: 区域文字已变化");
         let structured_markdown = document_pipeline::source_map::corrected_markdown(&page.markdown, region_index, &region.text, &text);
+        anyhow::ensure!(structured_markdown.is_some() || plain_markdown,
+            "OCR_REGION_UNMAPPED: 无法安全定位此区域，未修改正文或图片");
         region.text = text;
         region.confidence = None;
         page.plain_text = page.regions.iter().map(|r|r.text.as_str()).collect::<Vec<_>>().join("\n");
@@ -244,6 +250,13 @@ pub async fn correct_document_region(file_id: String, job_id: String, page_numbe
         let id = db::new_id();
         let output = document_pipeline::artifact_dir(&file_id,&hash)?.join(&id);
         std::fs::create_dir_all(&output)?;
+        if old_root.join(document_pipeline::assets::MANIFEST).exists() {
+            let manifest = document_pipeline::assets::load(old_root)?;
+            for page in &pages {
+                document_pipeline::assets::validate_references(&page.markdown, old_root, &manifest)?;
+            }
+            document_pipeline::assets::copy_to(old_root, &output, &manifest)?;
+        }
         let request = document_pipeline::process_request(&id,&source,&hash,&output);
         tx.execute("INSERT INTO document_processing_jobs(id,file_id,source_sha256,status,engine,started_at) VALUES(?1,?2,?3,'running','paddle-onnx-corrected',datetime('now','localtime'))",rusqlite::params![id,file_id,hash])?;
         tx.commit()?;

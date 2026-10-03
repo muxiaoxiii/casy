@@ -56,7 +56,7 @@ export type CaseFile = { id: string; caseId: string; fileName: string; filePath:
 /**
  * 列表查询过滤条件
  */
-export type CaseFilter = { track: string | null; client: string | null; court: string | null; status: string | null; search: string | null; dateFrom: string | null; dateTo: string | null; sortBy: string | null; page: number | null; perPage: number | null; caseRoute: string | null; civilStatus: string | null; invalidationStatus: string | null; adminStatus: string | null }
+export type CaseFilter = { track: string | null; client: string | null; court: string | null; status: string | null; search: string | null; dateFrom: string | null; dateTo: string | null; deadlineFrom: string | null; deadlineTo: string | null; hearingFrom: string | null; hearingTo: string | null; operator: string | null; sortBy: string | null; page: number | null; perPage: number | null; caseRoute: string | null; civilStatus: string | null; invalidationStatus: string | null; adminStatus: string | null }
 
 /**
  * 案件导入配置

@@ -551,6 +551,10 @@ pub fn import_pageindex_inner(
             output
         }
     };
+    let full_markdown = if let Some(root) = markdown_path.as_deref().and_then(|path| std::path::Path::new(path).parent()).filter(|root|root.join(crate::document_pipeline::assets::MANIFEST).exists()) {
+        let manifest=crate::document_pipeline::assets::load(root)?;
+        crate::document_pipeline::assets::inline(&full_markdown,root,&manifest)?
+    } else { full_markdown };
     if full_markdown.trim().is_empty() {
         return Err(anyhow::anyhow!("文档处理已完成，但没有可导入的 Markdown 内容"));
     }

@@ -428,6 +428,9 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
 /// 初始化数据库（建表 + 种子数据 + 迁移）
 pub fn init_db(conn: &Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version > 0 && version < schema::CURRENT_SCHEMA_VERSION {
+        migration_snapshot(conn, version)?;
+    }
     if version == 0 {
         // 全新数据库：建表 + 种子
         conn.execute_batch(schema::SCHEMA_SQL)?;
@@ -445,6 +448,33 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             schema::CURRENT_SCHEMA_VERSION
         );
     }
+    Ok(())
+}
+
+fn migration_snapshot(conn: &Connection, version: i64) -> Result<()> {
+    let Some(path) = conn.path().filter(|path| !path.is_empty() && *path != ":memory:") else {
+        return Ok(());
+    };
+    let source = std::path::Path::new(path);
+    let parent = source.parent().context("数据库目录不可用")?;
+    let backups = parent.join("backups");
+    std::fs::create_dir_all(&backups)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&backups, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let snapshot = backups.join(format!("pre-migration-v{version}-{}.db", uuid::Uuid::new_v4()));
+    // VACUUM INTO includes committed WAL contents and retains SQLCipher encryption.
+    conn.execute("VACUUM INTO ?1", [snapshot.to_string_lossy().as_ref()])
+        .context("升级前备份失败，已停止数据库迁移")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&snapshot, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::OpenOptions::new().write(true).open(&snapshot)?.sync_all()?;
+    log::info!("Pre-migration database snapshot: {}", snapshot.display());
     Ok(())
 }
 

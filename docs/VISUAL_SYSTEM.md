@@ -43,3 +43,20 @@ npm run tauri -- icon designs/casy-ui-upgrade/icons/brand/app-icon-512.svg --out
 排期内部提供负荷列表与横向甘特切换。甘特使用主题主色计划条、休息日浅底纹、法定实色/个人虚线标记和截止菱形；任务名称列固定，日期区域内部横向滚动。按日 4 周/按周 12 周，修改经确认后保存，窄幅减少标签列宽。截图与交互验证见[甘特归档](Archive/2026-09-23/gantt-planning/README.md)。
 
 个人休息表单提供全天、上午、下午、自定义时段。部分休息紧凑徽标为「时休」，完整时间通过非紧凑标签、提示和详情呈现；日/周时间轴按起止显示主题色斜纹，甘特仅提示该日部分时间不可用。任务及案件列表的计划摘要明确与截止日期区分。
+
+## Desktop workspace layout contract (2026-10-02)
+
+- Preserve the current theme tokens, docket surfaces, icon family and Element Plus.
+- Compact: below 1100px, reduce secondary panels and allow toolbars to wrap.
+- Narrow: below 900px, ensure usability at the native 800x600 minimum; primary
+  actions and error/retry controls must remain accessible without horizontal scroll.
+- Wide: 1360px and above, optional secondary panes may expand.
+- Media queries use literal widths: CSS custom properties cannot be used directly
+  as media-query breakpoints. Smaller browser/container breakpoints remain where
+  their actual embedded surface requires them; do not mass-delete them.
+- New list pages should compose UiDataState. A failed request is never empty data;
+  refresh failures retain previous content with a non-dismissible error/retry notice.
+- Shared UI primitives live in src/shared/ui and must be adopted by views, not
+  merely added to a component inventory. Current adopters: persons, inbox, projects.
+- Skeletons use semantic theme colors and honor prefers-reduced-motion.
+- Screenshot acceptance and live database/IPC acceptance are separate evidence.

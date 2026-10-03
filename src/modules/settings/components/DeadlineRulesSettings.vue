@@ -382,12 +382,12 @@ onMounted(loadRules)
         </el-form-item>
         <el-form-item label="偏移设置" required>
           <div class="offset-row">
-            <el-input-number v-model="form.offsetValue" :min="-365" :max="3650" :step="1" />
+            <el-input-number v-model="form.offsetValue" :min="1" :max="form.offsetUnit === 'calendar_month' ? 120 : 3650" :step="1" />
             <el-select v-model="form.offsetUnit" style="width: 130px">
               <el-option v-for="o in OFFSET_UNIT_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </div>
-          <p class="field-hint">正数表示触发日之后，负数表示之前（如 -1 自然日）</p>
+          <p class="field-hint">仅支持触发日之后：自然日 1–3650，日历月 1–120</p>
         </el-form-item>
         <el-form-item label="计算算法">
           <el-select v-model="form.calcMethod" style="width: 100%">

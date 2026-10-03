@@ -476,7 +476,7 @@ async function submitMemo() {
   // 先持久化（同步入库案件 notes 字段），成功后才更新本地状态：
   // 后端失败时不写入 caseMemos、不弹成功，直接报错，避免本地污染/虚假成功。
   const nextMemos = [newMemo, ...caseMemos.value]
-  const res = await casyContext.cases.update(selectedCase.value.id, {
+  const res = await casesStore.updateCase(selectedCase.value.id, {
     notes: JSON.stringify(nextMemos),
   })
   if (!res.ok) return ElMessage.error(res.error || '备忘保存失败，未写入本地')
@@ -581,8 +581,9 @@ async function openFile(file) {
 // 在访达中显示文件
 async function revealFile(file) {
   if (!file?.filePath) return
-  await casyContext.files.reveal(file.filePath)
-  ElMessage.success('已在访达/资源管理器中定位')
+  const result = await casyContext.files.reveal(file.filePath)
+  if (result.ok) ElMessage.success('已在访达/资源管理器中定位')
+  else ElMessage.error(result.error || '定位文件失败')
 }
 // 复制文件路径
 async function copyFilePath(file) {
@@ -772,7 +773,7 @@ async function handleCreateCase(formData) {
           :filter="casesStore.filter"
           :group-by="groupBy"
           :total="casesStore.total"
-          @update:filter="(v) => Object.assign(casesStore.filter, v)"
+          @update:filter="casesStore.setFilter"
           @update:groupBy="(v) => groupBy = v"
           @search="onSearch"
           @create="showCaseWizard = true"

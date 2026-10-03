@@ -278,9 +278,15 @@ fn process_email(config: &ImapAccountConfig, raw_email: &[u8], uid: u32) -> Resu
         })
         .unwrap_or_else(now_local);
 
+    let mut connection = crate::db::open_db()?;
+    let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // 白名单过滤
     if !passes_whitelist(config, &from, &subject) {
         log::debug!("邮件被白名单过滤: from={}, subject={}", from, subject);
+        if let Some(account_id) = &config.id {
+            conn.execute("UPDATE imap_accounts SET last_sync_uid=?1 WHERE id=?2 AND CAST(COALESCE(last_sync_uid,'0') AS INTEGER) < ?3", params![uid.to_string(), account_id, uid])?;
+        }
+        conn.commit()?;
         return Ok(false);
     }
 
@@ -296,7 +302,6 @@ fn process_email(config: &ImapAccountConfig, raw_email: &[u8], uid: u32) -> Resu
 
     // 写入 email_records 表
     let email_id = new_id();
-    let conn = crate::db::open_db()?;
 
     // 检查 message_id 去重
     if let Some(ref mid) = message_id {
@@ -306,7 +311,7 @@ fn process_email(config: &ImapAccountConfig, raw_email: &[u8], uid: u32) -> Resu
                 params![mid],
                 |r| r.get(0),
             )
-            .unwrap_or(false);
+            .context("邮件去重检查失败")?;
         if exists {
             log::debug!("邮件已存在，跳过: {}", mid);
             return Ok(false);
@@ -370,6 +375,11 @@ fn process_email(config: &ImapAccountConfig, raw_email: &[u8], uid: u32) -> Resu
         )?;
     }
 
+    conn.commit()?;
+    if let Some(app) = crate::get_app_handle() {
+        use tauri::Emitter;
+        let _ = app.emit("inbox:new_item", &inbox_id);
+    }
     log::info!("新邮件已处理: {} (uid={})", subject, uid);
     Ok(true)
 }
@@ -759,4 +769,28 @@ pub async fn get_email_monitor_status() -> Result<serde_json::Value, String> {
             "enabled": a.enabled,
         })).collect::<Vec<_>>(),
     }))
+}
+
+#[cfg(test)]
+mod atomic_intake_tests {
+    use super::*;
+    #[test]
+    fn message_and_inbox_commit_together_and_filtered_uid_advances() {
+        let root=tempfile::tempdir().unwrap();
+        std::env::set_var("CASY_TEST_DATA_DIR",root.path());
+        crate::db::enable_test_mode();
+        let conn=crate::db::open_db().unwrap();crate::db::init_db(&conn).unwrap();
+        conn.execute_batch("INSERT INTO imap_accounts(id,email_address,imap_server,username,password_enc) VALUES('atomic-mail','test@example.invalid','example.invalid','user','');
+            CREATE TRIGGER fail_mail_inbox BEFORE INSERT ON inbox_items WHEN NEW.source_type='email' BEGIN SELECT RAISE(ABORT,'mail failure'); END;").unwrap();
+        let mut config=ImapAccountConfig{id:Some("atomic-mail".into()),email_address:"test@example.invalid".into(),imap_server:"example.invalid".into(),imap_port:993,username:"user".into(),password:String::new(),use_tls:true,watch_folders:"INBOX".into(),filter_from:None,filter_subject:None,enabled:true};
+        let raw=b"From: Sender <sender@example.invalid>\r\nSubject: Atomic mail\r\nMessage-ID: <atomic@example.invalid>\r\n\r\nBody";
+        assert!(process_email(&config,raw,7).is_err());
+        assert_eq!(conn.query_row("SELECT count(*) FROM email_records WHERE message_id='<atomic@example.invalid>'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        conn.execute_batch("DROP TRIGGER fail_mail_inbox").unwrap();
+        assert!(process_email(&config,raw,7).unwrap());
+        assert!(!process_email(&config,raw,7).unwrap());
+        config.filter_from=Some("allowed.invalid".into());
+        assert!(!process_email(&config,raw,8).unwrap());
+        assert_eq!(conn.query_row("SELECT last_sync_uid FROM imap_accounts WHERE id='atomic-mail'",[],|r|r.get::<_,String>(0)).unwrap(),"8");
+    }
 }

@@ -219,6 +219,11 @@ export interface CaseFilter {
   invalidationStatus: InvalidationStatus | null
   adminStatus: AdminStatus | null
   caseRoute: CaseRoute | null
+  deadlineFrom?: string | null
+  deadlineTo?: string | null
+  hearingFrom?: string | null
+  hearingTo?: string | null
+  operator?: string | null
 }
 
 /** 案件列表响应

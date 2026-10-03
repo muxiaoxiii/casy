@@ -263,9 +263,12 @@ pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub async fn configure_feishu_table(app_token: String, table_id: String) -> Result<String, String> {
     run_blocking(move || {
-        let conn = crate::db::open_db()?;
+        anyhow::ensure!(!app_token.trim().is_empty() && !table_id.trim().is_empty(), "请选择完整的飞书表格配置");
+        let mut connection = crate::db::open_db()?;
+        let conn = connection.transaction()?;
         sync::feishu::update_sync_metadata(&conn, "feishu_app_token", &app_token)?;
         sync::feishu::update_sync_metadata(&conn, "feishu_table_id", &table_id)?;
+        conn.commit()?;
         Ok("飞书表格配置已保存".to_string())
     })
     .await

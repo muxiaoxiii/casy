@@ -133,3 +133,22 @@ fn test_user_feishu_table_25_columns_matching() {
         );
     }
 }
+
+#[test]
+fn dump_import_counts_actual_rows_and_rolls_back_write_failure() {
+    use casy_lib::{db, commands::import_feishu::import_feishu_dump};
+    let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+    db::init_db(&conn).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dump.json");
+    std::fs::write(&path, serde_json::to_vec(&json!({"tables":{"cases":{"records":[
+        {"record_id":"first","fields":{"案件信息":"First"}},
+        {"record_id":"second","fields":{"案件信息":"Second"}}
+    ]}}})).unwrap()).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_second BEFORE INSERT ON cases WHEN NEW.id='second' BEGIN SELECT RAISE(ABORT,'injected failure'); END;").unwrap();
+    assert!(import_feishu_dump(&mut conn, &path).is_err());
+    assert_eq!(conn.query_row("SELECT count(*) FROM cases",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    conn.execute_batch("DROP TRIGGER reject_second").unwrap();
+    assert_eq!(import_feishu_dump(&mut conn, &path).unwrap().cases,2);
+    assert_eq!(import_feishu_dump(&mut conn, &path).unwrap().cases,0);
+}

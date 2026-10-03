@@ -17,6 +17,7 @@ pub mod decisions;
 pub mod demo;
 pub mod docs;
 pub mod document_intelligence;
+pub mod document_assets;
 pub mod conversion;
 mod markdown_export;
 pub mod processing;
@@ -431,6 +432,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         crate::workspace_sync::get_workspace_sync_status,
         crate::workspace_sync::list_workspace_sources,
         crate::workspace_sync::get_workspace_document,
+        document_assets::read_document_asset,
+        document_assets::get_document_storage_state,
+        document_assets::optimize_document_storage,
+        document_assets::rollback_document_storage,
         files::reveal_path,
         files::open_file_with_default,
         files::apply_case_file_renames,
@@ -583,12 +588,17 @@ pub async fn approve_mcp_write(id: String) -> Result<serde_json::Value, String> 
     let pending = {
         let id = id.clone();
         run_blocking(move || {
-            let conn = crate::db::open_db()?;
-            match crate::mcp::get_pending_write(&conn, &id)? {
+            let mut raw = crate::db::open_db()?;
+            let conn = raw.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let pending = match crate::mcp::get_pending_write(&conn, &id)? {
                 Some(w) if w.status == "pending" => Ok(w),
                 Some(w) => Err(anyhow::anyhow!("该写操作已处理（status={}）", w.status)),
                 None => Err(anyhow::anyhow!("待确认写不存在: {}", id)),
-            }
+            }?;
+            conn.execute("UPDATE mcp_pending_writes SET status='approved' WHERE id=?1 AND status='pending'", [&id])?;
+            crate::mcp::write_mcp_audit(&conn, &id, "mcp_write_claimed", &serde_json::json!({"tool":pending.tool}))?;
+            conn.commit()?;
+            Ok(pending)
         })
         .await?
     };
@@ -598,7 +608,7 @@ pub async fn approve_mcp_write(id: String) -> Result<serde_json::Value, String> 
         tool: pending.tool.clone(),
         arguments: serde_json::from_str(&pending.arguments).unwrap_or(serde_json::Value::Null),
     };
-    let exec_result = crate::mcp::execute_tool(call).await;
+    let exec_result = crate::mcp::execute_tool_by_name(&call.tool, call.arguments).await;
 
     let (status, result_text) = match &exec_result {
         Ok(v) => ("executed", serde_json::to_string(v).unwrap_or_default()),
@@ -610,7 +620,8 @@ pub async fn approve_mcp_write(id: String) -> Result<serde_json::Value, String> 
     let audit_status = status;
     let audit_result = result_text.clone();
     run_blocking(move || {
-        let conn = crate::db::open_db()?;
+        let mut raw = crate::db::open_db()?;
+        let conn = raw.transaction()?;
         crate::mcp::resolve_pending_write(&conn, &write_id, audit_status, Some(&audit_result))?;
         crate::mcp::write_mcp_audit(
             &conn,
@@ -618,6 +629,7 @@ pub async fn approve_mcp_write(id: String) -> Result<serde_json::Value, String> 
             "mcp_write_approved",
             &serde_json::json!({ "tool": tool, "outcome": audit_status }),
         )?;
+        conn.commit()?;
         Ok(())
     })
     .await?;
@@ -632,7 +644,8 @@ pub async fn approve_mcp_write(id: String) -> Result<serde_json::Value, String> 
 #[tauri::command]
 pub async fn reject_mcp_write(id: String) -> Result<(), String> {
     run_blocking(move || {
-        let conn = crate::db::open_db()?;
+        let mut raw = crate::db::open_db()?;
+        let conn = raw.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let pending = match crate::mcp::get_pending_write(&conn, &id)? {
             Some(w) if w.status == "pending" => w,
             Some(w) => return Err(anyhow::anyhow!("该写操作已处理（status={}）", w.status)),
@@ -645,6 +658,7 @@ pub async fn reject_mcp_write(id: String) -> Result<(), String> {
             "mcp_write_rejected",
             &serde_json::json!({ "tool": pending.tool }),
         )?;
+        conn.commit()?;
         Ok(())
     })
     .await

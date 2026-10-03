@@ -3123,8 +3123,7 @@ fn table_columns(
     let mut stmt = tx.prepare(&format!("PRAGMA table_info({table})"))?;
     let cols = stmt
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     Ok(cols)
 }
 
@@ -3595,8 +3594,8 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let has_raw_track: bool = tx
         .prepare("PRAGMA table_info(cases)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .any(|col| col == "raw_track");
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter().any(|col| col == "raw_track");
     if !has_raw_track {
         tx.execute_batch("ALTER TABLE cases ADD COLUMN raw_track TEXT;")?;
     }
@@ -3605,8 +3604,8 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let has_law_name: bool = tx
         .prepare("PRAGMA table_info(knowledge_items)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .any(|col| col == "law_name");
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter().any(|col| col == "law_name");
     if !has_law_name {
         tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN law_name TEXT;")?;
         tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN article_no TEXT;")?;
@@ -3620,8 +3619,8 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let has_reminder_level: bool = tx
         .prepare("PRAGMA table_info(reminder_log)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .any(|col| col == "level");
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter().any(|col| col == "level");
     if !has_reminder_level {
         tx.execute_batch(
             "ALTER TABLE reminder_log ADD COLUMN level TEXT CHECK(level IN ('R1','R2','R3','R4'));",
@@ -3638,8 +3637,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let ki_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(knowledge_items)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     if !ki_cols.iter().any(|c| c == "parent_id") {
         tx.execute_batch("ALTER TABLE knowledge_items ADD COLUMN parent_id TEXT;")?;
         log::info!("Added parent_id column to knowledge_items (block hierarchy)");
@@ -3656,8 +3654,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let ss_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(smart_summaries)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     if !ss_cols.iter().any(|c| c == "narrative_source") {
         tx.execute_batch(
             "ALTER TABLE smart_summaries ADD COLUMN narrative_source TEXT DEFAULT 'rule';",
@@ -3669,8 +3666,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let task_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     if !task_cols.iter().any(|c| c == "due_time") {
         tx.execute_batch("ALTER TABLE tasks ADD COLUMN due_time TEXT;")?;
         tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_tasks_due_time ON tasks(due_time);")?;
@@ -3722,8 +3718,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let case_files_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(case_files)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     if !case_files_cols.iter().any(|c| c == "ocr_status") {
         tx.execute_batch(
             "ALTER TABLE case_files ADD COLUMN ocr_status TEXT DEFAULT 'pending' CHECK(ocr_status IN ('pending','processing','completed','failed'));"
@@ -3760,8 +3755,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let tasks_cols: Vec<String> = tx
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     if !tasks_cols.iter().any(|c| c == "defer_until") {
         tx.execute_batch("ALTER TABLE tasks ADD COLUMN defer_until TEXT;")?;
         log::info!("Added defer_until column to tasks (v20)");
@@ -3834,8 +3828,7 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     let tasks_cols_v24: Vec<String> = tx
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |row| row.get::<_, String>(1))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
     if !tasks_cols_v24.iter().any(|c| c == "deleted_at") {
         tx.execute_batch("ALTER TABLE tasks ADD COLUMN deleted_at TEXT;")?;
         log::info!("Added deleted_at column to tasks (v24 soft delete)");
@@ -4271,8 +4264,7 @@ mod tests {
             .unwrap()
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>().unwrap();
         // v13/v15/v20 条件补列在重复迁移下应存在（幂等，不因重复执行而缺失）。
         assert!(tasks_cols.iter().any(|c| c == "due_time"));
         assert!(tasks_cols.iter().any(|c| c == "time_block"));
@@ -4301,8 +4293,7 @@ mod tests {
             .unwrap()
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>().unwrap();
         assert!(ki_cols.iter().any(|c| c == "parent_id"));
         assert!(ki_cols.iter().any(|c| c == "block_type"));
 
@@ -4311,8 +4302,7 @@ mod tests {
             .unwrap()
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>().unwrap();
         assert!(ss_cols.iter().any(|c| c == "narrative_source"));
 
         // task_events：recursion_gap 可写、task_id 可空
@@ -4496,8 +4486,8 @@ mod tests {
             .unwrap()
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
-            .filter_map(|r| r.ok())
-            .any(|c| c == "deleted_at");
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap()
+            .into_iter().any(|c| c == "deleted_at");
         assert!(has_deleted_at, "tasks 应有 deleted_at 列");
         let idx_cnt: i64 = conn
             .query_row(

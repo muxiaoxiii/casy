@@ -29,7 +29,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 import { registerShortcut } from '../../../shared/keyboard'
 import { parseWhen } from '../../../shared/nlp/parseWhen'
-import { tauriCall } from '../../../core/tauriBridge'
+import { tauriCallSafe } from '../../../core/tauriBridge'
 import { emptyEditForm, toEditForm, toSavePayload } from '../utils/taskForm'
 import {
   applyTaskCardFilters,
@@ -574,12 +574,13 @@ function disablePastDates(date) {
 async function confirmDefer() {
   if (!deferTargetTask.value || !deferDate.value || deferSaving.value) return
   deferSaving.value = true
-  const ok = await tauriCall('defer_task', {
+  const ok = await tauriCallSafe('defer_task', {
     taskId: deferTargetTask.value.id,
     until: deferDate.value,
-  }, { errorMessage: '推迟失败' })
+  })
   deferSaving.value = false
-  if (ok !== null) {
+  if (!ok.ok) ElMessage.error(ok.error || '推迟失败')
+  if (ok.ok) {
     ElMessage.success(`已推迟至 ${formatDate(deferDate.value) || deferDate.value}，到期自动回归今日`)
     showDeferDialog.value = false
     deferTargetTask.value = null
@@ -588,8 +589,9 @@ async function confirmDefer() {
 }
 
 async function undeferTask(task) {
-  const ok = await tauriCall('clear_task_defer', { taskId: task.id }, { errorMessage: '操作失败' })
-  if (ok !== null) {
+  const ok = await tauriCallSafe('clear_task_defer', { taskId: task.id })
+  if (!ok.ok) ElMessage.error(ok.error || '结束推迟失败')
+  if (ok.ok) {
     ElMessage.success(`「${task.taskName}」已结束推迟`)
     await loadTasks()
   }

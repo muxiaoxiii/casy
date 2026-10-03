@@ -169,7 +169,7 @@ pub async fn add_inbox_item(
             let owned = tempfile::Builder::new().prefix("capture-").tempdir_in(directory)?;
             let destination = owned.path().join(source.file_name().ok_or_else(|| anyhow::anyhow!("文件名无效"))?);
             std::fs::copy(source, &destination)?;
-            std::fs::File::open(&destination)?.sync_all()?;
+            std::fs::OpenOptions::new().write(true).open(&destination)?.sync_all()?;
             anyhow::ensure!(crate::document_pipeline::sha256_file(source)? == crate::document_pipeline::sha256_file(&destination)?, "复制期间原文件变化，请重试");
             Some((owned, destination))
         } else { None };
@@ -271,7 +271,7 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
         // 获取收件项
         let content_text: String = conn
             .query_row(
-                "SELECT content_text FROM inbox_items WHERE id = ?1",
+                "SELECT content_text FROM inbox_items WHERE id = ?1 AND status = 'pending'",
                 rusqlite::params![id],
                 |r| r.get(0),
             )
@@ -349,10 +349,10 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
 
         // 更新收件项 + 自动路由必须同事务，避免“已处理”却未落地副作用。
         let tx = conn.unchecked_transaction()?;
-        tx.execute(
+        let changed = tx.execute(
             "UPDATE inbox_items SET ai_category = ?1, ai_confidence = ?2,
              ai_extracted = ?3, ai_suggested_case_id = ?4, status = 'pending', processed_at = ?5
-             WHERE id = ?6",
+             WHERE id = ?6 AND status = 'pending'",
             rusqlite::params![
                 category,
                 confidence,
@@ -362,6 +362,7 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
                 id,
             ],
         )?;
+        anyhow::ensure!(changed == 1, "收件项状态已变化，请刷新后重试");
 
         // ── 自动路由：根据分类执行后续动作 ──────────────────────
         let route_actions = execute_auto_routes(
@@ -374,7 +375,7 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
             &content_text,
         );
         // 路由失败回滚收件项更新；分类结果仍返回给 UI 供人工确认。
-        let actions = route_actions.unwrap_or_default();
+        let actions = route_actions.map_err(anyhow::Error::msg)?;
         tx.commit()?;
 
         Ok(ProcessedInboxResult {
@@ -2399,41 +2400,37 @@ pub async fn start_inbox_batch() -> Result<(), String> {
 /// 暂停收件箱批量处理（占位）
 #[tauri::command]
 pub async fn pause_inbox_batch() -> Result<(), String> {
-    Ok(())
+    Err("收件箱批量任务控制尚未实现，未执行操作".into())
 }
 
 /// 恢复收件箱批量处理（占位）
 #[tauri::command]
 pub async fn resume_inbox_batch() -> Result<(), String> {
-    Ok(())
+    Err("收件箱批量任务控制尚未实现，未执行操作".into())
 }
 
 /// 取消收件箱批量处理（占位）
 #[tauri::command]
 pub async fn cancel_inbox_batch() -> Result<(), String> {
-    Ok(())
+    Err("收件箱批量任务控制尚未实现，未执行操作".into())
 }
 
 /// 获取收件箱处理进度（占位）
 #[tauri::command]
 pub async fn get_inbox_progress() -> Result<InboxProgress, String> {
-    Ok(InboxProgress {
-        total: 0,
-        processed: 0,
-        pending: 0,
-    })
+    Err("收件箱批量进度尚不可用".into())
 }
 
 /// 重试收件箱项（占位）
 #[tauri::command]
 pub async fn retry_inbox_item(_id: String) -> Result<(), String> {
-    Ok(())
+    Err("收件箱批量任务控制尚未实现，未执行操作".into())
 }
 
 /// 重试收件箱案件（占位）
 #[tauri::command]
 pub async fn retry_inbox_case(_case_id: String) -> Result<(), String> {
-    Ok(())
+    Err("收件箱批量任务控制尚未实现，未执行操作".into())
 }
 
 #[cfg(test)]

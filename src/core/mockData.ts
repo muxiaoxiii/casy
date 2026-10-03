@@ -7,7 +7,10 @@
  * 判断依据：window.__TAURI_INTERNALS__ 是否存在。
  */
 
-import type { TaskPlan, CalendarEventRow, Draft, DraftVersion } from '../types/bindings'
+import type {
+  Case, TaskDto, TaskPlan, CalendarEventRow, Draft, DraftVersion,
+  InboxItemDto, LinkDto, KnowledgeVersionDto,
+} from '../types/bindings'
 import { addDaysLocalISO, todayLocalISO, toLocalISODate, daysUntil } from '../shared/utils/date'
 
 export function isTauriRuntime(): boolean {
@@ -15,29 +18,50 @@ export function isTauriRuntime(): boolean {
 }
 
 // ── Mock 数据 ────────────────────────────────────────────
-const mockCases = [
-  { id: 'c1', caseName: '隆基244号无效案', caseNo: '(2024)国知局第244号', clientName: '隆基绿能', opponentName: '晶科能源', track: 'patent_invalidation', caseStatus: '进行中', caseRoute: '专利无效', court: '国知局', attorneys: ['张律师', '李律师'], caseGoal: '使权利要求1-4全部无效', caseType: 'computational', progress: 65, dueDate: '2026-08-25' },
-  { id: 'c2', caseName: '华为商标侵权案', caseNo: '(2024)粤01民初1234号', clientName: '华为技术', opponentName: '某科技公司', track: 'civil_tort', caseStatus: '进行中', caseRoute: '民事诉讼', court: '广州知识产权法院', attorneys: ['王律师'], caseGoal: '获得损害赔偿', caseType: 'exploratory', progress: 40, dueDate: '2026-08-20' },
-  { id: 'c3', caseName: '宁德时代专利无效', caseNo: '(2024)国知局第567号', clientName: '宁德时代', opponentName: '比亚迪', track: 'patent_invalidation', caseStatus: '等待中', caseRoute: '专利无效', court: '国知局', attorneys: ['张律师', '赵律师'], caseGoal: '扫清客户产品侵权风险', caseType: 'computational', progress: 30, dueDate: '2026-09-01' },
-  { id: 'c4', caseName: '腾讯行政诉讼', caseNo: '(2024)京73行初89号', clientName: '腾讯科技', opponentName: '国知局', track: 'admin_litigation', caseStatus: '等待中', caseRoute: '行政诉讼', court: '北京知识产权法院', attorneys: ['李律师'], caseGoal: '撤销无效决定', caseType: 'growth', progress: 15 },
-  { id: 'c5', caseName: '小米外观设计无效', caseNo: '(2023)国知局第890号', clientName: '小米科技', opponentName: 'OPPO', track: 'patent_invalidation', caseStatus: '已结案', caseRoute: '专利无效', court: '国知局', attorneys: ['王律师'], caseGoal: '维持无效决定', caseType: 'computational', progress: 100 },
-  { id: 'c6', caseName: '百度专利侵权', caseNo: '(2024)京01民初567号', clientName: '百度在线', opponentName: '字节跳动', track: 'civil_tort', caseStatus: '进行中', caseRoute: '民事诉讼', court: '北京互联网法院', attorneys: ['张律师'], caseGoal: '停止侵权并获得赔偿', caseType: 'exploratory', progress: 55, dueDate: '2026-08-22' },
+const emptyCase: Case = { id: '', track: 'other', caseName: '', clientName: '', opponentName: '', caseNo: null, internalNo: null, causeAction: null, ourRole: null, opponentRole: null, opponentFirm: null, opponentAgent: null, thirdParties: null, caseAmount: null, legalFees: null, feePayment: null, claims: null, jurisdictionObjection: null, externalCaseNo: null, defenseDeadline: null, estimatedTrialEnd: null, court: null, judgePanel: null, clerk: null, attorneys: null, caseLevel: null, caseStatus: null, caseProgress: null, caseResult: null, caseGoal: null, patentName: null, patentAppNo: null, procedureType: null, filingDate: null, complaintReceivedDate: null, trialDate: null, trial2Date: null, trial3Date: null, verdictType: null, verdictDate: null, stayDate: null, reliefDeadline: null, petitionerFirstInvalid: null, petitionerSuppDeadline: null, petitionerSubmitDate: null, petitionerReceivedDate: null, petitionerReplyDeadline: null, patenteeReceivedDate: null, patenteeStatementDeadline: null, patenteeReceivedSuppDate: null, patenteeSuppDeadline: null, patenteeSubmitSuppDate: null, caseRoute: null, civilStatus: null, invalidationStatus: null, adminStatus: null, invalidationDecisionDate: null, invalidationDecisionType: null, adminFilingDate: null, adminVerdictDate: null, adminTrial2Date: null, folderPath: null, folderTemplateId: null, lastDocPath: null, lastDocAt: null, completedText: null, notes: null, createdAt: null, updatedAt: null, deadlineUrgency: null }
+const mockCases: Case[] = [
+  { ...emptyCase, id: 'c1', caseName: '隆基244号无效案', caseNo: '(2024)国知局第244号', clientName: '隆基绿能', opponentName: '晶科能源', track: 'patent_invalidation', caseStatus: '进行中', caseRoute: '专利无效', court: '国知局', attorneys: '张律师、李律师', caseGoal: '使权利要求1-4全部无效', caseProgress: '65' },
+  { ...emptyCase, id: 'c2', caseName: '华为商标侵权案', caseNo: '(2024)粤01民初1234号', clientName: '华为技术', opponentName: '某科技公司', track: 'civil_tort', caseStatus: '进行中', caseRoute: '民事诉讼', court: '广州知识产权法院', attorneys: '王律师', caseGoal: '获得损害赔偿', caseProgress: '40' },
+  { ...emptyCase, id: 'c3', caseName: '宁德时代专利无效', caseNo: '(2024)国知局第567号', clientName: '宁德时代', opponentName: '比亚迪', track: 'patent_invalidation', caseStatus: '等待中', caseRoute: '专利无效', court: '国知局', attorneys: '张律师、赵律师', caseGoal: '扫清客户产品侵权风险', caseProgress: '30' },
+  { ...emptyCase, id: 'c4', caseName: '腾讯行政诉讼', caseNo: '(2024)京73行初89号', clientName: '腾讯科技', opponentName: '国知局', track: 'admin_litigation', caseStatus: '等待中', caseRoute: '行政诉讼', court: '北京知识产权法院', attorneys: '李律师', caseGoal: '撤销无效决定', caseProgress: '15' },
+  { ...emptyCase, id: 'c5', caseName: '小米外观设计无效', caseNo: '(2023)国知局第890号', clientName: '小米科技', opponentName: 'OPPO', track: 'patent_invalidation', caseStatus: '已结案', caseRoute: '专利无效', court: '国知局', attorneys: '王律师', caseGoal: '维持无效决定', caseProgress: '100' },
+  { ...emptyCase, id: 'c6', caseName: '百度专利侵权', caseNo: '(2024)京01民初567号', clientName: '百度在线', opponentName: '字节跳动', track: 'civil_tort', caseStatus: '进行中', caseRoute: '民事诉讼', court: '北京互联网法院', attorneys: '张律师', caseGoal: '停止侵权并获得赔偿', caseProgress: '55' },
 ]
 
-const mockTasks = [
-  { id: 't1', taskName: '核对隆基口审证据清单', caseId: 'c1', priority: 'urgent_important', dueDate: '2026-08-25', taskType: 'action', startBucket: 'today', blocked: 0, sequenceOrder: 1, context: 'office', estimatedMinutes: 45, todayIndex: 0, flagged: true },
-  { id: 't2', taskName: '起草华为案补充证据说明', caseId: 'c2', priority: 'urgent', dueDate: '2026-08-20', taskType: 'action', startBucket: 'today', blocked: 0, context: 'office', estimatedMinutes: 60, todayIndex: 1 },
-  { id: 't3', taskName: '跟进宁德时代检索报告', caseId: 'c3', priority: 'normal', dueDate: '2026-08-28', taskType: 'waiting', waitingFor: '专利代理师', followUpDate: '2026-08-20', startBucket: 'anytime' },
-  { id: 't4', taskName: '审核腾讯行政诉讼答辩状', caseId: 'c4', priority: 'important', dueDate: '2026-08-30', taskType: 'action', startBucket: 'anytime', blocked: 0, context: 'court' },
-  { id: 't5', taskName: '整理百度案技术文献', caseId: 'c6', priority: 'normal', taskType: 'action', startBucket: 'anytime', blocked: 0 },
-  { id: 't6', taskName: '大疆案庭前调解方案', caseId: null, priority: 'normal', taskType: 'action', startBucket: 'someday' },
-  { id: 't7', taskName: '更新案件进度周报', caseId: null, priority: 'normal', dueDate: '2026-08-21', taskType: 'action', startBucket: 'today', blocked: 0 },
+const emptyTask: TaskDto = {
+  id: '', taskName: '', createdDate: '', taskType: 'action', startBucket: 'anytime',
+  completed: 0, planDefined: false, flagged: 0, sequential: 0, blocked: 0,
+  todayIndex: 0, isOverdue: 0, dueSoon: 0, isFocus: 0,
+  caseId: null, description: null, deadline: null, priority: null, assignee: null,
+  finishNote: null, plannedStartDate: null, plannedEndDate: null, planRevision: null,
+  startDate: null, dueDate: null, dueTime: null, timeBlock: null, waitingFor: null,
+  followUpDate: null, context: null, sequenceOrder: 0, estimatedMinutes: null,
+  actualMinutes: null, lastReviewDate: null, nextReviewDate: null, areaId: null,
+  knowledgeId: null, parentTaskId: null, recurrenceRule: null, deferUntil: null,
+}
+const mockTasks: TaskDto[] = [
+  { ...emptyTask, id: 't1', taskName: '核对隆基口审证据清单', caseId: 'c1', priority: 'urgent_important', dueDate: '2026-08-25', startBucket: 'today', sequenceOrder: 1, context: 'office', estimatedMinutes: 45, todayIndex: 0, flagged: 1 },
+  { ...emptyTask, id: 't2', taskName: '起草华为案补充证据说明', caseId: 'c2', priority: 'urgent', dueDate: '2026-08-20', startBucket: 'today', context: 'office', estimatedMinutes: 60, todayIndex: 1 },
+  { ...emptyTask, id: 't3', taskName: '跟进宁德时代检索报告', caseId: 'c3', priority: 'normal', dueDate: '2026-08-28', taskType: 'waiting', waitingFor: '专利代理师', followUpDate: '2026-08-20' },
+  { ...emptyTask, id: 't4', taskName: '审核腾讯行政诉讼答辩状', caseId: 'c4', priority: 'important', dueDate: '2026-08-30', blocked: 0, context: 'court' },
+  { ...emptyTask, id: 't5', taskName: '整理百度案技术文献', caseId: 'c6', priority: 'normal' },
+  { ...emptyTask, id: 't6', taskName: '大疆案庭前调解方案', priority: 'normal', startBucket: 'someday' },
+  { ...emptyTask, id: 't7', taskName: '更新案件进度周报', priority: 'normal', dueDate: '2026-08-21', startBucket: 'today' },
 ]
 
 
 const mockTaskPlans: TaskPlan[] = []
 
-const mockEvents = [
+/**
+ * 日历聚合的内部夹具，**不是任何命令的返回 DTO**：
+ * `get_calendar_events` 会把它投影成 `CalendarEvent`（date/eventType/caseName），
+ * `get_upcoming_hearings` 另有一套投影。因此这里用本地夹具类型而不是 bindings 类型，
+ * 避免给"投影前的中间形状"套上一个错误的契约。
+ */
+type MockCalendarFixture = {
+  id: string; title: string; date: string; time: string; type: string; caseId: string | null
+}
+const mockEvents: MockCalendarFixture[] = [
   { id: 'e1', title: '隆基无效口审', date: '2026-08-25', type: 'hearing', caseId: 'c1', time: '09:30' },
   { id: 'e2', title: '华为侵权案开庭', date: '2026-08-20', type: 'court', caseId: 'c2', time: '14:00' },
   { id: 'e3', title: '腾讯答辩状截止', date: '2026-08-30', type: 'deadline', caseId: 'c4', time: '23:59' },
@@ -45,6 +69,14 @@ const mockEvents = [
   { id: 'e5', title: '百度案证据提交', date: '2026-08-22', type: 'deadline', caseId: 'c6', time: '17:00' },
 ]
 
+/**
+ * 仍未绑定 DTO——这是**已知缺口**，不是遗漏：
+ * 下面的 `lawName` 与多处使用的 `sourceId` 都不在 `KnowledgeItemDto` 里，
+ * 但 `list_knowledge_document_sources` / `import_pageindex_to_knowledge` 需要按
+ * sourceId 关联 OCR 来源。也就是说**真实 DTO 缺一个前端依赖的字段**。
+ * 补齐需要先决定后端是否加 `sourceId`（或改走 `list_knowledge_document_sources` 关联），
+ * 在那之前保持 `any` 并在此标注，避免"看起来已被类型约束"。
+ */
 const mockKnowledge: any[] = [
   { id: 'k1', title: '专利无效程序时间节点汇总', category: 'method', content: '提无效请求 → 受理 → 答复 → 口审 → 决定', lawName: '专利法' },
   { id: 'k2', title: '最高法知识产权案件裁判要旨', category: 'reference', content: '关于权利要求解释的裁判规则…', lawName: '司法解释' },
@@ -53,10 +85,16 @@ const mockKnowledge: any[] = [
   { id: 'k5', title: '某案办理经验复盘', category: 'experience', content: '证据链构建需要注意…' },
 ]
 
-const mockInbox = [
-  { id: 'i1', title: '客户来电：补充技术资料', contentText: '客户说明下周可以补齐对比文件和产品照片，需要安排跟进。', sourceType: 'note', sourceLabel: 'CALL NOTE', status: 'pending', caseId: 'c1', caseName: '隆基244号无效案' },
-  { id: 'i2', title: '法院邮件：提交材料提醒', contentText: '请在截止日前提交授权委托书原件及证据目录。', sourceType: 'email', sourceLabel: 'EMAIL', status: 'pending', caseId: 'c2', caseName: '华为商标侵权案' },
-  { id: 'i3', title: '检索报告初稿', contentText: '代理师发送了第一轮检索结果，等待律师确认检索式。', sourceType: 'wechat', sourceLabel: 'WECHAT', status: 'pending', caseId: 'c3', caseName: '宁德时代专利无效' },
+const emptyInboxItem: InboxItemDto = {
+  id: '', title: '', contentText: '', sourceType: 'note', sourcePath: '', sourceUrl: null,
+  sourceTime: null, aiCategory: '', aiConfidence: 0, aiExtracted: null,
+  aiSuggestedCaseId: null, status: 'pending', userCategory: '', linkedCaseId: null,
+  createdAt: '', processedAt: null,
+}
+const mockInbox: InboxItemDto[] = [
+  { ...emptyInboxItem, id: 'i1', title: '客户来电：补充技术资料', contentText: '客户说明下周可以补齐对比文件和产品照片，需要安排跟进。', sourceType: 'note', sourcePath: '/mock/i1', linkedCaseId: 'c1', createdAt: '2026-09-01T09:00:00' },
+  { ...emptyInboxItem, id: 'i2', title: '法院邮件：提交材料提醒', contentText: '请在截止日前提交授权委托书原件及证据目录。', sourceType: 'email', sourcePath: '/mock/i2', linkedCaseId: 'c2', createdAt: '2026-09-01T10:00:00' },
+  { ...emptyInboxItem, id: 'i3', title: '检索报告初稿', contentText: '代理师发送了第一轮检索结果，等待律师确认检索式。', sourceType: 'wechat', sourcePath: '/mock/i3', linkedCaseId: 'c3', createdAt: '2026-09-01T11:00:00' },
 ]
 
 // Stateful, contract-shaped fixtures for connected workspace preview. Never used in Tauri.
@@ -67,8 +105,8 @@ const mockCalendarRows: CalendarEventRow[] = [
 const mockDrafts: Draft[] = [{ id: 'preview-draft-1', title: '口审代理意见 · 工作稿', content: '<h1>口审代理意见</h1><p>逐项核对技术特征与证据来源，梳理争议焦点。</p>', caseId: 'c1', templatePath: null, status: 'draft', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
 mockKnowledge[0].linkedCaseId = 'c1'
 mockKnowledge[2].linkedCaseId = 'c1'
-const mockLinks: any[] = []
-const mockKnowledgeVersions: any[] = []
+const mockLinks: LinkDto[] = []
+const mockKnowledgeVersions: Array<KnowledgeVersionDto & { itemId: string }> = []
 
 const mockSettings: Record<string, unknown> = {}
 const mockDraftVersions: Array<DraftVersion & { draftId: string }> = []
@@ -76,6 +114,14 @@ function snapshotDraft(row: Draft) {
   if (!mockDraftVersions.some(v => v.draftId === row.id && v.version === row.version)) mockDraftVersions.push({ draftId: row.id, version: row.version, title: row.title, content: row.content, savedAt: row.updatedAt })
 }
 
+/**
+ * 仍未绑定 DTO——这是**已知缺口**：
+ * 它同时喂给 `get_today_stats`（TodayStats: hardSchedule/dueToday/waitingOverdue/needReview）
+ * 和 `get_dashboard_stats`，而后者真实返回的是
+ * DashboardStats: { activeCount, totalCount, closedCount, deadlineWarnings, recentActivities, byTrack }——
+ * **形状完全不同**。所以这里既不是 TodayStats 也不是 DashboardStats，
+ * 需要拆分后才能分别标注。
+ */
 const mockStats = {
   hardSchedule: 2,
   dueToday: 3,
@@ -127,9 +173,9 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       const pending = mockTasks.filter((t: { id: string; completed?: number }) => !t.completed)
       return {
         todayEvents: mockEvents.filter(e => ['hearing', 'court'].includes(e.type) && e.date === today).length,
-        dueToday: pending.filter((t: { dueDate?: string; deadline?: string }) => t.dueDate === today || t.deadline === today).length,
+        dueToday: pending.filter(t => t.dueDate === today || t.deadline === today).length,
         waitingOverdue: pending.filter(t => t.taskType === 'waiting' && t.followUpDate && t.followUpDate < today).length,
-        reviewDue: pending.filter((t: { id: string; nextReviewDate?: string }) => t.nextReviewDate && t.nextReviewDate <= today).length,
+        reviewDue: pending.filter(t => t.nextReviewDate && t.nextReviewDate <= today).length,
       }
     }
     case 'get_today_stats':
@@ -170,7 +216,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
     }
     case 'create_task': {
       const data = (args.data as any) || {}
-      const item = { id: `t${Date.now()}`, completed: 0, createdDate: todayLocalISO(), ...data }
+      const item = { ...emptyTask, id: `t${Date.now()}`, completed: 0, createdDate: todayLocalISO(), ...data } as TaskDto
       mockTasks.unshift(item)
       return item
     }
@@ -191,7 +237,7 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
       if (mockTasks.some(t => t.id === data.id)) {
         throw new Error(`无法恢复任务 ${data.id}：该 id 已被占用`)
       }
-      const restored = { ...data }
+      const restored = { ...emptyTask, ...data } as TaskDto
       mockTasks.unshift(restored)
       return restored
     }
@@ -265,7 +311,11 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
     case 'get_backlinks':
       return mockLinks.filter(item => item.targetType === args.targetType && item.targetId === args.targetId)
     case 'create_link': {
-      const link = { id: `link${Date.now()}${mockLinks.length}`, createdAt: new Date().toISOString(), ...args }
+      const link = {
+        id: `link${Date.now()}${mockLinks.length}`, createdAt: new Date().toISOString(),
+        sourceType: '', sourceId: '', targetType: '', targetId: '', anchor: null,
+        label: null, targetTitle: null, ...args,
+      } as LinkDto
       const target = mockKnowledge.find(item => item.id === args.targetId)
       Object.assign(link, { targetTitle: target?.title || null })
       mockLinks.push(link)
@@ -294,10 +344,11 @@ function handleMockCommand(command: string, args: Record<string, unknown>): unkn
     case 'add_inbox_item': {
       const text = String(args.contentText || '')
       const sourcePath = String(args.sourcePath || '')
-      const item = {
+      const item: InboxItemDto = {
+        ...emptyInboxItem,
         id: `i-${crypto.randomUUID()}`, title: String(args.title || text.split(/\r?\n/).find(line => line.trim()) || sourcePath.split(/[\\/]/).pop() || '未命名收件项').slice(0, 120),
         contentText: text, sourcePath, sourceType: String(args.sourceType || 'note'),
-        sourceLabel: '', status: 'pending', caseId: '', caseName: '', createdAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       }
       mockInbox.unshift(item)
       return item.id

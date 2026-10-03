@@ -20,7 +20,16 @@ assert.equal(result.pages.length, 1)
 const markdown = readFileSync(result.markdownPath, 'utf8')
 assert.match(markdown, /Quarterly\s+Sales/i)
 assert.match(markdown, /263/)
-assert.match(markdown, /data:image\//) // Internal IR intentionally embeds the visual crop; export externalizes it.
+assert.match(markdown, /assets\/[a-f0-9]{64}\.png/)
+const manifest = JSON.parse(readFileSync(join(output, 'source.assets.json'), 'utf8'))
+assert.equal(manifest.version, 2)
+assert.ok(Object.keys(manifest.assets).length > 0)
+for (const [id, asset] of Object.entries(manifest.assets)) {
+  assert.match(id, /^[a-f0-9]{64}\.png$/)
+  const bytes = readFileSync(join(output, 'assets', id))
+  assert.equal(bytes.length, asset.size)
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), asset.sha256)
+}
 assert.equal(readFileSync(result.searchablePdfPath).subarray(0, 5).toString(), '%PDF-')
 assert.equal(sha(), before)
 console.log(JSON.stringify({ engine: 'packaged', pages: 1, recognizedText: true, visualCrop: true, searchablePdf: true, sourceUnchanged: true, elapsedMs: result.elapsedMs }))

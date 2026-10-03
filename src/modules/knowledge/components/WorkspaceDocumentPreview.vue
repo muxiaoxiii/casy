@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Refresh, EditPen, FolderOpened } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { casyContext } from '../../../core/plugin/context'
-import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
+import DocumentMarkdown from '../../../shared/components/DocumentMarkdown.vue'
 import DocumentSourceViewer from '../../files/components/DocumentSourceViewer.vue'
 import type { CommandMap } from '../../../types/commandMap'
 type Source = CommandMap['list_workspace_sources']['result'][number]
@@ -14,17 +14,25 @@ const document = ref<CommandMap['get_workspace_document']['result'] | null>(null
 const error = ref(''), loading = ref(false), processing = ref(false), viewer = ref(false)
 const initialPage = ref(1)
 const locations = ref<import('../../../types/documentRetrieval').SourceLocation[]>([])
+const storage = ref<CommandMap['get_document_storage_state']['result'] | null>(null)
+const storageError = ref('')
 let revision = 0
-const html = computed(() => mdToSafeHtml(document.value?.markdown || ''))
+onBeforeUnmount(() => { revision++ })
 watch(() => [props.source.fileId, props.source.jobId, props.source.status], load, { immediate: true })
 async function load() {
   const request = ++revision
-  document.value = null; error.value = ''; loading.value = false
+  document.value = null; storage.value = null; storageError.value = ''; error.value = ''; loading.value = false
   if (props.source.status !== 'completed') return
+  const fileId = props.source.fileId
   loading.value = true
-  const result = await tauriCallSafe('get_workspace_document', { fileId: props.source.fileId })
+  const [result, state] = await Promise.all([
+    tauriCallSafe('get_workspace_document', { fileId }),
+    tauriCallSafe('get_document_storage_state', { fileId }),
+  ])
   if (request !== revision) return
   loading.value = false
+  if (state.ok) storage.value = state.data!
+  else storageError.value = state.error || '读取存储状态失败，请刷新重试'
   if (result.ok) document.value = result.data!
   else error.value = result.error || '读取正文失败'
 }
@@ -34,6 +42,34 @@ async function process() {
   processing.value = false
   if (!result.ok) ElMessage.error(result.error || '提交失败')
   else emit('refreshed')
+}
+async function optimizeStorage() {
+  if (!storage.value?.canOptimize || processing.value) return
+  const fileId = props.source.fileId, jobId = storage.value.jobId
+  try { await ElMessageBox.confirm('仅优化 OCR 配图存储，不重新识别、不修改原件；原产物保留以便回退。', '优化文档存储') }
+  catch { return }
+  if (fileId !== props.source.fileId || jobId !== storage.value?.jobId) return
+  processing.value = true
+  try {
+    const result = await tauriCallSafe('optimize_document_storage', { fileId, jobId })
+    if (!result.ok) throw new Error(result.error || '优化失败')
+    emit('refreshed')
+    if (fileId === props.source.fileId) await load()
+    ElMessage.success('已优化文档存储，原产物已保留')
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { processing.value = false }
+}
+async function rollbackStorage() {
+  if (!storage.value?.canRollback || processing.value) return
+  const fileId = props.source.fileId, jobId = storage.value.jobId
+  processing.value = true
+  try {
+    const result = await tauriCallSafe('rollback_document_storage', { fileId, jobId })
+    if (!result.ok) throw new Error(result.error || '回退失败')
+    emit('refreshed')
+    if (fileId === props.source.fileId) await load()
+  } catch (error) { ElMessage.error(String(error)) }
+  finally { processing.value = false }
 }
 async function editCopy() {
   processing.value = true
@@ -48,14 +84,17 @@ async function editCopy() {
     <header><h2>{{ source.fileName }}</h2><span>{{ source.totalPages || 0 }} 页 / 段</span></header>
     <div class="document-actions">
       <el-button :icon="Document" :disabled="!source.jobId || source.status !== 'completed'" @click="initialPage=1;locations=[];viewer=true">原文对照</el-button>
+      <el-button v-if="storage?.canOptimize" :loading="processing" @click="optimizeStorage">优化存储（不重新识别）</el-button>
+      <el-button v-if="storage?.canRollback" :loading="processing" @click="rollbackStorage">回退存储升级</el-button>
       <el-button :icon="EditPen" :disabled="!document" :loading="processing" @click="editCopy">编辑知识快照</el-button>
       <el-button :icon="FolderOpened" title="定位原文件" aria-label="定位原文件" @click="casyContext.files.reveal(source.filePath)" />
       <el-button :icon="Refresh" title="刷新正文" aria-label="刷新正文" @click="load" />
     </div>
     <el-alert v-if="error || source.error || source.missing" :title="error || source.error || '原文件缺失'" type="warning" :closable="false" />
+    <el-alert v-if="storageError" :title="storageError" type="warning" :closable="false" />
     <div v-if="document?.continuations?.length" class="continuations"><el-button v-for="link in document.continuations" :key="link.fromPage" link @click="initialPage=link.fromPage;locations=link.locations;viewer=true">可能续接：第 {{ link.fromPage }} / {{ link.toPage }} 页</el-button></div>
-    <article v-if="document" class="source-markdown-preview" v-html="html" />
-    <div v-else class="document-pending"><span>{{ ({ queued: '等待提取正文', running: '正在提取正文', failed: '正文提取失败', cancelled: '已取消' } as Record<string,string>)[source.status || ''] || '尚未提取正文' }}</span><el-button v-if="!['queued','running'].includes(source.status || '')" :loading="processing" @click="process">提取正文</el-button></div>
+    <DocumentMarkdown v-if="document" class="source-markdown-preview" :markdown="document.markdown" :file-id="source.fileId" :job-id="document.jobId" />
+    <div v-else-if="source.status !== 'completed'" class="document-pending"><span>{{ ({ queued: '等待提取正文', running: '正在提取正文', failed: '正文提取失败', cancelled: '已取消' } as Record<string,string>)[source.status || ''] || '尚未提取正文' }}</span><el-button v-if="!['queued','running'].includes(source.status || '')" :loading="processing" @click="process">提取正文</el-button></div>
     <DocumentSourceViewer v-if="source.jobId" v-model="viewer" :file-id="source.fileId" :job-id="source.jobId" :initial-page="initialPage" :locations="locations" />
   </section>
 </template>

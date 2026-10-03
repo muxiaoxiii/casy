@@ -3,7 +3,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Refresh, EditPen, Check, Close } from '../../../shared/icons'
 import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
-import { mdToSafeHtml } from '../../../shared/markdown/mdBridge'
+import DocumentMarkdown from '../../../shared/components/DocumentMarkdown.vue'
 import type { DocumentPageView, SourceLocation } from '../../../types/documentRetrieval'
 
 const props = defineProps<{ modelValue:boolean; fileId:string; jobId:string; initialPage?:number; locations?:SourceLocation[] }>()
@@ -13,7 +13,6 @@ const mode=ref('preview'), selected=ref<number|null>(null)
 const currentJob = ref(props.jobId), correcting=ref(false), correction=ref(''), savingCorrection=ref(false)
 let revision=0
 const marked=computed(()=> new Set<number>((props.locations||[]).flatMap(l=>l.pageNumber===page.value && l.regionIndex!==null?[l.regionIndex]:[])))
-const renderedMarkdown=computed(()=>mdToSafeHtml(view.value?.markdown || ''))
 const hitPages=computed(()=> [...new Set((props.locations||[]).map(l=>l.pageNumber))])
 watch(()=>[props.modelValue,props.fileId,props.jobId,props.initialPage],()=>{
   revision++; view.value=null; error.value=''; busy.value=false; selected.value=null; zoom.value=100
@@ -96,7 +95,7 @@ function focusRegion(index:number){
         <div v-if="mode==='text'&&view.regions.length" class="source-text-lines">
           <button v-for="(region,index) in view.regions" :key="index" :class="{marked:marked.has(index),selected:selected===index}" @click="focusRegion(index)">{{ region.text }}</button>
         </div>
-        <div v-else-if="mode==='preview'" class="source-markdown" v-html="renderedMarkdown" />
+        <DocumentMarkdown v-else-if="mode==='preview'" class="source-markdown" :markdown="view.markdown" :file-id="view.fileId" :job-id="view.jobId" />
         <pre v-else>{{ view.markdown }}</pre>
       </div>
     </div>

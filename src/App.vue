@@ -225,6 +225,7 @@ function openUnifiedCapture(action = 'auto') {
 // ============================================================
 let unlistenQuickCapture = null
 let unlistenFileDrop = null
+const trayListeners = []
 
 async function setupQuickCaptureListener() {
   try {
@@ -232,8 +233,30 @@ async function setupQuickCaptureListener() {
       openUnifiedCapture(event.payload || 'auto')
     })
     
+    trayListeners.push(safeListen('tray:add_note', () => openUnifiedCapture('note')))
+    trayListeners.push(safeListen('tray:clipboard_to_inbox', async () => {
+      const { tauriCallSafe } = await import('./core/tauriBridge')
+      const result = await tauriCallSafe('capture_clipboard', {})
+      if (!result.ok) { ElMessage.error(result.error || '剪贴板捕获失败'); return }
+      await router.push('/inbox')
+      window.dispatchEvent(new Event('casy:inbox-changed'))
+      ElMessage.success('剪贴板内容已存入收件箱')
+    }))
+    trayListeners.push(safeListen('tray:add_file', async () => {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      try {
+        const selected = await open({ multiple: true, directory: false })
+        if (!selected) return
+        openUnifiedCapture()
+        await nextTick()
+        window.dispatchEvent(new CustomEvent('casy:file-drop', { detail: { paths: Array.isArray(selected) ? selected : [selected] } }))
+      } catch (error) { ElMessage.error(String(error)) }
+    }))
+
     // 全局拖拽文件支持 (Tauri 原生事件)
-    unlistenFileDrop = safeListen('tauri://drag-drop', (event) => {
+    unlistenFileDrop = safeListen('tauri://drag-drop', async (event) => {
+      openUnifiedCapture()
+      await nextTick()
       // payload 包含 paths (文件路径数组)
       window.dispatchEvent(new CustomEvent('casy:file-drop', { detail: event.payload }))
     })
@@ -281,6 +304,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unlistenQuickCapture) unlistenQuickCapture()
   if (unlistenFileDrop) unlistenFileDrop()
+  trayListeners.splice(0).forEach(stop => stop())
   window.removeEventListener('casy:open-capture', handleOpenCapture)
   unregisterShortcuts.forEach(fn => fn())
   unregisterShortcuts = []

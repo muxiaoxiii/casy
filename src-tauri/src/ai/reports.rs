@@ -488,8 +488,7 @@ fn generate_today_focus(conn: &rusqlite::Connection, today: &str) -> Result<Toda
                 event_type: "hearing".to_string(),
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     // 今日到期任务
     let mut stmt = conn.prepare(
@@ -694,8 +693,7 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
                 actual_minutes: row.get(2)?,
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     // 下周预告：开庭
     let next_monday = monday + chrono::Duration::days(7);
@@ -724,8 +722,7 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
                 event_type: "hearing".to_string(),
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     // 下周预告：到期期限
     let mut stmt = conn.prepare(
@@ -741,8 +738,7 @@ pub fn generate_weekly_summary(conn: &rusqlite::Connection) -> Result<WeeklySumm
                 due_date: row.get(3)?,
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     let mut summary = WeeklySummary {
         week_start: week_start.clone(),
@@ -796,8 +792,7 @@ fn query_case_transitions(
                 to_status: row.get(4)?,
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()?;
 
     Ok(transitions)
 }

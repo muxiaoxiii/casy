@@ -1,7 +1,9 @@
 <script setup>
+import UiDataState from '../../../shared/ui/UiDataState.vue'
 import HolidayImportReview from '../../../shared/components/HolidayImportReview.vue'
 import { useRouter } from 'vue-router'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { safeListen } from '../../../core/tauriEvents'
 import { casyContext } from '../../../core/plugin/context'
 import { AI_PROMPTS } from '../../../core/prompts'
 import { todayLocalISO } from '../../../shared/utils/date'
@@ -164,6 +166,7 @@ function onClarifyCaseChange(caseId) {
 // ============================================================
 // 数据加载
 // ============================================================
+safeListen('inbox:new_item', () => { void loadItems() })
 onMounted(async () => {
   window.addEventListener('casy:inbox-changed', loadItems)
   await loadItems()
@@ -375,8 +378,7 @@ async function dismissItem(item) {
       <el-button :icon="Paperclip" text circle :disabled="!nativeFiles || processing" :title="nativeFiles ? '导入文件' : '请在桌面应用中导入文件'" aria-label="导入文件" @click="importFile" />
       <el-button :icon="ArrowRight" type="primary" native-type="submit" :disabled="!quickCaptureInputText.trim()" :loading="processing" aria-label="存入收件箱" title="存入收件箱" />
     </form>
-    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
-    <div class="inbox-layout" v-loading="loading">
+    <div class="inbox-layout">
       <section class="inbox-list">
         <div class="list-controls">
           <el-radio-group v-model="statusFilter" size="small" aria-label="处理状态">
@@ -388,13 +390,16 @@ async function dismissItem(item) {
           </nav>
         </div>
         <div class="item-list">
+          <UiDataState :loading="loading" :error="loadError" :count="filteredPendingItems.length" :filtered="sourceFilter !== 'all'"
+            :empty-title="statusFilter === 'pending' ? '暂无待处理事项' : '暂无已处理事项'"
+            empty-description="新增收件会在这里显示，可从上方输入或添加文件。" @retry="loadItems" @clear="selectSource('all')">
           <button v-for="item in filteredPendingItems" :key="item.id" class="inbox-item" :class="{ selected: selectedItem?.id === item.id }" :aria-pressed="selectedItem?.id === item.id" @click="selectItem(item)">
             <span class="item-meta"><span>{{ sourceLabel(item.sourceType) }}</span><span v-if="capturedAt(item)">{{ capturedAt(item) }}</span></span>
             <strong>{{ item.title || '未命名收件项' }}</strong>
             <span class="item-snippet">{{ item.contentText || item.sourcePath || item.filePath || '附件' }}</span>
             <span v-if="item.caseName" class="item-case"><el-icon><Briefcase /></el-icon>{{ item.caseName }}</span>
           </button>
-          <p v-if="!loading && !filteredPendingItems.length && !loadError" class="empty-state">{{ statusFilter === 'pending' ? '暂无待处理事项' : '暂无已处理事项' }}</p>
+          </UiDataState>
         </div>
       </section>
       <section v-if="selectedItem" class="clarify-panel">

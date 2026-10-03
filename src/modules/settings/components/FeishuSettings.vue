@@ -195,8 +195,11 @@ async function discoverTables() {
 
 async function loadTableFields(tableId) {
   if (loadingFields.value || !(await mappingDraft.canLeave())) return
-  selectedTableId.value = tableId
   loadingFields.value = true
+  const saved = await casyContext.sync.configureFeishuTable(feishuAppToken.value.trim(), tableId)
+  if (!saved.ok) { loadingFields.value = false; ElMessage.error(saved.error || '保存飞书表格失败'); return }
+  selectedTableId.value = tableId
+  await loadSyncInfo()
   selectedTableFields.value = []
   const result = await casyContext.sync.feishuListFields(feishuAppToken.value.trim(), tableId)
   loadingFields.value = false

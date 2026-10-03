@@ -379,7 +379,7 @@ onMounted(() => {
               type="primary"
               :loading="feishuPulling"
               @click="doFeishuPull"
-              :disabled="!feishuSyncInfo.configured"
+              :disabled="!feishuSyncInfo.configured || !feishuSyncInfo.appToken || !feishuSyncInfo.tableId"
             >
               ⬇️ 从飞书拉取
             </el-button>
@@ -387,7 +387,7 @@ onMounted(() => {
               type="success"
               :loading="feishuPushing"
               @click="doFeishuPush"
-              :disabled="!feishuSyncInfo.configured"
+              :disabled="!feishuSyncInfo.configured || !feishuSyncInfo.appToken || !feishuSyncInfo.tableId"
             >
               ⬆️ 推送到飞书
             </el-button>

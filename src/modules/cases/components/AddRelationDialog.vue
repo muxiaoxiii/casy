@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage } from 'element-plus'
 
@@ -39,12 +39,15 @@ const selectableCases = computed(() => {
   return allCases.value.filter(c => c.id !== props.currentCaseId)
 })
 
-onMounted(async () => {
-  const result = await casyContext.cases.list({})
-  if (result.ok && result.data && result.data.items) {
-    allCases.value = result.data.items
-  }
-})
+let request = 0
+watch(() => props.modelValue, async open => {
+  const current = ++request
+  if (!open) return
+  const result = await casyContext.cases.listAll()
+  if (current !== request) return
+  if (result.ok && result.data) allCases.value = result.data
+  else { allCases.value = []; ElMessage.error(result.error || '案件加载失败') }
+}, { immediate: true })
 
 function handleClose() {
   form.value = {

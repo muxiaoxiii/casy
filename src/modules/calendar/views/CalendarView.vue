@@ -656,7 +656,7 @@ const forecast14Days = computed(() => {
     const totalHours = Math.round((totalMinutes / 60) * 10) / 10
 
     const hasCourt = dayEvs.some(e => e.type === 'court' || e.type === 'hearing')
-    const hasDeadline = dayEvs.some(e => e.type?.startsWith('deadline') || e.type === 'appeal') || deadlineWarnings.value.some(w => w.deadlineDate === dateStr)
+    const hasDeadline = dayEvs.some(e => e.type?.startsWith('deadline') || e.type === 'appeal') || deadlineWarnings.value.some(w => w.dueDate === dateStr)
 
     const available = isPlanningWorkday(d, holidaysOn(dateStr))
     let riskLevel = available ? 'free' : 'rest'

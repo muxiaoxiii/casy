@@ -46,8 +46,7 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
                         .unwrap_or_else(|| "未知".into()),
                 ))
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         out.push_str("## 活跃案件\n");
         if rows.is_empty() {
             out.push_str("（无）\n");
@@ -80,8 +79,7 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
                     row.get::<_, Option<String>>(4)?.unwrap_or_default(),
                 ))
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         out.push_str("\n## 近90天决策记录\n");
         if rows.is_empty() {
             out.push_str("（无）\n");
@@ -110,8 +108,7 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
                     row.get::<_, i64>(1)?,
                 ))
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         out.push_str("\n## 近30天任务事件统计\n");
         if rows.is_empty() {
             out.push_str("（无）\n");
@@ -144,8 +141,7 @@ fn collect_bounded_summary(conn: &rusqlite::Connection) -> Result<String> {
                     row.get::<_, Option<String>>(3)?.unwrap_or_default(),
                 ))
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         out.push_str("\n## waiting 超期清单\n");
         if rows.is_empty() {
             out.push_str("（无）\n");
@@ -445,5 +441,18 @@ mod tests {
         assert!(parse_insights("[]").is_empty());
         assert!(parse_insights("没有发现关联").is_empty());
         assert!(parse_insights("[{broken json]").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod read_integrity_tests {
+    #[test]
+    fn corrupt_case_rows_do_not_become_empty_ai_context() {
+        let conn=rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        conn.execute("INSERT INTO cases(id,case_name,client_name) VALUES('broken',X'FF','Client')",[]).unwrap();
+        assert!(super::collect_bounded_summary(&conn).is_err());
+        conn.execute("UPDATE cases SET case_name='Recovered' WHERE id='broken'",[]).unwrap();
+        assert!(super::collect_bounded_summary(&conn).unwrap().contains("Recovered"));
     }
 }

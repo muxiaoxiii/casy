@@ -117,6 +117,11 @@ export const useCasesStore = defineStore('cases', {
   },
 
   actions: {
+    async setFilter(patch: Partial<CaseFilter>): Promise<void> {
+      Object.assign(this.filter, patch)
+      this.page = 1
+      await this.loadCases()
+    },
     async loadCases(): Promise<void> {
       const request = ++this.listRequest
       this.loading = true
@@ -131,6 +136,11 @@ export const useCasesStore = defineStore('cases', {
         sortBy: this.filter.sortBy,
         dateFrom: this.filter.dateFrom || null,
         dateTo: this.filter.dateTo || null,
+        deadlineFrom: this.filter.deadlineFrom || null,
+        deadlineTo: this.filter.deadlineTo || null,
+        hearingFrom: this.filter.hearingFrom || null,
+        hearingTo: this.filter.hearingTo || null,
+        operator: this.filter.operator || null,
         page: this.page,
         perPage: this.perPage,
         // 新状态机筛选

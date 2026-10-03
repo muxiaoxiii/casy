@@ -700,7 +700,7 @@ pub async fn import_full_backup(source: String, password: String) -> Result<bool
         let live = db::get_db_path();
         let next = live.with_extension("restore-next");
         fs::copy(&restored, &next)?;
-        File::open(&next)?.sync_all()?;
+        File::options().write(true).open(&next)?.sync_all()?;
         let previous = live.with_extension("restore-previous");
         if previous.exists() {
             fs::remove_file(&previous)?;

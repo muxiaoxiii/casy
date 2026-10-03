@@ -1,11 +1,12 @@
 <template>
   <div class="projects-page">
     <!-- 工具栏 -->
-    <div class="toolbar">
+    <UiToolbar class="toolbar" label="项目工具栏">
       <div class="toolbar-left">
         <h3>项目</h3>
         <span class="shortcut-hint">非诉、顾问、研究与其他长期事项</span>
       </div>
+      <template #actions>
       <div class="toolbar-right">
         <el-input
           v-model="searchQuery"
@@ -16,10 +17,12 @@
           @input="load"
         />
       </div>
-    </div>
+      </template>
+    </UiToolbar>
 
-    <div v-loading="loading" class="projects-body">
-      <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="load">重试</el-button></el-alert>
+    <div class="projects-body">
+      <DegradedBanner v-if="loadError" title="项目读取失败" :reason="loadError" :dismissible="false" @retry="load" />
+      <SkeletonCard v-if="loading && !personalProjects.length" :rows="3" />
       <!-- 非案件项目 -->
       <section class="proj-section">
         <div class="section-head">
@@ -52,9 +55,9 @@
             </template>
             <template v-else>
               <span class="proj-dot personal" />
-              <span class="proj-name">{{ p.name }}</span>
+              <UiTruncate class="proj-name" :text="p.name" />
               <span v-if="p.description" class="proj-desc">{{ p.description }}</span>
-              <span class="proj-status">{{ statusLabel(p.status) }}</span>
+              <UiPill>{{ statusLabel(p.status) }}</UiPill>
               <div class="row-actions">
                 <el-button size="small" text :disabled="mutating" :aria-label="`编辑项目 ${p.name}`" @click="startEdit(p)"><el-icon><Edit /></el-icon></el-button>
                 <el-button size="small" text type="danger" :disabled="mutating" :aria-label="`删除项目 ${p.name}`" @click="removeProject(p)">
@@ -79,6 +82,11 @@
 </template>
 
 <script setup>
+import UiToolbar from "../../../shared/ui/UiToolbar.vue"
+import UiPill from "../../../shared/ui/UiPill.vue"
+import UiTruncate from "../../../shared/ui/UiTruncate.vue"
+import DegradedBanner from "../../../shared/components/DegradedBanner.vue"
+import SkeletonCard from "../../../shared/components/SkeletonCard.vue"
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
 const { contextMenu, showContextMenu } = useContextActions()
@@ -267,11 +275,7 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.proj-status {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--c-text-secondary);
-}
+
 .row-actions {
   display: flex;
   gap: 2px;
@@ -288,5 +292,5 @@ onMounted(() => {
   line-height: 1.7;
   background: var(--c-bg-subtle);
 }
-@media(max-width:600px){.toolbar{align-items:flex-start;flex-direction:column;gap:12px}.proj-row{flex-wrap:wrap}.proj-create{flex-wrap:wrap}.shortcut-hint{margin-left:0}.toolbar-right,.toolbar-right .el-input{width:100%!important}}
+@media(max-width:899px){.toolbar{align-items:flex-start;flex-direction:column;gap:12px}.proj-row{flex-wrap:wrap}.proj-create{flex-wrap:wrap}.shortcut-hint{margin-left:0}.toolbar-right,.toolbar-right .el-input{width:100%!important}}
 </style>

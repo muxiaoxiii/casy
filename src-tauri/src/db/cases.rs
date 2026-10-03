@@ -97,6 +97,11 @@ pub struct CaseFilter {
     pub search: Option<String>,
     pub date_from: Option<String>,
     pub date_to: Option<String>,
+    pub deadline_from: Option<String>,
+    pub deadline_to: Option<String>,
+    pub hearing_from: Option<String>,
+    pub hearing_to: Option<String>,
+    pub operator: Option<String>,
     pub sort_by: Option<String>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
@@ -221,7 +226,24 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
             sql.push_str(&cond);
             count_sql.push_str(&cond);
             params_vec.push(Box::new(date_to.clone()));
-            // param_idx not needed after last filter
+            param_idx += 1;
+        }
+    }
+
+    for (value, column, comparison) in [
+        (&filter.deadline_from, "next_deadline", ">="),
+        (&filter.deadline_to, "next_deadline", "<="),
+        (&filter.hearing_from, "next_hearing", ">="),
+        (&filter.hearing_to, "next_hearing", "<="),
+        (&filter.operator, "operator", "LIKE"),
+    ] {
+        if let Some(value) = value.as_ref().filter(|value| !value.is_empty()) {
+            let expression = if column == "operator" { column.to_owned() } else { format!("substr({column},1,10)") };
+            let condition = format!(" AND id IN (SELECT id FROM v_case_unified WHERE {expression} {comparison} ?{param_idx})");
+            sql.push_str(&condition);
+            count_sql.push_str(&condition);
+            params_vec.push(Box::new(if column == "operator" { format!("%{value}%") } else { value.clone() }));
+            param_idx += 1;
         }
     }
 
@@ -237,7 +259,7 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
 
     // 分页
     let page = filter.page.unwrap_or(1).max(1);
-    let per_page = filter.per_page.unwrap_or(50).min(200);
+    let per_page = filter.per_page.unwrap_or(50).clamp(1, 200);
     sql.push_str(&format!(
         " LIMIT {} OFFSET {}",
         per_page,
@@ -257,7 +279,7 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     // 计算每个案件的期限紧急度
-    let urgency_map = compute_deadline_urgency(conn, &cases);
+    let urgency_map = compute_deadline_urgency(conn, &cases)?;
 
     let mut items = cases;
     for case in &mut items {
@@ -569,11 +591,11 @@ pub fn case_counts_by_track(conn: &Connection) -> Result<Vec<(String, i64)>> {
 fn compute_deadline_urgency(
     conn: &Connection,
     cases: &[Case],
-) -> std::collections::HashMap<String, String> {
+) -> Result<std::collections::HashMap<String, String>> {
     let mut map = std::collections::HashMap::new();
     let case_ids: Vec<&str> = cases.iter().map(|c| c.id.as_str()).collect();
     if case_ids.is_empty() {
-        return map;
+        return Ok(map);
     }
 
     let today = chrono::Local::now()
@@ -607,12 +629,13 @@ fn compute_deadline_urgency(
     let param_refs: Vec<&dyn rusqlite::types::ToSql> =
         params_vec.iter().map(|p| p.as_ref()).collect();
 
-    if let Ok(mut stmt) = conn.prepare(&sql) {
-        if let Ok(rows) = stmt.query_map(param_refs.as_slice(), |row| {
+    {
+        let mut stmt = conn.prepare(&sql)?;
+        { let rows = stmt.query_map(param_refs.as_slice(), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }) {
-            for row in rows.flatten() {
-                let (case_id, nearest_due) = row;
+        })?;
+            for row in rows {
+                let (case_id, nearest_due) = row?;
                 if let (Ok(today_d), Ok(due_d)) = (
                     chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d"),
                     chrono::NaiveDate::parse_from_str(&nearest_due, "%Y-%m-%d"),
@@ -631,9 +654,9 @@ fn compute_deadline_urgency(
         }
     }
 
-    if let Ok(context) = crate::deadline::procedure::ProjectionContext::load(conn,cases) {
+    { let context = crate::deadline::procedure::ProjectionContext::load(conn,cases)?;
         for case in cases {
-            if let Ok((_,items))=crate::deadline::procedure::case_items_with_context(case,&context) {
+            { let (_,items)=crate::deadline::procedure::case_items_with_context(case,&context)?;
                 if let Some(days)=items.iter().filter(|i|i.status=="open").filter_map(|i|i.days_left).min() {
                     let urgency=if days<=3 {"red"}else if days<=14 {"yellow"}else{"green"};
                     let rank=|s:&str|match s {"red"=>0,"yellow"=>1,_=>2};
@@ -643,7 +666,7 @@ fn compute_deadline_urgency(
         }
     }
 
-    map
+    Ok(map)
 }
 
 /// 行转结构体

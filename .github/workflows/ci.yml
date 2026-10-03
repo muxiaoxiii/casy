@@ -12,7 +12,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/casy-0.1.3-production-validation]
     tags: ['v*', '!v*-beta.*']
   pull_request:
   workflow_dispatch:

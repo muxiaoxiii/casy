@@ -46,6 +46,17 @@ export class CasesService extends Service {
     return result
   }
 
+  async listAll(): Promise<{ ok: boolean; data?: Case[]; error?: string }> {
+    const items: Case[] = []
+    for (let page = 1; ; page++) {
+      const result = await this.list({ page, perPage: 200 })
+      if (!result.ok || !result.data) return { ok: false, error: result.error || '案件加载失败' }
+      items.push(...result.data.items)
+      if (items.length >= result.data.total) return { ok: true, data: items }
+      if (!result.data.items.length) return { ok: false, error: '案件列表在读取期间发生变化，请重试' }
+    }
+  }
+
   async get(id: string): Promise<{ ok: boolean; data?: Case; error?: string }> {
     const result = await tauriCallSafe('get_case', { id })
     if (result.ok && result.data) {

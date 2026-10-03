@@ -233,7 +233,7 @@ fn collect_bounded_context(
                 .query_map(params![snapshot.entity_id], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
                 })?
-                .filter_map(|r| r.ok());
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             for (cid, name) in rows {
                 items.push(format!("客户案件[{}] {}", cid, name));
             }
@@ -257,7 +257,7 @@ fn collect_bounded_context(
                         r.get::<_, i64>(3)?,
                     ))
                 })?
-                .filter_map(|r| r.ok());
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             for (id, name, due, completed) in rows {
                 items.push(format!(
                     "案件任务[{}] {} 截止={} 已完成={}",
@@ -280,7 +280,7 @@ fn collect_bounded_context(
                         r.get::<_, i64>(3)?,
                     ))
                 })?
-                .filter_map(|r| r.ok());
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             for (id, name, due, completed) in rows {
                 items.push(format!(
                     "案件期限[{}] {} 到期={} 已完成={}",
@@ -302,7 +302,7 @@ fn collect_bounded_context(
                         r.get::<_, String>(2)?,
                     ))
                 })?
-                .filter_map(|r| r.ok());
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             for (id, name, date) in rows {
                 items.push(format!("开庭[{}] {} 日期={}", id, name, date));
             }
@@ -323,7 +323,7 @@ fn collect_bounded_context(
                         r.get::<_, String>(3)?,
                     ))
                 })?
-                .filter_map(|r| r.ok());
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             for (id, dtype, decision, status) in rows {
                 items.push(format!(
                     "关联决策[{}] type={} status={} {}",

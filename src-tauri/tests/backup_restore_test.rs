@@ -29,6 +29,9 @@ fn test_path_traversal_rejection() {
         );
     }
 
+    assert!(validate_backup_filename("pre-migration-v20-abc123.db").is_ok());
+    assert!(validate_backup_filename("pre-migration-../../outside.db").is_err());
+
     // 合法文件名
     assert!(validate_backup_filename("casy-backup-20260829-183000.db").is_ok());
     assert!(validate_backup_filename("pre-restore-20260829-183000.db").is_ok());

@@ -114,8 +114,10 @@ async fn convert(source_path: String, output_dir: String, job_id: &str, target_f
         // Prepare every requested output before publishing any of them.
         if is_md {
             let markdown = std::fs::read_to_string(&result.markdown_path).context("无法读取转换结果 Markdown")?;
+            let artifact_root = std::path::Path::new(&result.markdown_path).parent().context("产物目录不可用")?;
+            let image_root = if artifact_root.join(document_pipeline::assets::MANIFEST).exists() { artifact_root } else { source.parent().context("源文件目录不可用")? };
             let (markdown, assets) = markdown_export::externalize_images_from(
-                &markdown, source.parent().context("源文件目录不可用")?, &destination,
+                &markdown, image_root, &destination,
             )?;
             image_assets = assets;
             markdown_bytes_len = markdown.len();

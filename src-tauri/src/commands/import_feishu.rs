@@ -714,13 +714,13 @@ pub async fn feishu_import_bitable_cases(
                                         rusqlite::params![&exist_id, h_date],
                                         |r| r.get(0),
                                     )
-                                    .unwrap_or(false);
+                                    ?;
 
                                 if !exists {
                                     let h_id = db::new_id();
                                     let h_name = format!("第 {} 次开庭/口审", h_idx + 1);
                                     let judges_json = extracted.get("judgePanel").and_then(|s| clean_array_to_json(s));
-                                    let _ = tx.execute(
+                                    tx.execute(
                                         "INSERT INTO hearings (
                                             id, case_id, hearing_record, hearing_name, hearing_date,
                                             court, case_level, judges, contact_info, actual_status, created_at
@@ -736,7 +736,7 @@ pub async fn feishu_import_bitable_cases(
                                             judges_json,
                                             extracted.get("clerk"),
                                         ],
-                                    );
+                                    )?;
                                 }
                             }
 
@@ -836,7 +836,7 @@ pub async fn feishu_import_bitable_cases(
                                 let h_id = db::new_id();
                                 let h_name = format!("第 {} 次开庭/口审", h_idx + 1);
                                 let judges_json = extracted.get("judgePanel").and_then(|s| clean_array_to_json(s));
-                                let _ = tx.execute(
+                                tx.execute(
                                     "INSERT INTO hearings (
                                         id, case_id, hearing_record, hearing_name, hearing_date,
                                         court, case_level, judges, contact_info, actual_status, created_at
@@ -852,14 +852,14 @@ pub async fn feishu_import_bitable_cases(
                                         judges_json,
                                         extracted.get("clerk"),
                                     ],
-                                );
+                                )?;
                             }
                             if !final_client_name.is_empty() && final_client_name != "待补充委托人" {
-                                let _ = tx.execute(
+                                tx.execute(
                                     "INSERT OR IGNORE INTO clients (id, name, created_at, updated_at)
                                      VALUES (?1, ?2, datetime('now', 'localtime'), datetime('now', 'localtime'))",
                                     rusqlite::params![db::new_id(), final_client_name],
-                                );
+                                )?;
                             }
 
                             report.created_count += 1;
@@ -1261,7 +1261,7 @@ pub fn import_feishu_dump(
             let fields = &record["fields"];
             let case_name = fields["案件信息"].as_str().unwrap_or("").trim();
             if !case_name.is_empty() {
-                let _ = tx.execute(
+                let inserted = tx.execute(
                     "INSERT OR IGNORE INTO cases (id, track, case_name, client_name, opponent_name, created_at, updated_at)
                      VALUES (?1, 'civil_tort', ?2, ?3, ?4, datetime('now', 'localtime'), datetime('now', 'localtime'))",
                     rusqlite::params![
@@ -1270,8 +1270,8 @@ pub fn import_feishu_dump(
                         fields["客户名称"].as_str().unwrap_or(""),
                         fields["对方名称"].as_str().unwrap_or("")
                     ],
-                );
-                report.cases += 1;
+                )?;
+                report.cases += inserted;
             }
         }
     }

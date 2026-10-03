@@ -42,6 +42,11 @@ async fn reviewed_capture_is_atomic_retryable_and_preserves_sources() {
     conn.execute_batch("DROP TRIGGER qa_fail_receipt").unwrap();
     let first = confirm("task", "create_task", task.clone()).await.unwrap();
     assert_eq!(confirm("task", "create_task", task).await.unwrap(), first);
+    assert!(inbox::process_inbox_item("task".into()).await.is_err());
+    conn.execute("UPDATE inbox_items SET status='pending' WHERE id='task'", []).unwrap();
+    assert_eq!(confirm("task", "create_task", json!({})).await.unwrap(), first);
+    assert_eq!(conn.query_row("SELECT status FROM inbox_items WHERE id='task'", [], |r|r.get::<_,String>(0)).unwrap(), "filed");
+    assert_eq!(conn.query_row("SELECT count(*) FROM tasks WHERE inbox_source_id='task'", [], |r|r.get::<_,i64>(0)).unwrap(), 1);
     let task_id = first["task"]["id"].as_str().unwrap();
     let actual: (String,String,String,String,i64) = conn.query_row("SELECT inbox_source_id,due_time,description,waiting_for,estimated_minutes FROM tasks WHERE id=?1", [task_id], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).unwrap();
     assert_eq!(actual, ("task".into(),"15:37".into(),"完整原始正文".into(),"合成客户".into(),20));

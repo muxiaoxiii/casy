@@ -69,7 +69,7 @@ fn build_active_cases_context() -> String {
         Err(_) => return "查询案件失败".to_string(),
     };
 
-    let cases: Vec<String> = stmt
+    let cases = stmt
         .query_map([], |row| {
             let id: String = row.get(0)?;
             let name: String = row.get(1)?;
@@ -95,9 +95,11 @@ fn build_active_cases_context() -> String {
                 track_label
             ))
         })
-        .ok()
-        .map(|iter| iter.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default();
+        .and_then(|rows| rows.collect::<rusqlite::Result<Vec<String>>>());
+    let cases = match cases {
+        Ok(cases) => cases,
+        Err(error) => return format!("案件数据读取失败，不能据此判断无案件：{error}"),
+    };
 
     if cases.is_empty() {
         "暂无活跃案件".to_string()

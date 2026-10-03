@@ -8,7 +8,7 @@ import { todayLocalISO } from '../../../shared/utils/date'
 import CaseFilesPanel from '../components/CaseFilesPanel.vue'
 import CasePersonsPanel from '../../persons/components/CasePersonsPanel.vue'
 import WhiteboardEntry from '../../whiteboard/components/WhiteboardEntry.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Edit, Calendar, Finished, Document,
   Folder, Collection, Clock, Warning, Check,
@@ -98,7 +98,7 @@ const caseTypeLabel = computed(() => {
     exploratory: '探索型',
     growth: '成长型',
   }
-  return types[caseData.value?.caseType] || '探索型'
+  return types[typeMetrics.value?.caseType] || '待评估'
 })
 
 const trackBadges = computed(() => {
@@ -208,7 +208,7 @@ const sequentialCompletionRate = computed(() => {
 const typeMetrics = ref(null)
 
 const metricsCaseType = computed(() => {
-  const t = typeMetrics.value?.caseType || typeMetrics.value?.case_type || caseData.value?.caseType || 'generic'
+  const t = typeMetrics.value?.caseType || 'generic'
   return ['computational', 'exploratory', 'growth'].includes(t) ? t : 'generic'
 })
 
@@ -317,19 +317,13 @@ async function loadKnowledge() {
   const id = caseId.value; const request = detailLoad
   knowledge.value = []
   if (!caseData.value || caseData.value.id !== id) return
-  const searchTerms = [
-    caseData.value.caseName,
-    caseData.value.caseType,
-    caseData.value.clientName,
-  ].filter(Boolean).join(' ')
+  const searchTerms = [...new Set([caseData.value.caseName, caseData.value.clientName].filter(Boolean))]
+  const results = await Promise.all(searchTerms.map(term => casyContext.knowledge.search(term)))
+  if (id !== caseId.value || request !== detailLoad) return
+  const failed = results.find(result => !result.ok)
+  if (failed) { ElMessage.error(failed.error || '关联知识读取失败'); return }
+  knowledge.value = [...new Map(results.flatMap(result => result.data || []).map(item => [item.id, item])).values()]
 
-  if (searchTerms) {
-    const result = await casyContext.knowledge.search(searchTerms)
-    if (id !== caseId.value || request !== detailLoad) return
-    if (result.ok && result.data) {
-      knowledge.value = result.data
-    }
-  }
 }
 
 async function loadFiles() {
@@ -355,7 +349,7 @@ async function saveGoal() {
     caseData.value.caseGoal = goal
     editingGoal.value = false
     ElMessage.success('案件目标已保存')
-  }
+  } else ElMessage.error(result.error || '案件目标保存失败')
 }
 
 // 庭审 CRUD 操作
@@ -456,6 +450,8 @@ async function saveHearing() {
 }
 
 async function deleteHearing(h) {
+  try { await ElMessageBox.confirm('删除这条庭审记录？此操作不能撤销。', '确认删除', { type: 'warning' }) }
+  catch { return }
   const res = await casyContext.cases.deleteHearing(h.id)
   if (res.ok) {
     ElMessage.success('庭审记录已删除')
@@ -485,7 +481,7 @@ async function toggleTaskComplete(task) {
       await unlockNextTask(task)
     }
     await loadTasks()
-  }
+  } else ElMessage.error(result.error || '更新任务失败')
 }
 
 async function unlockNextTask(completedTask) {
@@ -956,6 +952,7 @@ onUnmounted(() => {
                 <td>
                   <div class="row-ops">
                     <button class="btn-text" @click="openEditHearing(h)">编辑</button>
+                    <button class="btn-text" @click="deleteHearing(h)">删除</button>
                     <button class="btn-text" @click="activeTab='tracks'">收转文与修订记录</button>
                   </div>
                 </td>

@@ -55,8 +55,10 @@ impl Visual {
             _ => "图片原图",
         };
         let mut html = format!(
-            "<figure><img alt=\"{label}\" src=\"data:image/png;base64,{}\"><figcaption>{label}</figcaption></figure>",
-            STANDARD.encode(&self.png)
+            "<figure><img alt=\"{label}\" width=\"{}\" height=\"{}\" src=\"data:image/png;base64,{}\"><figcaption>{label}</figcaption></figure>",
+            (self.bbox[2] - self.bbox[0]) as u32,
+            (self.bbox[3] - self.bbox[1]) as u32,
+            STANDARD.encode(&self.png),
         );
         if !indices.is_empty() {
             html.push_str(

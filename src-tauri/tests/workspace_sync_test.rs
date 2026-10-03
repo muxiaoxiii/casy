@@ -73,6 +73,11 @@ async fn local_folder_lifecycle_preserves_originals_ids_notes_and_opt_in() {
         .as_str()
         .unwrap()
         .contains("Patent Evidence"));
+    conn.execute("INSERT INTO document_processing_jobs(id,file_id,source_sha256,status) SELECT 'failed-retry',file_id,source_sha256,'failed' FROM document_processing_jobs WHERE file_id=?1 AND status='completed' LIMIT 1", [&id]).unwrap();
+    assert_eq!(workspace_sync::get_workspace_document(id.clone()).await.unwrap()["markdown"], preview["markdown"]);
+    let sources = workspace_sync::list_workspace_sources(vec!["sync-case".into()]).await.unwrap();
+    assert_eq!(sources.iter().find(|s|s["fileId"]==id).unwrap()["status"], "completed");
+    conn.execute("DELETE FROM document_processing_jobs WHERE id='failed-retry'", []).unwrap();
     let second = root.join("renamed.md");
     std::fs::rename(&original, &second).unwrap();
     sync.tick().unwrap();

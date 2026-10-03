@@ -7,6 +7,8 @@ use std::process::Stdio;
 use DocumentPage as Page;
 #[path = "../../tools/casy-doc-engine/src/source_map.rs"]
 pub(crate) mod source_map;
+#[path = "../../tools/casy-doc-engine/src/assets.rs"]
+pub(crate) mod assets;
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -540,6 +542,12 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
                 }
             }
         }
+    }
+    if root.join(assets::MANIFEST).exists() {
+        let manifest = assets::load(&root)?;
+        for page in &result.pages { assets::validate_references(&page.markdown,&root,&manifest)?; }
+    } else {
+        anyhow::ensure!(!result.pages.iter().any(|page|page.markdown.contains("src=\"assets/")), "INVALID_ASSET: missing manifest");
     }
     validate_disk_pages(Path::new(&result.page_ir_path), &result.pages)?;
     let mut expected_md = Sha256::new();

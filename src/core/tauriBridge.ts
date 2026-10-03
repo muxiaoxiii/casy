@@ -18,7 +18,7 @@ export async function invokeWithDeadline<T>(command: string, args: Record<string
   // Conversion duration depends on page count. The backend owns progress and stall
   // detection; abandoning its promise would report failure and start the next job
   // while this one still writes output in the background.
-  const backendOwnsCompletion = command === 'convert_file_to_markdown' || /^(create_backup|restore_backup|export_|import_|webdav_(push|pull|resolve_|backup_full|restore_full)|feishu_(sync_|import_)|sync_feishu_)/.test(command)
+  const backendOwnsCompletion = ['convert_file_to_markdown', 'optimize_document_storage', 'rollback_document_storage', 'correct_document_region'].includes(command) || /^(create_backup|restore_backup|export_|import_|webdav_(push|pull|resolve_|backup_full|restore_full)|feishu_(sync_|import_)|sync_feishu_)/.test(command)
   if (backendOwnsCompletion && timeoutMs === undefined) return invoke<T>(command, args)
   const limit=timeoutMs ?? (/export|import|backup|sync|ai_chat|preview_editor|transcrib|convert/.test(command)?180000:60000)
   let timer:ReturnType<typeof setTimeout>|undefined
@@ -63,7 +63,7 @@ export async function tauriCallSafe<K extends keyof CommandMap & string>(
     }
     // 没有 mock 的命令：静默返回失败（避免刷错误）
     console.warn(`[Mock] 未提供命令 ${command} 的模拟数据`)
-    return { ok: false, error: 'browser-mode: no mock' }
+    return { ok: false, error: '浏览器预览未提供此功能的模拟数据，请在 Casy 桌面应用中使用。' }
   }
 
   try {

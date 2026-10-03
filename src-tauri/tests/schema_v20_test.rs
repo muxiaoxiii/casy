@@ -38,7 +38,7 @@ fn v20_is_current_and_migrates_clean() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    // 版本号随迁移演进，与 CURRENT_SCHEMA_VERSION 保持一致即可（上文已断言）
+    assert_eq!(version, casy_lib::db::schema::CURRENT_SCHEMA_VERSION);
 
     // 新表全部存在
     for t in [
@@ -63,10 +63,10 @@ fn v20_migration_is_idempotent() {
     let conn = migrated_db();
     // 二次执行不报错、版本不变
     run_migrations(&conn, 0).unwrap();
-    let _version: i64 = conn
+    let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    // 版本号随迁移演进，与 CURRENT_SCHEMA_VERSION 保持一致即可（上文已断言）
+    assert_eq!(version, casy_lib::db::schema::CURRENT_SCHEMA_VERSION);
 }
 
 #[test]

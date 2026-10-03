@@ -5,6 +5,8 @@ import { Warning, Close, RefreshRight } from '../icons'
 const props = defineProps({
   /** 降级原因 */
   reason: { type: String, default: '' },
+  title: { type: String, default: 'AI 功能降级' },
+  dismissible: { type: Boolean, default: true },
   /** 替代方案描述 */
   alternative: { type: String, default: '' },
   /** 功能名称（用于 localStorage key） */
@@ -33,7 +35,7 @@ function checkDismissed() {
   }
 }
 
-checkDismissed()
+if (props.dismissible) checkDismissed()
 
 function handleClose() {
   visible.value = false
@@ -48,13 +50,13 @@ function handleRetry() {
 
 <template>
   <Transition name="banner-slide">
-    <div v-if="visible" class="degraded-banner">
+    <div v-if="visible" class="degraded-banner" role="alert">
       <div class="banner-icon">
         <el-icon :size="16"><Warning /></el-icon>
       </div>
 
       <div class="banner-body">
-        <span class="banner-title">AI 功能降级</span>
+        <span class="banner-title">{{ title }}</span>
         <span v-if="reason" class="banner-reason">{{ reason }}</span>
         <span v-if="alternative" class="banner-alt">
           当前使用：{{ alternative }}
@@ -73,8 +75,10 @@ function handleRetry() {
           重试
         </el-button>
         <el-button
+          v-if="dismissible"
           size="small"
           text
+          aria-label="关闭提示"
           @click="handleClose"
           :icon="Close"
         />
@@ -89,15 +93,15 @@ function handleRetry() {
   align-items: flex-start;
   gap: 10px;
   padding: 10px 16px;
-  background: #FEF3C7;
-  border-left: 3px solid #F59E0B;
+  background: var(--c-warning-light);
+  border-left: 3px solid var(--c-warning);
   border-radius: 0 6px 6px 0;
   margin-bottom: 12px;
 }
 
 .banner-icon {
   flex-shrink: 0;
-  color: #D97706;
+  color: var(--c-warning-dark);
   margin-top: 1px;
 }
 
@@ -112,7 +116,7 @@ function handleRetry() {
 .banner-title {
   font-size: 13px;
   font-weight: 600;
-  color: #92400E;
+  color: var(--c-text);
 }
 
 .banner-reason {

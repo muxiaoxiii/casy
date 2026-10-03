@@ -284,7 +284,7 @@ const todayCommitments = computed(() => {
     caseName: resolveCaseName(t),
     category: t.category || (t.caseId ? '案件' : '个人'),
     overdue: t.dueDate && t.dueDate < today,
-    completed: t.status === 'completed' || t.status === 'done',
+    completed: Boolean(t.completed),
     task: t,
   }))
 })
@@ -292,7 +292,10 @@ const todayCommitments = computed(() => {
 async function toggleCommitment(item) {
   if (pendingCompletions.value.has(item.id)) return
   pendingCompletions.value.add(item.id)
-  try { await tasksStore.toggleTask(item.id) }
+  try {
+    const result = await tasksStore.toggleTask(item.id)
+    if (!result.ok) ElMessage.error(result.error || '更新任务失败')
+  }
   finally { pendingCompletions.value.delete(item.id) }
 }
 const pendingCompletions = ref(new Set())

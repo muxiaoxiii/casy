@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 mod source_map;
+mod assets;
 #[cfg(feature = "models")]
 mod layout;
 #[cfg(feature = "models")]
@@ -368,6 +369,7 @@ fn recognize(
     total: u32,
     direct_image: bool,
     pipeline_started: &std::time::Instant,
+    assets_manifest: &mut assets::Manifest,
 ) -> Result<Vec<Page>> {
     use oar_ocr::prelude::*;
     let mut pdf_doc = if !direct_image { Document::from_file(source).ok() } else { None };
@@ -520,6 +522,8 @@ fn recognize(
             blocks = layout::describe_blocks(&regions, elements);
         }
         let markdown = table::markdown_with_layout(&regions, &mut tables, unresolved_tables, &visuals, &blocks);
+        // Do not retain every page's base64 crops while recognizing the rest of a dossier.
+        let markdown = assets::externalize(&markdown, Path::new(&request.output_dir), assets_manifest)?;
         let visual_metadata: Vec<_> = visuals.iter().map(|v| serde_json::json!({"kind":v.kind,"bbox":v.bbox,"representation":"source-image","semanticExtraction":false})).collect();
         let table_metadata = tables.iter().map(serde_json::to_value).collect::<serde_json::Result<Vec<_>>>()?;
         let page_layout = layout_elements.as_ref().map(|_| PageLayout {
@@ -867,13 +871,14 @@ fn recognize(
     _total: u32,
     _direct_image: bool,
     _pipeline_started: &std::time::Instant,
+    _assets_manifest: &mut assets::Manifest,
 ) -> Result<Vec<Page>> {
     Err(anyhow!(
         "MODEL_RUNTIME_MISSING: 请用 --features models 构建文档引擎；未验证的 PDF 文本层不能代替 OCR"
     ))
 }
 
-fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Page]) -> Result<()> {
+fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Page], mut progress: impl FnMut(u32) -> Result<()>) -> Result<()> {
     // Rebuild only the derived PDF from visible pixels. Keeping the old hidden
     // layer would preserve forged text in external viewers even after correct OCR.
     let mut original = Document::from_file(source)?;
@@ -907,6 +912,7 @@ fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Pag
             })
             .collect();
         doc.page(page.page_number)?.add_invisible_text_runs(&runs)?;
+        progress(page.page_number)?;
     }
     doc.save(output)?;
     Ok(())
@@ -945,10 +951,15 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
     }
     write_progress(request, "preparing", 0, total, &pipeline_started, None)?;
     let is_correction = corrected.is_some();
-    let pages = if let Some(pages) = corrected {
+    let mut assets_manifest = if is_correction && output_dir.join(assets::MANIFEST).exists() {
+        assets::load(output_dir)?
+    } else {
+        assets::Manifest::default()
+    };
+    let mut pages = if let Some(pages) = corrected {
         anyhow::ensure!(pages.len() == total as usize && pages.iter().enumerate().all(|(i,p)|p.page_number as usize == i+1), "CORRECTION_PAGES_INVALID");
         pages
-    } else { recognize(request, pdf_source, temp.path(), total, direct_image, &pipeline_started)? };
+    } else { recognize(request, pdf_source, temp.path(), total, direct_image, &pipeline_started, &mut assets_manifest)? };
     write_progress(request, "finalizing", total, total, &pipeline_started, pages.last().and_then(|page| page.timing.as_ref()))?;
     let pdf = output_dir.join("source.searchable.pdf");
     let ir = output_dir.join("source.document.json");
@@ -959,8 +970,15 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
             .cjk_font_path
             .as_deref()
             .ok_or_else(|| anyhow!("FONT_MISSING: CASY_OCR_FONT 未配置"))?;
-        add_search_layer(pdf_source, &pdf, Path::new(font), &pages)?;
+        add_search_layer(pdf_source, &pdf, Path::new(font), &pages, |page| {
+            write_progress(request, &format!("finalizing:{page}"), total, total, &pipeline_started, None)
+        })?;
     }
+    for page in &mut pages {
+        page.markdown = assets::externalize(&page.markdown, output_dir, &mut assets_manifest)?;
+        assets::validate_references(&page.markdown, output_dir, &assets_manifest)?;
+    }
+    assets::save(output_dir, &assets_manifest)?;
     write_json_file(&ir, &pages)?;
     let source_map = source_map::write_to(&pages, &before, std::io::BufWriter::new(std::fs::File::create(&md)?))?;
     write_json_file(&map_path, &source_map)?;
@@ -1135,7 +1153,7 @@ mod tests {
             timing: None,
             native_text: false,
         };
-        add_search_layer(&source, &output, font, &[page]).unwrap();
+        add_search_layer(&source, &output, font, &[page], |_| Ok(())).unwrap();
         let extracted = pdf_extract::extract_text(&output).unwrap();
         assert!(extracted.contains("128000"));
         assert!(!extracted.contains("999999"));
@@ -1517,7 +1535,7 @@ mod tests {
             timing: None,
             native_text: false,
         }];
-        add_search_layer(&source, &output, font, &pages).unwrap();
+        add_search_layer(&source, &output, font, &pages, |_| Ok(())).unwrap();
         assert_ne!(source, output);
         assert_eq!(before, sha256_file(&source).unwrap());
         assert!(

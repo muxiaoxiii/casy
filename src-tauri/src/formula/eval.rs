@@ -228,7 +228,8 @@ impl FormulaEvaluator {
             return Ok(Value::Null);
         };
 
-        let result = add_months_clamp(date, months as u32);
+        anyhow::ensure!(months.is_finite() && months.abs() <= 120_000.0, "EDATE month offset out of range");
+        let result = add_months_clamp(date, months.trunc() as i32)?;
         Ok(Value::Date(result))
     }
 
@@ -402,23 +403,10 @@ fn values_less(left: &Value, right: &Value) -> bool {
 
 // ── Date helpers ──────────────────────────────────────────────
 
-fn add_months_clamp(date: NaiveDate, months: u32) -> NaiveDate {
-    use chrono::Datelike;
-    let total = date.month() + months;
-    let year = date.year() + ((total - 1) / 12) as i32;
-    let month = ((total - 1) % 12) + 1;
-    let max_day = days_in_month(year, month);
-    NaiveDate::from_ymd_opt(year, month, date.day().min(max_day)).unwrap_or(date)
-}
-
-fn days_in_month(year: i32, month: u32) -> u32 {
-    if month == 12 {
-        31
-    } else {
-        let next = NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap();
-        let curr = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
-        (next - curr).num_days() as u32
-    }
+fn add_months_clamp(date: NaiveDate, months: i32) -> Result<NaiveDate> {
+    let count = chrono::Months::new(months.unsigned_abs());
+    let result = if months < 0 { date.checked_sub_months(count) } else { date.checked_add_months(count) };
+    result.ok_or_else(|| anyhow::anyhow!("EDATE date out of range"))
 }
 
 #[cfg(test)]
@@ -511,6 +499,12 @@ mod tests {
             v,
             Value::Date(NaiveDate::from_ymd_opt(2026, 2, 15).unwrap())
         );
+    }
+
+    #[test]
+    fn edate_negative_months_cross_year_and_clamp_leap_day() {
+        assert_eq!(add_months_clamp(NaiveDate::from_ymd_opt(2024,3,31).unwrap(), -1).unwrap(), NaiveDate::from_ymd_opt(2024,2,29).unwrap());
+        assert_eq!(add_months_clamp(NaiveDate::from_ymd_opt(2026,1,31).unwrap(), -1).unwrap(), NaiveDate::from_ymd_opt(2025,12,31).unwrap());
     }
 
     #[test]

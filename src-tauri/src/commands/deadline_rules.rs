@@ -138,6 +138,15 @@ pub async fn upsert_deadline_rule(
         if !valid_units.contains(&offset_unit.as_str()) {
             return Err(anyhow::anyhow!("无效的偏移单位: {offset_unit}"));
         }
+        anyhow::ensure!(!rule_name.trim().is_empty(), "规则名称不能为空");
+        let maximum = if offset_unit == "calendar_month" { 120 } else { 3650 };
+        anyhow::ensure!((1..=maximum).contains(&offset_value), "期限偏移必须为 1 至 {maximum}");
+        anyhow::ensure!(matches!(calc_method.as_str(), "civil" | "patent"), "无效的计算方式");
+        anyhow::ensure!(matches!(trigger_field.as_str(),
+            "filing_date" | "complaint_received_date" | "trial_date" | "trial2_date" |
+            "trial3_date" | "verdict_date" | "stay_date" | "relief_deadline" |
+            "petitioner_first_invalid" | "petitioner_submit_date" | "petitioner_received_date" |
+            "patentee_received_date" | "patentee_received_supp_date"), "无效的触发日期字段");
         match &id {
             Some(rid) => {
                 let before =
