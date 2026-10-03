@@ -291,7 +291,11 @@ pub(crate) fn open_db_encrypted() -> Result<Connection> {
 
     if IS_TEST_MODE.load(Ordering::SeqCst) || std::env::var("TEST_ENV").is_ok() {
         let conn = Connection::open(&path)?;
+        // 与生产连接同配置：缺 busy_timeout 会让并发写入立即报
+        // "database is locked" 而不是等待，掩盖真实竞态又制造假失败。
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        conn.execute_batch("PRAGMA busy_timeout=5000;")?;
         return Ok(conn);
     }
 
