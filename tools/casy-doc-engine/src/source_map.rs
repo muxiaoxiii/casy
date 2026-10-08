@@ -69,17 +69,37 @@ impl<W: std::io::Write> MarkdownWriter<W> {
     fn len(&self) -> usize { self.length }
 }
 
-pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write) -> std::io::Result<SourceMap> {
-    let mut markdown = MarkdownWriter { writer, length: 0, hash: Sha256::new() };
-    let mut text = String::new();
-    let mut text_spans = Vec::new();
-    let mut markdown_spans = Vec::new();
-    for (i, p) in pages.iter().enumerate() {
-        if i > 0 {
-            markdown.push_str("\n\n---\n\n")?;
-            text.push('\n');
+/// 流式来源映射构建器（R-02）：逐页 append，调用方无需持有整份页面集合。
+pub struct SourceMapBuilder<W: std::io::Write> {
+    markdown: MarkdownWriter<W>,
+    text: String,
+    text_spans: Vec<Span>,
+    markdown_spans: Vec<Span>,
+    source_sha256: String,
+    pages: usize,
+}
+
+impl<W: std::io::Write> SourceMapBuilder<W> {
+    pub fn new(source_sha256: &str, writer: W) -> Self {
+        Self {
+            markdown: MarkdownWriter { writer, length: 0, hash: Sha256::new() },
+            text: String::new(),
+            text_spans: Vec::new(),
+            markdown_spans: Vec::new(),
+            source_sha256: source_sha256.to_string(),
+            pages: 0,
         }
-        markdown.push_str(&format!("<!-- page {} -->\n", p.page_number))?;
+    }
+
+    pub fn append_page(&mut self, p: &Page) -> std::io::Result<()> {
+        {
+            let markdown = &mut self.markdown;
+            let text = &mut self.text;
+            if self.pages > 0 {
+                markdown.push_str("\n\n---\n\n")?;
+                text.push('\n');
+            }
+            markdown.push_str(&format!("<!-- page {} -->\n", p.page_number))?;
         let start = markdown.len();
         markdown.push_str(&p.markdown)?;
         let region_text = p
@@ -91,7 +111,7 @@ pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write
         if !p.regions.is_empty() && p.markdown == region_text {
             let mut offset = start;
             for (index, r) in p.regions.iter().enumerate() {
-                markdown_spans.push(span(
+                self.markdown_spans.push(span(
                     p,
                     offset,
                     offset + r.text.len(),
@@ -119,15 +139,15 @@ pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write
             }
             if tagged_spans.len() == p.regions.len() && !tagged_spans.is_empty() {
                 tagged_spans.sort_by_key(|s| s.start);
-                markdown_spans.extend(tagged_spans);
+                self.markdown_spans.extend(tagged_spans);
             } else {
-                markdown_spans.push(span(p, start, markdown.len(), None, None));
+                self.markdown_spans.push(span(p, start, markdown.len(), None, None));
             }
         }
         if p.regions.is_empty() {
             let start = text.len();
             text.push_str(&p.plain_text);
-            text_spans.push(span(p, start, text.len(), None, None));
+            self.text_spans.push(span(p, start, text.len(), None, None));
         } else {
             for (index, r) in p.regions.iter().enumerate() {
                 if index > 0 {
@@ -135,22 +155,37 @@ pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write
                 }
                 let start = text.len();
                 text.push_str(&r.text);
-                text_spans.push(span(p, start, text.len(), Some(index), Some(r.bbox)));
+                self.text_spans.push(span(p, start, text.len(), Some(index), Some(r.bbox)));
             }
         }
+        self.pages += 1;
+        }
+        Ok(())
     }
-    let map = SourceMap {
-        version: 1,
-        offset_unit: "utf8-bytes".into(),
-        source_sha256: source_sha256.into(),
-        markdown_sha256: hex::encode(markdown.hash.finalize()),
-        text_sha256: hex::encode(Sha256::digest(text.as_bytes())),
-        text,
-        text_spans,
-        markdown_spans,
-    };
-    markdown.writer.flush()?;
-    Ok(map)
+
+    pub fn finish(self) -> std::io::Result<SourceMap> {
+        let mut markdown = self.markdown;
+        let map = SourceMap {
+            version: 1,
+            offset_unit: "utf8-bytes".into(),
+            source_sha256: self.source_sha256,
+            markdown_sha256: hex::encode(markdown.hash.finalize()),
+            text_sha256: hex::encode(Sha256::digest(self.text.as_bytes())),
+            text: self.text,
+            text_spans: self.text_spans,
+            markdown_spans: self.markdown_spans,
+        };
+        markdown.writer.flush()?;
+        Ok(map)
+    }
+}
+
+pub fn write_to(pages: &[Page], source_sha256: &str, writer: impl std::io::Write) -> std::io::Result<SourceMap> {
+    let mut builder = SourceMapBuilder::new(source_sha256, writer);
+    for p in pages.iter() {
+        builder.append_page(p)?;
+    }
+    builder.finish()
 }
 
 #[cfg(test)]

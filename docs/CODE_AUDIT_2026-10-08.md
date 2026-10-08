@@ -278,3 +278,22 @@
 | P2 N1–N10 | ProcessingCenter finalizing 前缀；manifest 原子写；校订拷图跳过已存在；知识产物目录随删除清理；回退带最新 job 错误；重复邮件推进水位；ProposalDiffCard void 陷阱；HomeView/CaseFilesView/InboxView 新缺陷 | 对应模块 |
 
 **未纳入本轮（明确遗留）**：bunny 10 的组件层/断点/四态/视觉升级（多周工程，需先完成上述接通）；R-02 有界内存与 R-06 断点续跑（架构项）；真实外部服务联调、100/500 页压力、Windows 原生与公证验收（验收边界不变）。
+
+---
+
+## 2026-10-08 UI/UX 升级与 R-02/R-06 处置记录
+
+**UI/UX（bunny 10 第 1–4 步，提交 `05bc426`）**：组件层落成（`src/shared/ui/` 9 原语 + `ui-utils.css` 全局工具类，重复签名 120→56 组）；断点收敛为 900/1100/1360 三档（38 条 <800 死规则删除）；四态落地（主工作面全部失败路径接 DegradedBanner/el-alert + 重试，内联空态替换为 EmptyState 并区分“空/无结果”，三处首屏骨架屏）；期限视觉通道（`deadline-channel.css` + `DeadlineChip`，R1–R4 + △待核对覆盖级别）、危险动作分级（`.btn-danger`）、列表键盘流（`useListNavigation`，j/k/Enter/Esc）、密度 token。门禁：typecheck 干净、vitest 377/87。
+
+**R-02 有界内存（本轮）**：
+- 引擎结果不再携带页面集合：`ProcessResult.pages` → `page_count`，页面只落盘（`source.document.json`），stdout 只回传路径与摘要。
+- 父进程 `stream_disk_pages` 以 SeqAccess 逐页流式读取；`validate_result` 的逐页校验、资产校验、Markdown 哈希、来源映射比对全部改为流式（`SourceMapBuilder` 逐页 append）；`background_jobs::persist_success` 逐页流式落库；`conversion.rs` 页数取摘要。同数据 3–4 份驻留消除为“内存中只有一页 + 来源映射累计文本”。
+- `workspace_sync::get_workspace_document` 的 `regions_json` 增加 32 MiB 总预算，超预算页只保留纯文本（续篇检测降级并记日志）。
+- 残留（未纳入本轮）：引擎识别阶段仍累积 `Vec<Page>` 至 finalize；可搜索 PDF 的 lopdf 整份载入；来源映射 `text` 全量驻留。三者需引擎逐页识别落盘 + PDF 流式写才能彻底消除，列入后续架构项。
+
+**R-06 长任务恢复与结果查询（本轮）**：
+- schema v45 新增 `document_job_results`（job_id 主键，file_id+source_sha256 索引）：完整产物清单（页 IR/Markdown/可搜索 PDF/来源映射路径）+ 页数 + 引擎 + markdown 哈希，与任务完成同事务落库。
+- 新命令 `get_document_job_result(job_id)`：窗口断开、重启后均可查询持久化结果；commandMap/service 契约已更新，bindings 重新生成。
+- 幂等重试：`retry_document_job` 对失败/已取消任务，若同一文件同一哈希已有完成结果则直接复用（返回 `reused:true`），不重跑；处理中心与案件文件页按复用给出不同提示。显式重跑已完成任务仍会重新识别。
+- 崩溃恢复：启动时（产物回收扫描之前）对 `INTERRUPTED` 任务尝试用已落盘产物直接完成——校验源文件哈希、流式读完页 IR 后重建结果并落库，不重跑 OCR；每次启动最多 20 个。
+- 磁盘满：`persist_failure` 既有错误码透传保持不变；结果清单与任务完成同事务，不会出现“任务完成但无结果记录”的半状态。

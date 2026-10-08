@@ -174,7 +174,8 @@ async function retryDocument(file) {
   }
   const result = await tauriCallSafe('retry_document_job', { jobId: job.id })
   if (!result.ok) ElMessage.error(result.error || '重试失败')
-  else ElMessage.success('已重新加入处理队列')
+  // R-06：已有完成结果（同文件同内容）时后端复用，不重跑
+  else ElMessage.success(result.data?.reused ? '已存在完成的处理结果，已复用' : '已重新加入处理队列')
   await loadDocumentJobs()
   await loadOcrStates()
 }

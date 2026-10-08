@@ -51,6 +51,14 @@ fn map_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentJobDto> {
         updated_at: row.get(19)?,
     })
 }
+/// R-06：重试结果。reused=true 表示同一文件同一哈希已有完成结果，直接复用而未重跑。
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryJobOutcome {
+    pub reused: bool,
+    pub job_id: String,
+}
+
 const JOB_COLUMNS:&str="id,file_id,source_sha256,status,engine,model_version,current_page,total_pages,progress,phase,elapsed_ms/1000.0,remaining_ms/1000.0,timing_json,searchable_pdf_path,page_ir_path,markdown_path,error_code,error_message,created_at,updated_at";
 
 #[tauri::command]
@@ -149,11 +157,37 @@ pub async fn list_case_document_jobs(case_id: String) -> Result<Vec<DocumentJobD
 }
 
 #[tauri::command]
-pub async fn retry_document_job(job_id: String) -> Result<(), String> {
+pub async fn retry_document_job(job_id: String) -> Result<RetryJobOutcome, String> {
     run_blocking(move || retry_job(&mut *db::open_db()?, &job_id)).await
 }
 
-pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow::Result<()> {
+/// R-06：查询已持久化的任务结果（产物清单 + 摘要）。窗口断开、重启后均可查询。
+#[tauri::command]
+pub async fn get_document_job_result(job_id: String) -> Result<Option<serde_json::Value>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let row = conn.query_row(
+            "SELECT job_id,file_id,source_sha256,page_count,engine,model_version,outputs_json,markdown_sha256,created_at
+             FROM document_job_results WHERE job_id=?1",
+            [&job_id],
+            |r| Ok(serde_json::json!({
+                "jobId": r.get::<_,String>(0)?,
+                "fileId": r.get::<_,String>(1)?,
+                "sourceSha256": r.get::<_,String>(2)?,
+                "pageCount": r.get::<_,i64>(3)?,
+                "engine": r.get::<_,Option<String>>(4)?,
+                "modelVersion": r.get::<_,Option<String>>(5)?,
+                "outputs": serde_json::from_str::<serde_json::Value>(&r.get::<_,String>(6)?).unwrap_or(serde_json::Value::Null),
+                "markdownSha256": r.get::<_,Option<String>>(7)?,
+                "createdAt": r.get::<_,String>(8)?,
+            })),
+        ).optional()?;
+        Ok(row)
+    })
+    .await
+}
+
+pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow::Result<RetryJobOutcome> {
     let (path, expected): (String, String) = conn.query_row(
         "SELECT f.file_path,j.source_sha256 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.id=?1 AND f.deleted_at IS NULL",
         [job_id], |row| Ok((row.get(0)?,row.get(1)?)),
@@ -161,26 +195,47 @@ pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow
     if document_pipeline::sha256_file(std::path::Path::new(&path))? != expected {
         anyhow::bail!("SOURCE_CHANGED: 文件已变化，请创建新处理任务");
     }
+    // R-06 幂等：重试一个失败/已取消任务时，若同一文件同一哈希已有完成结果且产物仍在，直接复用。
+    let reusable: Option<String> = conn.query_row(
+        "SELECT r.job_id FROM document_job_results r
+         WHERE r.file_id=(SELECT file_id FROM document_processing_jobs WHERE id=?1)
+           AND r.source_sha256=?2
+           AND EXISTS(SELECT 1 FROM document_processing_jobs j WHERE j.id=r.job_id AND j.status='completed')
+         ORDER BY r.created_at DESC LIMIT 1",
+        rusqlite::params![job_id, expected],
+        |r| r.get(0),
+    ).optional()?;
+    if let Some(existing) = reusable {
+        let artifacts_intact = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM document_job_results r WHERE r.job_id=?1)",
+            [&existing],
+            |r| r.get::<_,bool>(0),
+        ).optional()?.unwrap_or(false);
+        if artifacts_intact {
+            return Ok(RetryJobOutcome { reused: true, job_id: existing });
+        }
+    }
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // A retry gets its own identity so a cancelled process cannot publish into it.
     let live: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE j.id=?1 AND f.file_path=?2 AND f.deleted_at IS NULL)",rusqlite::params![job_id,path],|r|r.get(0))?;
     if !live {
         anyhow::bail!("文件已移动或移除，请刷新后重试");
     }
+    let new_job_id = db::new_id();
     let changed = tx.execute(
         "INSERT INTO document_processing_jobs(id,file_id,source_sha256)
          SELECT ?2,file_id,source_sha256 FROM document_processing_jobs
          WHERE id=?1 AND status IN ('failed','cancelled','completed') AND NOT EXISTS
          (SELECT 1 FROM document_processing_jobs newer WHERE newer.file_id=document_processing_jobs.file_id
           AND (newer.rowid>document_processing_jobs.rowid OR newer.status IN ('queued','running')))",
-        rusqlite::params![job_id,db::new_id()],
+        rusqlite::params![job_id,new_job_id],
     )?;
     if changed != 1 {
         anyhow::bail!("仅可重新处理最新的已完成、失败或已取消任务；不能重复启动正在处理的文件");
     }
     tx.execute("UPDATE case_files SET ocr_status='pending',index_status='pending',ocr_error=NULL WHERE id=(SELECT file_id FROM document_processing_jobs WHERE id=?1)", [job_id])?;
     tx.commit()?;
-    Ok(())
+    Ok(RetryJobOutcome { reused: false, job_id: new_job_id })
 }
 
 #[tauri::command]

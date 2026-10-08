@@ -102,6 +102,8 @@ struct Page {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// R-02：结果只回传路径与摘要。页面集合已逐页落盘（page_ir_path），
+/// 不再通过 stdout 物化——父进程按需流式读取，内存不随页数线性累积。
 struct ProcessResult {
     source_sha256: String,
     engine: String,
@@ -110,7 +112,7 @@ struct ProcessResult {
     page_ir_path: String,
     markdown_path: String,
     source_map_path: String,
-    pages: Vec<Page>,
+    page_count: u32,
     elapsed_ms: u64,
 }
 
@@ -1035,7 +1037,7 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
         page_ir_path: ir.display().to_string(),
         markdown_path: md.display().to_string(),
         source_map_path: map_path.display().to_string(),
-        pages,
+        page_count: pages.len() as u32,
         elapsed_ms,
     })
 }
@@ -1420,15 +1422,19 @@ mod tests {
             serde_json::to_vec_pretty(&result).unwrap(),
         )
         .unwrap();
+        // R-02：页面集合只落盘；测试从页 IR 读回
+        let pages: Vec<Page> =
+            serde_json::from_reader(std::fs::File::open(&result.page_ir_path).unwrap()).unwrap();
         eprintln!(
             "OCR elapsed: {:.2}s; pages: {}",
             started.elapsed().as_secs_f64(),
-            result.pages.len()
+            pages.len()
         );
-        assert_eq!(result.pages.len(), 2);
+        assert_eq!(pages.len(), 2);
+        assert_eq!(result.page_count as usize, pages.len());
         assert_eq!(hash, sha256_file(&scan).unwrap());
         let searchable = Document::from_file(result.searchable_pdf_path.as_deref().unwrap()).unwrap();
-        for (index, page) in result.pages.iter().enumerate() {
+        for (index, page) in pages.iter().enumerate() {
             for keyword in if index == 0 {
                 vec!["第三人", "李华", "128000"]
             } else {
@@ -1497,7 +1503,9 @@ mod tests {
             root.join("result.json"),
             serde_json::to_vec_pretty(&result).unwrap(),
         ).unwrap();
-        let text = &result.pages[0].plain_text;
+        let pages: Vec<Page> =
+            serde_json::from_reader(std::fs::File::open(&result.page_ir_path).unwrap()).unwrap();
+        let text = &pages[0].plain_text;
         assert!(text.contains("출원인"), "Korean applicant missing: {text}");
         assert!(text.contains("포스코"), "Korean company missing: {text}");
         assert!(text.contains("특허"), "Korean patent text missing: {text}");
@@ -1658,13 +1666,17 @@ mod tests {
             "français",
             "損害賠償",
         ] {
+            let pages: Vec<Page> =
+                serde_json::from_reader(std::fs::File::open(&result.page_ir_path).unwrap()).unwrap();
             assert!(
-                result.pages[0].plain_text.contains(expected),
+                pages[0].plain_text.contains(expected),
                 "missing {expected}: {}",
-                result.pages[0].plain_text
+                pages[0].plain_text
             );
         }
-        let compact: String = result.pages[1]
+        let pages: Vec<Page> =
+            serde_json::from_reader(std::fs::File::open(&result.page_ir_path).unwrap()).unwrap();
+        let compact: String = pages[1]
             .plain_text
             .chars()
             .filter(|c| !c.is_whitespace())
@@ -1673,7 +1685,7 @@ mod tests {
             compact.contains("損害賠償請求"),
             "vertical Japanese: {compact}"
         );
-        assert!(!result.pages.iter().any(|p| p.plain_text.contains("999999")));
+        assert!(!pages.iter().any(|p| p.plain_text.contains("999999")));
         let extracted = pdf_extract::extract_text(result.searchable_pdf_path.as_deref().unwrap()).unwrap();
         assert!(!extracted.contains("999999"));
         assert_eq!(before, sha256_file(&source).unwrap());

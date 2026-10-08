@@ -84,7 +84,8 @@ async function act(job: ProcessingJob, retry = false) {
       : job.kind === 'document' ? await tauriCallSafe('cancel_document_job', { jobId: job.id })
       : await tauriCallSafe('cancel_knowledge_index_job', { jobId: job.id })
     if (!result.ok) throw new Error(result.error || (retry ? '重试失败' : '取消失败'))
-    ElMessage.success(retry ? '已重新提交处理' : '已请求取消，请等待任务结束')
+    // R-06：同一文件同一内容已有完成结果时后端直接复用，不重跑
+    ElMessage.success(retry ? (result.data?.reused ? '已存在完成的处理结果，已复用' : '已重新提交处理') : '已请求取消，请等待任务结束')
     await refresh()
   } catch (cause) { ElMessage.error(String(cause)) }
   finally { pendingJobs.value.delete(key) }

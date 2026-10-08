@@ -158,6 +158,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         document_intelligence::list_document_jobs,
         document_intelligence::list_case_document_jobs,
         document_intelligence::retry_document_job,
+        document_intelligence::get_document_job_result,
         document_intelligence::cancel_document_job,
         deadline_rules::list_deadline_rules,
         deadline_rules::upsert_deadline_rule,

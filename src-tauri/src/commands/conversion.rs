@@ -92,8 +92,7 @@ async fn convert(source_path: String, output_dir: String, job_id: &str, target_f
     request.markdown_only = !is_pdf;
     let result = document_pipeline::run_standalone_engine(request).await?;
     crate::processing::check_conversion_cancelled(job_id)?;
-    let count = result.pages.len();
-    drop(result.pages); // Validation is complete; do not retain every page while exporting.
+    let count = result.page_count as usize; // R-02：页数取引擎摘要，不再持有页面集合
 
     let elapsed_seconds = result.elapsed_ms as f64 / 1000.0;
     let publish_job = job_id.to_string();

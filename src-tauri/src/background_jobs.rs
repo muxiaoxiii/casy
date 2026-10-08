@@ -58,20 +58,45 @@ pub(crate) fn persist_success(
         anyhow::bail!("CANCELLED: 任务已取消");
     }
     tx.execute("DELETE FROM document_pages WHERE job_id=?1", [&job.id])?;
-    for page in &result.pages {
+    // R-02：逐页流式落库，内存中只有一页
+    let ir_path = std::path::PathBuf::from(&result.page_ir_path);
+    let mut plain_text = String::new();
+    crate::document_pipeline::stream_disk_pages(&ir_path, |index, page| {
         tx.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",rusqlite::params![job.id,job.file_id,page.page_number,page.width,page.height,page.plain_text,page.markdown,serde_json::to_string(&page.regions)?,page.confidence,page.layout.as_ref().map(serde_json::to_string).transpose()?,page.timing.as_ref().map(serde_json::to_string).transpose()?])?;
-    }
-    tx.execute("UPDATE document_processing_jobs SET status='completed',phase='completed',elapsed_ms=?1,remaining_ms=0,index_status='running',index_error=NULL,engine=?2,model_version=?3,current_page=?4,total_pages=?4,progress=1,searchable_pdf_path=?5,page_ir_path=?6,markdown_path=?7,error_code=NULL,error_message=NULL,completed_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=?8",rusqlite::params![result.elapsed_ms,result.engine,result.model_version,result.pages.len() as i64,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,job.id])?;
+        if index > 0 { plain_text.push_str("\n\n"); }
+        plain_text.push_str(&page.plain_text);
+        Ok(())
+    })?;
+    tx.execute("UPDATE document_processing_jobs SET status='completed',phase='completed',elapsed_ms=?1,remaining_ms=0,index_status='running',index_error=NULL,engine=?2,model_version=?3,current_page=?4,total_pages=?4,progress=1,searchable_pdf_path=?5,page_ir_path=?6,markdown_path=?7,error_code=NULL,error_message=NULL,completed_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=?8",rusqlite::params![result.elapsed_ms,result.engine,result.model_version,result.page_count as i64,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,job.id])?;
     tx.execute("UPDATE case_files SET source_sha256=?1,searchable_pdf_path=?2,document_ir_path=?3,ocr_markdown_path=?4,ocr_engine=?5,ocr_error=NULL,ocr_status='completed',index_status='processing' WHERE id=?6",rusqlite::params![job.source_sha256,result.searchable_pdf_path,result.page_ir_path,result.markdown_path,result.engine,job.file_id])?;
-    let text = result
-        .pages
-        .iter()
-        .map(|page| page.plain_text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
     tx.execute(
         "UPDATE case_files SET ocr_text=?1,updated_at=datetime('now','localtime') WHERE id=?2",
-        rusqlite::params![text, job.file_id],
+        rusqlite::params![plain_text, job.file_id],
+    )?;
+    // R-06：完整产物清单与结果摘要同事务落库——窗口断开、重启、重试都以此为准。
+    let outputs = serde_json::json!({
+        "pageIrPath": result.page_ir_path,
+        "markdownPath": result.markdown_path,
+        "searchablePdfPath": result.searchable_pdf_path,
+        "sourceMapPath": result.source_map_path,
+    });
+    let markdown_sha256 = crate::document_pipeline::sha256_file(std::path::Path::new(&result.markdown_path)).ok();
+    tx.execute(
+        "INSERT INTO document_job_results(job_id,file_id,source_sha256,page_count,engine,model_version,outputs_json,markdown_sha256,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,datetime('now','localtime'))
+         ON CONFLICT(job_id) DO UPDATE SET page_count=excluded.page_count, engine=excluded.engine,
+           model_version=excluded.model_version, outputs_json=excluded.outputs_json,
+           markdown_sha256=excluded.markdown_sha256",
+        rusqlite::params![
+            job.id,
+            job.file_id,
+            job.source_sha256,
+            result.page_count as i64,
+            result.engine,
+            result.model_version,
+            serde_json::to_string(&outputs)?,
+            markdown_sha256,
+        ],
     )?;
     tx.commit()?;
     Ok(())
@@ -296,6 +321,105 @@ fn scan_orphan_artifacts() {
     }
 }
 
+/// R-06 崩溃恢复：引擎已把产物写全（页 IR + Markdown）但任务被标记中断时，
+/// 用落盘产物直接完成任务，不重跑 OCR。源文件哈希仍是权威校验。
+fn try_recover_interrupted_job(conn: &rusqlite::Connection, job_id: &str, file_id: &str, sha: &str, source_path: &str) -> bool {
+    let dir = match crate::document_pipeline::artifact_dir_path(job_id, sha) {
+        Ok(dir) => dir,
+        Err(_) => return false,
+    };
+    let markdown_path = dir.join("source.md");
+    let ir_path = dir.join("source.document.json");
+    if !markdown_path.is_file() || !ir_path.is_file() {
+        return false;
+    }
+    // 源文件必须仍是同一份
+    if crate::document_pipeline::sha256_file(std::path::Path::new(source_path))
+        .map(|hash| hash != sha)
+        .unwrap_or(true)
+    {
+        return false;
+    }
+    // 页 IR 必须可完整流式读取（顺带得到页数）
+    let mut page_count = 0u32;
+    if crate::document_pipeline::stream_disk_pages(&ir_path, |_i, _page| {
+        page_count += 1;
+        Ok(())
+    })
+    .is_err()
+        || page_count == 0
+    {
+        return false;
+    }
+    let searchable = dir.join("source.searchable.pdf");
+    let source_map = dir.join("source.map.json");
+    let result = crate::document_pipeline::ProcessResult {
+        source_sha256: sha.to_string(),
+        engine: "recovered-after-interrupt".into(),
+        model_version: None,
+        searchable_pdf_path: searchable.is_file().then(|| searchable.display().to_string()),
+        page_ir_path: ir_path.display().to_string(),
+        markdown_path: markdown_path.display().to_string(),
+        source_map_path: source_map.is_file().then(|| source_map.display().to_string()),
+        page_count,
+        elapsed_ms: 0,
+    };
+    // persist_success 要求任务处于 running：先归还运行态再落库（失败即保持中断态）
+    if conn
+        .execute(
+            "UPDATE document_processing_jobs SET status='running',error_code=NULL,error_message=NULL WHERE id=?1 AND status='failed' AND error_code='INTERRUPTED'",
+            [job_id],
+        )
+        .unwrap_or(0)
+        != 1
+    {
+        return false;
+    }
+    let job = ClaimedJob {
+        id: job_id.to_string(),
+        file_id: file_id.to_string(),
+        source_path: source_path.to_string(),
+        source_sha256: sha.to_string(),
+    };
+    match persist_success(&job, &result) {
+        Ok(()) => {
+            log::info!("R-06 崩溃恢复：任务 {job_id} 产物已落盘，直接完成（未重跑 OCR）");
+            true
+        }
+        Err(error) => {
+            log::warn!("R-06 崩溃恢复失败 {job_id}: {error}");
+            false
+        }
+    }
+}
+
+/// 启动时对中断任务尝试崩溃恢复（有界：每次启动最多 20 个）。
+fn recover_interrupted_jobs() {
+    let Ok(conn) = crate::db::open_db() else { return };
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT j.id,j.file_id,j.source_sha256,f.file_path FROM document_processing_jobs j
+         JOIN case_files f ON f.id=j.file_id
+         WHERE j.status='failed' AND j.error_code='INTERRUPTED' AND f.deleted_at IS NULL
+         ORDER BY j.created_at LIMIT 20",
+    ) else { return };
+    let Ok(rows) = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })
+        .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+    else {
+        return;
+    };
+    for (job_id, file_id, sha, source_path) in rows {
+        try_recover_interrupted_job(&conn, &job_id, &file_id, &sha, &source_path);
+    }
+}
+
 async fn process_one(job: ClaimedJob) {
     let current_hash =
         match crate::document_pipeline::sha256_file(std::path::Path::new(&job.source_path)) {
@@ -425,6 +549,9 @@ pub fn start_background_worker(_app: AppHandle) {
             );
             let _=conn.execute("UPDATE document_processing_jobs SET status='failed',error_code='INTERRUPTED',error_message='应用上次退出时任务仍在运行，请重试',updated_at=datetime('now','localtime') WHERE status='running'",[]);
         }
+        // R-06：先尝试用落盘产物恢复中断任务（此时 running 已被标记为 failed），
+        // 再做 S4/P0-4 的产物回收——顺序反了会把可恢复的产物删掉。
+        recover_interrupted_jobs();
         // S4/P0-4：此时上次异常退出遗留的 running 已被标记为 failed，可安全回收其产物
         scan_orphan_artifacts();
         info!("durable document intelligence worker started");

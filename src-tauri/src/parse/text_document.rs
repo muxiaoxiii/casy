@@ -151,7 +151,7 @@ pub fn process(request: &ProcessRequest) -> Result<ProcessResult> {
         searchable_pdf_path: None,
         page_ir_path: page_ir_path.display().to_string(),
         markdown_path: markdown_path.display().to_string(),
-        pages,
+        page_count: pages.len() as u32,
     })
 }
 

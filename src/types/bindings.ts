@@ -439,6 +439,11 @@ export type ReminderRule = { id: string; name: string; triggerType: string; trig
 export type RenderResponse = { html: string; text: string; usedFields: { [key: string]: string }; missingFields: string[] }
 
 /**
+ * R-06：重试结果。reused=true 表示同一文件同一哈希已有完成结果，直接复用而未重跑。
+ */
+export type RetryJobOutcome = { reused: boolean; jobId: string }
+
+/**
  * Schema 比较结果
  */
 export type SchemaDiff = { feishuOnly: FieldDiffItem[]; localOnly: FieldDiffItem[]; typeConflict: FieldDiffItem[]; mapped: FieldDiffItem[] }

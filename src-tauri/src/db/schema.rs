@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 44;
+pub const CURRENT_SCHEMA_VERSION: i64 = 45;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -721,6 +721,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("42", MIGRATION_V42_SQL),
     ("43", MIGRATION_V43_SQL),
     ("44", MIGRATION_V44_SQL),
+    ("45", MIGRATION_V45_SQL),
 ];
 
 
@@ -4784,6 +4785,22 @@ BEGIN
     INSERT OR IGNORE INTO draft_versions(draft_id, version, title, content, saved_at)
     VALUES(OLD.id, OLD.version, OLD.title, OLD.content, COALESCE(OLD.updated_at, datetime('now', 'localtime')));
 END;
+"#;
+
+/// R-06：持久化文档任务完整产物清单与结果摘要，窗口断开后可查询，重试可幂等复用。
+pub const MIGRATION_V45_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS document_job_results (
+  job_id          TEXT PRIMARY KEY,
+  file_id         TEXT NOT NULL,
+  source_sha256   TEXT NOT NULL,
+  page_count      INTEGER NOT NULL,
+  engine          TEXT,
+  model_version   TEXT,
+  outputs_json    TEXT NOT NULL,
+  markdown_sha256 TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_job_results_file ON document_job_results(file_id, source_sha256);
 "#;
 
 /// 同步推送重试计数：失败记录按 attempts 指数退避，达上限才写 push_failed。

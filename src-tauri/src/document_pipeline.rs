@@ -85,9 +85,43 @@ pub struct ProcessResult {
     pub markdown_path: String,
     #[serde(default)]
     pub source_map_path: Option<String>,
-    pub pages: Vec<DocumentPage>,
+    /// R-02：页面集合只落盘不回流；父进程经 stream_disk_pages 按需流式读取。
+    #[serde(default)]
+    pub page_count: u32,
     #[serde(default)]
     pub elapsed_ms: u64,
+}
+
+/// 逐页流式读取落盘页 IR（R-02）：任何时刻内存中只有一页。
+/// 每轮遍历独立开文件；visit 返回 Err 即中断（错误信息原样透传）。
+pub fn stream_disk_pages(
+    path: &Path,
+    mut visit: impl FnMut(usize, DocumentPage) -> Result<()>,
+) -> Result<()> {
+    struct PageStream<'a, F> {
+        visit: &'a mut F,
+        index: usize,
+    }
+    impl<'de, F: FnMut(usize, DocumentPage) -> Result<()>> serde::de::Visitor<'de> for PageStream<'_, F> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("page array")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(mut self, mut seq: A) -> std::result::Result<(), A::Error> {
+            while let Some(page) = seq.next_element::<DocumentPage>()? {
+                (self.visit)(self.index, page).map_err(serde::de::Error::custom)?;
+                self.index += 1;
+            }
+            Ok(())
+        }
+    }
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("INVALID_PAGE_IR: 无法读取页 IR {}", path.display()))?;
+    use serde::Deserializer as _;
+    let mut de = serde_json::Deserializer::from_reader(std::io::BufReader::new(file));
+    de.deserialize_seq(PageStream { visit: &mut visit, index: 0 })?;
+    de.end()?;
+    Ok(())
 }
 
 pub fn emit_conversion_progress(job_id: &str, source_path: &str, phase: &str, current: u32, total: u32, elapsed: f64) {
@@ -506,10 +540,14 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
             return Err(anyhow!("INVALID_ARTIFACT: 产物不在任务输出目录"));
         }
     }
-    if result.engine.trim().is_empty() || result.pages.is_empty() {
+    if result.engine.trim().is_empty() || result.page_count == 0 {
         return Err(anyhow!("INVALID_PAGE_IR: 引擎未返回页面"));
     }
-    for (index, page) in result.pages.iter().enumerate() {
+    // R-02：逐页流式校验落盘 IR，不整份物化
+    let ir_path = Path::new(&result.page_ir_path).to_path_buf();
+    let mut seen_pages = 0u32;
+    stream_disk_pages(&ir_path, |index, page| {
+        seen_pages += 1;
         let w = page.width.unwrap_or(0.0);
         let h = page.height.unwrap_or(0.0);
         if page.page_number as usize != index + 1
@@ -567,22 +605,28 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
                 }
             }
         }
-    }
-    if root.join(assets::MANIFEST).exists() {
-        let manifest = assets::load(&root)?;
-        for page in &result.pages { assets::validate_references(&page.markdown,&root,&manifest)?; }
-    } else {
-        anyhow::ensure!(!result.pages.iter().any(|page|page.markdown.contains("src=\"assets/")), "INVALID_ASSET: missing manifest");
-    }
-    validate_disk_pages(Path::new(&result.page_ir_path), &result.pages)?;
+        let _ = index;
+        Ok(())
+    })?;
+    anyhow::ensure!(seen_pages == result.page_count, "INVALID_PAGE_IR: 落盘页数与引擎摘要不一致");
+    let manifest = if root.join(assets::MANIFEST).exists() { Some(assets::load(&root)?) } else { None };
+    stream_disk_pages(&ir_path, |_index, page| {
+        if let Some(manifest) = &manifest {
+            assets::validate_references(&page.markdown, &root, manifest)?;
+        } else {
+            anyhow::ensure!(!page.markdown.contains("src=\"assets/"), "INVALID_ASSET: missing manifest");
+        }
+        Ok(())
+    })?;
     let mut expected_md = Sha256::new();
-    for (index, page) in result.pages.iter().enumerate() {
+    stream_disk_pages(&ir_path, |index, page| {
         if !text_document {
             if index > 0 { expected_md.update(b"\n\n---\n\n"); }
             expected_md.update(format!("<!-- page {} -->\n", page.page_number));
         }
         expected_md.update(page.markdown.as_bytes());
-    }
+        Ok(())
+    })?;
     if sha256_file(Path::new(&result.markdown_path))? != hex::encode(expected_md.finalize()) {
         return Err(anyhow!("INVALID_MARKDOWN: Markdown 备份与页面不一致"));
     }
@@ -591,8 +635,13 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
     }
     if let Some(path) = &result.source_map_path {
         let map: source_map::SourceMap = serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(path)?))?;
-        let expected = source_map::write_to(&result.pages, &result.source_sha256, std::io::sink())?;
-        if map != expected {
+        // R-02：流式重建期望来源映射（累计文本与 span，不保留逐页 regions/markdown 全量）
+        let mut builder = source_map::SourceMapBuilder::new(&result.source_sha256, std::io::sink());
+        stream_disk_pages(&ir_path, |_index, page| {
+            builder.append_page(&page)?;
+            Ok(())
+        })?;
+        if map != builder.finish()? {
             return Err(anyhow!(
                 "INVALID_SOURCE_MAP: 来源映射与页面或 Markdown 不一致"
             ));
@@ -605,28 +654,6 @@ fn validate_result(request: &ProcessRequest, result: &ProcessResult) -> Result<(
             return Err(anyhow!("INVALID_PDF: 可搜索文件不是 PDF"));
         }
     }
-    Ok(())
-}
-
-fn validate_disk_pages(path: &Path, expected: &[DocumentPage]) -> Result<()> {
-    struct Pages<'a>(&'a [DocumentPage]);
-    impl<'de> serde::de::Visitor<'de> for Pages<'_> {
-        type Value = ();
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("matching page array") }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut sequence: A) -> std::result::Result<(), A::Error> {
-            let mut count = 0;
-            while let Some(page) = sequence.next_element::<DocumentPage>()? {
-                if self.0.get(count) != Some(&page) { return Err(serde::de::Error::custom("INVALID_PAGE_IR: 落盘页面与返回数据不一致")); }
-                count += 1;
-            }
-            if count != self.0.len() { return Err(serde::de::Error::custom("INVALID_PAGE_IR: 落盘页面缺失")); }
-            Ok(())
-        }
-    }
-    use serde::Deserializer as _;
-    let mut decoder = serde_json::Deserializer::from_reader(std::io::BufReader::new(std::fs::File::open(path)?));
-    decoder.deserialize_seq(Pages(expected))?;
-    decoder.end()?;
     Ok(())
 }
 
@@ -747,7 +774,7 @@ mod tests {
             page_ir_path: root.join("pages.json").display().to_string(),
             markdown_path: root.join("source.md").display().to_string(),
             source_map_path: None,
-            pages,
+            page_count: 1,
             elapsed_ms: 0,
         };
         std::fs::write(
@@ -755,14 +782,11 @@ mod tests {
             b"%PDF-derived",
         )
         .unwrap();
-        std::fs::write(
-            &result.page_ir_path,
-            serde_json::to_vec(&result.pages).unwrap(),
-        )
-        .unwrap();
+        // R-02：页 IR 是唯一事实源，结果只带路径与页数
+        std::fs::write(&result.page_ir_path, serde_json::to_vec(&pages).unwrap()).unwrap();
         std::fs::write(&result.markdown_path, "<!-- page 1 -->\n# Evidence").unwrap();
         validate_result(&request, &result).unwrap();
-        let (_, map) = source_map::build(&result.pages, &result.source_sha256);
+        let (_, map) = source_map::build(&pages, &result.source_sha256);
         let map_path = root.join("source.map.json");
         std::fs::write(&map_path, serde_json::to_vec(&map).unwrap()).unwrap();
         result.source_map_path = Some(map_path.display().to_string());
@@ -775,9 +799,12 @@ mod tests {
             .to_string()
             .contains("INVALID_SOURCE_MAP"));
         std::fs::write(&map_path, serde_json::to_vec(&map).unwrap()).unwrap();
-        result.pages[0].page_number = 2;
+        // 落盘页 IR 被篡改（页码不再是 1）→ 流式校验必须失败
+        let mut tampered = pages.clone();
+        tampered[0].page_number = 2;
+        std::fs::write(&result.page_ir_path, serde_json::to_vec(&tampered).unwrap()).unwrap();
         assert!(validate_result(&request, &result).is_err());
-        result.pages[0].page_number = 1;
+        std::fs::write(&result.page_ir_path, serde_json::to_vec(&pages).unwrap()).unwrap();
         let pdf = result.searchable_pdf_path.clone();
         result.searchable_pdf_path = Some(source.display().to_string());
         assert!(validate_result(&request, &result).is_err());

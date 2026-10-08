@@ -645,7 +645,8 @@ export type CommandMap = {
   list_document_jobs: Cmd<{ fileId: string }, import('./bindings').DocumentJobDto[]>
   list_case_document_jobs: Cmd<{ caseId: string }, import('./bindings').DocumentJobDto[]>
   cancel_document_job: Cmd<{ jobId: string }, void>
-  retry_document_job: Cmd<{ jobId: string }, void>
+  retry_document_job: Cmd<{ jobId: string }, { reused: boolean; jobId: string }>
+  get_document_job_result: Cmd<{ jobId: string }, { jobId: string; fileId: string; sourceSha256: string; pageCount: number; engine: string | null; modelVersion: string | null; outputs: Record<string, unknown>; markdownSha256: string | null; createdAt: string } | null>
   append_fe_crash: Cmd<{ message: string; stack?: string | null; url?: string | null }, void>
   generate_writing_suggestion: Cmd<{ intent: string; context?: string | null; knowledge?: string | null; style?: string | null }, string>
   link_knowledge_to_case: Cmd<{ knowledgeId: string; caseId: string; relationType?: string | null }, void>

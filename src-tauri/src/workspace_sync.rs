@@ -93,10 +93,26 @@ pub async fn get_workspace_document(file_id: String) -> Result<serde_json::Value
         if document_pipeline::sha256_file(Path::new(&path))? != hash { bail!("原文件已变化，等待重新提取正文"); }
         if std::fs::metadata(&markdown_path)?.len() > 16 * 1024 * 1024 { bail!("正文超过 16 MiB，请使用分页对照查看"); }
         let markdown = std::fs::read_to_string(&markdown_path)?;
+        // R-02：regions_json 不计入 16 MiB 正文上限，逐页解析并设总预算，
+        // 超预算的页只保留纯文本（续篇检测降级），避免“正文 1 MB / 区域 3 千个”在内存里炸。
         let pages = {
+            const REGIONS_BUDGET_BYTES: usize = 32 * 1024 * 1024;
             let mut stmt=conn.prepare("SELECT page_number,width,height,plain_text,regions_json FROM document_pages WHERE job_id=?1 ORDER BY page_number")?;
             let rows=stmt.query_map([&job],|r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            rows.into_iter().map(|(number,width,height,text,regions)| Ok(crate::ai::document_match::PageText{number,width,height,text,regions:serde_json::from_str(&regions)?})).collect::<Result<Vec<_>>>()?
+            let mut used = 0usize;
+            rows.into_iter().map(|(number,width,height,text,regions)| {
+                let parsed = if used <= REGIONS_BUDGET_BYTES {
+                    used += regions.len();
+                    serde_json::from_str(&regions)?
+                } else {
+                    if used <= REGIONS_BUDGET_BYTES + regions.len() {
+                        log::warn!("工作区正文区域超出 {} 字节预算，后续页只保留纯文本", REGIONS_BUDGET_BYTES);
+                    }
+                    used += regions.len();
+                    Vec::new()
+                };
+                Ok(crate::ai::document_match::PageText{number,width,height,text,regions:parsed})
+            }).collect::<Result<Vec<_>>>()?
         };
         let continuations=crate::ai::continuations::detect(&pages);
         // N5：本命令返回的是"最新已完成 job"的正文；同时带上最新一次任务的状态/错误，
