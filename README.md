@@ -2,15 +2,15 @@
 
 本地优先的律师案件工作台，覆盖案件、程序期限、任务、日历、卷宗、知识笔记、文书与事实白板。
 
-文档核对日期：**2026-09-23**，以当前工作区源码为准。历史记录位于 [docs/Archive](docs/Archive/README.md)。
+文档核对日期：**2026-10-08**，以当前工作区源码为准。历史记录位于 [docs/Archive](docs/Archive/README.md)。
 
 ## 版本与交付
 
 | 对象 | 状态 |
 | --- | --- |
-| 当前源码 | **0.1.3，生产验证版** |
+| 当前源码 | **0.1.3-beta.1**（schema 43；已交付安装包为 0.1.3，不含其后源码更新） |
 | 已交付安装包 | **0.1.3**，Apple Silicon / macOS 26+ |
-| 数据库 | SQLCipher / SQLite，schema **42** |
+| 数据库 | SQLCipher / SQLite，schema **43** |
 | 分发 | 本地生产验证包，ad-hoc 签名，未公证 |
 
 0.1.3 修订已恢复独立主题，新增黄宣纸纹理，并在 WebDAV 页面接通全部数据备份与恢复。修订包使用 `themes-webdav` 文件名标记。
@@ -58,7 +58,7 @@ npm run tauri -- dev
 
 - [文档索引](docs/README.md)与[当前状态](Casy-STATUS.md)
 - [架构与模块](docs/ARCHITECTURE.md)、[文档处理](docs/DOCUMENT_PIPELINE.md)
-- [代码审阅](docs/CODE_REVIEW_2026-09-22.md)、[后续更新计划](docs/UPDATE_PLAN.md)
+- [代码审阅](docs/CODE_REVIEW_2026-09-22.md)、[全面代码审计 2026-10-08](docs/CODE_AUDIT_2026-10-08.md)、[后续更新计划](docs/UPDATE_PLAN.md)
 - [程序期限](docs/procedure-deadline-rules.md)、[运行时分发](docs/runtime-distribution-plan.md)、[数据与安全](docs/DATA_AND_SECURITY.md)
 
 代码入口：`src/modules` 与 `src/shared` 为界面；`src/core` 为服务/插件/IPC；`src-tauri/src` 为数据库和领域逻辑；`tools/casy-doc-engine` 为文档引擎；`scripts` 为资源准备与校验；`tests`、`src-tauri/tests` 为测试。`release` / `outputs` 是本地产物，不是自动发布证明。

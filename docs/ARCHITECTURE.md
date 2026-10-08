@@ -1,6 +1,6 @@
 # 架构与模块
 
-核对日期：2026-09-23。这是当前源码的实现导航，不将历史设计目标当作已交付功能。
+核对日期：2026-10-08。这是当前源码的实现导航，不将历史设计目标当作已交付功能。
 
 ## 数据通路
 
@@ -34,12 +34,12 @@ flowchart LR
 | [RichCanvas.vue](../src/modules/whiteboard/components/RichCanvas.vue) | 白板场景与事实同步 |
 | [tool-caller.ts](../src/core/ai/tool-caller.ts) | 模型工具轮次、参数检查、写操作提案 |
 
-静态统计：121 个 Vue 文件，24 条路由，CommandMap 中 330 个 `Cmd` 声明（2026-09-22）。这些数值不证明每个入口已实现或通过验收。
+静态统计：136 个 Vue 文件，24 条路由，CommandMap 中 344 个 `Cmd` 声明、后端 `build_handler` 注册 347 个命令（2026-10-08）。这些数值不证明每个入口已实现或通过验收。
 
 ## 后端与数据
 
 - [lib.rs](../src-tauri/src/lib.rs)：Tauri 插件、应用初始化、命令注册、后台服务。
-- [db/mod.rs](../src-tauri/src/db/mod.rs)：连接复用、加密密钥、维护模式；[schema.rs](../src-tauri/src/db/schema.rs) 当前版本 42，逐版本事务迁移。
+- [db/mod.rs](../src-tauri/src/db/mod.rs)：连接复用、加密密钥、维护模式；迁移前对已有库执行 `VACUUM INTO` 快照（`init_db` 内，失败即中止迁移）；[schema.rs](../src-tauri/src/db/schema.rs) 当前版本 43，逐版本事务迁移。
 - [task_plans.rs](../src-tauri/src/commands/task_plans.rs)：独立任务计划起止与修订号，版本检查、计划写入和审计同事务；不改写任务截止或法定期限。
 - [commands/](../src-tauri/src/commands/)：IPC 入口与阻塞任务分派。
 - [deadline/procedure.rs](../src-tauri/src/deadline/procedure.rs)：程序事件、版本校验、期限投影与关联案件；[规则说明](procedure-deadline-rules.md)。
@@ -55,7 +55,7 @@ flowchart LR
 
 案件 OCR 有持久化文档任务和后台工作器。独立文件转换在前端先登记 processing activities，随后逐个发起长 IPC 调用；它不是可在应用重启后自动续跑的完整持久化转换队列。
 
-0.1.3 转换及长导入/导出/备份等待后端结果，处理中心可取消转换；后端保留 15 分钟无页数或阶段变化的停滞保护。其他长任务完整结果查询与恢复契约仍需补齐，见 [审阅 R-06](CODE_REVIEW_2026-09-22.md)。
+0.1.3 转换及长导入/导出/备份等待后端结果，处理中心可取消转换；后端保留 15 分钟无页数或阶段变化的停滞保护（引擎在 `finalizing` 阶段逐页写相位心跳，主路径不再被误杀；单页渲染超 15 分钟或收尾零进度段仍会终止）。其他长任务完整结果查询与恢复契约仍需补齐，见 [审阅 R-06](CODE_REVIEW_2026-09-22.md)。OCR 裁图自 `e9b80f1` 起外置为 `assets/<sha>.png` + manifest，独立转换与知识快照同样外置，存量文档可用存储升级/回退命令转换；`document-artifacts/` 尚无回收策略。全面现状见[代码审计 2026-10-08](CODE_AUDIT_2026-10-08.md)。
 
 ## 外部服务与交付
 
@@ -63,4 +63,4 @@ AI gateway/profile/proposal、飞书、CalDAV、WebDAV、IMAP/SMTP、MCP 都有�
 
 资源准备与应用构建分开；完整包须同时包含引擎、模型、渲染器、字体、Zvec 和对应声明。平台与校验流程见 [运行时分发](runtime-distribution-plan.md)。
 
-任务列表/恢复 DTO 统一返回独立计划标记、起止和修订号，甘特保存广播 task:changed 使任务、首页、案件与通知消费者刷新。任务 dueDate 是截止的首选字段，旧 deadline 为兼容别名。个人可用时段在 personal_calendar_days 中保存，由 personal_availability.rs 校验和计算；法定期限引擎不读取该个人设置。
+任务列表/恢复 DTO 统一返回独立计划标记、起止和修订号，甘特与任务保存经服务层广播 `task:changed`（前端事件总线，`services/calendar.ts`、`services/tasks.ts`）使任务、首页、案件与通知消费者刷新；收件箱确认只广播 `inbox:confirmed`（`services/inbox.ts`），任务/日历页不消费该事件，从统一捕获创建的任务在已打开的任务页不刷新（见[审计](CODE_AUDIT_2026-10-08.md)）。任务 dueDate 是截止的首选字段，旧 deadline 为兼容别名。个人可用时段在 personal_calendar_days 中保存，由 personal_availability.rs 校验和计算；法定期限引擎不读取该个人设置。
