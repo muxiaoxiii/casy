@@ -242,7 +242,8 @@ fn env_path(name: &str) -> Option<String> {
     crate::runtime_paths::runtime_asset(name, relative).map(|p| p.to_string_lossy().into_owned())
 }
 
-pub fn artifact_dir(file_id: &str, sha256: &str) -> Result<PathBuf> {
+/// 仅计算产物目录，不创建（回收扫描需要"先判定、再落盘"的纯路径版本）。
+pub fn artifact_dir_path(file_id: &str, sha256: &str) -> Result<PathBuf> {
     if file_id.is_empty()
         || !file_id
             .bytes()
@@ -258,6 +259,11 @@ pub fn artifact_dir(file_id: &str, sha256: &str) -> Result<PathBuf> {
         .join("document-artifacts")
         .join(file_id)
         .join(sha256);
+    Ok(base)
+}
+
+pub fn artifact_dir(file_id: &str, sha256: &str) -> Result<PathBuf> {
+    let base = artifact_dir_path(file_id, sha256)?;
     std::fs::create_dir_all(&base)?;
     Ok(base)
 }
@@ -273,14 +279,24 @@ pub async fn run_standalone_engine(request: ProcessRequest) -> Result<ProcessRes
 
 async fn run_processing(request: ProcessRequest, tracked: bool) -> Result<ProcessResult> {
     if crate::parse::text_document::supports(Path::new(&request.source_path)) {
-        return tokio::task::spawn_blocking(move || {
+        // S5/P1-9：文字路径此前既无取消检查也无超时保护，取消只能等阻塞任务自然结束。
+        crate::processing::check_conversion_cancelled(&request.job_id)?;
+        let job_id = request.job_id.clone();
+        let blocking = tokio::task::spawn_blocking(move || -> anyhow::Result<ProcessResult> {
             let started = std::time::Instant::now();
             let mut result = crate::parse::text_document::process(&request)?;
             result.elapsed_ms = started.elapsed().as_millis() as u64;
             validate_result(&request, &result)?;
             Ok(result)
-        })
-        .await?;
+        });
+        // 超时只放弃等待：阻塞任务仍会在后台跑完，日志记录其去向以便排查。
+        return match tokio::time::timeout(std::time::Duration::from_secs(600), blocking).await {
+            Ok(joined) => Ok(joined??),
+            Err(_) => {
+                tracing::warn!(%job_id, "文字文档处理超过 600 秒，已放弃等待（阻塞任务可能仍在后台完成）");
+                Err(anyhow::anyhow!("DOC_ENGINE_TIMEOUT: 文字文档处理超过 10 分钟无响应，已终止任务"))
+            }
+        };
     }
     let payload = serde_json::to_vec(&request)?;
     run_engine_command(request, "process", payload, tracked).await
@@ -348,24 +364,33 @@ async fn execute_engine(request: ProcessRequest, command: &str, payload: Vec<u8>
                     check_job_running(&conn, &request.job_id)?;
                     Some(conn)
                 } else { None };
-                if let Ok(bytes) = std::fs::read(Path::new(&request.output_dir).join("progress.json")) {
-                    if let Ok(progress) = serde_json::from_slice::<EngineProgress>(&bytes) {
-                        if progress.current_page > current_page && progress.current_page <= progress.total_pages {
-                            current_page = progress.current_page;
-                            last_progress = std::time::Instant::now();
-                            tracing::info!(job_id = %request.job_id, current_page, total_pages = progress.total_pages, "Document engine progress");
-                        }
-                        if progress.total_pages > 0 && progress.current_page <= progress.total_pages {
-                            let phase = progress.phase.as_deref().unwrap_or(if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" });
-                            if current_phase != phase { current_phase = phase.to_string(); last_progress = std::time::Instant::now(); }
-                            let elapsed = if progress.elapsed_ms > 0 { progress.elapsed_ms as f64 / 1000.0 } else { started.elapsed().as_secs_f64() };
-                            let remaining = progress.remaining_ms.map(|value| value as f64 / 1000.0);
-                            emit_progress_snapshot(&request.job_id, &request.source_path, phase, progress.current_page, progress.total_pages, elapsed, remaining, progress.page_timing.as_ref(), !tracked);
-                            if let Some(conn) = &conn { conn.execute("UPDATE document_processing_jobs SET phase=?1,current_page=?2,total_pages=?3,progress=?4,elapsed_ms=?5,remaining_ms=?6,timing_json=COALESCE(?7,timing_json),updated_at=datetime('now','localtime') WHERE id=?8 AND status='running'",
-                                rusqlite::params![phase,progress.current_page,progress.total_pages,0.01 + 0.94 * progress.current_page as f64 / progress.total_pages as f64,progress.elapsed_ms,progress.remaining_ms,progress.page_timing.as_ref().map(serde_json::to_string).transpose()?,request.job_id])?;
+                // S5/P1-9：进度文件读取/解析失败此前被 `if let Ok` 静默吞掉，
+                // 停滞保护超时时没有任何线索。此处按 NotFound（引擎尚未落盘）静默、
+                // 其余失败告警处理，900s 停滞常数保持不变。
+                let progress_path = Path::new(&request.output_dir).join("progress.json");
+                match std::fs::read(&progress_path) {
+                    Ok(bytes) => match serde_json::from_slice::<EngineProgress>(&bytes) {
+                        Ok(progress) => {
+                            if progress.current_page > current_page && progress.current_page <= progress.total_pages {
+                                current_page = progress.current_page;
+                                last_progress = std::time::Instant::now();
+                                tracing::info!(job_id = %request.job_id, current_page, total_pages = progress.total_pages, "Document engine progress");
+                            }
+                            if progress.total_pages > 0 && progress.current_page <= progress.total_pages {
+                                let phase = progress.phase.as_deref().unwrap_or(if progress.current_page == progress.total_pages { "finalizing" } else { "recognizing" });
+                                if current_phase != phase { current_phase = phase.to_string(); last_progress = std::time::Instant::now(); }
+                                let elapsed = if progress.elapsed_ms > 0 { progress.elapsed_ms as f64 / 1000.0 } else { started.elapsed().as_secs_f64() };
+                                let remaining = progress.remaining_ms.map(|value| value as f64 / 1000.0);
+                                emit_progress_snapshot(&request.job_id, &request.source_path, phase, progress.current_page, progress.total_pages, elapsed, remaining, progress.page_timing.as_ref(), !tracked);
+                                if let Some(conn) = &conn { conn.execute("UPDATE document_processing_jobs SET phase=?1,current_page=?2,total_pages=?3,progress=?4,elapsed_ms=?5,remaining_ms=?6,timing_json=COALESCE(?7,timing_json),updated_at=datetime('now','localtime') WHERE id=?8 AND status='running'",
+                                    rusqlite::params![phase,progress.current_page,progress.total_pages,0.01 + 0.94 * progress.current_page as f64 / progress.total_pages as f64,progress.elapsed_ms,progress.remaining_ms,progress.page_timing.as_ref().map(serde_json::to_string).transpose()?,request.job_id])?;
+                                }
                             }
                         }
-                    }
+                        Err(error) => tracing::warn!(job_id = %request.job_id, path = %progress_path.display(), %error, "文档引擎进度文件解析失败，本次刷新跳过"),
+                    },
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => tracing::warn!(job_id = %request.job_id, path = %progress_path.display(), %error, "文档引擎进度文件读取失败，本次刷新跳过"),
                 }
                 if last_progress.elapsed() > std::time::Duration::from_secs(900) {
                     return Err(anyhow!("DOC_ENGINE_TIMEOUT: 当前阶段超过 15 分钟没有页数或阶段进展，已终止任务"));

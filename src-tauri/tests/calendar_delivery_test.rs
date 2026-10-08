@@ -64,7 +64,19 @@ async fn retry_keeps_actual_time_and_cancelled_remote_deletion_survives_failure(
     assert!(first.is_ok() && second.is_ok());
     let request = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(request.starts_with("PUT "));
-    assert!(request.contains("20261001T144500"));
+    // DTSTART 现为 UTC（带 Z）：按测试机本地时区换算后期望值一致
+    let expected_utc = chrono::TimeZone::from_local_datetime(
+        &chrono::Local,
+        &chrono::NaiveDateTime::parse_from_str("2026-10-01T14:45:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+    )
+    .unwrap()
+    .with_timezone(&chrono::Utc)
+    .format("%Y%m%dT%H%M%SZ")
+    .to_string();
+    assert!(
+        request.contains(&expected_utc),
+        "PUT 请求应包含 UTC 时间 {expected_utc}: {request}"
+    );
     assert_eq!(
         caldav::cancel_jobs_for_entity("task", &id).await.unwrap(),
         1

@@ -221,7 +221,10 @@ impl WebDavClient {
         Ok(())
     }
 
-    /// 带 If-Match 条件的 PUT（冲突检测）
+    /// 带 If-Match 条件的 PUT（冲突检测，S-4）
+    ///
+    /// 412 = 远程文件在比对之后已被其他设备修改：明确报冲突，
+    /// 由调用方提示用户重新比对，绝不无条件覆盖远程数据。
     pub async fn put_if_match(&self, path: &str, data: &[u8], etag: &str) -> Result<String> {
         let resp = self
             .client
@@ -234,7 +237,7 @@ impl WebDavClient {
             .await?;
 
         if resp.status() == 412 {
-            anyhow::bail!("ETag conflict: remote file has been modified");
+            anyhow::bail!("{}", crate::sync::WEBDAV_CONFLICT_MESSAGE);
         }
         if !resp.status().is_success() {
             anyhow::bail!("PUT {} failed: {}", path, resp.status());

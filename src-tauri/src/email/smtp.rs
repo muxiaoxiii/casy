@@ -10,7 +10,7 @@
 //! - 整体超时 30s
 
 use anyhow::{Context, Result};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, TimeZone};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -18,6 +18,9 @@ use tokio_native_tls::TlsConnector;
 
 /// SMTP 整体超时
 const SMTP_TIMEOUT_SECS: u64 = 30;
+
+/// ICS 内容行最大字节数（RFC 5545 §3.1：单行不应超过 75 字节）
+const ICS_LINE_MAX_OCTETS: usize = 75;
 
 /// SMTP 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,38 +49,73 @@ pub struct CalendarEvent {
     pub alarm_minutes: Option<i64>,
 }
 
+/// 本地浮动时间 → RFC 5545 UTC DATE-TIME（`YYYYMMDDTHHMMSSZ`）
+///
+/// 输入 NaiveDateTime 视为本地时间；统一转 UTC 而不是发 VTIMEZONE，
+/// 这样报文不含时区定义也能被所有日历客户端正确解析（S-6）。
+/// 夏令时缺口等无法映射的时刻按原值兜底，避免 panic。
+fn to_utc_ics(dt: &NaiveDateTime) -> String {
+    let utc = match chrono::Local.from_local_datetime(dt) {
+        chrono::LocalResult::Single(local)
+        | chrono::LocalResult::Ambiguous(local, _) => local.with_timezone(&chrono::Utc),
+        // 夏令时缺口：不存在对应的本地时刻，按原值输出（调用方传入的即显示意图）
+        chrono::LocalResult::None => return dt.format("%Y%m%dT%H%M%SZ").to_string(),
+    };
+    utc.format("%Y%m%dT%H%M%SZ").to_string()
+}
+
+/// RFC 5545 折行：超过 75 字节的内容行拆成多行，续行以单个空格开头
+///
+/// 按字符（char）边界累加字节数，绝不切断多字节 UTF-8 字符，
+/// 因此中文摘要/地点折行后仍是合法 UTF-8。
+fn fold_ics_line(line: &str) -> String {
+    let mut folded = String::with_capacity(line.len() + 16);
+    let mut used = 0usize; // 当前行已占字节数（不含续行前导空格）
+    for ch in line.chars() {
+        let len = ch.len_utf8();
+        // 续行前导空格占 1 字节，故续行正文最多 74 字节
+        let limit = if used == 0 {
+            ICS_LINE_MAX_OCTETS
+        } else {
+            ICS_LINE_MAX_OCTETS - 1
+        };
+        if used + len > limit {
+            folded.push_str("\r\n ");
+            used = 0;
+        }
+        folded.push(ch);
+        used += len;
+    }
+    folded
+}
+
 /// 生成 ICS 日历内容
 pub fn generate_ics(event: &CalendarEvent) -> String {
-    let dtstart = if event.all_day {
-        event.dtstart.format("%Y%m%d").to_string()
+    // 非全天事件统一转 UTC（带 Z）；全天事件用 DATE 值并显式声明 VALUE=DATE
+    let (dtstart_prop, dtend_prop) = if event.all_day {
+        (
+            format!("DTSTART;VALUE=DATE:{}", event.dtstart.format("%Y%m%d")),
+            format!("DTEND;VALUE=DATE:{}", event.dtend.format("%Y%m%d")),
+        )
     } else {
-        format!(
-            "{}T{}",
-            event.dtstart.format("%Y%m%d"),
-            event.dtstart.format("%H%M%S")
+        (
+            format!("DTSTART:{}", to_utc_ics(&event.dtstart)),
+            format!("DTEND:{}", to_utc_ics(&event.dtend)),
         )
     };
 
-    let dtend = if event.all_day {
-        event.dtend.format("%Y%m%d").to_string()
-    } else {
-        format!(
-            "{}T{}",
-            event.dtend.format("%Y%m%d"),
-            event.dtend.format("%H%M%S")
-        )
-    };
-
-    let now = chrono::Local::now().format("%Y%m%dT%H%M%S");
+    // DTSTAMP 必须是 UTC（RFC 5545 §3.8.7.2），带 Z 后缀
+    let now = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
 
     let alarm = if let Some(minutes) = event.alarm_minutes {
         format!(
             "BEGIN:VALARM\r\n\
              TRIGGER:-PT{}M\r\n\
              ACTION:DISPLAY\r\n\
-             DESCRIPTION:{}\r\n\
+             {}\r\n\
              END:VALARM\r\n",
-            minutes, event.summary
+            minutes,
+            ics_content_line("DESCRIPTION", &event.summary)
         )
     } else {
         String::new()
@@ -92,32 +130,37 @@ pub fn generate_ics(event: &CalendarEvent) -> String {
          BEGIN:VEVENT\r\n\
          UID:{}\r\n\
          DTSTAMP:{}\r\n\
-         DTSTART:{}\r\n\
-         DTEND:{}\r\n\
-         SUMMARY:{}\r\n\
-         DESCRIPTION:{}\r\n\
-         LOCATION:{}\r\n\
+         {}\r\n\
+         {}\r\n\
+         {}\r\n\
+         {}\r\n\
+         {}\r\n\
          STATUS:CONFIRMED\r\n\
          {}\
          END:VEVENT\r\n\
          END:VCALENDAR\r\n",
         event.uid,
         now,
-        dtstart,
-        dtend,
-        escape_ics(&event.summary),
-        escape_ics(event.description.as_deref().unwrap_or("")),
-        escape_ics(event.location.as_deref().unwrap_or("")),
+        dtstart_prop,
+        dtend_prop,
+        ics_content_line("SUMMARY", &event.summary),
+        ics_content_line("DESCRIPTION", event.description.as_deref().unwrap_or("")),
+        ics_content_line("LOCATION", event.location.as_deref().unwrap_or("")),
         alarm,
     )
 }
 
-/// 转义 ICS 特殊字符
+/// 转义 ICS 特殊字符（不折行；折行必须覆盖属性名前缀，见 ics_content_line）
 fn escape_ics(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace(';', "\\;")
         .replace(',', "\\,")
         .replace('\n', "\\n")
+}
+
+/// 组装并按 75 字节折行的完整内容行（属性名 + 冒号 + 转义后的值）
+fn ics_content_line(property: &str, value: &str) -> String {
+    fold_ics_line(&format!("{property}:{}", escape_ics(value)))
 }
 
 // ============================================================
@@ -162,23 +205,39 @@ fn validate_email(addr: &str) -> Result<()> {
     }
 }
 
-/// 发送 ICS 邀请邮件
-pub async fn send_ics_invitation(
-    config: &SmtpConfig,
-    to_email: &str,
-    to_name: &str,
-    event: &CalendarEvent,
-) -> Result<()> {
-    // ── 头注入防护：信封地址格式校验 + 头字段控制字符拒绝 + 非 ASCII 头 RFC2047 编码 ──
-    validate_email(to_email)?;
-    validate_email(&config.from_address)?;
-    let to_name = encode_header(&sanitize_header_value(to_name, "收件人名称")?);
-    let from_name = encode_header(&sanitize_header_value(&config.from_name, "发件人名称")?);
-    let subject = encode_header(&sanitize_header_value(
-        &format!("日程邀请: {}", event.summary),
-        "主题",
-    )?);
+/// RFC 2822 `Date:` 头（如 `Wed, 08 Oct 2026 09:15:00 +0800`）
+fn rfc2822_now() -> String {
+    chrono::Local::now()
+        .format("%a, %d %b %Y %H:%M:%S %z")
+        .to_string()
+}
 
+/// Message-ID 域名：取发件地址的域名，非法时回退 casy.local
+fn message_id_domain(from_address: &str) -> String {
+    let domain = from_address
+        .rsplit('@')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+        .collect::<String>();
+    let domain = domain.trim_matches(['.', '-']).to_string();
+    if domain.is_empty() {
+        "casy.local".to_string()
+    } else {
+        domain
+    }
+}
+
+/// 构建 ICS 邀请邮件的 MIME 报文（含 RFC 2822 Date / Message-ID 头）
+fn build_invitation_email(
+    config: &SmtpConfig,
+    from_name: &str,
+    to_name: &str,
+    to_email: &str,
+    subject: &str,
+    event: &CalendarEvent,
+) -> String {
     let ics_content = generate_ics(event);
 
     // 构建 MIME 邮件
@@ -205,10 +264,20 @@ pub async fn send_ics_invitation(
             .unwrap_or_default(),
     );
 
-    let email_content = format!(
+    // RFC 2822 必需头：Date（发送时间）与 Message-ID（全局唯一，便于线程/去重）
+    let date = rfc2822_now();
+    let message_id = format!(
+        "<{}@{}>",
+        uuid::Uuid::new_v4(),
+        message_id_domain(&config.from_address)
+    );
+
+    format!(
         "From: {} <{}>\r\n\
          To: {} <{}>\r\n\
          Subject: {}\r\n\
+         Date: {}\r\n\
+         Message-ID: {}\r\n\
          MIME-Version: 1.0\r\n\
          Content-Type: multipart/mixed; boundary=\"{}\"\r\n\
          \r\n\
@@ -231,13 +300,36 @@ pub async fn send_ics_invitation(
         to_name,
         to_email,
         subject,
+        date,
+        message_id,
         boundary,
         boundary,
         base64_encode(body_text.as_bytes()),
         boundary,
         base64_encode(ics_content.as_bytes()),
         boundary,
-    );
+    )
+}
+
+/// 发送 ICS 邀请邮件
+pub async fn send_ics_invitation(
+    config: &SmtpConfig,
+    to_email: &str,
+    to_name: &str,
+    event: &CalendarEvent,
+) -> Result<()> {
+    // ── 头注入防护：信封地址格式校验 + 头字段控制字符拒绝 + 非 ASCII 头 RFC2047 编码 ──
+    validate_email(to_email)?;
+    validate_email(&config.from_address)?;
+    let to_name = encode_header(&sanitize_header_value(to_name, "收件人名称")?);
+    let from_name = encode_header(&sanitize_header_value(&config.from_name, "发件人名称")?);
+    let subject = encode_header(&sanitize_header_value(
+        &format!("日程邀请: {}", event.summary),
+        "主题",
+    )?);
+
+    let email_content =
+        build_invitation_email(config, &from_name, &to_name, to_email, &subject, event);
 
     // 发送邮件
     send_raw_email(config, to_email, email_content.as_bytes()).await
@@ -598,4 +690,87 @@ pub async fn send_ics_invitation_cmd(
         .map_err(|e| e.to_string())?;
 
     Ok(format!("ICS 邀请已发送至 {}", to))
+}
+
+#[cfg(test)]
+mod rfc_compliance_tests {
+    use super::*;
+
+    fn event() -> CalendarEvent {
+        CalendarEvent {
+            uid: "casy-uid-1".into(),
+            summary: "案件提醒：答辩期限（北京市海淀区人民法院，案号（2026）京0108民初12345号）".into(),
+            description: Some("请在开庭前提交答辩状与证据目录，注意举证期限为收到本通知之日起十五日内。".into()),
+            location: Some("北京市海淀区人民法院第三法庭".into()),
+            dtstart: NaiveDateTime::parse_from_str("2026-08-20 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            dtend: NaiveDateTime::parse_from_str("2026-08-20 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            all_day: false,
+            alarm_minutes: Some(1440),
+        }
+    }
+
+    fn config() -> SmtpConfig {
+        SmtpConfig {
+            smtp_server: "smtp.example.invalid".into(),
+            smtp_port: 465,
+            username: "user".into(),
+            password: "pass".into(),
+            use_tls: true,
+            from_address: "casy@example.invalid".into(),
+            from_name: "Casy".into(),
+        }
+    }
+
+    /// RFC 2822 必需头：Date 可解析、Message-ID 形如 <uuid@domain>
+    #[test]
+    fn invitation_email_carries_date_and_message_id() {
+        let email = build_invitation_email(&config(), "Casy", "收件人", "to@example.invalid", "日程邀请: 测试", &event());
+        let headers = email.split("\r\n\r\n").next().unwrap();
+        let date = headers.lines().find_map(|l| l.strip_prefix("Date: ")).expect("缺少 Date 头");
+        assert!(chrono::DateTime::parse_from_rfc2822(date).is_ok(), "Date 头不是合法 RFC 2822 时间: {date}");
+        let message_id = headers.lines().find_map(|l| l.strip_prefix("Message-ID: ")).expect("缺少 Message-ID 头");
+        assert!(message_id.starts_with('<') && message_id.ends_with('>'), "Message-ID 格式不合法: {message_id}");
+        let inner = &message_id[1..message_id.len() - 1];
+        let (local, domain) = inner.split_once('@').expect("Message-ID 缺少 @domain");
+        assert_eq!(local.len(), 36, "Message-ID 本地部分应为 UUID");
+        assert_eq!(domain, "example.invalid");
+    }
+
+    /// ICS 合规：每行 ≤ 75 字节、续行以单空格开头、DTSTAMP/DTSTART/DTEND 均为 UTC Z
+    #[test]
+    fn ics_lines_are_folded_and_all_date_times_are_utc() {
+        let ics = generate_ics(&event());
+        for line in ics.split("\r\n") {
+            assert!(line.len() <= 75, "ICS 行超过 75 字节: {line}");
+        }
+        let dtstamp = ics.lines().find(|l| l.starts_with("DTSTAMP:")).unwrap();
+        assert!(dtstamp.ends_with('Z'), "DTSTAMP 必须是 UTC: {dtstamp}");
+        assert!(chrono::NaiveDateTime::parse_from_str(&dtstamp["DTSTAMP:".len()..dtstamp.len() - 1], "%Y%m%dT%H%M%S").is_ok());
+        // 与测试机时区无关：按本地时区换算后应与 DTSTART/DTEND 一致
+        let expected_start = chrono::Local
+            .from_local_datetime(&event().dtstart)
+            .latest()
+            .expect("测试时间应可映射到本地时区")
+            .with_timezone(&chrono::Utc)
+            .format("%Y%m%dT%H%M%SZ")
+            .to_string();
+        let expected_end = chrono::Local
+            .from_local_datetime(&event().dtend)
+            .latest()
+            .expect("测试时间应可映射到本地时区")
+            .with_timezone(&chrono::Utc)
+            .format("%Y%m%dT%H%M%SZ")
+            .to_string();
+        assert!(ics.contains(&format!("DTSTART:{expected_start}")), "DTSTART 应为 UTC Z 形式: {ics}");
+        assert!(ics.contains(&format!("DTEND:{expected_end}")), "DTEND 应为 UTC Z 形式: {ics}");
+        // 折行后续行必须能被 RFC 5545 反折行还原（去掉 CRLF + 单个前导空格）
+        let unfolded = ics.replace("\r\n ", "");
+        assert!(unfolded.contains("SUMMARY:案件提醒：答辩期限"));
+        assert!(unfolded.contains("DESCRIPTION:请在开庭前提交答辩状与证据目录"));
+        // 全天事件用 DATE 值
+        let mut all_day = event();
+        all_day.all_day = true;
+        let all_day_ics = generate_ics(&all_day);
+        assert!(all_day_ics.contains("DTSTART;VALUE=DATE:20260820"));
+    }
 }

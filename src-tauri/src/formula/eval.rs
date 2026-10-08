@@ -310,11 +310,21 @@ impl FormulaEvaluator {
         let right = self.evaluate(&args[1], ctx)?;
 
         // Date + number = date arithmetic
+        // P1-22：chrono 的 `Add` 在超出 NaiveDate 范围时直接 panic，
+        // 改用 checked_add_signed，与 EDATE（:231）的溢出处理保持一致。
         if let (Some(date), Some(days)) = (left.as_date(), right.as_number()) {
-            return Ok(Value::Date(date + chrono::Duration::days(days as i64)));
+            anyhow::ensure!(days.is_finite(), "ADD day offset out of range");
+            let due = date
+                .checked_add_signed(chrono::Duration::days(days as i64))
+                .ok_or_else(|| anyhow::anyhow!("ADD date out of range"))?;
+            return Ok(Value::Date(due));
         }
         if let (Some(days), Some(date)) = (left.as_number(), right.as_date()) {
-            return Ok(Value::Date(date + chrono::Duration::days(days as i64)));
+            anyhow::ensure!(days.is_finite(), "ADD day offset out of range");
+            let due = date
+                .checked_add_signed(chrono::Duration::days(days as i64))
+                .ok_or_else(|| anyhow::anyhow!("ADD date out of range"))?;
+            return Ok(Value::Date(due));
         }
 
         // Number + number
@@ -606,6 +616,32 @@ mod tests {
             v,
             Value::Date(NaiveDate::from_ymd_opt(2026, 1, 16).unwrap())
         );
+    }
+
+    /// P1-22：ADD(date,n) 溢出不能再 panic（原实现是 `date + Duration::days`）。
+    #[test]
+    fn eval_add_date_overflow_returns_error_not_panic() {
+        let mut ctx = SimpleRecordContext::new();
+        ctx.set(
+            "start",
+            Value::Date(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
+        );
+        let ast = super::super::parser::parse_formula("start+99999999").unwrap();
+        let evaluator = FormulaEvaluator::new();
+        let result = evaluator.evaluate(&ast, &ctx);
+        assert!(result.is_err(), "溢出必须返回错误而不是 panic");
+
+        // 反向写法同样受保护；NaN 偏移按越界处理
+        let ast = super::super::parser::parse_formula("99999999+start").unwrap();
+        assert!(evaluator.evaluate(&ast, &ctx).is_err());
+        let ast = Expr::Call {
+            name: "ADD".to_string(),
+            args: vec![
+                Expr::Literal(Value::Date(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())),
+                Expr::Literal(Value::Number(f64::NAN)),
+            ],
+        };
+        assert!(evaluator.evaluate(&ast, &ctx).is_err());
     }
 
     #[test]

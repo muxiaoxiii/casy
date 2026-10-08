@@ -282,7 +282,8 @@ const todayCommitments = computed(() => {
     id: t.id,
     title: t.taskName,
     caseName: resolveCaseName(t),
-    category: t.category || (t.caseId ? '案件' : '个人'),
+    // Task 没有 category 字段（审查 N10）：案件/个人只按是否关联案件划分
+    category: t.caseId ? '案件' : '个人',
     overdue: t.dueDate && t.dueDate < today,
     completed: Boolean(t.completed),
     task: t,

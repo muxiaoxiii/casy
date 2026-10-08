@@ -455,6 +455,53 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 迁移前快照的保留份数（audit N4：无保留策略时每次版本升级都在 backups/ 留一份完整库副本）
+const MIGRATION_SNAPSHOT_KEEP: usize = 3;
+
+/// 只保留最近 `MIGRATION_SNAPSHOT_KEEP` 份 `pre-migration-*.db`，删除更早的快照。
+///
+/// best-effort 语义：读目录或删单文件失败只记日志，绝不影响迁移本身
+/// （快照只是兜底，清理失败不该阻断数据库升级）。
+fn prune_migration_snapshots(backups: &std::path::Path) {
+    let mut snapshots: Vec<std::path::PathBuf> = match std::fs::read_dir(backups) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("pre-migration-") && name.ends_with(".db"))
+            })
+            .collect(),
+        Err(error) => {
+            log::warn!(
+                "读取迁移备份目录失败 ({}): {error}",
+                backups.display()
+            );
+            return;
+        }
+    };
+    // 按修改时间排序（取不到时间的视为最旧），同秒时用文件名兜底保证确定性。
+    snapshots.sort_by(|a, b| {
+        let modified = |path: &std::path::Path| {
+            std::fs::metadata(path)
+                .and_then(|meta| meta.modified())
+                .ok()
+        };
+        modified(a.as_path())
+            .cmp(&modified(b.as_path()))
+            .then_with(|| a.file_name().cmp(&b.file_name()))
+    });
+    if snapshots.len() <= MIGRATION_SNAPSHOT_KEEP {
+        return;
+    }
+    for stale in snapshots.iter().take(snapshots.len() - MIGRATION_SNAPSHOT_KEEP) {
+        if let Err(error) = std::fs::remove_file(stale) {
+            log::warn!("清理旧迁移快照失败 ({}): {error}", stale.display());
+        }
+    }
+}
+
 fn migration_snapshot(conn: &Connection, version: i64) -> Result<()> {
     let Some(path) = conn.path().filter(|path| !path.is_empty() && *path != ":memory:") else {
         return Ok(());
@@ -479,6 +526,8 @@ fn migration_snapshot(conn: &Connection, version: i64) -> Result<()> {
     }
     std::fs::OpenOptions::new().write(true).open(&snapshot)?.sync_all()?;
     log::info!("Pre-migration database snapshot: {}", snapshot.display());
+    // 快照无保留策略会无限堆积（每次升级一份完整库副本），只留最近 3 份。
+    prune_migration_snapshots(&backups);
     Ok(())
 }
 
@@ -529,6 +578,63 @@ pub fn row_get_string_or(row: &rusqlite::Row, col: &str) -> rusqlite::Result<Str
 #[allow(dead_code)]
 pub fn row_get_i32(row: &rusqlite::Row, col: &str) -> rusqlite::Result<i32> {
     row.get::<_, Option<i32>>(col).map(|v| v.unwrap_or(0))
+}
+
+#[cfg(test)]
+mod migration_snapshot_tests {
+    use super::*;
+
+    /// N4：快照只保留最近 3 份，更早的被清理（读不到时间的视为最旧）。
+    #[test]
+    fn only_three_newest_snapshots_are_kept() {
+        let root = tempfile::tempdir().unwrap();
+        let backups = root.path().join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        for index in 0..5 {
+            let path = backups.join(format!("pre-migration-v{index}-{}.db", "0".repeat(8)));
+            std::fs::write(&path, b"snapshot").unwrap();
+            let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            let modified = std::time::SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_secs(1_700_000_000 + index as u64 * 60);
+            file.set_times(std::fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+        }
+        // 非快照文件与子目录不受影响
+        std::fs::write(backups.join("keep-me.txt"), b"note").unwrap();
+
+        prune_migration_snapshots(&backups);
+
+        let mut left: Vec<String> = std::fs::read_dir(&backups)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            vec![
+                "keep-me.txt".to_string(),
+                "pre-migration-v2-00000000.db".to_string(),
+                "pre-migration-v3-00000000.db".to_string(),
+                "pre-migration-v4-00000000.db".to_string(),
+            ]
+        );
+    }
+
+    /// 不足 3 份时不动磁盘（清理失败也不该被这里放大）。
+    #[test]
+    fn pruning_below_the_limit_is_a_noop() {
+        let root = tempfile::tempdir().unwrap();
+        let backups = root.path().join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::write(backups.join("pre-migration-v1-a.db"), b"snapshot").unwrap();
+
+        prune_migration_snapshots(&backups);
+
+        assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1);
+        // 目录不存在时只记日志，不 panic
+        prune_migration_snapshots(&root.path().join("missing"));
+    }
 }
 
 #[cfg(test)]

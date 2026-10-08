@@ -44,6 +44,7 @@ const filesLoading = ref(false)
 const uploading = ref(false)
 const mutating = ref(false)
 const loadError = ref('')
+const caseError = ref('')
 const directories = ref([])
 const selectedDir = ref('__all__')
 const removedFiles = ref([])
@@ -215,6 +216,8 @@ async function loadCase() {
   const result = await casesStore.loadCase(target)
   if (disposed || target !== caseId.value) return
   if (result.ok) caseData.value = result.data
+  // 案件头加载失败（审查 N10）：此前静默留空，改为与卷宗错误并列展示在同一错误条上
+  else caseError.value = result.error || '案件加载失败'
   loading.value = false
 }
 
@@ -455,6 +458,7 @@ watch(() => route.query.select, id => { if (id) loadFiles() })
 watch(caseId, () => {
   files.value = []; removedFiles.value = []; directories.value = []; selectedIds.value = []
   selectedFile.value = null; caseData.value = null; documentJobs.value = {}; ocrStates.value = {}
+  caseError.value = ''
   selectedDir.value = '__all__'; activeCategory.value = 'all'; showRemoved.value = false; moveOpen.value = false
   loadCase(); loadFiles()
 }, { immediate: true })
@@ -529,7 +533,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
         </el-button>
       </div>
     </header>
-    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" class="files-load-error" />
+    <el-alert v-if="loadError || caseError" :title="[loadError, caseError].filter(Boolean).join('；')" type="error" :closable="false" class="files-load-error" />
 
     <div class="files-workbench">
       <aside class="folder-panel">

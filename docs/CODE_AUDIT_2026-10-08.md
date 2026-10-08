@@ -250,3 +250,31 @@
 ---
 
 *审计执行：2026-10-08。证据行号对应 `cc7f440`；后续提交请以本文档为基准重新核对。*
+
+---
+
+## 2026-10-08 修复处置记录（同日执行）
+
+范围：本审计第七节 P0 全部 7 项、P1 第 8–15 项与第 18–24 项、P2 新缺陷 N1–N10；bunny 10 UI/UX 升级方案与 R-02/R-06 架构项不在本轮（见下）。基线：`cc7f440` → 本轮提交。
+
+**门禁实测（修复后）**：`cargo check --locked --all-targets` exit 0；Rust **401 通过 / 0 失败 / 6 忽略**；引擎 **23 通过 / 5 忽略**；前端 **377 通过 / 87 文件**，类型检查干净；脚本 **8 通过**；`export_bindings` 无漂移。
+
+| 审计项 | 处置 | 落点 |
+| --- | --- | --- |
+| P0-1 飞书重试退避 | schema v44 幂等补列 `sync_map.attempts/last_attempt_at`；退避窗口 1→60 分钟；5 次后 `push_failed` 并进入 24 小时重试队列；成功重置计数 | `db/schema.rs`（v44 + 条件补列）、`sync/feishu.rs` |
+| P0-2 WebDAV 条件上传 | 新增比对时 ETag 基线（`webdav_observed_etag`）；手动推送与保留本地/远端走 `put_if_match`，412 返回中文冲突错误；HEAD 失败降级并记日志 | `sync/webdav.rs`、`sync/mod.rs`、`commands/sync.rs` |
+| P0-3 SMTP/ICS 合规 | 补 `Date:`/`Message-ID:`；DTSTAMP/DTSTART/DTEND 统一 UTC（Z）；75 字节折行覆盖属性名前缀、不切断多字节字符；修正断言错误形态的测试 | `email/smtp.rs`、`sync/caldav.rs`、`tests/calendar_delivery_test.rs` |
+| P0-4 产物回收 | 失败/取消即清（无其他 completed job 引用同 file_id+sha 时）；启动扫描删除孤儿与可回收目录；completed/queued/running 一律保留 | `background_jobs.rs`、`document_intelligence.rs` |
+| P0-5 送达归卷 | `service_delivery` 缺少 caseId 明确报错，否则下载后走 `file_inbox_item(..., "received")` 归卷 | `commands/inbox.rs` |
+| P0-6 期限日历 | 补 2025-10-08；`covers_year`；规则引擎对未覆盖年份输出 `unconfirmed_calendar` + `[待核对]`；待核对项不再派 R1/R2（降级通知中心）；程序期限时段外走 `defer_reminder_job`；单规则失败不丢整轮 | `deadline/{holidays,engine,procedure}.rs`、`commands/reminder.rs` |
+| P0-7 快照保留 | 迁移前快照仅保留最新 3 份 | `db/mod.rs` |
+| P1-8 收件箱 | `list_inbox_items` 加分页参数；新增 `count_inbox_items` 后端聚合（徽标真实）；日期解析相对优先、小数点不再是分隔符、数量单位不误判；`source_inbox_id` 溯源；法条计数用 `changes()`；字节切片改 `truncate_text`；自动路由仅首次处理执行；dismiss 不覆盖 filed | `commands/inbox.rs`、`commandMap.ts`、`services/inbox.ts`、`InboxView.vue` |
+| P1-9 停滞保护 | 进度读取失败改 `tracing::warn!`；文字路径 600s 超时 + 取消检查；引擎 finalizing 尾部逐页心跳 | `document_pipeline.rs`、`tools/casy-doc-engine/src/main.rs` |
+| P1-10/11 | DOCX 原子写 + 序号不覆盖；重命名挡 queued；扫描 10 万上限；知识引用改先取 id 再逐条 UPDATE | `docsy_engine/export.rs`、`commands/files.rs` |
+| P1-12/13 | IMAP 启动自启 + 逐账号连接探针与状态；飞书 configured 徽章反映 table；autoPush 失败可见 | `lib.rs`、`email/mod.rs`、`commands/sync.rs`、`src/core/autoPush.ts` |
+| P1-14/18 前端 | 导出 CSV 接线；`task.caseName` 富化；case 事件订阅；自定义透视启动加载；删死 IPC 与死 UI 声明；侧栏搜索防抖；⌘K 任务深链 | `src/**`（含 5 个新测试） |
+| P1-15 e2e | `npm run test:e2e` + CI `CASY_E2E=true` 门控步骤 | `package.json`、`.github/workflows/ci.yml`、`docs/DEVELOPMENT.md` |
+| P1-20–24 | 重复链可再生（后继已删时）；软删源任务连带软删后继；`delete_case` 清理四张孤儿表 + 跨案父子链；`ADD` 溢出防护；种子规则跳过改为数据驱动（settings 名单 + 无 update 审计） | `task_lifecycle.rs`、`tasks.rs`、`db/cases.rs`、`formula/eval.rs`、`deadline/engine.rs` |
+| P2 N1–N10 | ProcessingCenter finalizing 前缀；manifest 原子写；校订拷图跳过已存在；知识产物目录随删除清理；回退带最新 job 错误；重复邮件推进水位；ProposalDiffCard void 陷阱；HomeView/CaseFilesView/InboxView 新缺陷 | 对应模块 |
+
+**未纳入本轮（明确遗留）**：bunny 10 的组件层/断点/四态/视觉升级（多周工程，需先完成上述接通）；R-02 有界内存与 R-06 断点续跑（架构项）；真实外部服务联调、100/500 页压力、Windows 原生与公证验收（验收边界不变）。

@@ -12,8 +12,13 @@ type InboxProgress = CommandMap['get_inbox_progress']['result']
 export class InboxService extends Service {
   static inject: string[] = []
 
-  async list(status?: string): Promise<{ ok: boolean; data?: InboxItem[]; error?: string }> {
-    return tauriCallSafe('list_inbox_items', { status: status || undefined })
+  async list(status?: string, limit?: number, offset?: number): Promise<{ ok: boolean; data?: InboxItem[]; error?: string }> {
+    return tauriCallSafe('list_inbox_items', { status: status || undefined, limit, offset })
+  }
+
+  /** 后端聚合计数：待处理徽标不用已加载数组长度冒充 */
+  async count(status?: string): Promise<{ ok: boolean; data?: number; error?: string }> {
+    return tauriCallSafe('count_inbox_items', { status: status || undefined })
   }
 
   async add(sourceType: string, contentText?: string, sourcePath?: string): Promise<{ ok: boolean; data?: string; error?: string }> {

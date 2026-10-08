@@ -586,6 +586,10 @@ pub async fn scan_unregistered_files(case_id: String) -> Result<Vec<Unregistered
             out: &mut Vec<UnregisteredFile>,
             known: &std::collections::HashSet<String>,
         ) -> anyhow::Result<()> {
+            // M7：与 workspace_sync::scan 对齐的行数上限，避免超大卷宗把结果一次性堆进内存
+            if out.len() > 100_000 {
+                anyhow::bail!("卷宗文件超过 100,000 个，请缩小整理范围后重试");
+            }
             let rd = std::fs::read_dir(dir)?;
             for e in rd {
                 let e = e?;
@@ -876,7 +880,8 @@ pub(crate) fn relocate_files(
         if !seen.insert(path.clone()) {
             anyhow::bail!("同一磁盘文件不能重复提交");
         }
-        let processing: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE f.file_path=?1 AND j.status='running')",[&row.file_path],|r|r.get(0))?;
+        // M6：排队中的任务同样持有旧路径——改名会让它按新路径找不到源文件而凭空失败
+        let processing: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs j JOIN case_files f ON f.id=j.file_id WHERE f.file_path=?1 AND j.status IN ('running','queued'))",[&row.file_path],|r|r.get(0))?;
         if processing {
             anyhow::bail!("文件正在处理，请先取消处理任务");
         }
@@ -962,18 +967,48 @@ pub(crate) fn relocate_knowledge_references(conn: &rusqlite::Connection, source:
 }
 fn relocate_knowledge_reference_batch(conn: &rusqlite::Connection, mappings: &[(PathBuf,PathBuf)]) -> anyhow::Result<()> {
     if mappings.is_empty() { return Ok(()); }
-    let items = {
-        let mut stmt = conn.prepare("SELECT id,content FROM knowledge_items")?;
-        let items = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-        items
-    };
-    for (id, content) in items {
+    // M7：写事务内原先一次性载入全表 knowledge_items.content，长时间阻塞应用内所有写。
+    // 改为先用 LIKE 定位受影响的行 id（正文仍留在库里），再逐条读-改-写，
+    // 内存中最多只有一行的正文。
+    let mut targets: Vec<(String,String)> = Vec::new();
+    {
+        let mut stmt = conn.prepare("SELECT id FROM knowledge_items WHERE content LIKE ?1")?;
+        for (source, _) in mappings {
+            for pattern in reference_patterns(source) {
+                let rows = stmt.query_map([&pattern], |r| r.get::<_,String>(0))?;
+                for id in rows {
+                    let id = id?;
+                    if !targets.iter().any(|(existing,_)| *existing == id) {
+                        targets.push((id, pattern.clone()));
+                    }
+                }
+            }
+        }
+    }
+    for (id, pattern) in targets {
+        let content: String = conn.query_row("SELECT content FROM knowledge_items WHERE id=?1",[&id],|r|r.get(0))?;
         let relocated = super::portable_backup::relocate_markdown(&content, mappings);
         if relocated != content {
-            conn.execute("UPDATE knowledge_items SET content=?2,updated_at=datetime('now','localtime') WHERE id=?1",params![id,relocated])?;
+            // LIKE 守卫：仅当正文仍引用旧路径时才写入，避免覆盖并发修改
+            conn.execute("UPDATE knowledge_items SET content=?3,updated_at=datetime('now','localtime') WHERE id=?1 AND content LIKE ?2",params![id,pattern,relocated])?;
         }
     }
     Ok(())
+}
+
+/// 知识正文引用卷宗文件的两种形态：原生绝对路径，以及含空格/括号等字符时被
+/// `portable_backup` 改写成的 `file://` URL。两者都要参与定位，
+/// 否则对已 URL 化的引用二次改名会漏改。
+fn reference_patterns(source: &Path) -> Vec<String> {
+    let plain = source.to_string_lossy().into_owned();
+    let mut patterns = vec![format!("%{plain}%")];
+    if let Ok(mut url) = reqwest::Url::parse("file:///") {
+        url.set_path(&plain);
+        let encoded = url.to_string().replace('(', "%28").replace(')', "%29");
+        let pattern = format!("%{encoded}%");
+        if !patterns.contains(&pattern) { patterns.push(pattern); }
+    }
+    patterns
 }
 
 #[tauri::command]
@@ -1014,7 +1049,7 @@ pub async fn set_case_file_category(id: String, category: String) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::{
-        check_openable, is_executable_extension, is_safe_open_extension,
+        check_openable, is_executable_extension, is_safe_open_extension, reference_patterns,
         validate_case_relative_path,
     };
     use std::path::Path;
@@ -1024,6 +1059,27 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, b"x").unwrap();
         std::fs::canonicalize(&path).unwrap()
+    }
+
+    /// M7：含空格/中文的路径在正文里可能被写成 `file://` URL，
+    /// 两种形态都要能被 LIKE 定位到，否则逐条 UPDATE 会漏改。
+    #[test]
+    fn knowledge_reference_patterns_cover_plain_and_file_url_forms() {
+        let patterns = reference_patterns(Path::new("/cases/案卷 01/判决书.pdf"));
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.as_str() == "%/cases/案卷 01/判决书.pdf%"),
+            "{patterns:?}"
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.starts_with("%file:///cases/") && p.ends_with("%")),
+            "{patterns:?}"
+        );
+        // 无特殊字符的路径同样产出两种形态；URL 形态只是备选，命中后由 relocate_markdown 判空
+        assert_eq!(reference_patterns(Path::new("/cases/a.pdf")).len(), 2);
     }
 
     #[test]

@@ -35,6 +35,11 @@ jobs:
       - run: npm run test:unit
       - run: node --test scripts/*.test.mjs
       - run: npm run build
+      # tests/e2e 需要预编译 *_local_bridge 与 playwright，默认关闭；
+      # 以 CASY_E2E=true 显式开启（本地验收或专用工作流）
+      - name: e2e (opt-in)
+        if: env.CASY_E2E == 'true'
+        run: npm run test:e2e
       # rust 作业编译期 generate_context! 需要该目录存在（tauri.conf frontendDist=../dist）
       - uses: actions/upload-artifact@v4
         with:

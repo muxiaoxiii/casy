@@ -99,7 +99,8 @@ async function runSearch(q: string, request: number) {
         icon: Finished,
         title: String(t.taskName ?? ''),
         meta: t.dueDate ? String(t.dueDate) : (t.completed ? '已完成' : '无日期'),
-        route: '/tasks',
+        // 深链到任务编辑器（审查 P1-18e）：TasksView 支持 ?edit=<taskId>
+        route: '/tasks?edit=' + encodeURIComponent(String(t.id)),
       })
     }
   }

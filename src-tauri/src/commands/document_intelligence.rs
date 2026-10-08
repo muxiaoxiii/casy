@@ -195,7 +195,12 @@ pub(crate) fn cancel_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyho
         anyhow::bail!("仅可取消排队或运行中的任务");
     }
     tx.execute("UPDATE case_files SET ocr_status='failed',index_status='failed',ocr_error='CANCELLED: 已取消处理' WHERE id=(SELECT file_id FROM document_processing_jobs WHERE id=?1)", [job_id])?;
+    let target: Option<(String,String)> = tx.query_row("SELECT file_id,source_sha256 FROM document_processing_jobs WHERE id=?1",[job_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
     tx.commit()?;
+    // S4/P0-4：取消后回收未被其他已完成任务引用的产物目录（best-effort）
+    if let Some((file_id, source_sha256)) = target {
+        crate::background_jobs::remove_unreferenced_artifact(job_id, &file_id, &source_sha256);
+    }
     Ok(())
 }
 
@@ -214,6 +219,37 @@ pub struct DocumentPageView {
     pub regions: Vec<document_pipeline::DocumentRegion>,
     pub layout: Option<serde_json::Value>,
     pub timing: Option<document_pipeline::DocumentPageTiming>,
+}
+
+/// N3：把已验证产物搬到新校订目录。目标已存在且大小与 manifest 一致时跳过，
+/// 避免每次区域校订都整份重拷 PNG（60 页卷宗 × 每次校订一份全量拷贝），
+/// 同时让上次中断后的重试可以续拷而不是直接失败。
+fn copy_verified_assets(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+    manifest: &document_pipeline::assets::Manifest,
+) -> anyhow::Result<()> {
+    use std::io::Write;
+    for (id, asset) in &manifest.assets {
+        let target = destination.join("assets").join(id);
+        if std::fs::metadata(&target)
+            .map(|m| m.is_file() && m.len() == asset.size)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let bytes = document_pipeline::assets::read(source, manifest, id)?;
+        std::fs::create_dir_all(destination.join("assets"))?;
+        // 大小不符说明是上次中断留下的残file，先移除再按 create_new 语义落盘
+        let _ = std::fs::remove_file(&target);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    document_pipeline::assets::save(destination, manifest)
 }
 
 #[tauri::command]
@@ -255,7 +291,7 @@ pub async fn correct_document_region(file_id: String, job_id: String, page_numbe
             for page in &pages {
                 document_pipeline::assets::validate_references(&page.markdown, old_root, &manifest)?;
             }
-            document_pipeline::assets::copy_to(old_root, &output, &manifest)?;
+            copy_verified_assets(old_root, &output, &manifest)?;
         }
         let request = document_pipeline::process_request(&id,&source,&hash,&output);
         tx.execute("INSERT INTO document_processing_jobs(id,file_id,source_sha256,status,engine,started_at) VALUES(?1,?2,?3,'running','paddle-onnx-corrected',datetime('now','localtime'))",rusqlite::params![id,file_id,hash])?;

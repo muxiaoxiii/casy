@@ -85,7 +85,16 @@ pub fn load(root: &Path) -> Result<Manifest> {
     Ok(manifest)
 }
 pub fn save(root: &Path, manifest: &Manifest) -> Result<()> {
-    fs::write(root.join(MANIFEST), serde_json::to_vec_pretty(manifest)?)?;
+    // N2：裸 fs::write 会在崩溃/磁盘满时留下截断的 manifest，使 assets::load 全量失败
+    // （document_pipeline、document_assets、knowledge 都依赖它），存量文档也无法再被
+    // 存储升级修复。与同文件其他写路径对齐：临时文件 + sync_all + 原子 rename。
+    use std::io::Write;
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".manifest-")
+        .tempfile_in(root)?;
+    temporary.write_all(&serde_json::to_vec_pretty(manifest)?)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(root.join(MANIFEST))?;
     Ok(())
 }
 
@@ -302,5 +311,31 @@ mod tests {
         assert!(read(root.path(), &manifest, "../secret").is_err());
         fs::write(root.path().join("assets").join(id), b"corrupt").unwrap();
         assert!(validate_references(&result, root.path(), &manifest).is_err());
+    }
+
+    /// N2：覆盖已存在的 manifest 必须原子成功，且不留临时文件。
+    #[test]
+    fn save_replaces_an_existing_manifest_without_leaving_temporaries() {
+        let root = tempfile::tempdir().unwrap();
+        let sha = "a".repeat(64);
+        let mut manifest = Manifest::default();
+        manifest.assets.insert(
+            format!("{sha}.png"),
+            Asset {
+                sha256: sha,
+                size: 7,
+                media_type: "image/png".into(),
+            },
+        );
+        save(root.path(), &manifest).unwrap();
+        save(root.path(), &manifest).unwrap();
+        assert_eq!(load(root.path()).unwrap(), manifest);
+        let leftovers: Vec<String> = fs::read_dir(root.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".manifest-"))
+            .collect();
+        assert!(leftovers.is_empty(), "临时文件未清理: {leftovers:?}");
     }
 }

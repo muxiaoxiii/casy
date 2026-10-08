@@ -28,7 +28,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits([
   'update:filter',
-  'update:groupBy',
   'search',
   'export',
   'create',
@@ -253,7 +252,6 @@ async function saveFilter() {
 // 加载已保存的筛选方案
 function loadFilter(filterConfig: SavedFilter) {
   emit('update:filter', { ...filterConfig.filter })
-  emit('update:groupBy', filterConfig.groupBy || 'none')
   emit('search')
 }
 
@@ -367,13 +365,6 @@ filtersStore.loadFilters('cases')
         <el-date-picker v-model="deadlineRange" type="daterange" range-separator="至" start-placeholder="期限起" end-placeholder="期限止" format="YYYY-MM-DD" value-format="YYYY-MM-DD" @change="onDeadlineRangeChange" />
         <el-date-picker v-model="hearingRange" type="daterange" range-separator="至" start-placeholder="开庭起" end-placeholder="开庭止" format="YYYY-MM-DD" value-format="YYYY-MM-DD" @change="onHearingRangeChange" />
         <el-input v-model="operatorFilter" placeholder="办案人" clearable @input="onOperatorChange" />
-        <el-select :model-value="groupBy" placeholder="分组方式" @change="(v: string) => emit('update:groupBy', v)">
-          <el-option label="不分组" value="none" />
-          <el-option label="按客户" value="client" />
-          <el-option label="按轨道" value="track" />
-          <el-option label="按路由" value="route" />
-          <el-option label="按法院" value="court" />
-        </el-select>
         <el-select :model-value="filter.sortBy" placeholder="排序方式" @change="updateSortBy">
           <el-option v-for="opt in sortOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>

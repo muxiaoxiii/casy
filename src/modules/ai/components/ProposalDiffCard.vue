@@ -20,7 +20,6 @@ import {
 import { aiToolCaller } from '../../../core/ai/tool-caller'
 import {
   getProposalPreview,
-  rejectProposal,
 } from '../../../core/ai/proposals'
 import type { ProposalPreviewDto, ProposalStatus } from '../../../core/ai/proposals'
 
@@ -150,11 +149,15 @@ async function onReject() {
   if (!isPending.value) return
   acting.value = 'reject'
   try {
-    const ok = await rejectProposal(props.proposalId)
-    await load()
-    if (ok !== null) {
-      ElMessage.info('已拒绝该变更')
+    // void 命令陷阱（审查 N9）：reject_ai_proposal 成功/失败都返回 null，
+    // 旧写法 `ok !== null` 恒 false，"已拒绝"永不显示。改用 tauriCallSafe 判定 result.ok。
+    const result = await tauriCallSafe('reject_ai_proposal', { proposalId: props.proposalId })
+    if (!result.ok) {
+      ElMessage.error('拒绝失败：' + (result.error || '未知错误'))
+      return
     }
+    await load()
+    ElMessage.info('已拒绝该变更')
     // 提案终态：清理 tool-caller 登记表（防单例 Map 泄漏）
     aiToolCaller.discardProposal(props.proposalId)
     emit('resolved', status.value)

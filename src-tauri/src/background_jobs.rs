@@ -1,6 +1,8 @@
 //! Durable single-flight document processing worker.
 use log::{error, info};
 use rusqlite::OptionalExtension;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::AppHandle;
 
@@ -85,6 +87,212 @@ pub(crate) fn persist_failure(job: &ClaimedJob, error: &anyhow::Error) {
             }
             let _ = tx.commit();
         }
+    }
+    // S4/P0-4：失败即回收自己的产物目录；仍被同一 (file_id, source_sha256) 的
+    // 已完成任务引用时保留（校订/重试会复用同一源哈希下的产物）。
+    remove_unreferenced_artifact(&job.id, &job.file_id, &job.source_sha256);
+}
+
+/// 产物目录是否仍被同一 (file_id, source_sha256) 的**其他**已完成任务引用。
+/// 只要还有一个已完成任务在读这套产物（source.md / assets / 可搜索 PDF），就不能删。
+fn artifact_referenced_by_completed(
+    conn: &rusqlite::Connection,
+    job_id: &str,
+    file_id: &str,
+    source_sha256: &str,
+) -> anyhow::Result<bool> {
+    let referenced: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM document_processing_jobs WHERE file_id=?1 AND source_sha256=?2 AND status='completed' AND id<>?3)",
+        rusqlite::params![file_id, source_sha256, job_id],
+        |row| row.get(0),
+    )?;
+    Ok(referenced)
+}
+
+/// 同一任务的产物可能落在两种布局下（都以任务 id 或文件 id 开头）：
+/// `document-artifacts/<job_id>/<sha>/`（后台 worker）与
+/// `document-artifacts/<file_id>/<sha>/<job_id>/`（区域校订、存储升级）。
+fn artifact_candidates(job_id: &str, file_id: &str, source_sha256: &str) -> Vec<PathBuf> {
+    [
+        crate::document_pipeline::artifact_dir_path(job_id, source_sha256),
+        crate::document_pipeline::artifact_dir_path(file_id, source_sha256)
+            .map(|base| base.join(job_id)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// 回收未被已完成任务引用的产物目录（S4/P0-4）。全程 best-effort：
+/// 无法判定引用关系时保守保留，永不删除已完成任务的产物。
+pub(crate) fn remove_unreferenced_artifact(job_id: &str, file_id: &str, source_sha256: &str) {
+    let referenced = match crate::db::open_db() {
+        Ok(conn) => artifact_referenced_by_completed(&conn, job_id, file_id, source_sha256)
+            .unwrap_or(true),
+        Err(error) => {
+            log::warn!("跳过产物回收（无法读取任务状态）: {error}");
+            true
+        }
+    };
+    if referenced {
+        return;
+    }
+    for path in artifact_candidates(job_id, file_id, source_sha256) {
+        remove_artifact_dir(&path);
+    }
+}
+
+/// 删除单个产物目录；NotFound 视为正常（从未产出或已回收）。
+fn remove_artifact_dir(path: &Path) {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => info!("已回收文档产物目录: {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!("文档产物目录回收失败 {}: {error}", path.display()),
+    }
+}
+
+/// 启动扫描用的任务索引：id → (file_id, source_sha256, status)，外加所有已完成引用。
+struct ArtifactJobIndex {
+    jobs: HashMap<String, (String, String, String)>,
+    file_ids: HashSet<String>,
+    completed: HashSet<(String, String)>,
+}
+
+impl ArtifactJobIndex {
+    fn load(conn: &rusqlite::Connection) -> anyhow::Result<Self> {
+        let mut stmt = conn
+            .prepare("SELECT id,file_id,source_sha256,status FROM document_processing_jobs")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut jobs = HashMap::new();
+        let mut file_ids = HashSet::new();
+        let mut completed = HashSet::new();
+        for (id, file_id, source_sha256, status) in rows {
+            if status == "completed" {
+                completed.insert((file_id.clone(), source_sha256.clone()));
+            }
+            file_ids.insert(file_id.clone());
+            jobs.insert(id, (file_id, source_sha256, status));
+        }
+        Ok(Self {
+            jobs,
+            file_ids,
+            completed,
+        })
+    }
+
+    fn is_file_id(&self, file_id: &str) -> bool {
+        self.file_ids.contains(file_id)
+    }
+
+    /// 只有"已失败/已取消"且"没有其他已完成任务引用磁盘上这套产物"时才可回收。
+    /// queued/running/completed 一律保留。
+    fn recyclable(&self, job_id: &str, sha_on_disk: &str) -> bool {
+        let Some((file_id, _, status)) = self.jobs.get(job_id) else {
+            return false;
+        };
+        if status != "failed" && status != "cancelled" {
+            return false;
+        }
+        !self
+            .completed
+            .contains(&(file_id.clone(), sha_on_disk.to_string()))
+    }
+}
+
+/// 一级目录下的子目录列表。
+fn subdirs(path: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
+/// 启动扫描（S4/P0-4）：删除任务行已不存在、或任务已失败/已取消且无已完成任务引用的产物目录。
+/// 已完成与 queued/running 任务的产物一律保留；无法归属到任务 id 的目录（如存储升级的
+/// `asset-upgrade-*` 暂存目录）保守保留，避免误删被 completed job 引用的产物。
+fn scan_orphan_artifacts() {
+    let conn = match crate::db::open_db() {
+        Ok(conn) => conn,
+        Err(error) => {
+            log::warn!("跳过文档产物回收扫描: {error}");
+            return;
+        }
+    };
+    let index = match ArtifactJobIndex::load(&conn) {
+        Ok(index) => index,
+        Err(error) => {
+            log::warn!("跳过文档产物回收扫描（任务索引读取失败）: {error}");
+            return;
+        }
+    };
+    let Some(base) = crate::db::get_db_path()
+        .parent()
+        .map(|parent| parent.join("document-artifacts"))
+    else {
+        return;
+    };
+    let jobs = match std::fs::read_dir(&base) {
+        Ok(jobs) => jobs,
+        // 从未产生过产物属正常，不是错误
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => {
+            log::warn!("文档产物目录扫描失败 {}: {error}", base.display());
+            return;
+        }
+    };
+    for entry in jobs.flatten() {
+        let level1 = entry.path();
+        if !level1.is_dir() {
+            continue;
+        }
+        let name1 = entry.file_name().to_string_lossy().into_owned();
+        // 布局 A：document-artifacts/<job_id>/<sha256>/
+        if index.jobs.contains_key(&name1) {
+            for sha in subdirs(&level1) {
+                let sha_name = sha
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if index.recyclable(&name1, &sha_name) {
+                    remove_artifact_dir(&sha);
+                }
+            }
+            continue;
+        }
+        // 布局 B：document-artifacts/<file_id>/<sha256>/<job_id>/
+        if index.is_file_id(&name1) {
+            for sha in subdirs(&level1) {
+                let sha_name = sha
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                for job in subdirs(&sha) {
+                    let job_name = job
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    if index.recyclable(&job_name, &sha_name) {
+                        remove_artifact_dir(&job);
+                    }
+                }
+            }
+            continue;
+        }
+        // 既不是任务 id 也不是任何任务的文件 id：没有引用者的孤儿目录
+        remove_artifact_dir(&level1);
     }
 }
 
@@ -217,6 +425,8 @@ pub fn start_background_worker(_app: AppHandle) {
             );
             let _=conn.execute("UPDATE document_processing_jobs SET status='failed',error_code='INTERRUPTED',error_message='应用上次退出时任务仍在运行，请重试',updated_at=datetime('now','localtime') WHERE status='running'",[]);
         }
+        // S4/P0-4：此时上次异常退出遗留的 running 已被标记为 failed，可安全回收其产物
+        scan_orphan_artifacts();
         info!("durable document intelligence worker started");
         loop {
             match process_next_document_job().await {
@@ -230,4 +440,99 @@ pub fn start_background_worker(_app: AppHandle) {
         }
     });
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jobs_table() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE document_processing_jobs(id TEXT,file_id TEXT,source_sha256 TEXT,status TEXT)",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn completed_job_of_the_same_hash_keeps_artifacts() {
+        let conn = jobs_table();
+        conn.execute(
+            "INSERT INTO document_processing_jobs VALUES('older','f','sha','completed')",
+            [],
+        )
+        .unwrap();
+        // 同一 (file_id, sha) 已有完成任务在读这套产物 → 失败任务不得回收
+        assert!(artifact_referenced_by_completed(&conn, "newer", "f", "sha").unwrap());
+    }
+
+    #[test]
+    fn failed_or_other_hash_jobs_do_not_keep_artifacts() {
+        let conn = jobs_table();
+        conn.execute(
+            "INSERT INTO document_processing_jobs VALUES('other','f','sha','failed')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO document_processing_jobs VALUES('other-file','f2','sha','completed')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO document_processing_jobs VALUES('other-hash','f','other','completed')",
+            [],
+        )
+        .unwrap();
+        assert!(!artifact_referenced_by_completed(&conn, "newer", "f", "sha").unwrap());
+    }
+
+    #[test]
+    fn the_job_itself_is_never_counted_as_a_reference() {
+        let conn = jobs_table();
+        conn.execute(
+            "INSERT INTO document_processing_jobs VALUES('self','f','sha','completed')",
+            [],
+        )
+        .unwrap();
+        assert!(!artifact_referenced_by_completed(&conn, "self", "f", "sha").unwrap());
+    }
+
+    fn index_with(rows: &[(&str, &str, &str, &str)]) -> ArtifactJobIndex {
+        let conn = jobs_table();
+        for &(id, file_id, sha, status) in rows.iter() {
+            conn.execute(
+                "INSERT INTO document_processing_jobs VALUES(?1,?2,?3,?4)",
+                rusqlite::params![id, file_id, sha, status],
+            )
+            .unwrap();
+        }
+        ArtifactJobIndex::load(&conn).unwrap()
+    }
+
+    /// 启动扫描的回收判定：只有"已失败/已取消"且"无其他已完成任务引用同一 (file_id, sha)"才删。
+    #[test]
+    fn startup_scan_only_recycles_unreferenced_failed_or_cancelled_artifacts() {
+        let index = index_with(&[
+            ("done", "f", "sha", "completed"),
+            ("failed", "f", "sha", "failed"),
+            ("failed-other", "f", "other", "failed"),
+            ("cancelled", "f", "sha3", "cancelled"),
+            ("running", "f", "sha4", "running"),
+            ("queued", "f2", "sha5", "queued"),
+        ]);
+        // 同一 (file_id, sha) 已有完成任务在读 → 保留
+        assert!(!index.recyclable("failed", "sha"));
+        // 无 completed 引用的失败/取消任务 → 回收
+        assert!(index.recyclable("failed-other", "other"));
+        assert!(index.recyclable("cancelled", "sha3"));
+        // completed 永不回收；排队/运行中可能正在写，也保留
+        assert!(!index.recyclable("done", "sha"));
+        assert!(!index.recyclable("running", "sha4"));
+        assert!(!index.recyclable("queued", "sha5"));
+        // 归属不到任务 id 的目录不走这条判定（由孤儿分支处理）
+        assert!(!index.recyclable("missing", "sha"));
+        assert!(index.is_file_id("f") && index.is_file_id("f2") && !index.is_file_id("nope"));
+    }
 }

@@ -504,6 +504,29 @@ pub fn update_case(conn: &Connection, id: &str, data: &serde_json::Value) -> Res
     get_case(conn, id)
 }
 
+/// 程序投影表按 `item_id` 归档，既无外键也无 case_id（audit F1/F2）。
+///
+/// item_id 的构成本身带案件线索，删除案件时按这些前缀一并清理：
+/// `{event_id}:{suffix}`（procedure_events，随案件 CASCADE）、
+/// `legacy:{case_id}:{key}:{suffix}`（案件旧字段合成事件）、
+/// `manual:{deadline_id}:manual`（case_deadlines，随案件 CASCADE）、
+/// `task|hearing:{record_id}`（共享任务/庭审记录，只取本案自己的记录——
+/// 被他案链接共享的记录仍归他案所有，不能一起清）。
+fn delete_procedure_item_rows(conn: &Connection, table: &str, id: &str) -> Result<()> {
+    // 表名来自本文件内的两个固定字面量，不做外部拼接。
+    let sql = format!(
+        "DELETE FROM {table} WHERE
+           substr(item_id, 1, length(?1) + 8) = 'legacy:' || ?1 || ':'
+           OR item_id IN (SELECT 'manual:' || d.id || ':manual' FROM case_deadlines d WHERE d.case_id = ?1)
+           OR EXISTS (SELECT 1 FROM procedure_events e WHERE e.case_id = ?1
+                      AND substr(item_id, 1, length(e.id) + 1) = e.id || ':')
+           OR item_id IN (SELECT 'task:' || t.id FROM tasks t WHERE t.case_id = ?1)
+           OR item_id IN (SELECT 'hearing:' || h.id FROM hearings h WHERE h.case_id = ?1)"
+    );
+    conn.execute(&sql, params![id])?;
+    Ok(())
+}
+
 /// 删除案件
 pub fn delete_case(conn: &Connection, id: &str) -> Result<()> {
     // links 无外键：先清双向孤儿行，避免案件删除后留下无法查阅的关联。
@@ -522,11 +545,18 @@ pub fn delete_case(conn: &Connection, id: &str) -> Result<()> {
         params![id],
     )?;
     // 子任务自引用无 ON DELETE SET NULL：先断开父子链，避免 CASCADE 顺序撞 FK。
+    // 跨案父子链同样要断开：他案任务引用本案任务时，案件删除会被 FK 永久挡住。
     conn.execute(
         "UPDATE tasks SET parent_task_id = NULL
-         WHERE case_id = ?1 AND parent_task_id IN (SELECT id FROM tasks WHERE case_id = ?1)",
+         WHERE parent_task_id IN (SELECT id FROM tasks WHERE case_id = ?1)",
         params![id],
     )?;
+    // F1/F2：程序投影的处理状态、提醒回执、程序审计与提醒日志无级联，随案件一并清理，
+    // 否则删除案件后会留下永久的孤儿行（提醒回执还会影响以后复用的 item_id）。
+    delete_procedure_item_rows(conn, "procedure_item_states", id)?;
+    delete_procedure_item_rows(conn, "procedure_reminder_receipts", id)?;
+    conn.execute("DELETE FROM procedure_audit WHERE case_id = ?1", params![id])?;
+    conn.execute("DELETE FROM reminder_log WHERE case_id = ?1", params![id])?;
     conn.execute("DELETE FROM cases WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -743,4 +773,96 @@ fn row_to_case(row: &rusqlite::Row) -> rusqlite::Result<Case> {
         updated_at: row_get_string(row, "updated_at")?,
         deadline_urgency: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::super::schema::SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        super::super::schema::run_migrations(&conn, 1).unwrap();
+        // 打开外键：跨案父子链不断开时，删除案件会被 tasks.parent_task_id 的 FK 挡住（F2）。
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn
+    }
+
+    /// F1/F2：删除案件必须同时清掉四张无级联的表，并断开跨案父子链。
+    #[test]
+    fn delete_case_clears_procedure_orphans_and_cross_case_parent_chain() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "INSERT INTO cases (id, case_name, client_name, track) VALUES
+               ('c1', '本案', '委托人', 'civil_tort'), ('c2', '他案', '委托人', 'civil_tort');
+             INSERT INTO tasks (id, case_id, task_name, created_date) VALUES
+               ('t-mine', 'c1', '本案任务', '2026-10-01'),
+               ('t-other', 'c2', '他案任务', '2026-10-01'),
+               ('t-child', 'c2', '他案子任务', '2026-10-01');
+             UPDATE tasks SET parent_task_id = 't-mine' WHERE id = 't-child';
+             INSERT INTO hearings (id, case_id, hearing_record, hearing_date) VALUES
+               ('h1', 'c1', '本案庭审', '2026-11-01'), ('h2', 'c2', '他案庭审', '2026-11-02');
+             INSERT INTO procedure_events (id, case_id, payload, created_at, updated_at)
+               VALUES ('ev-1', 'c1', '{}', '2026-10-01', '2026-10-01');
+             INSERT INTO case_deadlines (id, case_id, deadline_name, due_date)
+               VALUES ('dl-1', 'c1', '答辩期', '2026-10-20');
+             INSERT INTO procedure_audit (id, case_id, event_id, action, after_json, reason, created_at)
+               VALUES ('pa-1', 'c1', 'ev-1', 'create', '{}', '测试', '2026-10-01');
+             INSERT INTO procedure_item_states (item_id, fingerprint, status, note, updated_at) VALUES
+               ('ev-1:answer', 'fp', 'open', 'note', '2026-10-01'),
+               ('legacy:c1:filing_date:answer', 'fp', 'open', 'note', '2026-10-01'),
+               ('manual:dl-1:manual', 'fp', 'open', 'note', '2026-10-01'),
+               ('task:t-mine', 'fp', 'open', 'note', '2026-10-01'),
+               ('hearing:h1', 'fp', 'open', 'note', '2026-10-01'),
+               ('ev-9:answer', 'fp', 'open', 'note', '2026-10-01'),
+               ('task:t-other', 'fp', 'open', 'note', '2026-10-01'),
+               ('hearing:h2', 'fp', 'open', 'note', '2026-10-01');
+             INSERT INTO procedure_reminder_receipts (item_id, fingerprint, rule_id, sent_on) VALUES
+               ('ev-1:answer', 'fp', 'rule-1', '2026-10-01'),
+               ('legacy:c1:filing_date:answer', 'fp', 'rule-1', '2026-10-01'),
+               ('ev-9:answer', 'fp', 'rule-1', '2026-10-01');
+             INSERT INTO reminder_log (id, rule_id, case_id, channel, message, level, status)
+               VALUES ('rl-1', 'rule-1', 'c1', 'local', 'm', 'R1', 'sent');",
+        )
+        .unwrap();
+
+        delete_case(&conn, "c1").unwrap();
+
+        // 本案程序事件/期限/庭审随 CASCADE 消失，其处理状态与回执不得留孤儿
+        assert_eq!(count(&conn, "procedure_audit"), 0);
+        assert_eq!(count(&conn, "procedure_reminder_receipts"), 1);
+        assert_eq!(count(&conn, "reminder_log"), 0);
+        // 只剩与他案/未知事项相关的状态行
+        let left: Vec<String> = conn
+            .prepare("SELECT item_id FROM procedure_item_states ORDER BY item_id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            left,
+            vec![
+                "ev-9:answer".to_string(),
+                "hearing:h2".to_string(),
+                "task:t-other".to_string(),
+            ]
+        );
+        // 跨案父子链被断开，他案任务本身保留
+        let parent: Option<String> = conn
+            .query_row(
+                "SELECT parent_task_id FROM tasks WHERE id = 't-child'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(parent, None, "指向已删案件任务的父子链必须断开");
+        assert_eq!(count(&conn, "tasks"), 2);
+    }
+
+    fn count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
 }

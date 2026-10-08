@@ -39,6 +39,9 @@ function stage(job: ProcessingJob) {
     const label = ({local:'本机提醒',system:'系统通知',calendar:'日历同步',email_ics:'邮件邀请',feishu_message:'飞书消息',feishu_task:'飞书任务'} as Record<string,string>)[channel || ''] || '提醒'
     return [label,...rest].join(' · ')
   }
+  // 引擎心跳把 finalizing:<page> 复用进 phase 字段（审查 N1）：前缀匹配映射到既有标签，
+  // 避免裸字符串（如 finalizing:37）泄露到界面
+  if (job.stage.startsWith('finalizing')) return stages.finalizing
   return stages[job.stage] || job.stage
 }
 async function refresh() {

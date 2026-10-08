@@ -13,7 +13,7 @@
 //! 密码优先走 keychain（service "casy-caldav"），回退 settings 表 caldav_pass。
 
 use anyhow::Result;
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, TimeZone};
 use reqwest::Client;
 use rusqlite::Connection;
 use std::time::Duration;
@@ -333,7 +333,8 @@ impl CalDavClient {
 ///
 /// 与 email/smtp.rs 的 generate_ics 不同：不带 METHOD:REQUEST
 /// （那是邮件邀请语义；CalDAV PUT 的是纯日历对象）。
-/// DTSTAMP 用 UTC；DTSTART/DTEND 用本地浮动时间（与现有 smtp.rs 一致）。
+/// DTSTAMP/DTSTART/DTEND 全部用 UTC（带 Z）——不带 VTIMEZONE 也能被
+/// 所有日历服务端正确解析；内容行按 75 字节折行（RFC 5545 §3.1）。
 fn build_reminder_ics(
     uid: &str,
     summary: &str,
@@ -355,32 +356,73 @@ fn build_reminder_ics(
          DTSTAMP:{dtstamp}\r\n\
          DTSTART:{dtstart}\r\n\
          DTEND:{dtend}\r\n\
-         SUMMARY:{summary}\r\n\
-         DESCRIPTION:{description}\r\n\
+         {summary}\r\n\
+         {description}\r\n\
          STATUS:CONFIRMED\r\n\
          BEGIN:VALARM\r\n\
          TRIGGER:-PT{alarm}M\r\n\
          ACTION:DISPLAY\r\n\
-         DESCRIPTION:{summary}\r\n\
+         {alarm_description}\r\n\
          END:VALARM\r\n\
          END:VEVENT\r\n\
          END:VCALENDAR\r\n",
         uid = escape_ics(uid),
         dtstamp = dtstamp,
-        dtstart = dtstart.format("%Y%m%dT%H%M%S"),
-        dtend = dtend.format("%Y%m%dT%H%M%S"),
-        summary = escape_ics(summary),
-        description = escape_ics(description),
+        dtstart = to_utc_ics(&dtstart),
+        dtend = to_utc_ics(&dtend),
+        summary = ics_content_line("SUMMARY", summary),
+        description = ics_content_line("DESCRIPTION", description),
+        alarm_description = ics_content_line("DESCRIPTION", summary),
         alarm = alarm_minutes.max(0),
     )
 }
 
-/// 转义 ICS 特殊字符
+/// 本地浮动时间 → RFC 5545 UTC DATE-TIME（`YYYYMMDDTHHMMSSZ`）
+///
+/// 输入 NaiveDateTime 视为本地时间；统一转 UTC 而不是发 VTIMEZONE/TZID，
+/// 报文因此不含时区定义也能被 Google/Apple/Outlook 日历正确解析（S-6）。
+fn to_utc_ics(dt: &NaiveDateTime) -> String {
+    let utc = match chrono::Local.from_local_datetime(dt) {
+        chrono::LocalResult::Single(local)
+        | chrono::LocalResult::Ambiguous(local, _) => local.with_timezone(&chrono::Utc),
+        // 夏令时缺口：不存在对应的本地时刻，按原值兜底，避免 panic
+        chrono::LocalResult::None => return dt.format("%Y%m%dT%H%M%SZ").to_string(),
+    };
+    utc.format("%Y%m%dT%H%M%SZ").to_string()
+}
+
+/// RFC 5545 折行：超过 75 字节的内容行拆成多行，续行以单个空格开头
+///
+/// 按字符（char）边界累加字节数，绝不切断多字节 UTF-8 字符，
+/// 因此中文摘要/说明折行后仍是合法 UTF-8。
+fn fold_ics_line(line: &str) -> String {
+    let mut folded = String::with_capacity(line.len() + 16);
+    let mut used = 0usize; // 当前行已占字节数（不含续行前导空格）
+    for ch in line.chars() {
+        let len = ch.len_utf8();
+        // 续行前导空格占 1 字节，故续行正文最多 74 字节
+        let limit = if used == 0 { 75 } else { 74 };
+        if used + len > limit {
+            folded.push_str("\r\n ");
+            used = 0;
+        }
+        folded.push(ch);
+        used += len;
+    }
+    folded
+}
+
+/// 转义 ICS 特殊字符（不折行；折行必须覆盖属性名前缀，见 ics_content_line）
 fn escape_ics(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace(';', "\\;")
         .replace(',', "\\,")
         .replace('\n', "\\n")
+}
+
+/// 组装并按 75 字节折行的完整内容行（属性名 + 冒号 + 转义后的值）
+fn ics_content_line(property: &str, value: &str) -> String {
+    fold_ics_line(&format!("{property}:{}", escape_ics(value)))
 }
 
 #[cfg(test)]
@@ -404,20 +446,56 @@ mod tests {
 
     #[test]
     fn test_build_reminder_ics() {
+        let start = NaiveDateTime::parse_from_str("2026-08-20 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let ics = build_reminder_ics(
             "job-123",
             "案件提醒：答辩期限",
             "截止：2026-08-20",
-            NaiveDateTime::parse_from_str("2026-08-20 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            start,
             30,
             1440,
         );
         assert!(ics.contains("UID:job-123@casy.local"));
-        assert!(ics.contains("DTSTART:20260820T090000"));
-        assert!(ics.contains("DTEND:20260820T093000"));
         assert!(ics.contains("TRIGGER:-PT1440M"));
         assert!(ics.contains("SUMMARY:案件提醒：答辩期限"));
         assert!(!ics.contains("METHOD:REQUEST"));
+    }
+
+    /// ICS 合规：DTSTART/DTEND 为 UTC Z 形式，DTSTAMP 带 Z，每行 ≤ 75 字节
+    #[test]
+    fn test_build_reminder_ics_utc_and_folding() {
+        let start = NaiveDateTime::parse_from_str("2026-08-20 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let expected_start = chrono::Local
+            .from_local_datetime(&start)
+            .latest()
+            .expect("测试时间应可映射到本地时区")
+            .with_timezone(&chrono::Utc)
+            .format("%Y%m%dT%H%M%SZ")
+            .to_string();
+        let expected_end = chrono::Local
+            .from_local_datetime(&(start + chrono::Duration::minutes(30)))
+            .latest()
+            .expect("测试时间应可映射到本地时区")
+            .with_timezone(&chrono::Utc)
+            .format("%Y%m%dT%H%M%SZ")
+            .to_string();
+        let ics = build_reminder_ics(
+            "job-123",
+            "案件提醒：答辩期限（北京市海淀区人民法院，案号（2026）京0108民初12345号）",
+            "请在举证期限内提交答辩状与证据目录",
+            start,
+            30,
+            1440,
+        );
+        assert!(ics.contains(&format!("DTSTART:{expected_start}")), "DTSTART 应为 UTC Z: {ics}");
+        assert!(ics.contains(&format!("DTEND:{expected_end}")), "DTEND 应为 UTC Z: {ics}");
+        let dtstamp = ics.lines().find(|l| l.starts_with("DTSTAMP:")).unwrap();
+        assert!(dtstamp.ends_with('Z'), "DTSTAMP 必须是 UTC: {dtstamp}");
+        for line in ics.split("\r\n") {
+            assert!(line.len() <= 75, "ICS 行超过 75 字节: {line}");
+        }
+        // 折行后续行必须能被 RFC 5545 反折行还原（去掉 CRLF + 单空格）
+        assert!(ics.replace("\r\n ", "").contains("SUMMARY:案件提醒：答辩期限"));
     }
 
     #[test]

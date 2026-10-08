@@ -354,6 +354,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         crate::db::knowledge_index::cancel_knowledge_index_job,
         crate::ai::embeddings::test_embedding_connection,
         inbox::add_inbox_item,
+        inbox::count_inbox_items,
         inbox::list_inbox_items,
         inbox::process_inbox_item,
         inbox::file_inbox_item,

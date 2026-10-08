@@ -12,6 +12,27 @@ use std::time::{Duration, Instant};
 
 use crate::db::{new_id, now_local};
 
+/// 推送失败达此次数后写 push_failed（进入 24 小时重试队列，而非永久丢弃）。
+pub(crate) const FEISHU_PUSH_MAX_ATTEMPTS: i64 = 5;
+
+/// 推送退避窗口（分钟）：1,2,4,8,16,32,60，封顶 60。
+fn push_backoff_minutes(attempts: i64) -> i64 {
+    (1i64 << attempts.clamp(0, 6)).min(60)
+}
+
+/// 失败项是否仍在退避窗口内（窗口内不重复 PUT，避免每次同步都打飞书）。
+fn in_push_backoff(attempts: i64, last_attempt_at: Option<&str>) -> bool {
+    if attempts <= 0 {
+        return false;
+    }
+    let Some(last) = last_attempt_at
+        .and_then(|s| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok())
+    else {
+        return false;
+    };
+    last + chrono::Duration::minutes(push_backoff_minutes(attempts)) > chrono::Local::now().naive_local()
+}
+
 // ============================================================
 // Keychain 存储
 // ============================================================
@@ -1237,7 +1258,7 @@ pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<F
                 Ok(_) => {
                     conn.execute(
                         "UPDATE sync_map SET sync_status = 'synced', last_synced_at = ?1,
-                         local_updated = ?2 WHERE id = ?3",
+                         local_updated = ?2, attempts = 0, last_attempt_at = NULL WHERE id = ?3",
                         params![now_local(), now_local(), item.map_id],
                     )?;
                     report.pushed += 1;
@@ -1245,14 +1266,15 @@ pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<F
                 }
                 Err(e) => {
                     let attempts = item.attempts + 1;
-                    let status = if attempts >= 3 {
+                    let status = if attempts >= FEISHU_PUSH_MAX_ATTEMPTS {
                         "push_failed"
                     } else {
                         "local_newer"
                     };
                     conn.execute(
-                        "UPDATE sync_map SET sync_status = ?1, last_synced_at = ?2 WHERE id = ?3",
-                        params![status, now_local(), item.map_id],
+                        "UPDATE sync_map SET sync_status = ?1, attempts = ?2, last_attempt_at = ?3,
+                         last_synced_at = ?4 WHERE id = ?5",
+                        params![status, attempts, now_local(), now_local(), item.map_id],
                     )?;
                     report
                         .errors
@@ -1283,7 +1305,8 @@ pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<F
                         .to_string();
                     conn.execute(
                         "UPDATE sync_map SET remote_id = ?1, sync_status = 'synced',
-                         last_synced_at = ?2, local_updated = ?3 WHERE id = ?4",
+                         last_synced_at = ?2, local_updated = ?3, attempts = 0,
+                         last_attempt_at = NULL WHERE id = ?4",
                         params![new_remote_id, now_local(), now_local(), item.map_id],
                     )?;
                     report.pushed += 1;
@@ -1291,14 +1314,15 @@ pub async fn sync_feishu_push_inner(app_token: &str, table_id: &str) -> Result<F
                 }
                 Err(e) => {
                     let attempts = item.attempts + 1;
-                    let status = if attempts >= 3 {
+                    let status = if attempts >= FEISHU_PUSH_MAX_ATTEMPTS {
                         "push_failed"
                     } else {
                         "local_newer"
                     };
                     conn.execute(
-                        "UPDATE sync_map SET sync_status = ?1, last_synced_at = ?2 WHERE id = ?3",
-                        params![status, now_local(), item.map_id],
+                        "UPDATE sync_map SET sync_status = ?1, attempts = ?2, last_attempt_at = ?3,
+                         last_synced_at = ?4 WHERE id = ?5",
+                        params![status, attempts, now_local(), now_local(), item.map_id],
                     )?;
                     report
                         .errors
@@ -1326,15 +1350,19 @@ struct PushItem {
     local_id: String,
     remote_id: Option<String>,
     attempts: i64,
+    last_attempt_at: Option<String>,
 }
 
-/// 获取需要 push 的记录
+/// 获取需要 push 的记录（含退避窗口过滤与 push_failed 每日重试）
 fn get_push_items(conn: &Connection) -> Result<Vec<PushItem>> {
     let mut stmt = conn.prepare(
-        "SELECT id, local_id, remote_id, 0 FROM sync_map
-         WHERE remote_source = 'feishu' AND sync_status = 'local_newer'
+        "SELECT id, local_id, remote_id, attempts, last_attempt_at FROM sync_map
+         WHERE remote_source = 'feishu' AND (
+             sync_status = 'local_newer'
+             OR (sync_status = 'push_failed' AND COALESCE(last_attempt_at, '1970-01-01 00:00:00') <= datetime('now','localtime','-24 hours'))
+         )
          UNION ALL
-         SELECT sm.id, sm.local_id, sm.remote_id, 0
+         SELECT sm.id, sm.local_id, sm.remote_id, sm.attempts, sm.last_attempt_at
          FROM sync_map sm
          JOIN cases c ON c.id = sm.local_id
          WHERE sm.remote_source = 'feishu' AND sm.sync_status = 'synced'
@@ -1348,9 +1376,13 @@ fn get_push_items(conn: &Connection) -> Result<Vec<PushItem>> {
                 local_id: row.get(1)?,
                 remote_id: row.get(2)?,
                 attempts: row.get(3)?,
+                last_attempt_at: row.get(4)?,
             })
         })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|item| !in_push_backoff(item.attempts, item.last_attempt_at.as_deref()))
+        .collect();
 
     Ok(items)
 }
@@ -1859,14 +1891,15 @@ pub async fn sync_table_push(
         validate_sync_identifier(&conn, local_table, Some(&mapping.local_column))?;
     }
 
-    // 查询需要 push 的记录
+    // 查询需要 push 的记录（与案件推送同一退避与 24 小时重试语义）
     let push_items = {
         let sql = format!(
-            "SELECT sm.id, sm.local_id, sm.remote_id
+            "SELECT sm.id, sm.local_id, sm.remote_id, sm.attempts, sm.last_attempt_at
              FROM sync_map sm
              JOIN {} c ON c.id = sm.local_id
              WHERE sm.remote_source = 'feishu' AND sm.local_table = ?1
                AND (sm.sync_status = 'local_newer'
+                    OR (sm.sync_status = 'push_failed' AND COALESCE(sm.last_attempt_at, '1970-01-01 00:00:00') <= datetime('now','localtime','-24 hours'))
                     OR (sm.sync_status = 'synced'
                         AND c.updated_at > COALESCE(sm.last_synced_at, '1970-01-01')))",
             local_table
@@ -1878,10 +1911,12 @@ pub async fn sync_table_push(
                     map_id: row.get(0)?,
                     local_id: row.get(1)?,
                     remote_id: row.get(2)?,
-                    attempts: 0,
+                    attempts: row.get(3)?,
+                    last_attempt_at: row.get(4)?,
                 })
             })?
             .filter_map(|r| r.ok())
+            .filter(|item| !in_push_backoff(item.attempts, item.last_attempt_at.as_deref()))
             .collect();
         items
     };
@@ -1945,16 +1980,23 @@ pub async fn sync_table_push(
                 Ok(_) => {
                     conn.execute(
                         "UPDATE sync_map SET sync_status = 'synced', last_synced_at = ?1,
-                         local_updated = ?2 WHERE id = ?3",
+                         local_updated = ?2, attempts = 0, last_attempt_at = NULL WHERE id = ?3",
                         params![now_local(), now_local(), item.map_id],
                     )?;
                     report.pushed += 1;
                     report.updated += 1;
                 }
                 Err(e) => {
+                    let attempts = item.attempts + 1;
+                    let status = if attempts >= FEISHU_PUSH_MAX_ATTEMPTS {
+                        "push_failed"
+                    } else {
+                        "local_newer"
+                    };
                     conn.execute(
-                        "UPDATE sync_map SET sync_status = 'push_failed', last_synced_at = ?1 WHERE id = ?2",
-                        params![now_local(), item.map_id],
+                        "UPDATE sync_map SET sync_status = ?1, attempts = ?2, last_attempt_at = ?3,
+                         last_synced_at = ?4 WHERE id = ?5",
+                        params![status, attempts, now_local(), now_local(), item.map_id],
                     )?;
                     report
                         .errors
@@ -1985,16 +2027,24 @@ pub async fn sync_table_push(
                         .to_string();
                     conn.execute(
                         "UPDATE sync_map SET remote_id = ?1, sync_status = 'synced',
-                         last_synced_at = ?2, local_updated = ?3 WHERE id = ?4",
+                         last_synced_at = ?2, local_updated = ?3, attempts = 0,
+                         last_attempt_at = NULL WHERE id = ?4",
                         params![new_remote_id, now_local(), now_local(), item.map_id],
                     )?;
                     report.pushed += 1;
                     report.created += 1;
                 }
                 Err(e) => {
+                    let attempts = item.attempts + 1;
+                    let status = if attempts >= FEISHU_PUSH_MAX_ATTEMPTS {
+                        "push_failed"
+                    } else {
+                        "local_newer"
+                    };
                     conn.execute(
-                        "UPDATE sync_map SET sync_status = 'push_failed', last_synced_at = ?1 WHERE id = ?2",
-                        params![now_local(), item.map_id],
+                        "UPDATE sync_map SET sync_status = ?1, attempts = ?2, last_attempt_at = ?3,
+                         last_synced_at = ?4 WHERE id = ?5",
+                        params![status, attempts, now_local(), now_local(), item.map_id],
                     )?;
                     report
                         .errors
@@ -2319,5 +2369,57 @@ mod pull_integrity_tests {
         assert_eq!(conn.query_row("SELECT case_name FROM cases", [], |row| row.get::<_,String>(0)).unwrap(), "Local edit");
         assert!(remote_record_version(&serde_json::json!({})).is_err());
         assert_eq!(remote_record_version(&serde_json::json!({"last_modified_time":"123"})).unwrap(), "123");
+    }
+}
+
+#[cfg(test)]
+mod push_backoff_tests {
+    use super::*;
+
+    #[test]
+    fn backoff_window_grows_and_caps() {
+        assert_eq!(push_backoff_minutes(0), 1);
+        assert_eq!(push_backoff_minutes(1), 2);
+        assert_eq!(push_backoff_minutes(3), 8);
+        assert_eq!(push_backoff_minutes(9), 60);
+        // attempts<=0 或时间不可解析时不在退避窗口内
+        assert!(!in_push_backoff(0, Some("2099-01-01 00:00:00")));
+        assert!(!in_push_backoff(3, Some("not-a-time")));
+        assert!(in_push_backoff(1, Some("2099-01-01 00:00:00")));
+        assert!(!in_push_backoff(1, Some("2000-01-01 00:00:00")));
+    }
+
+    #[test]
+    fn push_items_skip_backoff_and_retry_failed_after_a_day() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::run_migrations(&conn, 0).unwrap();
+        conn.execute(
+            "INSERT INTO cases (id, case_name, client_name, updated_at) VALUES ('c1','案件一','客户一','2099-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+        let insert = |id: &str, status: &str, attempts: i64, last: Option<&str>| {
+            conn.execute(
+                "INSERT INTO sync_map (id, local_table, local_id, remote_source, sync_status, attempts, last_attempt_at)
+                 VALUES (?1,'cases',?2,'feishu',?3,?4,?5)",
+                params![id, format!("case-{id}"), status, attempts, last],
+            )
+            .unwrap();
+        };
+        // 待推送（无失败记录）
+        insert("m1", "local_newer", 0, None);
+        // 退避窗口内：1 次失败、1 分钟前 → 跳过
+        insert("m2", "local_newer", 1, Some(&now_local()));
+        // 退避已过：2 次失败、1 小时前 → 入选
+        insert("m3", "local_newer", 2, Some("2000-01-01 00:00:00"));
+        // push_failed 且超过 24 小时 → 入选（每日重试）
+        insert("m4", "push_failed", 5, Some("2000-01-01 00:00:00"));
+        // push_failed 且刚失败 → 跳过
+        insert("m5", "push_failed", 5, Some(&now_local()));
+
+        let items = get_push_items(&conn).unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.map_id.as_str()).collect();
+        assert_eq!(ids, vec!["m1", "m3", "m4"]);
+        assert_eq!(items.iter().find(|i| i.map_id == "m4").unwrap().attempts, 5);
     }
 }

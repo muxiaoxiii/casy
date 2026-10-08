@@ -485,6 +485,20 @@ fn knowledge_asset_root(note_id: &str) -> anyhow::Result<std::path::PathBuf> {
     Ok(root)
 }
 
+/// 与 `knowledge_asset_root` 同一套标识校验，但不创建目录（删除/回收路径用）。
+fn knowledge_artifact_dir(note_id: &str) -> anyhow::Result<std::path::PathBuf> {
+    anyhow::ensure!(
+        !note_id.is_empty()
+            && note_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+        "INVALID_ASSET: 知识条目标识无效"
+    );
+    Ok(crate::runtime_paths::data_root()
+        .join("knowledge-artifacts")
+        .join(note_id))
+}
+
 /// 将 OCR Markdown 全文作为根笔记，并把 PageIndex 结构节点作为子笔记沉淀（可测内层；
 /// pub 供 examples/real_db_regression.rs 对真实库副本做端到端回归）。
 /// 同一处理版本复用既有根笔记；新版生成独立快照，保留旧笔记及人工修改。
@@ -853,6 +867,18 @@ pub async fn delete_knowledge(id: String) -> Result<(), String> {
         )?;
         tx.execute("DELETE FROM knowledge_items WHERE id = ?1", [&id])?;
         tx.commit()?;
+        // N4-new：回收该笔记自有的配图目录 knowledge-artifacts/<note_id>/（best-effort）
+        match knowledge_artifact_dir(&id) {
+            Ok(root) => {
+                if let Err(error) = std::fs::remove_dir_all(&root) {
+                    // 从未产生过配图的笔记没有该目录，属正常
+                    if error.kind() != std::io::ErrorKind::NotFound {
+                        log::warn!("知识产物目录清理失败 {}: {error}", root.display());
+                    }
+                }
+            }
+            Err(error) => log::warn!("跳过知识产物目录清理: {error}"),
+        }
         Ok(())
     })
     .await

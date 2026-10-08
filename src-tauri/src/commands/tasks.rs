@@ -415,7 +415,7 @@ pub async fn delete_task(
     proposal_token: Option<String>,
 ) -> Result<(), String> {
     let task_id = id.clone();
-    run_blocking(move || {
+    let cancelled_recurrence = run_blocking(move || {
         let mut raw_conn = db::open_db()?;
         // 事务化：token 消费与写入同生共死（写失败则回滚，token 不被白烧）
         let conn = raw_conn.transaction()?;
@@ -454,7 +454,7 @@ pub async fn delete_task(
                 )));
             }
             conn.commit()?;
-            return Ok(());
+            return Ok(Vec::new());
         }
         // 审计：写 deleted 事件（task_events.event_type 已随 v24 条件重建扩展 'deleted'）
         let actor = if origin.as_deref() == Some("ai") { "ai" } else { "user" };
@@ -463,17 +463,19 @@ pub async fn delete_task(
             "INSERT INTO task_events (id, task_id, event_type, occurred_at, payload, actor) VALUES (?1, ?2, 'deleted', ?3, ?4, ?5)",
             rusqlite::params![db::new_id(), id, now, payload, actor],
         )?;
+        // R2/P1-20：重复任务删除后仍会弹出已生成的后续实例；连带软删这些后继。
+        let cancelled_recurrence =
+            super::task_lifecycle::soft_delete_recurrence_successors(&conn, &id, &now)?;
         super::task_lifecycle::refresh_sequence(&conn, &id)?;
         conn.commit()?;
-        Ok(())
+        Ok(cancelled_recurrence)
     })
     .await?;
 
     // 任务删除后撤销其提醒作业（含已同步到日历的事件）
-    if let Err(e) = super::caldav::cancel_jobs_for_entity("task", &task_id).await {
-        log::warn!("任务删除后撤销提醒作业失败 (task {}): {}", task_id, e);
-    }
-
+    let mut cancelled = vec![task_id];
+    cancelled.extend(cancelled_recurrence);
+    cancel_task_reminders(cancelled).await;
     Ok(())
 }
 

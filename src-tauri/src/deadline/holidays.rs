@@ -60,6 +60,8 @@ impl HolidayCalendar {
             "2025-10-05",
             "2025-10-06",
             "2025-10-07",
+            // C2/P0-6a：2025 年国庆中秋连休至 10-08（10-11 为调休上班日），此前漏记。
+            "2025-10-08",
         ] {
             holidays.insert(NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap());
         }
@@ -171,6 +173,15 @@ impl HolidayCalendar {
             self.workdays.insert(date);
         }
         Ok(())
+    }
+
+    /// 日历是否覆盖某一年（内置数据与导入数据合并后判定）。
+    ///
+    /// 未覆盖的年份里 `extend_to_workday` 只会跳周末，算出的期限不可信，
+    /// 调用方必须把结果标记为待核对（见 engine.rs 的 unconfirmed_calendar）。
+    pub fn covers_year(&self, year: i32) -> bool {
+        self.holidays.iter().any(|date| date.year() == year)
+            || self.workdays.iter().any(|date| date.year() == year)
     }
 
     /// 日历展示用的年度条目。
@@ -426,8 +437,38 @@ mod tests {
         assert!(cal().is_workday(d("2026-10-10")));
     }
 
-    // ── 期限计算验证 ───────────────────────────────────────────
+    // C2/P0-6a：2025 年国庆中秋连休含 10-08，此前漏记导致 10-08 被当成工作日。
+    #[test]
+    fn national_day_2025_includes_october_eighth() {
+        assert!(!cal().is_workday(d("2025-10-08")));
+        // 调休上班日 10-11（周六）仍是工作日
+        assert!(cal().is_workday(d("2025-10-11")));
+    }
 
+    // C4/P0-6b：只有 2025/2026 有数据，其余年份必须判为未覆盖。
+    #[test]
+    fn covers_year_reflects_builtin_and_imported_data() {
+        let calendar = cal();
+        assert!(calendar.covers_year(2025));
+        assert!(calendar.covers_year(2026));
+        assert!(!calendar.covers_year(2027));
+        assert!(!calendar.covers_year(2024));
+
+        // 导入数据可让未覆盖的年份变为已覆盖（与内置数据合并后判定）
+        let mut imported = HolidayCalendar::builtin();
+        imported
+            .merge_dates(&["2027-10-01".to_string()], &[])
+            .unwrap();
+        assert!(imported.covers_year(2027));
+        // 只导入调休工作日的年份同样算已覆盖
+        let mut makeup_only = HolidayCalendar::builtin();
+        makeup_only
+            .merge_dates(&[], &["2027-10-09".to_string()])
+            .unwrap();
+        assert!(makeup_only.covers_year(2027));
+    }
+
+    // ── 期限计算验证 ───────────────────────────────────────────
     #[test]
     fn deadline_not_on_weekend() {
         // 2026-06-18 是周四，+1天 = 6/19 端午假期 → 应顺延到 6/22（周一）

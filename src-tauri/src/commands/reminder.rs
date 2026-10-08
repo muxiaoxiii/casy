@@ -237,7 +237,10 @@ fn check_deadline_rules(
 
     // Procedural obligations use per-item receipts; two deadlines in one case
     // must not suppress each other through the older per-case deduplication.
-    triggered.extend(check_procedure_deadline_rules(conn,rule,today)?);
+    // P1-23：单条规则的程序期限投影失败只记日志并继续，不能丢掉整轮提醒。
+    if let Err(error) = check_procedure_deadline_rules(conn, rule, today) {
+        log::warn!("程序期限提醒检查失败（规则 {}）: {error}", rule.id);
+    }
     Ok(triggered)
 }
 
@@ -260,12 +263,21 @@ fn check_procedure_deadline_rules(conn:&Connection,rule:&ReminderRule,today:Naiv
             let last:Option<String>=conn.query_row("SELECT sent_on FROM procedure_reminder_receipts WHERE item_id=?1 AND fingerprint=?2 AND rule_id=?3",params![i.id,i.fingerprint,rule.id],|r|r.get(0)).optional()?;
             if last.and_then(|s|NaiveDate::parse_from_str(&s,"%Y-%m-%d").ok()).is_some_and(|last|last>=today-chrono::Duration::days(if rule.trigger_type=="deadline_before"{trigger}else{0})){continue;}
             let level=compute_level(days,false);
-            let (start,end)=work_hours(conn);
-            if (level=="R1"||level=="R2")&&next_work_start(chrono::Local::now().naive_local(),start,end).is_some(){continue;}
+            // D1：待核对日期（含节假日未覆盖年份）不派发 R1/R2 系统级提醒，
+            // 降级为通知中心静默条目，避免把未核实的日期当强提醒弹给用户。
+            let monitor_only=i.needs_review&&(level=="R1"||level=="R2");
             let label=if i.needs_review{"待核对日期"}else if i.source=="internal"{"内部安排"}else if i.owner=="opponent"{"对方期限"}else{"程序期限"};
             let message=format!("{} · {}\n{} · {}\n日期：{}\n{}",case.case_name,label,i.actor_role,i.title,due,i.explanation);
-            let entry=dispatch_reminder(conn,&rule.id,Some(&case.id),None,"local",&message,level,None)?;
-            if entry.status=="sent"{conn.execute("INSERT INTO procedure_reminder_receipts(item_id,fingerprint,rule_id,sent_on) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,fingerprint,rule_id) DO UPDATE SET sent_on=excluded.sent_on",params![i.id,i.fingerprint,rule.id,today.to_string()])?;}
+            let entry=if monitor_only{
+                push_monitor_reminder(conn,&rule.id,&case.id,&message)?
+            }else{
+                // D2：时段外的 R1/R2 原先被静默丢弃（关机即永久丢失）；
+                // 这里像手动期限一样带上日历作业上下文，走 defer_reminder_job 延迟派发。
+                let cal_ctx=CalendarJobCtx{entity_type:"deadline",entity_id:i.id.clone(),due_date:due.to_string(),due_time:None,title:i.title.clone()};
+                dispatch_reminder(conn,&rule.id,Some(&case.id),None,"local",&message,level,Some(&cal_ctx))?
+            };
+            // deferred 也要写回执：延迟作业的日志不走 already_sent，不写回执会每个周期重复建作业。
+            if entry.status=="sent"||entry.status=="deferred"{conn.execute("INSERT INTO procedure_reminder_receipts(item_id,fingerprint,rule_id,sent_on) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,fingerprint,rule_id) DO UPDATE SET sent_on=excluded.sent_on",params![i.id,i.fingerprint,rule.id,today.to_string()])?;}
             result.push(entry);
         }
     }
@@ -1673,6 +1685,35 @@ pub async fn record_reminder_feedback(
 
 // ============================================================
 
+/// 待核对期限的降级派发（audit D1）：只落通知中心，不弹系统提醒、不延迟、不外发。
+///
+/// reminder_log.level 的 CHECK 只允许 R1–R4，"monitor" 不是提醒等级而是投递方式，
+/// 因此这里不写 reminder_log，通知中心那一行即为留痕；返回的 entry.status='sent'
+/// 让调用方照常写 procedure_reminder_receipts 去重。
+fn push_monitor_reminder(
+    conn: &Connection,
+    rule_id: &str,
+    case_id: &str,
+    message: &str,
+) -> Result<ReminderLogEntry> {
+    push_inbox_notification(conn, Some(case_id), None, "monitor", message)?;
+    log::info!(
+        "[提醒-降级] 待核对期限仅入通知中心（规则 {rule_id}）: {}",
+        message.replace('\n', " | ")
+    );
+    Ok(ReminderLogEntry {
+        id: db::new_id(),
+        rule_id: rule_id.to_string(),
+        case_id: Some(case_id.to_string()),
+        task_id: None,
+        channel: "monitor".to_string(),
+        message: message.to_string(),
+        level: Some("monitor".to_string()),
+        status: "sent".to_string(),
+        sent_at: Some(db::now_local()),
+    })
+}
+
 /// 到期提醒落入应用内通知中心。
 /// best-effort 语义：调用方以 `let _ =` 忽略错误，绝不改变提醒状态机行为。
 /// payload_json 携带 taskId/caseId/level，供前端点击跳转与分级展示。
@@ -2133,6 +2174,109 @@ mod tests {
             .unwrap();
         assert_eq!(job_count, 0, "时段内不应创建延迟作业");
     }
+
+    /// D1/D2：程序期限提醒——待核对项降级为通知中心（不再弹 R1/R2），
+    /// 非待核对项即便在时段外也走延迟派发，不再被静默丢弃。
+    #[test]
+    fn procedure_deadline_reminders_downgrade_review_and_never_drop() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(db::schema::SCHEMA_SQL).unwrap();
+        db::schema::run_migrations(&conn, 1).unwrap();
+        // reminder_log/reminder_jobs 的 rule_id 外键指向 reminder_rules，需先落规则行
+        conn.execute(
+            "INSERT INTO reminder_rules (id, name, trigger_type, trigger_value, channels, enabled)
+             VALUES ('test-deadline_before', '测试', 'deadline_before', 3, '[\"local\"]', 1)",
+            [],
+        )
+        .unwrap();
+        let today = chrono::Local::now().date_naive();
+        let due = (today + chrono::Duration::days(2))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        // 旧字段推导的事项：依据未确认 → needs_review
+        conn.execute(
+            "INSERT INTO cases (id, case_name, client_name, opponent_name, case_status, track,
+              complaint_received_date, defense_deadline)
+             VALUES ('c-legacy', '旧字段案件', '委托人', '对方', '进行中', 'civil_tort', '2026-01-05', ?1)",
+            params![due],
+        )
+        .unwrap();
+        // 依据已确认的送达事件：needs_review=false（our_role 非空 + 年份已覆盖）
+        conn.execute(
+            "INSERT INTO cases (id, case_name, client_name, opponent_name, case_status, track, our_role)
+             VALUES ('c-ok', '确认案件', '委托人', '对方', '进行中', 'civil_tort', '被告')",
+            [],
+        )
+        .unwrap();
+        let event = serde_json::to_string(&crate::deadline::procedure::ProcedureEvent {
+            id: "ev-ok".to_string(),
+            case_id: "c-ok".to_string(),
+            kind: "civil_complaint_served".to_string(),
+            title: "被告答辩".to_string(),
+            actor_role: "被告".to_string(),
+            occurred_on: "2026-01-05".to_string(),
+            forwarded_on: None,
+            start_on: Some("2026-01-05".to_string()),
+            due_on: Some(due.clone()),
+            period_value: Some(15),
+            period_unit: Some("day".to_string()),
+            internal_on: None,
+            next_check_on: None,
+            parent_id: None,
+            file_id: None,
+            hearing_id: None,
+            legacy_key: None,
+            scope: "domestic_ordinary".to_string(),
+            basis_confirmed: true,
+            source_note: "测试".to_string(),
+            revision: 1,
+            retracted: false,
+        })
+        .unwrap();
+        conn.execute(
+            "INSERT INTO procedure_events (id, case_id, payload, revision, created_at, updated_at)
+             VALUES ('ev-ok', 'c-ok', ?1, 1, '2026-01-05', '2026-01-05')",
+            params![event],
+        )
+        .unwrap();
+
+        let entries = check_procedure_deadline_rules(&conn, &test_rule("deadline_before", 3), today)
+            .unwrap();
+        assert_eq!(entries.len(), 2, "两个案件各应产出一条提醒，不能被丢弃");
+
+        let monitor: Vec<_> = entries.iter().filter(|e| e.channel == "monitor").collect();
+        assert_eq!(monitor.len(), 1, "待核对期限应降级为通知中心条目");
+        assert!(monitor[0].message.contains("待核对日期"));
+        assert_eq!(monitor[0].status, "sent");
+
+        // 非待核对项：时段内立即发、时段外延迟，两者都不是"静默丢弃"
+        let dispatched = entries.iter().find(|e| e.channel != "monitor").unwrap();
+        assert!(
+            matches!(dispatched.status.as_str(), "sent" | "deferred"),
+            "实际状态: {}",
+            dispatched.status
+        );
+        // 两条都写了回执（延迟项也要写，否则每个周期重复建作业）
+        let receipts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM procedure_reminder_receipts",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(receipts, 2);
+        // 降级项不写 reminder_log（level 的 CHECK 只允许 R1–R4）
+        let logs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM reminder_log WHERE id = ?1",
+                params![monitor[0].id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(logs, 0);
+    }
+
     #[test]
     fn hearing_receipts_do_not_hide_other_rounds_and_accept_time_of_day() {
         let conn=Connection::open_in_memory().unwrap();

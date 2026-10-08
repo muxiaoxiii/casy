@@ -13,6 +13,7 @@ use async_imap::Session;
 use futures_util::StreamExt;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -426,9 +427,24 @@ fn classify_email_type(subject: &str, body: &str) -> &'static str {
 #[allow(dead_code)]
 const IDLE_TIMEOUT_SECS: u64 = 29 * 60; // 29 分钟
 
+/// 启动连通性探测超时（S-7：启动即验证，但不阻塞应用启动）
+const IMAP_PROBE_TIMEOUT_SECS: u64 = 20;
+
+/// 单个 IMAP 账号的连接态（S-7：启动探测 + 运行期错误可观测）
+#[derive(Debug, Clone, Default)]
+pub struct ImapAccountConnection {
+    /// 最近一次探测/监听是否成功连通
+    pub connected: bool,
+    /// 最近一次错误（成功时为 None）
+    pub last_error: Option<String>,
+}
+
 pub struct ImapWatcher {
     running: Arc<AtomicBool>,
     handle: Option<tokio::task::JoinHandle<()>>,
+    /// 账号连接态：email_address → 状态。
+    /// std Mutex：临界区只做一次浅拷贝，不跨 await 持有。
+    connections: Arc<std::sync::Mutex<HashMap<String, ImapAccountConnection>>>,
 }
 
 impl ImapWatcher {
@@ -436,11 +452,37 @@ impl ImapWatcher {
         Self {
             running: Arc::new(AtomicBool::new(false)),
             handle: None,
+            connections: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
+    /// 记录账号连接态（状态 API 与日志观测用）
+    fn record_connection(&self, key: &str, connected: bool, last_error: Option<String>) {
+        if let Ok(mut states) = self.connections.lock() {
+            states.insert(
+                key.to_string(),
+                ImapAccountConnection {
+                    connected,
+                    last_error,
+                },
+            );
+        }
+    }
+
+    /// 查询账号连接态（键为邮箱地址）
+    pub fn account_connection(&self, key: &str) -> Option<ImapAccountConnection> {
+        self.connections
+            .lock()
+            .ok()
+            .and_then(|states| states.get(key).cloned())
+    }
+
     /// 启动监听
-    pub fn start(&mut self) -> Result<()> {
+    ///
+    /// S-7：启动时对每个账号做一次真实连接 + 拉取探测（而不是 spawn 后立即
+    /// 返回 Ok），结果写入 connections 供 get_email_monitor_status 观测。
+    /// 探测失败不阻断启动：watch_account 自带 30s 重试，网络恢复后自动连上。
+    pub async fn start(&mut self) -> Result<()> {
         if self.running.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -452,12 +494,28 @@ impl ImapWatcher {
 
         self.running.store(true, Ordering::SeqCst);
         let running = self.running.clone();
+        let connections = self.connections.clone();
+
+        // 启动连通性探测：真实建立连接、选择文件夹并拉取一次邮件列表
+        for account in &accounts {
+            match probe_account(account).await {
+                Ok(()) => {
+                    log::info!("IMAP 启动探测成功: {}", account.email_address);
+                    self.record_connection(&account.email_address, true, None);
+                }
+                Err(e) => {
+                    log::warn!("IMAP 启动探测失败 ({}): {}", account.email_address, e);
+                    self.record_connection(&account.email_address, false, Some(e.to_string()));
+                }
+            }
+        }
 
         let handle = tokio::spawn(async move {
             for account in accounts {
                 let running_clone = running.clone();
+                let connections_clone = connections.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = watch_account(account, running_clone).await {
+                    if let Err(e) = watch_account(account, running_clone, connections_clone).await {
                         crate::processing::service("email","邮件监听","failed","邮件监听异常",Some(&e.to_string()));
                         log::error!("IMAP 监听错误: {}", e);
                     }
@@ -491,8 +549,38 @@ impl ImapWatcher {
     }
 }
 
+/// 启动连通性探测：真实建立一次 IMAP 连接、选择监听文件夹并拉取一次邮件
+///
+/// 与 watch_account 的区别：不进入 IDLE，探测完即注销，只用于启动时验证
+/// 服务器/凭据/文件夹是否可用，并把结果写入 watcher 连接态（S-7）。
+async fn probe_account(config: &ImapAccountConfig) -> Result<()> {
+    let mut session = tokio::time::timeout(
+        Duration::from_secs(IMAP_PROBE_TIMEOUT_SECS),
+        connect_imap(config),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("IMAP 连接超时（{}s）", IMAP_PROBE_TIMEOUT_SECS))??;
+
+    let folder = config.watch_folders.split(',').next().unwrap_or("INBOX");
+    session
+        .select(folder)
+        .await
+        .context("选择文件夹失败")?;
+    // 一次真实拉取：验证邮箱可读（凭据/权限在此暴露）
+    session
+        .uid_search("UID 1:*")
+        .await
+        .context("搜索邮件失败")?;
+    session.logout().await.ok();
+    Ok(())
+}
+
 /// 监听单个 IMAP 账号
-async fn watch_account(config: ImapAccountConfig, running: Arc<AtomicBool>) -> Result<()> {
+async fn watch_account(
+    config: ImapAccountConfig,
+    running: Arc<AtomicBool>,
+    connections: Arc<std::sync::Mutex<HashMap<String, ImapAccountConnection>>>,
+) -> Result<()> {
     log::info!(
         "开始监听邮箱: {} ({}:{})",
         config.email_address,
@@ -504,15 +592,35 @@ async fn watch_account(config: ImapAccountConfig, running: Arc<AtomicBool>) -> R
         match connect_and_idle(&config, &running).await {
             Ok(_) => {
                 log::info!("IMAP IDLE 正常结束，准备重连");
+                record_connection(&connections, &config.email_address, true, None);
             }
             Err(e) => {
                 log::error!("IMAP 连接错误: {}, 30 秒后重试", e);
+                record_connection(&connections, &config.email_address, false, Some(e.to_string()));
                 sleep(Duration::from_secs(30)).await;
             }
         }
     }
 
     Ok(())
+}
+
+/// 写入账号连接态（锁 poisoning 时静默跳过，不影响监听主流程）
+fn record_connection(
+    connections: &std::sync::Mutex<HashMap<String, ImapAccountConnection>>,
+    key: &str,
+    connected: bool,
+    last_error: Option<String>,
+) {
+    if let Ok(mut states) = connections.lock() {
+        states.insert(
+            key.to_string(),
+            ImapAccountConnection {
+                connected,
+                last_error,
+            },
+        );
+    }
 }
 
 /// 连接并进入 IDLE 模式
@@ -687,7 +795,7 @@ pub async fn configure_imap(account: ImapAccountConfig) -> Result<String, String
 pub async fn start_email_monitor() -> Result<String, String> {
     let watcher = get_watcher();
     let mut w = watcher.lock().await;
-    w.start().map_err(|e| e.to_string())?;
+    w.start().await.map_err(|e| e.to_string())?;
     Ok("邮件监听已启动".into())
 }
 
@@ -753,22 +861,100 @@ pub async fn delete_imap_account(email_address: String) -> Result<String, String
 }
 
 /// 获取邮件监听状态
+///
+/// S-7：除 running / 账号数外，逐个账号报告连接态与最近一次错误，
+/// 前端可据此显示"未连接/凭据错误"而不是只有一个开关。
 #[tauri::command]
 pub async fn get_email_monitor_status() -> Result<serde_json::Value, String> {
     let watcher = get_watcher();
     let w = watcher.lock().await;
     let accounts = load_enabled_accounts().unwrap_or_default();
 
-    Ok(serde_json::json!({
-        "running": w.is_running(),
-        "accountCount": accounts.len(),
-        "accounts": accounts.iter().map(|a| serde_json::json!({
-            "id": a.id,
-            "email": a.email_address,
-            "server": a.imap_server,
-            "enabled": a.enabled,
-        })).collect::<Vec<_>>(),
+    Ok(status_json(w.is_running(), &accounts, |key| {
+        w.account_connection(key)
     }))
+}
+
+/// 组装监听状态 JSON（独立函数便于测试，不依赖数据库）
+fn status_json<F>(running: bool, accounts: &[ImapAccountConfig], connection_of: F) -> serde_json::Value
+where
+    F: Fn(&str) -> Option<ImapAccountConnection>,
+{
+    serde_json::json!({
+        "running": running,
+        "accountCount": accounts.len(),
+        "accounts": accounts.iter().map(|a| {
+            let connection = connection_of(&a.email_address);
+            serde_json::json!({
+                "id": a.id,
+                "email": a.email_address,
+                "server": a.imap_server,
+                "enabled": a.enabled,
+                "connected": connection.as_ref().map(|c| c.connected).unwrap_or(false),
+                "lastError": connection.and_then(|c| c.last_error),
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+#[cfg(test)]
+mod status_shape_tests {
+    use super::*;
+
+    fn account(email: &str) -> ImapAccountConfig {
+        ImapAccountConfig {
+            id: Some(format!("id-{email}")),
+            email_address: email.into(),
+            imap_server: "imap.example.invalid".into(),
+            imap_port: 993,
+            username: "user".into(),
+            password: String::new(),
+            use_tls: true,
+            watch_folders: "INBOX".into(),
+            filter_from: None,
+            filter_subject: None,
+            enabled: true,
+        }
+    }
+
+    /// 状态 API 必须报告每个账号的连接态与最近错误（S-7）
+    #[test]
+    fn monitor_status_reports_per_account_connection_state() {
+        let accounts = vec![account("a@example.invalid"), account("b@example.invalid")];
+        let states: HashMap<String, ImapAccountConnection> = HashMap::from([
+            (
+                "a@example.invalid".to_string(),
+                ImapAccountConnection {
+                    connected: true,
+                    last_error: None,
+                },
+            ),
+            (
+                "b@example.invalid".to_string(),
+                ImapAccountConnection {
+                    connected: false,
+                    last_error: Some("IMAP 登录失败".into()),
+                },
+            ),
+        ]);
+        let value = status_json(true, &accounts, |key| states.get(key).cloned());
+        assert_eq!(value["running"], serde_json::json!(true));
+        assert_eq!(value["accountCount"], serde_json::json!(2));
+        let list = value["accounts"].as_array().unwrap();
+        assert_eq!(list[0]["email"], serde_json::json!("a@example.invalid"));
+        assert_eq!(list[0]["connected"], serde_json::json!(true));
+        assert_eq!(list[0]["lastError"], serde_json::json!(null));
+        assert_eq!(list[1]["connected"], serde_json::json!(false));
+        assert_eq!(
+            list[1]["lastError"],
+            serde_json::json!("IMAP 登录失败")
+        );
+
+        // 未探测过的账号：connected 为 false，不臆造成功
+        let fresh = status_json(false, &accounts[..1], |_| None);
+        assert_eq!(fresh["running"], serde_json::json!(false));
+        assert_eq!(fresh["accounts"][0]["connected"], serde_json::json!(false));
+    }
 }
 
 #[cfg(test)]

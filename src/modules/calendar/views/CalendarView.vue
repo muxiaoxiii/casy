@@ -8,6 +8,7 @@ import CalendarComposer from '../components/CalendarComposer.vue'
 import TimeGrid from '../components/TimeGrid.vue'
 import { timeString } from '../parseCalendarCapture'
 import { surroundingMonths, monthWorkingDays, eventDuration, isPlanningWorkday, planningRestIntervals } from '../calendarDates'
+import { enrichTasksWithCaseName } from '../enrichTasks'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
@@ -87,7 +88,6 @@ const yearTasks = computed(() => allTasks.value.map(task => {
 const holidayError = ref('')
 let holidayRequest = 0
 const completedTaskIds = ref(new Set())
-const todayTasks = ref([])
 const cases = ref([])
 const deadlineWarnings = ref([])
 const holidayEntries = ref([])
@@ -340,7 +340,6 @@ async function saveEditingItem() {
     if (!res.ok) return ElMessage.error(res.error || '保存任务失败')
     ElMessage.success('已保存任务修改')
     await loadTasks()
-    await loadTodayTasks()
   } else {
     const res = item.id
       ? await casyContext.calendar.updateEvent(item.id, {
@@ -771,7 +770,6 @@ async function loadData() {
   await Promise.all([
     loadEvents(),
     loadTasks(),
-    loadTodayTasks(),
     loadCases(),
     loadDeadlineWarnings(),
     loadHolidays(),
@@ -823,16 +821,9 @@ async function loadTasks() {
   const result = await casyContext.tasks.list({})
   taskError.value = result.ok && Array.isArray(result.data) ? '' : result.error || '任务加载失败'
   if (result.ok && Array.isArray(result.data)) {
-    allTasks.value = result.data
+    allTasks.value = enrichTasksWithCaseName(result.data, cases.value)
     completedTaskIds.value = new Set(result.data.filter(task => task.completed).map(task => task.id))
-    tasks.value = result.data.filter(task => !task.completed)
-  }
-}
-
-async function loadTodayTasks() {
-  const result = await casyContext.tasks.list({ startBucket: 'today' })
-  if (result.ok && Array.isArray(result.data)) {
-    todayTasks.value = result.data
+    tasks.value = allTasks.value.filter(task => !task.completed)
   }
 }
 
@@ -845,6 +836,11 @@ async function loadCases() {
     if (!result.data.items.length || items.length >= result.data.total) break
   }
   cases.value = items
+  // loadData 内 loadTasks 与 loadCases 并行：案件后到时用新映射重新富化已加载任务
+  if (allTasks.value.length) {
+    allTasks.value = enrichTasksWithCaseName(allTasks.value, items)
+    tasks.value = allTasks.value.filter(task => !task.completed)
+  }
 }
 
 async function loadDeadlineWarnings() {
@@ -913,7 +909,6 @@ async function toggleTask(task) {
   const res = await casyContext.tasks.update({ id: task.id, completed: newDone ? 1 : 0 })
   if (!res.ok) return ElMessage.error(res.error || '操作失败')
   await loadTasks()
-  await loadTodayTasks()
 }
 
 async function onCalendarCreated(date) {

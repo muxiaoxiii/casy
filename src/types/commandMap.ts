@@ -469,7 +469,8 @@ export type CommandMap = {
     sourcePath?: string | null
   }, string>
   // status 由 schema CHECK 约束枚举，bindings 侧为 string——此处收窄为手写联合
-  list_inbox_items: Cmd<{ status?: string }, (Omit<InboxItemDto, 'status'> & { status: InboxStatus })[]>
+  list_inbox_items: Cmd<{ status?: string; limit?: number; offset?: number }, (Omit<InboxItemDto, 'status'> & { status: InboxStatus })[]>
+  count_inbox_items: Cmd<{ status?: string }, number>
   process_inbox_item: Cmd<{ id: string }, ProcessedInboxResult>
   file_inbox_item: Cmd<{ itemId: string; caseId: string; category: string }, void>
   dismiss_inbox_item: Cmd<{ id: string }, void>

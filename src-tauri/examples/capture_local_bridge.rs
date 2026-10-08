@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
             Ok(json!(true))
         }
         "add_inbox_item" => inbox::add_inbox_item(text("sourceType").unwrap_or_default(),text("title"),text("contentText"),text("sourcePath")).await.map(|v|json!(v)),
-        "list_inbox_items" => inbox::list_inbox_items(text("status")).await.map(|v|json!(v)),
+        "list_inbox_items" => inbox::list_inbox_items(text("status"), p.get("limit").and_then(|v| v.as_i64()), p.get("offset").and_then(|v| v.as_i64())).await.map(|v|json!(v)),
         "quick_judge_inbox_item" => inbox::quick_judge_inbox_item(text("id").unwrap_or_default()).await.map(|v|json!(v)),
         "confirm_inbox_action" => inbox::confirm_inbox_action(text("inboxItemId").unwrap_or_default(),text("action").unwrap_or_default(),text("targetCaseId"),text("targetCategory"),p.get("intent").cloned()).await,
         "list_cases" => cases::list_cases(serde_json::from_value(p["filter"].clone()).unwrap_or_default()).await.map(|v|json!(v)),

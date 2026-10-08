@@ -200,6 +200,24 @@ pub fn run() {
 
             // Credential migration is an explicit settings action, never a startup task.
 
+            // IMAP 邮件监听自启（S-7）：只要配置了启用的 IMAP 账号就启动监听，
+            // 启动时会在 email::start 内做一次真实连通性探测；失败只记日志不阻断
+            // 应用启动（与收件箱目录监听 / MCP server 同一模式）。
+            tauri::async_runtime::spawn(async {
+                match email::load_enabled_accounts() {
+                    Ok(accounts) if accounts.is_empty() => {
+                        log::info!("未配置 IMAP 账号，跳过邮件监听自启");
+                    }
+                    Ok(_) => {
+                        if let Err(e) = email::start_email_monitor().await {
+                            processing::service("email","邮件监听","failed","启动失败",Some(&e.to_string()));
+                            log::warn!("IMAP 邮件监听自启失败: {}", e);
+                        }
+                    }
+                    Err(e) => log::warn!("读取 IMAP 账号失败，跳过邮件监听自启: {}", e),
+                }
+            });
+
             // 恢复飞书自动推送状态并启动后台 watcher
             {
                 let conn = db::open_db()?;

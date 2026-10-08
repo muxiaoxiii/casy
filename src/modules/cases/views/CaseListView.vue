@@ -75,12 +75,13 @@ const router = useRouter()
 const route = useRoute()
 const casesStore = useCasesStore()
 const tasksStore = useTasksStore()
-const groupBy = ref('none')
 const showCaseWizard = ref(false)
 const showExcelImportDialog = ref(false)
 const showEditOverviewDialog = ref(false)
 const showCaseFilters = ref(false)
 const selectedCaseId = ref('')
+// 导出 CSV 进行中（审查 P1-18a：接通 CaseFilterBar 的导出按钮）
+const exporting = ref(false)
 // 完整工作区模式（隐藏左侧案件列表，展开丰富标签页与全量编辑）
 const isFullWorkspace = ref(false)
 // 当前激活的标签页
@@ -96,7 +97,7 @@ const fileSearchQuery = ref('')
 // 时间轴状态与过滤器
 const domainTimeline = ref([])
 const timelineFilter = ref('all') // 'all' | 'task' | 'event' | 'deadline' | 'doc' | 'memo'
-useViewMemory('cases', { selectedCaseId, groupBy, selectedTab, selectedDirRel, activeCategory, fileSortOrder, fileSearchQuery, timelineFilter }, ["#main-content"])
+useViewMemory('cases', { selectedCaseId, selectedTab, selectedDirRel, activeCategory, fileSortOrder, fileSearchQuery, timelineFilter }, ["#main-content"])
 const calendarEvents = ref([])
 // 办案笔记/备忘列表
 const caseMemos = ref([])
@@ -648,11 +649,17 @@ function openSelectedFiles() {
 function openEditOverviewModal() {
   if (selectedCase.value) showEditOverviewDialog.value = true
 }
-onUnmounted(casyContext.on('inbox:confirmed', () => {
-  casesStore.loadCases()
-  tasksStore.loadTasks()
-  if (selectedCaseId.value) { loadCaseFiles(); loadCaseEvents() }
-}))
+// 案件域事件订阅（审查 P1-18c）：除 inbox:confirmed 外，case:created/updated/deleted/imported
+// 也来自其他视图（导入对话框、案件详情、AI 工具），必须刷新列表；清理纪律同 DashboardView。
+const caseEventOffs = []
+for (const event of ['inbox:confirmed', 'case:created', 'case:updated', 'case:deleted', 'case:imported']) {
+  caseEventOffs.push(casyContext.on(event, () => {
+    casesStore.loadCases()
+    tasksStore.loadTasks()
+    if (selectedCaseId.value) { loadCaseFiles(); loadCaseEvents() }
+  }))
+}
+onUnmounted(() => caseEventOffs.forEach(off => off()))
 onMounted(async () => {
   if (trackOptions.some(option => option.value === route.query.track)) {
     casesStore.filter.track = route.query.track
@@ -700,6 +707,25 @@ watch(selectedCaseId, () => {
 function onSearch() {
   casesStore.page = 1
   casesStore.loadCases()
+}
+// 侧栏搜索防抖（审查 P1-18e）：与 CaseFilterBar 的 300ms 防抖一致，避免每敲一字全量重载
+let sidebarSearchTimer = null
+function onSidebarSearch(value) {
+  casesStore.filter.search = value
+  if (sidebarSearchTimer) clearTimeout(sidebarSearchTimer)
+  sidebarSearchTimer = setTimeout(() => onSearch(), 300)
+}
+// 导出 CSV（审查 P1-18a）：CaseFilterBar 的导出按钮此前无人监听，接通 CasesService.exportCases
+async function exportCasesCsv() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const result = await casyContext.cases.exportCases('csv', { ...casesStore.filter })
+    if (!result.ok) ElMessage.error(result.error || '导出失败')
+    else ElMessage.success(`已导出到 ${result.data || '下载目录'}`)
+  } finally {
+    exporting.value = false
+  }
 }
 // 分页（审查 P1-3）：页变更时写入 store.page 并重载，使超过 perPage 的案件可访问。
 async function onPageChange(page) {
@@ -771,12 +797,12 @@ async function handleCreateCase(formData) {
       <section v-if="showCaseFilters && !isFullWorkspace" class="filter-drawer-well">
         <CaseFilterBar
           :filter="casesStore.filter"
-          :group-by="groupBy"
           :total="casesStore.total"
+          :exporting="exporting"
           @update:filter="casesStore.setFilter"
-          @update:groupBy="(v) => groupBy = v"
           @search="onSearch"
           @create="showCaseWizard = true"
+          @export="exportCasesCsv"
         />
       </section>
     </transition>
@@ -791,7 +817,7 @@ async function handleCreateCase(formData) {
             class="input-clean"
             placeholder="搜索案件"
             aria-label="搜索案件"
-            @input="(e) => { casesStore.filter.search = e.target.value; onSearch() }"
+            @input="(e) => onSidebarSearch(e.target.value)"
           />
         </div>
         <!-- 仅在无数据时展示加载/空态；翻页期间保留当前列表，避免整列闪烁 -->

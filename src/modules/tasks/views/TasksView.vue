@@ -23,7 +23,6 @@ import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskQuickEditor from '../components/TaskQuickEditor.vue'
 import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
-import TodayResetDialog from '../components/TodayResetDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
@@ -94,7 +93,6 @@ async function closeTaskEditor(done) {
 // 弹窗状态
 const showCreateDialog = ref(false)
 const showAreasDialog = ref(false)
-const showTodayReset = ref(false)
 const showPerspectiveManager = ref(false)
 const editingPerspective = ref(null)
 
@@ -236,6 +234,8 @@ const childrenMap = computed(() => buildChildrenMap(tasks.value))
 // ============================================================
 onMounted(async () => {
   dayTimer = window.setInterval(() => { clockNow.value = new Date() }, 60000)
+  // 自定义透视此前只写不读（stores/tasks.ts loadCustomPerspectives 零调用），重启即丢（审查 P1-18d）
+  tasksStore.loadCustomPerspectives()
   await loadData()
   filtersStore.loadFilters('tasks')
 

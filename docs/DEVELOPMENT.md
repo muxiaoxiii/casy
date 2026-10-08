@@ -44,6 +44,8 @@ node --test scripts/binary-architecture.test.mjs scripts/license-policy.test.mjs
 
 `tests/e2e/` 包含 17 个本地脚本，通常需要桥接 example、前端服务、浏览器和隔离资料目录；它们没有被普通 `npm run test:unit` 自动运行。真实模型用例中带 `#[ignore]` 的项目也必须按各文件说明单独运行。
 
+端到端脚本为显式门控：`CASY_E2E=true npm run test:e2e`（需要预编译 `src-tauri/target/debug/examples/*_local_bridge`、`playwright` 模块与隔离 `CASY_QA_DIR`）。CI 中同名步骤同样只在 `CASY_E2E=true` 时运行，默认不执行；门禁未开启时不得把前端单测数字表述为端到端覆盖。
+
 完整回归、真实样本和忽略项见 [验收记录](RELEASE_0.1.3.md)。本机同时运行多个重型编译时建议 `npx vitest run --maxWorkers=1`，避免测试资源竞争。
 
 ## 完整包

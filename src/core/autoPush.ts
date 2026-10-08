@@ -55,10 +55,12 @@ export async function setAutoPushEnabled(enabled: boolean): Promise<TauriResult<
 export async function notifyDataChange(): Promise<void> {
   // 异步触发，不阻塞调用方
   try {
-    await tauriCallSafe('trigger_feishu_push')
+    const result = await tauriCallSafe('trigger_feishu_push')
+    // 失败可见性（审查 P1-13 残留）：推送失败不能完全静默，至少留痕；
+    // 这里不弹用户提示——每次数据变更都会走到此处， toast 会刷屏。
+    if (!result.ok) console.warn('[Casy] 飞书自动推送通知失败:', result.error || '未知错误')
   } catch (e) {
-    // 静默失败，不影响主流程
-    console.debug('飞书自动推送通知失败:', e)
+    console.warn('[Casy] 飞书自动推送通知失败:', e)
   }
 }
 

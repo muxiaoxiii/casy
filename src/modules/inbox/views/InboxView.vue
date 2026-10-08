@@ -92,6 +92,8 @@ const clarifyEstMinutes = ref(null)
 
 const pendingItems = computed(() => items.value.filter((i) => i.status === 'pending'))
 const filedItems = computed(() => items.value.filter((i) => i.status === 'filed'))
+// 待处理总数走后端聚合：列表分页/截断时徽标仍然真实
+const pendingCount = ref(0)
 
 const sourceFilters = computed(() => {
   const currentItems = statusFilter.value === 'pending' ? pendingItems.value : filedItems.value
@@ -186,15 +188,19 @@ async function loadItems() {
   } else {
     loadError.value = result.error || '收件箱加载失败'
   }
+  const count = await casyContext.inbox.count('pending')
+  if (count.ok && typeof count.data === 'number') pendingCount.value = count.data
   loading.value = false
 }
 
 async function loadCases() {
-  const result = await casyContext.cases.list({})
+  // 分页取全量（审查 N10）：原来 list({}) 只用后端默认一页，案件下拉被截断在 50 条
+  const result = await casyContext.cases.listAll()
   if (result.ok) {
-    casesList.value = Array.isArray(result.data)
-      ? result.data
-      : (Array.isArray(result.data?.items) ? result.data.items : [])
+    casesList.value = result.data || []
+  } else {
+    // 失败反馈：否则澄清面板的案件下拉静默空白，用户无法归卷
+    ElMessage.error(result.error || '案件加载失败')
   }
 }
 
@@ -367,7 +373,7 @@ async function dismissItem(item) {
 <template>
   <div class="inbox-page">
     <header class="inbox-header">
-      <div><h1>收件箱</h1><span>{{ pendingItems.length }} 项待处理</span></div>
+      <div><h1>收件箱</h1><span>{{ pendingCount }} 项待处理</span></div>
       <el-button :icon="Refresh" circle :loading="loading" title="刷新收件箱" aria-label="刷新收件箱" @click="loadItems" />
     </header>
     <form class="quick-capture" @submit.prevent="submitQuickCapture">

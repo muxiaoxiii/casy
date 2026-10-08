@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{Local, NaiveDate};
+use chrono::{Datelike, Local, NaiveDate};
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -40,6 +40,10 @@ pub struct DeadlineRule {
 pub struct DeadlineEngine {
     rules: Vec<DeadlineRule>,
     calendar: HolidayCalendar,
+    /// D4/P1-24：旧种子规则名单（数据驱动，用户编辑过的规则不再跳过）
+    legacy_seed_rule_ids: std::collections::HashSet<String>,
+    /// D4/P1-24：用户编辑过的规则 id（deadline_rule_audit action='update'）
+    edited_rule_ids: std::collections::HashSet<String>,
 }
 
 impl DeadlineEngine {
@@ -72,7 +76,12 @@ impl DeadlineEngine {
             Some(value) => HolidayCalendar::from_json_str(&value).map_err(anyhow::Error::msg)?,
             None => HolidayCalendar::builtin(),
         };
-        Ok(Self { rules, calendar })
+        Ok(Self {
+            rules,
+            calendar,
+            legacy_seed_rule_ids: legacy_seed_rule_ids(conn)?,
+            edited_rule_ids: edited_rule_ids(conn)?,
+        })
     }
 
     /// 计算单个案件的所有期限
@@ -92,7 +101,13 @@ impl DeadlineEngine {
 
             // These legacy seeds cannot express service, party or notice conditions.
             // Their fields remain visible as unconfirmed projections in the procedure board.
-            if matches!(rule.id.as_str(), "rule-pi-001"|"rule-pi-002"|"rule-pi-003"|"rule-pi-004"|"rule-al-001"|"rule-al-004"|"rule-al-005"|"rule-ct-001"|"rule-ct-004"|"rule-ct-005") { continue; }
+            // D4/P1-24：跳过改为数据驱动——名单内的规则一旦被用户编辑过（deadline_rule_audit
+            // action='update'）就参与计算，否则 deadline_rules 的编辑"成功但不生效"。
+            if self.legacy_seed_rule_ids.contains(&rule.id)
+                && !self.edited_rule_ids.contains(&rule.id)
+            {
+                continue;
+            }
             if rule.offset_value < 1 || rule.offset_value > 3650 || (rule.offset_unit == "calendar_month" && rule.offset_value > 120) { continue; }
             // 检查适用程序
             if let Some(proc_types) = &rule.procedure_types {
@@ -135,14 +150,33 @@ impl DeadlineEngine {
             };
 
             let days_left = (due - today).num_days();
+            // C4/P0-6b：期限落在日历未覆盖的年份时，顺延实际只会跳周末，结果不可信。
+            // 与 procedure.rs 的降级路径保持一致：标记 deadline_source 并加 [待核对] 前缀，
+            // 不让 2027 年后的期限静默按正常紧急度弹出。
+            let unconfirmed_calendar = !self.calendar.covers_year(due.year());
             results.push(DeadlineResult {
                 rule_id: Some(rule.id.clone()),
-                rule_name: rule.rule_name.clone(),
+                rule_name: if unconfirmed_calendar {
+                    format!("[待核对] {}", rule.rule_name)
+                } else {
+                    rule.rule_name.clone()
+                },
                 due_date: due.format("%Y-%m-%d").to_string(),
                 days_left,
                 urgency: classify_urgency(days_left),
-                deadline_source: rule.deadline_source.clone(),
-                legal_basis: Some(rule.legal_basis.clone()),
+                deadline_source: if unconfirmed_calendar {
+                    "unconfirmed_calendar".to_string()
+                } else {
+                    rule.deadline_source.clone()
+                },
+                legal_basis: Some(if unconfirmed_calendar {
+                    format!(
+                        "[待核对] {}（该年份节假日未覆盖，请导入官方日历后核对）",
+                        rule.legal_basis
+                    )
+                } else {
+                    rule.legal_basis.clone()
+                }),
                 case_id: case.id.clone(),
                 case_name: case.case_name.clone(),
             });
@@ -195,6 +229,64 @@ impl DeadlineEngine {
         all.sort_by_key(|r| r.days_left);
         Ok(all)
     }
+}
+
+/// 旧种子规则名单的设置键（D4：跳过名单数据驱动化；不改 schema.rs 就是不改迁移）
+const LEGACY_SEED_SETTING_KEY: &str = "deadline_legacy_seed_rule_ids";
+
+/// 无法表达送达／当事人／通知条件的旧版种子规则（schema.rs 的 statutory 种子）。
+const LEGACY_SEED_RULE_IDS: &[&str] = &[
+    "rule-pi-001",
+    "rule-pi-002",
+    "rule-pi-003",
+    "rule-pi-004",
+    "rule-al-001",
+    "rule-al-004",
+    "rule-al-005",
+    "rule-ct-001",
+    "rule-ct-004",
+    "rule-ct-005",
+];
+
+/// 读取旧种子规则名单；设置缺失时按内置常量初始化后落库（首次使用即补齐）。
+///
+/// 设置损坏时退回内置名单并告警：名单丢只会让这些规则重新参与计算（偏保守），
+/// 不会让期限消失。
+fn legacy_seed_rule_ids(conn: &Connection) -> Result<std::collections::HashSet<String>> {
+    let builtin = || {
+        LEGACY_SEED_RULE_IDS
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<std::collections::HashSet<String>>()
+    };
+    let Some(raw) = db::get_setting(conn, LEGACY_SEED_SETTING_KEY)? else {
+        let ids = builtin();
+        // 落库失败不影响本次计算（内置常量仍是兜底），只告警
+        if let Err(error) =
+            db::set_setting(conn, LEGACY_SEED_SETTING_KEY, &serde_json::to_string(&ids)?)
+        {
+            log::warn!("写入 {LEGACY_SEED_SETTING_KEY} 失败: {error}");
+        }
+        return Ok(ids);
+    };
+    match serde_json::from_str::<Vec<String>>(&raw) {
+        Ok(ids) => Ok(ids.into_iter().collect()),
+        Err(error) => {
+            log::warn!("设置 {LEGACY_SEED_SETTING_KEY} 损坏，改用内置旧种子名单: {error}");
+            Ok(builtin())
+        }
+    }
+}
+
+/// 用户编辑过的规则 id（upsert_deadline_rule 对 update 动作写 deadline_rule_audit）。
+fn edited_rule_ids(conn: &Connection) -> Result<std::collections::HashSet<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT rule_id FROM deadline_rule_audit WHERE action = 'update'",
+    )?;
+    let ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(ids.into_iter().collect())
 }
 
 fn classify_urgency(days_left: i64) -> String {
@@ -253,4 +345,116 @@ fn query_case_deadlines(conn: &Connection, case_id: &str) -> Result<Vec<CaseDead
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema::{seed_deadline_rules, SCHEMA_SQL};
+    use rusqlite::params;
+
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        crate::db::schema::run_migrations(&conn, 1).unwrap();
+        seed_deadline_rules(&conn).unwrap();
+        conn
+    }
+
+    fn insert_case(conn: &Connection, id: &str, track: &str, filing: &str, procedure: &str) {
+        conn.execute(
+            "INSERT INTO cases (id, track, case_name, client_name, opponent_name, case_status,
+              filing_date, procedure_type) VALUES (?1, ?2, '测试案件', '委托人', '对方', '进行中', ?3, ?4)",
+            params![id, track, filing, procedure],
+        )
+        .unwrap();
+    }
+
+    /// C4/P0-6b：期限落在日历未覆盖年份时必须标记为待核对，而不是按正常紧急度呈现。
+    #[test]
+    fn uncovered_calendar_year_is_marked_unconfirmed() {
+        let conn = test_conn();
+        insert_case(&conn, "c-2027", "civil_tort", "2027-01-15", "简易");
+
+        let engine = DeadlineEngine::new(&conn).unwrap();
+        let case = db::cases::get_case(&conn, "c-2027").unwrap();
+        let results = engine.evaluate_case(&conn, &case);
+        let result = results
+            .iter()
+            .find(|r| r.rule_id.as_deref() == Some("rule-ct-002"))
+            .expect("简易程序预估审限应被计算");
+
+        assert_eq!(result.deadline_source, "unconfirmed_calendar");
+        assert!(result.rule_name.starts_with("[待核对]"), "{}", result.rule_name);
+        assert!(result
+            .legal_basis
+            .as_deref()
+            .is_some_and(|basis| basis.starts_with("[待核对]")));
+        assert_eq!(result.due_date, "2027-04-15");
+    }
+
+    /// 已覆盖年份不加标记（2026 在内置日历内）。
+    #[test]
+    fn covered_calendar_year_keeps_rule_source() {
+        let conn = test_conn();
+        insert_case(&conn, "c-2026", "civil_tort", "2026-01-15", "简易");
+
+        let engine = DeadlineEngine::new(&conn).unwrap();
+        let case = db::cases::get_case(&conn, "c-2026").unwrap();
+        let result = engine
+            .evaluate_case(&conn, &case)
+            .into_iter()
+            .find(|r| r.rule_id.as_deref() == Some("rule-ct-002"))
+            .expect("简易程序预估审限应被计算");
+
+        assert_eq!(result.deadline_source, "recommended");
+        assert!(!result.rule_name.contains("待核对"));
+    }
+
+    /// D4/P1-24：旧种子规则默认跳过；用户编辑过（audit action='update'）后必须生效。
+    #[test]
+    fn legacy_seed_skip_is_data_driven() {
+        let conn = test_conn();
+        insert_case(&conn, "c-al", "admin_litigation", "2026-01-10", "普通");
+        conn.execute(
+            "UPDATE cases SET complaint_received_date = '2026-02-01' WHERE id = 'c-al'",
+            [],
+        )
+        .unwrap();
+
+        let engine = DeadlineEngine::new(&conn).unwrap();
+        let case = db::cases::get_case(&conn, "c-al").unwrap();
+        assert!(
+            engine
+                .evaluate_case(&conn, &case)
+                .iter()
+                .all(|r| r.rule_id.as_deref() != Some("rule-al-001")),
+            "未被编辑的旧种子规则仍应跳过"
+        );
+
+        // 名单已按内置常量落库，供用户查看/调整
+        let stored = db::get_setting(&conn, LEGACY_SEED_SETTING_KEY)
+            .unwrap()
+            .expect("旧种子名单应在首次使用时落库");
+        let ids: Vec<String> = serde_json::from_str(&stored).unwrap();
+        assert_eq!(ids.len(), LEGACY_SEED_RULE_IDS.len());
+
+        // 用户通过 deadline_rules 编辑该规则 → 写 audit → 规则参与计算
+        conn.execute(
+            "INSERT INTO deadline_rule_audit (id, rule_id, action, after_json, created_at)
+             VALUES ('a-1', 'rule-al-001', 'update', '{}', '2026-02-02')",
+            [],
+        )
+        .unwrap();
+        let engine = DeadlineEngine::new(&conn).unwrap();
+        let result = engine
+            .evaluate_case(&conn, &case)
+            .into_iter()
+            .find(|r| r.rule_id.as_deref() == Some("rule-al-001"))
+            .expect("编辑过的旧种子规则必须参与计算");
+        assert_eq!(result.deadline_source, "statutory");
+        // 2026-02-01 + 15 天 = 2026-02-16（春节假期内）→ 顺延到节后第一个工作日
+        assert_eq!(result.due_date, "2026-02-24");
+    }
 }

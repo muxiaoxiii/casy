@@ -72,6 +72,7 @@ fn register_inbox_case_file(
     case_id: &str,
     path: &std::path::Path,
     category: &str,
+    inbox_item_id: &str,
 ) -> anyhow::Result<String> {
     let id = db::new_id();
     let file_name = path
@@ -86,8 +87,8 @@ fn register_inbox_case_file(
         .map(str::to_string);
     let db_category = normalize_case_file_category(category);
     tx.execute(
-        "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'inbox')",
+        "INSERT INTO case_files (id, case_id, file_name, file_path, file_size, file_type, category, source_type, source_inbox_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'inbox', ?8)",
         rusqlite::params![
             id,
             case_id,
@@ -96,6 +97,7 @@ fn register_inbox_case_file(
             file_size,
             file_type,
             db_category,
+            inbox_item_id,
         ],
     )?;
     Ok(id)
@@ -199,8 +201,39 @@ pub async fn add_inbox_item(
     .await
 }
 
+/// 收件箱计数（后端聚合）：待处理徽标不能取已加载数组长度
 #[tauri::command]
-pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto>, String> {
+pub async fn count_inbox_items(status: Option<String>) -> Result<i64, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut sql = String::from("SELECT COUNT(*) FROM inbox_items WHERE 1=1");
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(s) = &status {
+            let s = s.trim();
+            if !s.is_empty() && s != "all" {
+                if matches!(s, "dismissed" | "ignored") {
+                    sql.push_str(" AND status IN ('dismissed','ignored')");
+                } else {
+                    sql.push_str(" AND status = ?1");
+                    params.push(Box::new(s.to_string()));
+                }
+            }
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = stmt.query_row(param_refs.as_slice(), |r| r.get(0))?;
+        Ok(count)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_inbox_items(
+    status: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<InboxItemDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
         // COALESCE 归一口径见 InboxItemDto 文档注释
@@ -226,7 +259,16 @@ pub async fn list_inbox_items(status: Option<String>) -> Result<Vec<InboxItemDto
                 }
             }
         }
-        sql.push_str(" ORDER BY created_at DESC LIMIT 100");
+        // 分页参数：默认 100，上限 500；待处理计数另走 count_inbox_items（后端聚合）
+        let limit = limit.unwrap_or(100).clamp(1, 500);
+        let offset = offset.unwrap_or(0).max(0);
+        let limit_idx = params.len() + 1;
+        sql.push_str(&format!(
+            " ORDER BY created_at DESC LIMIT ?{limit_idx} OFFSET ?{}",
+            limit_idx + 1
+        ));
+        params.push(Box::new(limit));
+        params.push(Box::new(offset));
 
         let mut stmt = conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
@@ -268,12 +310,12 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
     run_blocking(move || {
         let conn = db::open_db()?;
 
-        // 获取收件项
-        let content_text: String = conn
+        // 获取收件项（仅待处理项可处理；processed_at 用于判断是否首次处理）
+        let (content_text, first_processing): (String, bool) = conn
             .query_row(
-                "SELECT content_text FROM inbox_items WHERE id = ?1 AND status = 'pending'",
+                "SELECT content_text, processed_at IS NULL FROM inbox_items WHERE id = ?1 AND status = 'pending'",
                 rusqlite::params![id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(|e| {
                 anyhow::anyhow!(crate::error_code::err(
@@ -364,16 +406,20 @@ pub async fn process_inbox_item(id: String) -> Result<ProcessedInboxResult, Stri
         )?;
         anyhow::ensure!(changed == 1, "收件项状态已变化，请刷新后重试");
 
-        // ── 自动路由：根据分类执行后续动作 ──────────────────────
-        let route_actions = execute_auto_routes(
-            &tx,
-            &id,
-            &category,
-            confidence,
-            extracted.as_ref(),
-            suggested_case_id.as_deref(),
-            &content_text,
-        );
+        // ── 自动路由：根据分类执行后续动作（仅首次处理时执行，重复处理不得重复建任务/知识条目） ──
+        let route_actions = if first_processing {
+            execute_auto_routes(
+                &tx,
+                &id,
+                &category,
+                confidence,
+                extracted.as_ref(),
+                suggested_case_id.as_deref(),
+                &content_text,
+            )
+        } else {
+            Ok(Vec::new())
+        };
         // 路由失败回滚收件项更新；分类结果仍返回给 UI 供人工确认。
         let actions = route_actions.map_err(anyhow::Error::msg)?;
         tx.commit()?;
@@ -560,10 +606,7 @@ fn execute_auto_routes(
         "note" | "client_instruction" | "correspondence" => {
             match insert_knowledge_item(
                 conn,
-                &format!(
-                    "收件箱笔记: {}",
-                    &content_text[..content_text.len().min(50)]
-                ),
+                &format!("收件箱笔记: {}", truncate_text(content_text, 50)),
                 "case_note",
                 content_text,
                 inbox_id,
@@ -647,31 +690,36 @@ fn auto_import_legal_provisions(
         let tags = serde_json::to_string(&serde_json::json!([law_name, article_no, "法条"]))
             .unwrap_or_default();
 
-        if conn
-            .execute(
-                "INSERT OR IGNORE INTO knowledge_items
-                 (id, title, category, content, tags, source_type, source_id, law_name, article_no, status, created_at, updated_at)
-                 VALUES (?1, ?2, 'legal_provision', ?3, ?4, 'inbox', ?5, ?6, ?7, 'current', ?8, ?8)",
-                rusqlite::params![
-                    id, title, article_text, tags, inbox_id, law_name, article_no, now,
-                ],
-            )
-            .is_ok()
-        {
-            count += 1;
+        // 用 changes() 计数：INSERT OR IGNORE 对重复行返回 Ok(0)，不能算“已导入”
+        match conn.execute(
+            "INSERT OR IGNORE INTO knowledge_items
+             (id, title, category, content, tags, source_type, source_id, law_name, article_no, status, created_at, updated_at)
+             VALUES (?1, ?2, 'legal_provision', ?3, ?4, 'inbox', ?5, ?6, ?7, 'current', ?8, ?8)",
+            rusqlite::params![
+                id, title, article_text, tags, inbox_id, law_name, article_no, now,
+            ],
+        ) {
+            Ok(0) => {} // 已存在，重复导入不计入
+            Ok(_) => count += 1,
+            Err(e) => log::warn!("法条入库失败 {title}: {e}"),
         }
     }
 
     if articles.is_empty() {
-        // 没有按条拆分成功，整体存为一条
+        // 没有按条拆分成功，整体存为一条；失败必须如实反映为 0，不能假报 1 条
         let id = db::new_id();
         let now = db::now_local();
-        let _ = conn.execute(
-            "INSERT INTO knowledge_items (id, title, category, content, source_type, source_id, status, created_at, updated_at)
+        count = match conn.execute(
+            "INSERT OR IGNORE INTO knowledge_items (id, title, category, content, source_type, source_id, status, created_at, updated_at)
              VALUES (?1, ?2, 'legal_provision', ?3, 'inbox', ?4, 'current', ?5, ?5)",
             rusqlite::params![id, law_name, content, inbox_id, now],
-        );
-        count = 1;
+        ) {
+            Ok(changed) => changed,
+            Err(e) => {
+                log::warn!("法条整体入库失败: {e}");
+                0
+            }
+        };
     }
 
     Ok(count)
@@ -1102,7 +1150,7 @@ pub async fn file_inbox_item(
 
         let write_result = (|| -> anyhow::Result<()> {
         if let Some(path) = &filed_path {
-            register_inbox_case_file(&tx, &case_id, path, category)?;
+            register_inbox_case_file(&tx, &case_id, path, category, &item_id)?;
         }
 
         tx.execute(
@@ -1135,10 +1183,26 @@ pub async fn file_inbox_item(
 pub async fn dismiss_inbox_item(id: String) -> Result<(), String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let status = ignored_status_for_schema(&conn)?;
+        // 已归卷（filed）项带有回执与案件关联，不能按“忽略”覆盖回待处理/已忽略
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM inbox_items WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .map_err(|e| {
+                anyhow::anyhow!(crate::error_code::err(
+                    crate::error_code::codes::INBOX_NOT_FOUND,
+                    format!("收件项不存在: {id} ({e})"),
+                ))
+            })?;
+        if status == "filed" {
+            anyhow::bail!("已归卷的收件项不能忽略");
+        }
+        let ignored = ignored_status_for_schema(&conn)?;
         let affected = conn.execute(
-            "UPDATE inbox_items SET status = ?1, processed_at = ?2 WHERE id = ?3",
-            rusqlite::params![status, db::now_local(), id],
+            "UPDATE inbox_items SET status = ?1, processed_at = ?2 WHERE id = ?3 AND status <> 'filed'",
+            rusqlite::params![ignored, db::now_local(), id],
         )?;
         if affected == 0 {
             return Err(anyhow::anyhow!(crate::error_code::err(
@@ -2052,11 +2116,19 @@ fn parse_absolute_date(text: &str, today: chrono::NaiveDate) -> Option<chrono::N
         }
     }
 
-    // 2. MM-DD / M/D / M.D / M月D日 / M月D号
-    if let Ok(re) =
-        regex::Regex::new(r"(?:^|[^\d])(\d{1,2})\s*[\-/\.月]\s*(\d{1,2})(?:[日号]|\b|$)")
-    {
-        if let Some(caps) = re.captures(text) {
+    // 2. MM-DD / M/D / M月D日 / M月D号
+    // 小数点不再是分隔符（"利率 3.5%" 曾被误判为 3 月 5 日）；
+    // 数字对后紧跟数量单位（"3-5万"）同样不是日期。
+    if let Ok(re) = regex::Regex::new(r"(?:^|[^\d])(\d{1,2})\s*[\-/月]\s*(\d{1,2})[日号]?") {
+        for caps in re.captures_iter(text) {
+            let whole = caps.get(0).unwrap();
+            if text[whole.end()..]
+                .chars()
+                .next()
+                .is_some_and(|c| "万亿%元％".contains(c))
+            {
+                continue;
+            }
             if let (Ok(m), Ok(d)) = (caps[1].parse::<u32>(), caps[2].parse::<u32>()) {
                 if (1..=12).contains(&m) && (1..=31).contains(&d) {
                     if let Some(dt) = chrono::NaiveDate::from_ymd_opt(today.year(), m, d) {
@@ -2103,13 +2175,13 @@ fn extract_date_hint(text: &str) -> Option<String> {
 }
 
 fn extract_date_hint_at(text: &str, today: chrono::NaiveDate) -> Option<String> {
-    // 1. 优先绝对日期
-    if let Some(d) = parse_absolute_date(text, today) {
+    // 1. 相对日期优先（"明天还本"不应被正文里的 "3.5%" 之类数字抢跑）
+    if let Some(d) = parse_relative_date(text, today) {
         return Some(d.format("%Y-%m-%d").to_string());
     }
 
-    // 2. 相对日期推断
-    if let Some(d) = parse_relative_date(text, today) {
+    // 2. 绝对日期
+    if let Some(d) = parse_absolute_date(text, today) {
         return Some(d.format("%Y-%m-%d").to_string());
     }
 
@@ -2294,10 +2366,17 @@ pub async fn confirm_inbox_action(
             Ok(serde_json::json!({"success":true,"action":"filed","caseId":case_id,"category":category}))
         }
         "service_delivery" => {
+            // 法院送达：下载后必须归卷（写 case_files、置 filed、留回执）；
+            // 缺少目标案件时明确报错，而不是假装“已完成处理”。
             let service_url = intent.as_ref().and_then(|value|value["serviceUrl"].as_str())
                 .ok_or_else(|| "法院送达短信中缺少有效链接".to_string())?;
+            let case_id = intent.as_ref()
+                .and_then(|value| value["caseId"].as_str().map(str::to_string))
+                .or_else(|| target_case_id.clone())
+                .ok_or_else(|| "请先选择归卷案件：法院送达文书需要归入具体案件".to_string())?;
             let path = download_service_delivery_url(&inbox_item_id, service_url).await?;
-            Ok(serde_json::json!({"success":true,"action":"service_downloaded","path":path}))
+            file_inbox_item(inbox_item_id, case_id.clone(), "received".to_string()).await?;
+            Ok(serde_json::json!({"success":true,"action":"filed","caseId":case_id,"path":path}))
         }
         "ignore" | "dismiss" => {
             dismiss_inbox_item(inbox_item_id).await?;
@@ -2455,9 +2534,9 @@ mod tests {
         );
     }
     use super::{
-        detect_service_delivery, extract_date_hint, ignored_status_for_schema,
+        detect_service_delivery, extract_date_hint, extract_date_hint_at, ignored_status_for_schema,
         normalize_case_file_category, parse_holiday_dates, quick_judge_text,
-        register_inbox_case_file,
+        register_inbox_case_file, truncate_text,
     };
 
     #[test]
@@ -2502,6 +2581,28 @@ mod tests {
     }
 
     #[test]
+    fn relative_date_beats_decimal_and_amount_noise() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
+        // "明天" 优先；"3.5"（小数点）与 "3-5万"（数量单位）都不再被当作日期
+        assert_eq!(
+            extract_date_hint_at("利率 3.5%，明天还本", today).as_deref(),
+            Some("2026-10-09")
+        );
+        assert_eq!(extract_date_hint_at("标的高 3-5万元", today), None);
+        assert_eq!(
+            extract_date_hint_at("10月15日答辩", today).as_deref(),
+            Some("2026-10-15")
+        );
+    }
+
+    #[test]
+    fn truncate_never_splits_multibyte_chars() {
+        assert_eq!(truncate_text("中文测试", 2), "中文…");
+        assert_eq!(truncate_text(&"中".repeat(60), 50).chars().count(), 51);
+        assert_eq!(truncate_text("短文本", 50), "短文本");
+    }
+
+    #[test]
     fn parses_official_holiday_ranges_and_makeup_days() {
         let text = "2027年元旦：1月1日至3日放假调休，共3天。1月4日上班。春节：2月5日至11日放假，共7天。2月4日、2月20日上班。";
         let notice = parse_holiday_dates(text).expect("应解析节假日通知");
@@ -2537,13 +2638,14 @@ mod tests {
                file_size INTEGER,
                file_type TEXT,
                category TEXT NOT NULL CHECK(category IN ('summons','evidence','submitted','received','internal','correspondence','other')),
-               source_type TEXT CHECK(source_type IN ('inbox','manual','generated','imported',NULL))
+               source_type TEXT CHECK(source_type IN ('inbox','manual','generated','imported',NULL)),
+               source_inbox_id TEXT
              );",
         )
         .expect("初始化 case_files 表应成功");
 
         let tx = conn.transaction().expect("事务应可创建");
-        let file_id = register_inbox_case_file(&tx, "case-1", &file_path, "01_传票")
+        let file_id = register_inbox_case_file(&tx, "case-1", &file_path, "01_传票", "inbox-item-1")
             .expect("中文 UI 目录标签应能登记为合法卷宗分类");
         tx.commit().expect("事务应可提交");
 

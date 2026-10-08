@@ -56,6 +56,18 @@ it('discards late queries after typing a new query or closing the dialog',async 
   expect(wrapper.find('.cmdk-panel').exists()).toBe(false)
 })
 
+// 审查 P1-18e：任务结果必须深链到任务编辑器，而不是只落到 /tasks 列表页
+it('deep-links task results to the task editor',async () => {
+  h.search.mockResolvedValue({ok:true,data:{results:[],semanticStatus:'ready',warning:null}})
+  h.tasks.mockResolvedValue({ok:true,data:[{id:'task-7',taskName:'核对证据目录',dueDate:'2026-09-25',completed:0}]})
+  await wrapper.find('input.cmdk-input').setValue('核对')
+  await vi.advanceTimersByTimeAsync(200)
+  await flushPromises()
+  expect(wrapper.text()).toContain('核对证据目录')
+  await wrapper.find('.cmdk-item').trigger('click')
+  expect(h.push).toHaveBeenCalledWith('/tasks?edit=task-7')
+})
+
 it('retains keywords and shows a failure when semantic retrieval is unavailable',async () => {
   h.search.mockImplementation((_q:string,semantic:boolean) => Promise.resolve(semantic ? {ok:false,error:'索引不可用'} : response('保留结果')))
   wrapper.findComponent({name:'ElRadioGroup'}).vm.$emit('update:modelValue','hybrid')

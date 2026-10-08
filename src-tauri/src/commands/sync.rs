@@ -97,7 +97,7 @@ pub async fn webdav_push(
 ) -> Result<sync::SyncResult, String> {
     let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
-    let result = sync::manual_sync_push(&url, &username, &password, &db_path)
+    let result = sync::manual_sync_push(&url, &username, &password, &db_path, last_compared_remote_etag().as_deref())
         .await
 ;
     record_sync_result(&url, &username, &result)?;
@@ -137,7 +137,7 @@ pub async fn webdav_resolve_keep_local(
 ) -> Result<sync::SyncResult, String> {
     let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
-    let result = sync::resolve_keep_local(&url, &username, &password, &db_path)
+    let result = sync::resolve_keep_local(&url, &username, &password, &db_path, last_compared_remote_etag().as_deref())
         .await
 ;
     record_sync_result(&url, &username, &result)?;
@@ -156,7 +156,7 @@ pub async fn webdav_resolve_keep_remote(
 ) -> Result<sync::SyncResult, String> {
     let password = webdav_password(&url,&username,password)?;
     let db_path = crate::db::get_db_path();
-    let result = sync::resolve_keep_remote(&url, &username, &password, &db_path)
+    let result = sync::resolve_keep_remote(&url, &username, &password, &db_path, last_compared_remote_etag().as_deref())
         .await
 ;
     record_sync_result(&url, &username, &result)?;
@@ -164,6 +164,14 @@ pub async fn webdav_resolve_keep_remote(
 
 
     Ok(result)
+}
+
+/// 比对时观察到的远程 ETag（If-Match 基线，由启动同步/HEAD 与上一次
+/// push/pull 写入）。远程在用户决策之后被其他设备修改时拒绝覆盖，
+/// 而不是静默丢失改动（S-4 / P0-2）。
+fn last_compared_remote_etag() -> Option<String> {
+    let conn = crate::db::open_db().ok()?;
+    sync::observed_remote_etag(&conn)
 }
 
 fn record_sync_result(url: &str, username: &str, result: &anyhow::Result<sync::SyncResult>) -> Result<(), String> {
@@ -225,7 +233,7 @@ pub async fn sync_feishu_push(
 pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
     run_blocking(move || {
         let conn = crate::db::open_db()?;
-        let (configured, app_id) = sync::feishu::feishu_configuration(&conn)?;
+        let (credentials_ok, app_id) = sync::feishu::feishu_configuration(&conn)?;
         let last_pull_at = sync::feishu::get_sync_metadata(&conn, "feishu_last_pull_at")
             .ok()
             .flatten();
@@ -244,6 +252,18 @@ pub async fn get_feishu_sync_info() -> Result<serde_json::Value, String> {
         let table_id = sync::feishu::get_sync_metadata(&conn, "feishu_table_id")
             .ok()
             .flatten();
+
+        // S-0 残留：徽章"已配置"必须同时要求 app_id / secret / app_token / table_id 齐全；
+        // 只看 app_id/secret 会让"有 app 无 table"也显示已配置（P1-13）
+        let configured = credentials_ok
+            && app_token
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+            && table_id
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
 
         Ok(serde_json::json!({
             "configured": configured,

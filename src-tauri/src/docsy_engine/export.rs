@@ -45,15 +45,70 @@ pub fn export_docx(
     // 替换内容并写入新文件
     let output_bytes = replace_docx_content(&template_bytes, values)?;
 
-    fs::write(&output, &output_bytes)?;
+    // M3/P1-10：裸 fs::write 会在崩溃/磁盘满时留下半份 docx，且秒级时间戳命名
+    // 会让同秒内的第二次导出静默覆盖第一次。改为同目录临时文件 + sync_all + 原子 persist，
+    // 生成命名下再叠加数字后缀，绝不覆盖既有导出。
+    let directory = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let target = match output_path {
+        // 用户经保存对话框显式指定的路径仍允许覆盖（rename 本身是原子的）
+        Some(_) => output.clone(),
+        None => available_export_path(&output),
+    };
+    {
+        use std::io::Write as _;
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".casy-docx-")
+            .tempfile_in(&directory)?;
+        temporary.write_all(&output_bytes)?;
+        temporary.as_file().sync_all()?;
+        match temporary.persist_noclobber(&target) {
+            Ok(_) => {}
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                error.file.persist(&target)?;
+            }
+            Err(error) => return Err(error.error.into()),
+        }
+    }
 
-    let metadata = fs::metadata(&output)?;
+    let metadata = fs::metadata(&target)?;
 
     Ok(ExportResult {
-        output_path: output.to_string_lossy().to_string(),
+        output_path: target.to_string_lossy().to_string(),
         file_size: metadata.len(),
         exported_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     })
+}
+
+/// 生成命名已存在时追加 `_1/_2` 数字后缀（M3/P1-10），绝不覆盖既有导出文件。
+fn available_export_path(preferred: &Path) -> PathBuf {
+    if !preferred.exists() {
+        return preferred.to_path_buf();
+    }
+    let stem = preferred
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document");
+    let extension = preferred
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| format!(".{s}"))
+        .unwrap_or_default();
+    let parent = preferred
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    for index in 1..1000 {
+        let candidate = parent.join(format!("{stem}_{index}{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    preferred.to_path_buf()
 }
 
 /// 替换 docx 文件中的占位符
@@ -212,5 +267,30 @@ mod tests {
             {"name": "李四", "suffix": "代理"}
         ]);
         assert_eq!(format_value(&val), "张三(原告)、李四(代理)");
+    }
+
+    /// M3/P1-10：秒级时间戳命名下，同秒重复导出不得覆盖上一次的结果。
+    #[test]
+    fn generated_export_name_never_clobbers_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let preferred = dir.path().join("委托代理合同_20261008_120000.docx");
+        std::fs::write(&preferred, b"first").unwrap();
+        let first = available_export_path(&preferred);
+        assert_ne!(first, preferred);
+        assert_eq!(
+            first.file_name().unwrap().to_string_lossy(),
+            "委托代理合同_20261008_120000_1.docx"
+        );
+        std::fs::write(&first, b"second").unwrap();
+        assert_eq!(
+            available_export_path(&preferred)
+                .file_name()
+                .unwrap()
+                .to_string_lossy(),
+            "委托代理合同_20261008_120000_2.docx"
+        );
+        // 目标不存在时保持原命名
+        let fresh = dir.path().join("fresh.docx");
+        assert_eq!(available_export_path(&fresh), fresh);
     }
 }

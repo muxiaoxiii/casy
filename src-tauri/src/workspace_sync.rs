@@ -63,14 +63,20 @@ pub async fn list_workspace_sources(
 ) -> Result<Vec<serde_json::Value>, String> {
     crate::commands::run_blocking(move || {
         let conn = db::open_db()?;
-        let mut stmt = conn.prepare("SELECT f.id,f.case_id,f.file_name,f.file_path,j.id,j.status,j.total_pages,j.error_message,s.missing FROM case_files f
+        let mut stmt = conn.prepare("SELECT f.id,f.case_id,f.file_name,f.file_path,j.id,j.status,j.total_pages,j.error_message,s.missing,
+            (SELECT status FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1),
+            (SELECT error_message FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1)
+            FROM case_files f
             LEFT JOIN document_processing_jobs j ON j.id=(SELECT id FROM document_processing_jobs WHERE file_id=f.id ORDER BY (status='completed') DESC,rowid DESC LIMIT 1)
             LEFT JOIN workspace_file_state s ON s.file_id=f.id
             WHERE f.deleted_at IS NULL AND f.case_id IN (SELECT value FROM json_each(?1)) ORDER BY f.file_path")?;
         let items = stmt.query_map([serde_json::to_string(&case_ids)?], |r| Ok(serde_json::json!({
             "fileId": r.get::<_,String>(0)?, "caseId":r.get::<_,String>(1)?, "fileName":r.get::<_,String>(2)?,
             "filePath":r.get::<_,String>(3)?, "jobId":r.get::<_,Option<String>>(4)?, "status":r.get::<_,Option<String>>(5)?,
-            "totalPages":r.get::<_,Option<i64>>(6)?, "error":r.get::<_,Option<String>>(7)?, "missing":r.get::<_,Option<bool>>(8)?.unwrap_or(false)
+            "totalPages":r.get::<_,Option<i64>>(6)?, "error":r.get::<_,Option<String>>(7)?, "missing":r.get::<_,Option<bool>>(8)?.unwrap_or(false),
+            // N5：回退到已完成 job 时，额外暴露"最新一次任务"的状态/错误，
+            // 让 UI 能提示"最近一次处理失败"，而不是永远显示成功。
+            "latestJobStatus": r.get::<_,Option<String>>(9)?, "latestJobError": r.get::<_,Option<String>>(10)?
         })))?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(items)
     }).await
@@ -80,7 +86,10 @@ pub async fn list_workspace_sources(
 pub async fn get_workspace_document(file_id: String) -> Result<serde_json::Value, String> {
     crate::commands::run_blocking(move || {
         let conn = db::open_db()?;
-        let (job,path,hash,markdown_path):(String,String,String,String)=conn.query_row("SELECT j.id,f.file_path,j.source_sha256,j.markdown_path FROM case_files f JOIN document_processing_jobs j ON j.id=(SELECT id FROM document_processing_jobs WHERE file_id=f.id ORDER BY (status='completed') DESC,rowid DESC LIMIT 1) WHERE f.id=?1 AND f.deleted_at IS NULL AND j.status='completed'",[&file_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+        let (job,path,hash,markdown_path,latest_status,latest_error):(String,String,String,String,Option<String>,Option<String>)=conn.query_row("SELECT j.id,f.file_path,j.source_sha256,j.markdown_path,
+            (SELECT status FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1),
+            (SELECT error_message FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1)
+            FROM case_files f JOIN document_processing_jobs j ON j.id=(SELECT id FROM document_processing_jobs WHERE file_id=f.id ORDER BY (status='completed') DESC,rowid DESC LIMIT 1) WHERE f.id=?1 AND f.deleted_at IS NULL AND j.status='completed'",[&file_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
         if document_pipeline::sha256_file(Path::new(&path))? != hash { bail!("原文件已变化，等待重新提取正文"); }
         if std::fs::metadata(&markdown_path)?.len() > 16 * 1024 * 1024 { bail!("正文超过 16 MiB，请使用分页对照查看"); }
         let markdown = std::fs::read_to_string(&markdown_path)?;
@@ -90,7 +99,10 @@ pub async fn get_workspace_document(file_id: String) -> Result<serde_json::Value
             rows.into_iter().map(|(number,width,height,text,regions)| Ok(crate::ai::document_match::PageText{number,width,height,text,regions:serde_json::from_str(&regions)?})).collect::<Result<Vec<_>>>()?
         };
         let continuations=crate::ai::continuations::detect(&pages);
-        Ok(serde_json::json!({"jobId":job,"markdown":markdown,"filePath":path,"continuations":continuations}))
+        // N5：本命令返回的是"最新已完成 job"的正文；同时带上最新一次任务的状态/错误，
+        // 前端即可提示"最近一次处理失败"，避免回退掩盖失败。新增可选字段，旧调用方不受影响。
+        Ok(serde_json::json!({"jobId":job,"markdown":markdown,"filePath":path,"continuations":continuations,
+            "latestJobStatus":latest_status,"latestJobError":latest_error}))
     }).await
 }
 

@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 43;
+pub const CURRENT_SCHEMA_VERSION: i64 = 44;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -720,6 +720,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("41", MIGRATION_V41_SQL),
     ("42", MIGRATION_V42_SQL),
     ("43", MIGRATION_V43_SQL),
+    ("44", MIGRATION_V44_SQL),
 ];
 
 
@@ -3615,6 +3616,18 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     }
     tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);")?;
 
+    // 条件补列：sync_map.attempts / last_attempt_at（v44 飞书推送退避）
+    let sync_map_columns: Vec<String> = tx
+        .prepare("PRAGMA table_info(sync_map)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !sync_map_columns.iter().any(|col| col == "attempts") {
+        tx.execute_batch("ALTER TABLE sync_map ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;")?;
+    }
+    if !sync_map_columns.iter().any(|col| col == "last_attempt_at") {
+        tx.execute_batch("ALTER TABLE sync_map ADD COLUMN last_attempt_at TEXT;")?;
+    }
+
     // 条件补列：reminder_log.level（R1-R4 分级，旧 DB 可能缺少该列）
     let has_reminder_level: bool = tx
         .prepare("PRAGMA table_info(reminder_log)")?
@@ -4771,4 +4784,12 @@ BEGIN
     INSERT OR IGNORE INTO draft_versions(draft_id, version, title, content, saved_at)
     VALUES(OLD.id, OLD.version, OLD.title, OLD.content, COALESCE(OLD.updated_at, datetime('now', 'localtime')));
 END;
+"#;
+
+/// 同步推送重试计数：失败记录按 attempts 指数退避，达上限才写 push_failed。
+/// 幂等补列在 apply_conditional_segments 中完成（ALTER TABLE 无 IF NOT EXISTS，
+/// 且版本化迁移可能被降级 user_version 的回归测试重放）。
+pub const MIGRATION_V44_SQL: &str = r#"
+-- sync_map.attempts / last_attempt_at 由 apply_conditional_segments 幂等补列
+SELECT 1;
 "#;

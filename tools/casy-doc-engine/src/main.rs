@@ -974,12 +974,17 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
             write_progress(request, &format!("finalizing:{page}"), total, total, &pipeline_started, None)
         })?;
     }
-    for page in &mut pages {
+    for (index, page) in pages.iter_mut().enumerate() {
+        // S1 残留：外置 + 校验整段此前零进度，父进程 900s 停滞保护会误杀长卷宗。
+        // 每页一个独立相位，父进程相位变化即刷新停滞计时。
+        write_progress(request, &format!("finalizing:assets:{}", index + 1), total, total, &pipeline_started, None)?;
         page.markdown = assets::externalize(&page.markdown, output_dir, &mut assets_manifest)?;
         assets::validate_references(&page.markdown, output_dir, &assets_manifest)?;
     }
     assets::save(output_dir, &assets_manifest)?;
+    write_progress(request, "finalizing:page-ir", total, total, &pipeline_started, None)?;
     write_json_file(&ir, &pages)?;
+    write_progress(request, "finalizing:source-map", total, total, &pipeline_started, None)?;
     let source_map = source_map::write_to(&pages, &before, std::io::BufWriter::new(std::fs::File::create(&md)?))?;
     write_json_file(&map_path, &source_map)?;
     let after = sha256_file(source)?;
