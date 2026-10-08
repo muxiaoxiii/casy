@@ -440,12 +440,18 @@ async fn process_one(job: ClaimedJob) {
             return;
         }
     };
-    let request = crate::document_pipeline::process_request(
+    let mut request = crate::document_pipeline::process_request(
         &job.id,
         &job.source_path,
         &job.source_sha256,
         &output_dir,
     );
+    // R-06 断点续算：同一任务的产物目录里已有部分页 IR 时，从断点继续识别。
+    let resumed = crate::document_pipeline::count_disk_pages(&output_dir.join("source.document.json"));
+    if resumed > 0 {
+        log::info!("任务 {} 从第 {} 页续算（已落盘 {resumed} 页）", job.id, resumed + 1);
+        request.resume_from = Some(resumed);
+    }
     match crate::document_pipeline::run_engine(request).await {
         Ok(result) => {
             if let Err(error) = persist_success(&job, &result) {

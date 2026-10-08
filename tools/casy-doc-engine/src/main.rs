@@ -42,6 +42,9 @@ struct ProcessRequest {
     cjk_font_path: Option<String>,
     #[serde(default)]
     markdown_only: bool,
+    /// R-06 断点续算：页 IR 已有页数，从第 N+1 页继续识别（None/0 = 从头）。
+    #[serde(default)]
+    resume_from: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,6 +367,7 @@ fn model_dictionary(dir: &Path) -> Result<String> {
 }
 
 #[cfg(feature = "models")]
+#[allow(clippy::too_many_arguments)]
 fn recognize(
     request: &ProcessRequest,
     source: &Path,
@@ -372,16 +376,21 @@ fn recognize(
     direct_image: bool,
     pipeline_started: &std::time::Instant,
     assets_manifest: &mut assets::Manifest,
-) -> Result<Vec<Page>> {
+    resume_from: u32,
+    ir: &mut PageIrWriter,
+) -> Result<u32> {
     use oar_ocr::prelude::*;
     let mut pdf_doc = if !direct_image { Document::from_file(source).ok() } else { None };
     let mut coordinate = None;
     let mut korean_recognizer = None;
     let mut layout_predictor = None;
-    let mut pages = Vec::new();
     let mut timings = Vec::new();
     // Keep only one rendered page and its model inputs alive at a time.
     for page_number in 1..=total {
+        // R-06 断点续算：已落盘的页不重新识别（模型与渲染初始化仍按需进行）。
+        if page_number <= resume_from {
+            continue;
+        }
         // The visible raster is authoritative, including PDFs with deceptive text layers.
         if coordinate.is_none() {
             let coord_dir = Path::new(
@@ -551,7 +560,8 @@ fn recognize(
             layout_ms,
             total_ms: page_started.elapsed().as_millis() as u64,
         };
-        pages.push(Page {
+        // R-02：识别一页即落盘一页，内存中不累积页面集合。
+        ir.push(&Page {
             page_number,
             width: Some(image.width() as f32),
             height: Some(image.height() as f32),
@@ -562,13 +572,13 @@ fn recognize(
             layout: page_layout,
             timing: Some(page_timing.clone()),
             native_text: native_enhanced,
-        });
+        })?;
         if let Some(path) = path { std::fs::remove_file(path)?; }
         timings.push(serde_json::json!({"page":page_number,"renderMs":page_timing.render_ms,"ocrMs":page_timing.ocr_ms,"layoutMs":page_timing.layout_ms,"totalMs":page_timing.total_ms}));
         std::fs::write(Path::new(&request.output_dir).join("timings.json"), serde_json::to_vec(&timings)?)?;
         write_progress(request, "recognizing", page_number, total, pipeline_started, Some(&page_timing))?;
     }
-    Ok(pages)
+    Ok(ir.count)
 }
 
 #[cfg(feature = "models")]
@@ -866,6 +876,7 @@ fn enhance_regions_with_native_stream(
 }
 
 #[cfg(not(feature = "models"))]
+#[allow(clippy::too_many_arguments)]
 fn recognize(
     _request: &ProcessRequest,
     _source: &Path,
@@ -874,20 +885,23 @@ fn recognize(
     _direct_image: bool,
     _pipeline_started: &std::time::Instant,
     _assets_manifest: &mut assets::Manifest,
-) -> Result<Vec<Page>> {
+    _resume_from: u32,
+    _ir: &mut PageIrWriter,
+) -> Result<u32> {
     Err(anyhow!(
         "MODEL_RUNTIME_MISSING: 请用 --features models 构建文档引擎；未验证的 PDF 文本层不能代替 OCR"
     ))
 }
 
-fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Page], mut progress: impl FnMut(u32) -> Result<()>) -> Result<()> {
+/// R-02：逐页从页 IR 流式读取并重建可搜索 PDF（lopdf 文档本身仍需整份驻留，属已知残留）。
+fn add_search_layer(source: &Path, output: &Path, font_path: &Path, ir_path: &Path, mut progress: impl FnMut(u32) -> Result<()>) -> Result<()> {
     // Rebuild only the derived PDF from visible pixels. Keeping the old hidden
     // layer would preserve forged text in external viewers even after correct OCR.
     let mut original = Document::from_file(source)?;
     let mut doc = Document::new(original.page(1)?.size()?)?;
     let temp = tempfile::tempdir()?;
     let font = doc.embed_font(&std::fs::read(font_path)?)?;
-    for page in pages {
+    stream_disk_pages(ir_path, |page| {
         let (pdf_w, pdf_h) = original.page(page.page_number)?.size()?;
         if page.page_number > 1 {
             doc.insert_blank_page(page.page_number - 1, (pdf_w, pdf_h))?;
@@ -915,7 +929,8 @@ fn add_search_layer(source: &Path, output: &Path, font_path: &Path, pages: &[Pag
             .collect();
         doc.page(page.page_number)?.add_invisible_text_runs(&runs)?;
         progress(page.page_number)?;
-    }
+        Ok(())
+    })?;
     doc.save(output)?;
     Ok(())
 }
@@ -958,36 +973,60 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
     } else {
         assets::Manifest::default()
     };
-    let mut pages = if let Some(pages) = corrected {
-        anyhow::ensure!(pages.len() == total as usize && pages.iter().enumerate().all(|(i,p)|p.page_number as usize == i+1), "CORRECTION_PAGES_INVALID");
-        pages
-    } else { recognize(request, pdf_source, temp.path(), total, direct_image, &pipeline_started, &mut assets_manifest)? };
-    write_progress(request, "finalizing", total, total, &pipeline_started, pages.last().and_then(|page| page.timing.as_ref()))?;
     let pdf = output_dir.join("source.searchable.pdf");
     let ir = output_dir.join("source.document.json");
     let md = output_dir.join("source.md");
     let map_path = output_dir.join("source.map.json");
+
+    // R-02/R-06：页 IR 是唯一事实源——识别一页落盘一页；已有部分页 IR 时从断点续算。
+    let resume_from = request.resume_from.unwrap_or(0).min(total);
+    let (mut ir_writer, resumed_pages) = match PageIrWriter::open_append(&ir)? {
+        Some((writer, existing)) => {
+            anyhow::ensure!(existing <= total as u32, "INVALID_PAGE_IR: 续写页数超过文档页数");
+            (writer, existing)
+        }
+        None => (PageIrWriter::create(&ir)?, 0),
+    };
+    let page_count = if let Some(pages) = corrected {
+        anyhow::ensure!(pages.len() == total as usize && pages.iter().enumerate().all(|(i,p)|p.page_number as usize == i+1), "CORRECTION_PAGES_INVALID");
+        anyhow::ensure!(resumed_pages == 0, "CORRECTION_RESUME_UNSUPPORTED: 校订任务不从断点续算");
+        for page in &pages {
+            // 外置 + 校验在落盘前逐页完成（原 finalize 循环的语义不变）。
+            let markdown = assets::externalize(&page.markdown, output_dir, &mut assets_manifest)?;
+            assets::validate_references(&markdown, output_dir, &assets_manifest)?;
+            let mut page = page.clone();
+            page.markdown = markdown;
+            ir_writer.push(&page)?;
+        }
+        ir_writer.count
+    } else {
+        recognize(request, pdf_source, temp.path(), total, direct_image, &pipeline_started, &mut assets_manifest, resume_from, &mut ir_writer)?
+    };
+    anyhow::ensure!(page_count == total, "INVALID_PAGE_IR: 落盘页数 {page_count} 与文档页数 {total} 不一致");
+    let page_count = ir_writer.finish()?; // 收束 JSON 数组，之后才能被流式读取
+    if resumed_pages > 0 {
+        eprintln!("R-06 断点续算：沿用已落盘的 {resumed_pages} 页，从第 {} 页继续", resumed_pages + 1);
+    }
+    write_progress(request, "finalizing", total, total, &pipeline_started, None)?;
     if !request.markdown_only {
         let font = request
             .cjk_font_path
             .as_deref()
             .ok_or_else(|| anyhow!("FONT_MISSING: CASY_OCR_FONT 未配置"))?;
-        add_search_layer(pdf_source, &pdf, Path::new(font), &pages, |page| {
+        add_search_layer(pdf_source, &pdf, Path::new(font), &ir, |page| {
             write_progress(request, &format!("finalizing:{page}"), total, total, &pipeline_started, None)
         })?;
     }
-    for (index, page) in pages.iter_mut().enumerate() {
-        // S1 残留：外置 + 校验整段此前零进度，父进程 900s 停滞保护会误杀长卷宗。
-        // 每页一个独立相位，父进程相位变化即刷新停滞计时。
-        write_progress(request, &format!("finalizing:assets:{}", index + 1), total, total, &pipeline_started, None)?;
-        page.markdown = assets::externalize(&page.markdown, output_dir, &mut assets_manifest)?;
-        assets::validate_references(&page.markdown, output_dir, &assets_manifest)?;
-    }
     assets::save(output_dir, &assets_manifest)?;
     write_progress(request, "finalizing:page-ir", total, total, &pipeline_started, None)?;
-    write_json_file(&ir, &pages)?;
     write_progress(request, "finalizing:source-map", total, total, &pipeline_started, None)?;
-    let source_map = source_map::write_to(&pages, &before, std::io::BufWriter::new(std::fs::File::create(&md)?))?;
+    // 来源映射与 Markdown 备份从页 IR 流式生成（内存中只有累计文本与 span）。
+    let mut builder = source_map::SourceMapBuilder::new(&before, std::io::BufWriter::new(std::fs::File::create(&md)?));
+    stream_disk_pages(&ir, |page| {
+        builder.append_page(page)?;
+        Ok(())
+    })?;
+    let source_map = builder.finish()?;
     write_json_file(&map_path, &source_map)?;
     let after = sha256_file(source)?;
     if after != before {
@@ -1022,24 +1061,132 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
         layout_path.as_deref().map(sha256_file).transpose()?.unwrap_or_else(||"none".into())
     ));
     let elapsed_ms = pipeline_started.elapsed().as_millis() as u64;
-    write_progress(request, "completed", total, total, &pipeline_started, pages.last().and_then(|page| page.timing.as_ref()))?;
+    write_progress(request, "completed", total, total, &pipeline_started, None)?;
     Ok(ProcessResult {
         source_sha256: after,
-        engine: if is_correction {
-            "paddle-onnx-corrected"
-        } else if pages.iter().any(|p| p.native_text) {
-            "paddle-onnx-dual-stream"
-        } else {
-            "paddle-onnx-visual"
+        // R-02：native_text 标记改为流式统计，不再持有页面集合。
+        engine: {
+            let mut native = false;
+            stream_disk_pages(&ir, |page| {
+                native = native || page.native_text;
+                Ok(())
+            })?;
+            if is_correction {
+                "paddle-onnx-corrected"
+            } else if native {
+                "paddle-onnx-dual-stream"
+            } else {
+                "paddle-onnx-visual"
+            }
         }.into(),
         model_version,
         searchable_pdf_path: (!request.markdown_only).then(|| pdf.display().to_string()),
         page_ir_path: ir.display().to_string(),
         markdown_path: md.display().to_string(),
         source_map_path: map_path.display().to_string(),
-        page_count: pages.len() as u32,
+        page_count,
         elapsed_ms,
     })
+}
+
+/// 流式页 IR 写入器（R-02/R-06）：识别一页即落盘一页，内存中不累积页面集合；
+/// 支持去掉收尾 ']' 后续写，支撑崩溃恢复与断点续算。
+struct PageIrWriter {
+    file: std::fs::File,
+    count: u32,
+}
+
+impl PageIrWriter {
+    fn create(path: &Path) -> Result<Self> {
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(b"[")?;
+        file.sync_all()?;
+        Ok(Self { file, count: 0 })
+    }
+
+    /// 打开既有部分页 IR：完整流式解析一遍取得页数，再去掉收尾 ']' 定位到续写位置。
+    /// 文件不存在或页数为 0 时返回 None（调用方改用 create）。
+    fn open_append(path: &Path) -> Result<Option<(Self, u32)>> {
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let count = count_disk_pages(path)?;
+        if count == 0 {
+            return Ok(None);
+        }
+        let len = std::fs::metadata(path)?.len();
+        anyhow::ensure!(len > 0, "INVALID_PAGE_IR: 页 IR 为空");
+        let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+        file.set_len(len - 1)?; // 去掉收尾 ']'
+        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(len - 1))?;
+        // 逗号由 push 按 count 自动补写，这里不再手动写。
+        let writer = Self { file, count };
+        Ok(Some((writer, count)))
+    }
+
+    fn push(&mut self, page: &Page) -> Result<()> {
+        if self.count > 0 {
+            self.file.write_all(b",")?;
+        }
+        serde_json::to_writer(&mut self.file, page)?;
+        self.file.flush()?;
+        self.count += 1;
+        Ok(())
+    }
+
+    /// 收束数组并落盘，返回总页数。
+    fn finish(mut self) -> Result<u32> {
+        self.file.write_all(b"]")?;
+        self.file.sync_all()?;
+        Ok(self.count)
+    }
+}
+
+/// 逐页流式读取落盘页 IR（R-02）：任何时刻内存中只有一页。
+fn stream_disk_pages(path: &Path, mut visit: impl FnMut(&Page) -> Result<()>) -> Result<()> {
+    struct PageVisit<'a, F>(&'a mut F);
+    impl<'de, F: FnMut(&Page) -> Result<()>> serde::de::Visitor<'de> for PageVisit<'_, F> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("page array")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
+            while let Some(page) = seq.next_element::<Page>()? {
+                (self.0)(&page).map_err(serde::de::Error::custom)?;
+            }
+            Ok(())
+        }
+    }
+    let file = std::fs::File::open(path)?;
+    let mut de = serde_json::Deserializer::from_reader(std::io::BufReader::new(file));
+    use serde::Deserializer as _;
+    de.deserialize_seq(PageVisit(&mut visit))?;
+    de.end()?;
+    Ok(())
+}
+
+/// 流式统计落盘页 IR 的页数（不物化页面）。
+fn count_disk_pages(path: &Path) -> Result<u32> {
+    struct Counter<'a>(&'a mut u32);
+    impl<'de> serde::de::Visitor<'de> for Counter<'_> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("page array")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
+            while seq.next_element::<Page>()?.is_some() {
+                *self.0 += 1;
+            }
+            Ok(())
+        }
+    }
+    let mut count = 0u32;
+    let file = std::fs::File::open(path)?;
+    let mut de = serde_json::Deserializer::from_reader(std::io::BufReader::new(file));
+    use serde::Deserializer as _;
+    de.deserialize_seq(Counter(&mut count))?;
+    de.end()?;
+    Ok(count)
 }
 
 fn write_json_file(path: &Path, value: &impl Serialize) -> Result<()> {
@@ -1087,6 +1234,65 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("{error:#}");
         std::process::exit(1)
+    }
+}
+
+#[cfg(test)]
+mod page_ir_stream_tests {
+    use super::*;
+
+    fn page(number: u32, text: &str) -> Page {
+        Page {
+            page_number: number,
+            width: Some(400.0),
+            height: Some(600.0),
+            plain_text: text.into(),
+            markdown: format!("# {text}"),
+            regions: vec![],
+            confidence: Some(0.9),
+            layout: None,
+            timing: None,
+            native_text: false,
+        }
+    }
+
+    /// R-02/R-06：流式页 IR 的 create→push→finish→count→stream→append 往返。
+    #[test]
+    fn streaming_page_ir_round_trips_and_appends() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("source.document.json");
+
+        let mut writer = PageIrWriter::create(&path).unwrap();
+        writer.push(&page(1, "Prüfung 日本語")).unwrap();
+        writer.push(&page(2, "跨页证据")).unwrap();
+        assert_eq!(writer.finish().unwrap(), 2);
+        assert_eq!(count_disk_pages(&path).unwrap(), 2);
+
+        let mut seen = Vec::new();
+        stream_disk_pages(&path, |p| {
+            seen.push((p.page_number, p.plain_text.clone()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, vec![(1, "Prüfung 日本語".to_string()), (2, "跨页证据".to_string())]);
+
+        // 续写：去掉收尾 ']' 后追加，最终仍是合法数组
+        let (mut writer, existing) = PageIrWriter::open_append(&path).unwrap().unwrap();
+        assert_eq!(existing, 2);
+        writer.push(&page(3, "第三页")).unwrap();
+        assert_eq!(writer.finish().unwrap(), 3);
+        assert_eq!(count_disk_pages(&path).unwrap(), 3);
+
+        // 空数组/不存在 → open_append 返回 None
+        let empty = root.path().join("empty.json");
+        std::fs::write(&empty, b"[]").unwrap();
+        assert!(PageIrWriter::open_append(&empty).unwrap().is_none());
+        assert!(PageIrWriter::open_append(&root.path().join("nope.json")).unwrap().is_none());
+
+        // 截断的 JSON 必须报错而不是静默 0 页
+        let broken = root.path().join("broken.json");
+        std::fs::write(&broken, b"[{\"pageNumber\":1,").unwrap();
+        assert!(count_disk_pages(&broken).is_err());
     }
 }
 
@@ -1160,7 +1366,11 @@ mod tests {
             timing: None,
             native_text: false,
         };
-        add_search_layer(&source, &output, font, &[page], |_| Ok(())).unwrap();
+        let ir = temp.path().join("pages.json");
+        let mut writer = PageIrWriter::create(&ir).unwrap();
+        writer.push(&page).unwrap();
+        writer.finish().unwrap();
+        add_search_layer(&source, &output, font, &ir, |_| Ok(())).unwrap();
         let extracted = pdf_extract::extract_text(&output).unwrap();
         assert!(extracted.contains("128000"));
         assert!(!extracted.contains("999999"));
@@ -1415,6 +1625,7 @@ mod tests {
             coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
             cjk_font_path: Some(font_path),
             markdown_only: false,
+            resume_from: None,
         })
         .unwrap();
         std::fs::write(
@@ -1498,6 +1709,7 @@ mod tests {
             coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
             cjk_font_path: Some(font_path),
             markdown_only: true,
+            resume_from: None,
         }).unwrap();
         std::fs::write(
             root.join("result.json"),
@@ -1548,7 +1760,11 @@ mod tests {
             timing: None,
             native_text: false,
         }];
-        add_search_layer(&source, &output, font, &pages, |_| Ok(())).unwrap();
+        let ir = temp.path().join("pages.json");
+        let mut writer = PageIrWriter::create(&ir).unwrap();
+        for page in &pages { writer.push(page).unwrap(); }
+        writer.finish().unwrap();
+        add_search_layer(&source, &output, font, &ir, |_| Ok(())).unwrap();
         assert_ne!(source, output);
         assert_eq!(before, sha256_file(&source).unwrap());
         assert!(
@@ -1648,6 +1864,7 @@ mod tests {
             coordinate_model_dir: std::env::var("CASY_PPOCR_MODEL_DIR").ok(),
             cjk_font_path: Some(font_path),
             markdown_only: false,
+            resume_from: None,
         })
         .unwrap();
         std::fs::write(

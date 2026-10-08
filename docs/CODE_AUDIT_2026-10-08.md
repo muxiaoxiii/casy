@@ -297,3 +297,13 @@
 - 幂等重试：`retry_document_job` 对失败/已取消任务，若同一文件同一哈希已有完成结果则直接复用（返回 `reused:true`），不重跑；处理中心与案件文件页按复用给出不同提示。显式重跑已完成任务仍会重新识别。
 - 崩溃恢复：启动时（产物回收扫描之前）对 `INTERRUPTED` 任务尝试用已落盘产物直接完成——校验源文件哈希、流式读完页 IR 后重建结果并落库，不重跑 OCR；每次启动最多 20 个。
 - 磁盘满：`persist_failure` 既有错误码透传保持不变；结果清单与任务完成同事务，不会出现“任务完成但无结果记录”的半状态。
+
+---
+
+## 2026-10-08 R-02 引擎侧收尾与 R-06 断点续算
+
+**引擎侧有界内存（R-02 残留消除）**：识别阶段不再累积 `Vec<Page>`——新增流式页 IR 写入器 `PageIrWriter`（创建/续写/收束，逐页 flush + sync），`recognize` 识别一页即落盘一页并返回页数；`add_search_layer` 与引擎侧来源映射/Markdown 生成改为从页 IR 流式读取（`stream_disk_pages`/`count_disk_pages`，SeqAccess 实现），`native_text` 判定也流式统计。校订（revise）路径同样先逐页落盘再流式 finalize。lopdf 文档整份驻留仍是已知残留（可搜索 PDF 重建的行内性质），来源映射的累计文本驻留随之消除。
+
+**断点续算（R-06 残留消除）**：`ProcessRequest` 新增 `resume_from`；worker claim 时若同一任务产物目录已有部分页 IR（`count_disk_pages`），从第 N+1 页继续识别（跳过已落盘页，不重跑 OCR）；`retry_job` 把失败任务未完成的部分产物目录移交给新任务 id 作为续算起点；引擎侧 `PageIrWriter::open_append` 去掉收尾 `]` 后续写，页数不一致或 JSON 截断直接报错。崩溃恢复（产物写全即完成）与断点续算（产物写了一半就续算）由此形成完整分层。
+
+新增守护测试：引擎侧流式页 IR 往返（create/push/finish/count/stream/append/坏文件报错——首轮即抓到缺分隔符逗号的真实 bug）、父进程 count 与 stream 一致性。

@@ -235,6 +235,24 @@ pub(crate) fn retry_job(conn: &mut rusqlite::Connection, job_id: &str) -> anyhow
     }
     tx.execute("UPDATE case_files SET ocr_status='pending',index_status='pending',ocr_error=NULL WHERE id=(SELECT file_id FROM document_processing_jobs WHERE id=?1)", [job_id])?;
     tx.commit()?;
+    // R-06 断点续算：失败任务的部分产物目录移交给新任务 id，worker  claim 后从断点继续。
+    // 只搬“页 IR 存在但未完成”的目录；已完成任务已有结果复用，不走这里。
+    if let (Ok(old_dir), Ok(new_dir)) = (
+        crate::document_pipeline::artifact_dir_path(job_id, &expected),
+        crate::document_pipeline::artifact_dir_path(&new_job_id, &expected),
+    ) {
+        if old_dir.join("source.document.json").is_file()
+            && !old_dir.join("source.md").is_file()
+            && !new_dir.exists()
+        {
+            if let Some(parent) = new_dir.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::rename(&old_dir, &new_dir).is_ok() {
+                log::info!("R-06：任务 {job_id} 的部分产物已移交给 {new_job_id} 续算");
+            }
+        }
+    }
     Ok(RetryJobOutcome { reused: false, job_id: new_job_id })
 }
 

@@ -72,6 +72,9 @@ pub struct ProcessRequest {
     pub cjk_font_path: Option<String>,
     #[serde(default)]
     pub markdown_only: bool,
+    /// R-06 断点续算：页 IR 已有页数，从第 N+1 页继续识别（None/0 = 从头）。
+    #[serde(default)]
+    pub resume_from: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +125,20 @@ pub fn stream_disk_pages(
     de.deserialize_seq(PageStream { visit: &mut visit, index: 0 })?;
     de.end()?;
     Ok(())
+}
+
+/// 流式统计落盘页 IR 的页数（R-06 断点续算）；文件不存在返回 0。
+pub fn count_disk_pages(path: &Path) -> u32 {
+    let mut count = 0u32;
+    if stream_disk_pages(path, |_index, _page| {
+        count += 1;
+        Ok(())
+    })
+    .is_err()
+    {
+        return 0;
+    }
+    count
 }
 
 pub fn emit_conversion_progress(job_id: &str, source_path: &str, phase: &str, current: u32, total: u32, elapsed: f64) {
@@ -671,6 +688,57 @@ pub fn process_request(
         coordinate_model_dir: env_path("CASY_PPOCR_MODEL_DIR"),
         cjk_font_path: env_path("CASY_OCR_FONT"),
         markdown_only: false,
+        resume_from: None,
+    }
+}
+
+#[cfg(test)]
+mod stream_count_tests {
+    use super::*;
+
+    /// R-06：count_disk_pages 与 stream_disk_pages 对同一文件给出一致页数；坏文件记 0。
+    #[test]
+    fn count_matches_stream_for_page_ir() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("segments.json");
+        let pages = vec![
+            DocumentPage {
+                page_number: 1,
+                width: None,
+                height: None,
+                plain_text: "一".into(),
+                markdown: "一".into(),
+                regions: vec![],
+                confidence: None,
+                layout: None,
+                timing: None,
+            },
+            DocumentPage {
+                page_number: 2,
+                width: None,
+                height: None,
+                plain_text: "二".into(),
+                markdown: "二".into(),
+                regions: vec![],
+                confidence: None,
+                layout: None,
+                timing: None,
+            },
+        ];
+        std::fs::write(&path, serde_json::to_vec(&pages).unwrap()).unwrap();
+        assert_eq!(count_disk_pages(&path), 2);
+        let mut visited = 0;
+        stream_disk_pages(&path, |index, page| {
+            assert_eq!(page.page_number as usize, index + 1);
+            visited += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(visited, 2);
+        assert_eq!(count_disk_pages(&root.path().join("missing.json")), 0);
+        let broken = root.path().join("broken.json");
+        std::fs::write(&broken, b"[{\"pageNumber\":").unwrap();
+        assert_eq!(count_disk_pages(&broken), 0);
     }
 }
 
