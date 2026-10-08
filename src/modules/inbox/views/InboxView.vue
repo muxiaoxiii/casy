@@ -1,5 +1,6 @@
 <script setup>
 import UiDataState from '../../../shared/ui/UiDataState.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import HolidayImportReview from '../../../shared/components/HolidayImportReview.vue'
 import { useRouter } from 'vue-router'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
@@ -74,6 +75,8 @@ const sourceFilter = ref('all')
 const quickCaptureInputText = ref('')
 const casesList = ref([])
 const loadError = ref('')
+const countError = ref('')
+const caseError = ref('')
 const statusFilter = ref('pending')
 const clarifyTitle = ref('')
 const clarifyWaitingFor = ref('')
@@ -189,7 +192,8 @@ async function loadItems() {
     loadError.value = result.error || '收件箱加载失败'
   }
   const count = await casyContext.inbox.count('pending')
-  if (count.ok && typeof count.data === 'number') pendingCount.value = count.data
+  if (count.ok && typeof count.data === 'number') { pendingCount.value = count.data; countError.value = '' }
+  else countError.value = count.error || '待处理数量读取失败'
   loading.value = false
 }
 
@@ -198,9 +202,10 @@ async function loadCases() {
   const result = await casyContext.cases.listAll()
   if (result.ok) {
     casesList.value = result.data || []
+    caseError.value = ''
   } else {
     // 失败反馈：否则澄清面板的案件下拉静默空白，用户无法归卷
-    ElMessage.error(result.error || '案件加载失败')
+    caseError.value = result.error || '案件加载失败'
   }
 }
 
@@ -376,6 +381,7 @@ async function dismissItem(item) {
       <div><h1>收件箱</h1><span>{{ pendingCount }} 项待处理</span></div>
       <el-button :icon="Refresh" circle :loading="loading" title="刷新收件箱" aria-label="刷新收件箱" @click="loadItems" />
     </header>
+    <el-alert v-if="countError" :title="`待处理数量读取失败：${countError}`" type="error" :closable="false"><el-button text @click="loadItems">重试</el-button></el-alert>
     <form class="quick-capture" @submit.prevent="submitQuickCapture">
       <el-icon><Plus /></el-icon>
       <el-button v-if="nativeFiles" :icon="Microphone" :type="isRecording?'danger':'default'" :disabled="voiceSaving" @click="toggleRecording">{{ isRecording ? `停止 ${formatTime(recordingTime)}` : voiceSaving ? '保存录音…' : '录音' }}</el-button>
@@ -431,8 +437,9 @@ async function dismissItem(item) {
                 <el-select v-model="clarifyCaseId" filterable clearable placeholder="未关联案件" aria-label="关联案件" @change="onClarifyCaseChange">
                   <el-option v-for="item in casesList" :key="item.id" :value="item.id" :label="item.caseNo ? item.caseName + ' · ' + item.caseNo : item.caseName" />
                 </el-select>
+                <el-alert v-if="caseError" :title="`案件列表读取失败：${caseError}`" type="error" :closable="false"><el-button text @click="loadCases">重试</el-button></el-alert>
               </el-form-item>
-              <div class="form-grid">
+              <div class="form-grid ui-grid">
                 <el-form-item label="开始安排">
                   <el-select v-model="clarifyDoWhen" aria-label="开始安排" :disabled="clarifyAction === 'someday'">
                     <el-option label="今天" value="today" /><el-option label="随时" value="anytime" /><el-option label="将来也许" value="someday" />
@@ -444,7 +451,7 @@ async function dismissItem(item) {
                 <el-form-item :label="clarifyAction === 'delegate' ? '委派给' : '等待对象'"><el-input v-model="clarifyWaitingFor" placeholder="未指定" aria-label="等待对象" /></el-form-item>
                 <el-form-item label="跟进日期"><el-date-picker v-model="clarifyFollowUp" type="date" value-format="YYYY-MM-DD" placeholder="未设置" aria-label="跟进日期" /></el-form-item>
               </div>
-              <div class="form-grid">
+              <div class="form-grid ui-grid">
                 <el-form-item label="执行场景"><el-select v-model="clarifyContext" aria-label="执行场景"><el-option label="办公室" value="office" /><el-option label="电话" value="phone" /><el-option label="法庭" value="court" /><el-option label="电脑" value="computer" /><el-option label="外出" value="outside" /></el-select></el-form-item>
                 <el-form-item label="预估时长（分钟）"><el-input-number v-model="clarifyEstMinutes" :min="0" :max="1440" :step="15" controls-position="right" placeholder="未填写" aria-label="预估时长" /></el-form-item>
               </div>
@@ -453,14 +460,14 @@ async function dismissItem(item) {
           </template>
           <template v-else><div v-if="receipt?.action === 'holidays_updated'" class="holiday-receipt"><strong>日历写入回执</strong><p>{{ receipt.year }} 年 · 放假 {{ receipt.holidaysCount }} 天 · 补班 {{ receipt.workdaysCount }} 天</p><p v-if="receipt.changedDates === 0">导入日期与已有日历一致，无新增变动。</p><p v-else-if="receipt.changedDates != null">实际更新 {{ receipt.changedDates }} 个日期。</p><p v-if="receipt.holidays?.length">放假：{{ receipt.holidays.join('、') }}</p><p v-if="receipt.workdays?.length">补班：{{ receipt.workdays.join('、') }}</p><el-button @click="router.push({ path: '/calendar', query: { view: 'year', date: `${receipt.year}-01-01` } })">查看日历</el-button></div><h2>{{ selectedItem.title }}</h2><p class="original-content">{{ selectedItem.contentText || selectedItem.sourcePath || selectedItem.filePath }}</p></template>
         </div>
-        <footer v-if="selectedItem.status === 'pending'" class="clarify-footer">
+        <footer v-if="selectedItem.status === 'pending'" class="clarify-footer ui-row ui-row--between">
           <span>{{ sourceLabel(selectedItem.sourceType) }}</span>
           <el-button v-if="selectedItem.sourcePath" :disabled="processing || !clarifyCaseId" @click="fileCurrentItem('file_to_case')">归卷至案件</el-button>
           <el-button :disabled="processing" @click="fileCurrentItem('save_knowledge')">沉淀知识库</el-button>
           <el-button type="primary" :loading="processing" :disabled="!clarifyTitle.trim()" @click="processCurrentItem()">{{ clarifyAction === 'delegate' ? '建立委派任务' : clarifyAction === 'wait' ? '转为等待任务' : clarifyAction === 'someday' ? '归入将来也许' : '转为任务' }}</el-button>
         </footer>
       </section>
-      <section v-else class="clarify-empty"><el-icon :size="28"><Collection /></el-icon><p>暂无待整理的内容</p></section>
+      <section v-else class="clarify-empty"><EmptyState type="custom" compact hide-action title="暂无待整理的内容" /></section>
     </div>
   </div>
 </template>
@@ -494,10 +501,10 @@ async function dismissItem(item) {
 .clarify-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-left: 24px; }
 .clarify-header { display: flex; align-items: center; justify-content: space-between; min-height: 58px; flex-shrink: 0; gap: 8px; font-size: 13px; font-weight: 600; }
 .clarify-body { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .clarify-body :deep(.el-date-editor), .clarify-body :deep(.el-input-number), .clarify-body :deep(.el-select) { width: 100%; }
 .action-options { display: flex; flex-wrap: wrap; }
-.clarify-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 0; flex-shrink: 0; border-top: 1px solid var(--c-border); background: var(--c-bg-page); }
+.clarify-footer { gap: 12px; padding: 16px 0; flex-shrink: 0; border-top: 1px solid var(--c-border); background: var(--c-bg-page); }
 .clarify-footer > span { color: var(--c-text-secondary); font-size: 12px; }
 .clarify-empty { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; color: var(--c-text-secondary); font-size: 13px; }
 .original-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
@@ -513,5 +520,5 @@ async function dismissItem(item) {
   .clarify-empty { min-height: 160px; }
   .clarify-footer { position: sticky; bottom: 0; }
 }
-@media (max-width: 480px) { .form-grid { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
 </style>

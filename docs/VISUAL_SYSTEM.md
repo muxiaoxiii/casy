@@ -60,3 +60,17 @@ npm run tauri -- icon designs/casy-ui-upgrade/icons/brand/app-icon-512.svg --out
   merely added to a component inventory. Current adopters: persons, inbox, projects.
 - Skeletons use semantic theme colors and honor prefers-reduced-motion.
 - Screenshot acceptance and live database/IPC acceptance are separate evidence.
+
+## 2026-10-08 断点收敛与组件层落地
+
+- 断点从 24 个散值收敛为上述三档（900/1100/1360）+ 正交查询（max-height、prefers-reduced-motion）。原 <800px 的规则共 38 条，全部位于应用 minWidth=800 永不可达的区间，已删除；800/899 归并到 narrow，940–1200 归并到 compact，1380 归并到 wide。
+- `UiToolbar` 的 899 与 `legal-document.css` 的 min-width:901 是成对的窄边界，有意保留一像素错开。
+- 组件层落在 `src/shared/ui/`：UiRow/UiCard/UiPanel/UiListRow/UiSectionHeader/UiTruncate/UiPill/UiToolbar/UiDataState + 全局工具类 `ui-utils.css`。重复 CSS 签名（属性名口径 ≥4 文件）从 120 组降到 56 组，剩余为硬编码色号与非 token 字号的合理遗留。
+- 日历布局隔离样例（`tests/fixtures/calendar-ui`）在 <800 宽度下现在呈现桌面布局：应用本身无法小于 800px，样例的窄幅验证应使用 800×600 最小窗口。
+
+## 2026-10-08 视觉通道与交互（第 4 步）
+
+- 期限通道：`src/assets/deadline-channel.css` + `shared/ui/DeadlineChip.vue` 是全应用唯一的期限语义视觉（R1 立即行动=红、R2 临近=黄、R3 等待=青、R4 完成=绿；`△ 待核对` 优先于级别，任何未核实日期不得冒充确定期限）。已接入任务行、程序事项板、日历预测视图；`dl-row--*` 提供行级左侧色条。
+- 危险分级：`.btn-danger`（危险三角 + 危险色，hover 实底）用于删除/覆盖类操作，均保留二次确认；已接入庭审删除、任务删除、笔记删除、透视删除、历史版本恢复。
+- 键盘流：`shared/composables/useListNavigation.ts`（j/k 移动、Enter 打开、Esc 清除，输入框聚焦让位）已接入任务清单与案件索引侧栏；光标样式 `.nav-cursor`。
+- 信息密度：`--density-row-pad-y/x` token（theme.css）驱动案件索引卡与任务行；日历单元格保持固定高度不随密度变化。

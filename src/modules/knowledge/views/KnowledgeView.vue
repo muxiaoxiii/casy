@@ -11,6 +11,10 @@ const router = useRouter()
 
 const loading = ref(false)
 const knowledgeList = ref([])
+const listError = ref('')
+const relationError = ref('')
+const blockError = ref('')
+const versionError = ref('')
 const selectedItem = ref(null)
 const versions = ref([])
 const showVersionDialog = ref(false)
@@ -178,19 +182,21 @@ async function loadRelations() {
     casyContext.cases.list({}),
     casyContext.tasks.list({}),
   ])
+  relationError.value = ''
   if (caseRes.ok && caseRes.data?.items) {
     caseList.value = caseRes.data.items
     const map = {}
     for (const c of caseRes.data.items) map[c.id] = c.caseName
     caseNameMap.value = map
-  }
+  } else if (!caseRes.ok) relationError.value = caseRes.error || '关联案件读取失败'
   if (taskRes.ok && taskRes.data) {
     taskList.value = taskRes.data
-  }
+  } else if (!taskRes.ok) relationError.value = relationError.value || taskRes.error || '关联任务读取失败'
 }
 
 async function loadKnowledge() {
   loading.value = true
+  listError.value = ''
   const result = await casyContext.knowledge.list({
     filter: {
       category: filter.value.category || null,
@@ -200,7 +206,7 @@ async function loadKnowledge() {
   })
   if (result.ok) {
     knowledgeList.value = result.data
-  }
+  } else listError.value = result.error || '知识条目加载失败'
   loading.value = false
 }
 
@@ -208,7 +214,8 @@ async function loadVersions(itemId) {
   const result = await casyContext.knowledge.versions(itemId)
   if (result.ok) {
     versions.value = result.data
-  }
+    versionError.value = ''
+  } else versionError.value = result.error || '版本历史读取失败'
 }
 
 // ============================================================
@@ -235,11 +242,13 @@ const blocksWithDepth = computed(() => {
 
 async function loadBlocks(itemId) {
   blocksLoading.value = true
+  blockError.value = ''
   const result = await casyContext.knowledge.getWithBlocks(itemId)
   if (result.ok && result.data) {
     childBlocks.value = result.data.blocks || []
   } else {
     childBlocks.value = []
+    blockError.value = result.error || '子块读取失败'
   }
   blocksLoading.value = false
 }
@@ -393,7 +402,7 @@ onMounted(async () => {
 
 <template>
   <div class="knowledge-page">
-    <div class="knowledge-header">
+    <div class="knowledge-header ui-row ui-row--between">
       <h2>知识库</h2>
       <div class="header-actions">
         <el-tooltip content="前往案卷库，选中文件内容右键即可沉淀到知识库" placement="bottom">
@@ -451,6 +460,8 @@ onMounted(async () => {
     <div class="knowledge-content">
       <!-- 左侧列表 -->
       <div class="knowledge-list">
+        <el-alert v-if="listError" :title="`知识条目读取失败：${listError}`" type="error" :closable="false"><el-button text @click="loadKnowledge">重试</el-button></el-alert>
+        <el-alert v-if="relationError" :title="`双链数据读取失败：${relationError}`" type="error" :closable="false"><el-button text @click="loadRelations">重试</el-button></el-alert>
         <el-table
           :data="topLevelList"
           v-loading="loading"
@@ -503,7 +514,7 @@ onMounted(async () => {
       <div class="knowledge-detail" v-if="selectedItem">
         <el-card>
           <template #header>
-            <div class="detail-header">
+            <div class="detail-header ui-row ui-row--between">
               <h3>{{ selectedItem.title }}</h3>
               <div class="detail-actions">
                 <el-button size="small" @click="openAddBlockDialog">添加子块</el-button>
@@ -605,6 +616,7 @@ onMounted(async () => {
           <!-- 子块树（点击子块可跳转展开） -->
           <div v-if="blocksLoading || childBlocks.length > 0" class="blocks-section" v-loading="blocksLoading">
             <h4>子块</h4>
+            <el-alert v-if="blockError" :title="`子块读取失败：${blockError}`" type="error" :closable="false"><el-button text @click="loadBlocks(selectedItem.id)">重试</el-button></el-alert>
             <div
               v-for="block in blocksWithDepth"
               :key="block.id"
@@ -614,7 +626,7 @@ onMounted(async () => {
             >
               <div class="block-head">
                 <el-tag size="small" type="info">{{ getBlockTypeLabel(block.blockType) }}</el-tag>
-                <span class="block-title">{{ block.title || '（无标题）' }}</span>
+                <span class="block-title ui-text ui-text--strong">{{ block.title || '（无标题）' }}</span>
               </div>
               <div class="block-content">{{ block.content }}</div>
             </div>
@@ -650,6 +662,7 @@ onMounted(async () => {
         <p class="tip">选择两个版本进行对比，或点击"对比当前"查看与当前内容的差异</p>
       </div>
 
+      <el-alert v-if="versionError" :title="`版本历史读取失败：${versionError}`" type="error" :closable="false"><el-button text @click="loadVersions(selectedItem.id)">重试</el-button></el-alert>
       <el-table :data="versions" stripe size="small" @selection-change="(rows) => selectedVersions = rows.map(r => r.id)">
         <el-table-column type="selection" width="55" />
         <el-table-column prop="changedAt" label="修改时间" width="180">
@@ -686,18 +699,18 @@ onMounted(async () => {
         <div class="diff-header">
           <div v-if="diffResult.version1" class="diff-version-info">
             <h4>版本 1</h4>
-            <p>时间: {{ formatDate(diffResult.version1.changedAt) }}</p>
-            <p>原因: {{ diffResult.version1.changeReason || '-' }}</p>
+            <p class="ui-text--caption">时间: {{ formatDate(diffResult.version1.changedAt) }}</p>
+            <p class="ui-text--caption">原因: {{ diffResult.version1.changeReason || '-' }}</p>
           </div>
           <div v-if="diffResult.version" class="diff-version-info">
             <h4>历史版本</h4>
-            <p>时间: {{ formatDate(diffResult.version.changedAt) }}</p>
-            <p>原因: {{ diffResult.version.changeReason || '-' }}</p>
+            <p class="ui-text--caption">时间: {{ formatDate(diffResult.version.changedAt) }}</p>
+            <p class="ui-text--caption">原因: {{ diffResult.version.changeReason || '-' }}</p>
           </div>
           <div v-if="diffResult.version2" class="diff-version-info">
             <h4>版本 2</h4>
-            <p>时间: {{ formatDate(diffResult.version2.changedAt) }}</p>
-            <p>原因: {{ diffResult.version2.changeReason || '-' }}</p>
+            <p class="ui-text--caption">时间: {{ formatDate(diffResult.version2.changedAt) }}</p>
+            <p class="ui-text--caption">原因: {{ diffResult.version2.changeReason || '-' }}</p>
           </div>
         </div>
 
@@ -730,9 +743,6 @@ onMounted(async () => {
 }
 
 .knowledge-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 16px;
 }
 
@@ -835,12 +845,6 @@ onMounted(async () => {
   width: 440px;
   overflow: auto;
   border-radius: var(--c-radius-xl);
-}
-
-.detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .detail-header h3 {
@@ -950,12 +954,6 @@ onMounted(async () => {
   margin-bottom: 4px;
 }
 
-.block-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text-heading);
-}
-
 .block-content {
   font-size: 12.5px;
   color: var(--c-text-regular);
@@ -1046,8 +1044,6 @@ onMounted(async () => {
 
 .diff-version-info p {
   margin: 4px 0;
-  font-size: 12px;
-  color: var(--c-text-secondary);
 }
 
 .diff-content {

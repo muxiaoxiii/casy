@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useSettingsStore } from '../../../stores/settings'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 // 同步状态
 const syncStatus = ref({
@@ -11,6 +12,7 @@ const syncStatus = ref({
 })
 const loading = ref(false)
 const loadError = ref('')
+const feishuInfoError = ref('')
 
 const settings = useSettingsStore()
 // WebDAV 配置
@@ -64,7 +66,8 @@ async function loadFeishuSyncInfo() {
   const result = await casyContext.sync.feishuSyncInfo()
   if (result.ok) {
     feishuSyncInfo.value = result.data
-  }
+    feishuInfoError.value = ''
+  } else feishuInfoError.value = result.error || '飞书同步信息读取失败'
 }
 
 // WebDAV 测试连接
@@ -275,7 +278,7 @@ onMounted(() => {
       <el-col :span="12">
         <el-card>
           <template #header>
-            <div class="card-header">
+            <div class="card-header ui-row ui-row--between">
               <strong>☁️ WebDAV 同步</strong>
               <el-tag
                 :type="syncStatus.webdav?.connected ? 'success' : 'info'"
@@ -344,9 +347,10 @@ onMounted(() => {
 
       <!-- 飞书同步 -->
       <el-col :span="12">
+        <el-alert v-if="feishuInfoError" :title="`飞书同步信息读取失败：${feishuInfoError}`" type="error" :closable="false" style="margin-bottom: 12px"><el-button text @click="loadFeishuSyncInfo">重试</el-button></el-alert>
         <el-card>
           <template #header>
-            <div class="card-header">
+            <div class="card-header ui-row ui-row--between">
               <strong>🔄 飞书同步</strong>
               <el-tag
                 :type="feishuSyncInfo.configured ? 'success' : 'info'"
@@ -428,7 +432,7 @@ onMounted(() => {
             <el-col :span="12">
               <el-card class="conflict-card local" shadow="hover">
                 <template #header>
-                  <div class="conflict-card-header">
+                  <div class="conflict-card-header ui-row ui-row--between">
                     <strong>💻 本地版本</strong>
                     <el-tag type="info" size="small">当前设备</el-tag>
                   </div>
@@ -451,7 +455,7 @@ onMounted(() => {
             <el-col :span="12">
               <el-card class="conflict-card remote" shadow="hover">
                 <template #header>
-                  <div class="conflict-card-header">
+                  <div class="conflict-card-header ui-row ui-row--between">
                     <strong>☁️ 远程版本</strong>
                     <el-tag type="warning" size="small">WebDAV</el-tag>
                   </div>
@@ -488,13 +492,13 @@ onMounted(() => {
     <!-- 全局同步状态 -->
     <el-card style="margin-top: 16px">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row ui-row--between">
           <strong>📊 同步概览</strong>
           <el-button size="small" @click="loadSyncStatus" :loading="loading">刷新</el-button>
         </div>
       </template>
 
-      <el-empty v-if="!syncStatus.webdav?.connected && !feishuSyncInfo.configured" description="尚未配置任何同步服务" />
+      <EmptyState v-if="!syncStatus.webdav?.connected && !feishuSyncInfo.configured" type="custom" hide-action title="尚未配置任何同步服务" />
 
       <el-row :gutter="16" v-else>
         <el-col :span="12">
@@ -511,12 +515,6 @@ onMounted(() => {
 <style scoped>
 .sync-status-view {
   max-width: 1000px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .sync-info {
@@ -547,12 +545,6 @@ onMounted(() => {
 
 .conflict-card.remote {
   border-left: 4px solid var(--c-warning);
-}
-
-.conflict-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .conflict-detail {

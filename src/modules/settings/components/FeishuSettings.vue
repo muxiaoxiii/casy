@@ -470,7 +470,7 @@ onMounted(() => {
     <!-- 飞书凭证配置 -->
     <el-card style="margin-top: 16px">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>🔑 飞书凭证</strong>
           <el-tag v-if="syncInfo.configured" type="success" size="small">已配置</el-tag>
           <el-tag v-else type="info" size="small">未配置</el-tag>
@@ -500,7 +500,7 @@ onMounted(() => {
     <!-- v3.0: 多维表格发现 -->
     <el-card style="margin-top: 16px">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>🔍 表结构发现 (v3.0)</strong>
         </div>
       </template>
@@ -563,7 +563,7 @@ onMounted(() => {
     <!-- v3.0: 字段映射 -->
     <el-card v-if="fieldMappings.length > 0" style="margin-top: 16px">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>🔗 字段映射</strong>
           <el-tag size="small">{{ mappedCount }}/{{ totalFields }} 已映射</el-tag>
         </div>
@@ -766,8 +766,6 @@ onMounted(() => {
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 

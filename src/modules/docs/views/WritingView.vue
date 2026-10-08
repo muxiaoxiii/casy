@@ -38,6 +38,8 @@ const casesStore = useCasesStore()
 const caseId = ref(route.params.caseId || null)
 const caseData = ref(null)
 const casesList = ref([])
+const caseListError = ref('')
+const caseDataError = ref('')
 const loading = ref(false)
 
 // 草稿
@@ -160,10 +162,11 @@ async function loadCaseData() {
   const result = await casesStore.loadCase(caseId.value)
   if (result.ok) {
     caseData.value = result.data
+    caseDataError.value = ''
     if (editor.value) {
       editor.value.storage.caseData = result.data
     }
-  }
+  } else caseDataError.value = result.error || '案件详情读取失败'
 }
 
 // 加载案件列表供选择
@@ -171,7 +174,8 @@ async function loadCasesList() {
   const result = await casyContext.cases.list({ page: 1, perPage: 200 })
   if (result.ok) {
     casesList.value = result.data.items || []
-  }
+    caseListError.value = ''
+  } else caseListError.value = result.error || '案件列表加载失败'
 }
 
 // 关联案件
@@ -384,7 +388,7 @@ onBeforeUnmount(() => {
   <DraftHistoryDialog v-model="historyOpen" :draft="historyDraft" :before-restore="beforeHistoryRestore" @restored="onVersionRestored" />
   <div class="writing-view">
     <!-- 顶部工具栏 -->
-    <div class="writing-toolbar">
+    <div class="writing-toolbar ui-row ui-row--between">
       <div class="toolbar-left">
         <el-input
           v-model="draftTitle"
@@ -393,7 +397,7 @@ onBeforeUnmount(() => {
           size="large"
         />
       </div>
-      <div class="toolbar-right">
+      <div class="toolbar-right ui-row">
         <el-select
           :model-value="caseId"
           placeholder="关联案件（可选）"
@@ -409,6 +413,7 @@ onBeforeUnmount(() => {
             :value="c.id"
           />
         </el-select>
+        <el-alert v-if="caseListError" :title="`案件列表读取失败：${caseListError}`" type="error" :closable="false"><el-button text @click="loadCasesList">重试</el-button></el-alert>
         <el-dropdown trigger="click" :disabled="exporting" @command="exportWriting"><el-button :loading="exporting">导出</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="md">Markdown</el-dropdown-item><el-dropdown-item command="pdf">PDF</el-dropdown-item><el-dropdown-item command="docx">Word</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
         <el-button :disabled="!draftId" @click="openHistory">历史版本</el-button>
         <el-button type="primary" :loading="saving" @click="saveDraft">
@@ -420,10 +425,11 @@ onBeforeUnmount(() => {
     <div class="writing-body">
       <!-- 左侧：编辑器区域 -->
       <div class="editor-panel">
+        <el-alert v-if="caseDataError" :title="`案件详情读取失败：${caseDataError}`" type="error" :closable="false"><el-button text @click="loadCaseData">重试</el-button></el-alert>
         <!-- 案件字段快捷插入 -->
         <div v-if="caseData" class="field-panel">
           <div class="field-panel-title">案件字段</div>
-          <div class="field-chips">
+          <div class="field-chips ui-row ui-row--wrap">
             <el-button
               v-for="f in caseFields"
               :key="f.key"
@@ -468,7 +474,7 @@ onBeforeUnmount(() => {
       append-to-body
       @close="copilotCloseAiDialog"
     >
-      <div class="ai-dialog-body">
+      <div class="ai-dialog-body ui-col">
         <div class="ai-dialog-hint">
           描述你想生成的内容，AI 将基于当前文书上下文和知识库生成建议。
         </div>
@@ -480,7 +486,7 @@ onBeforeUnmount(() => {
           resize="none"
           autofocus
         />
-        <div class="ai-dialog-style">
+        <div class="ai-dialog-style ui-row">
           <span class="style-label">文书风格：</span>
           <el-select v-model="aiStyle" size="small" style="width: 160px">
             <el-option label="起诉状" value="complaint" />
@@ -584,9 +590,6 @@ onBeforeUnmount(() => {
 }
 
 .writing-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 12px 0;
   border-bottom: 1px solid #e0e0e0;
   gap: 16px;
@@ -597,8 +600,6 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-right {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 
@@ -636,8 +637,6 @@ onBeforeUnmount(() => {
 }
 
 .field-chips {
-  display: flex;
-  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -764,8 +763,6 @@ onBeforeUnmount(() => {
 
 /* AI 写作辅助对话框 */
 .ai-dialog-body {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
@@ -776,8 +773,6 @@ onBeforeUnmount(() => {
 }
 
 .ai-dialog-style {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 

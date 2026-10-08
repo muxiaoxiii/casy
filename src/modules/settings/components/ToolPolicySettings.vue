@@ -3,6 +3,7 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import type { CasyTool } from '../../../core/plugin/types'
 import { useSettingsStore } from '../../../stores/settings'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 type Policy = ReturnType<typeof casyContext.getToolPolicy>
 const settings = useSettingsStore()
@@ -57,10 +58,10 @@ onBeforeUnmount(() => { revision++; stop() })
 
 <template>
   <section class="tool-policy" :aria-busy="loading || saving">
-    <header><h2>AI 工具策略</h2><p>决定内置 AI 可以使用哪些能力。关闭后，AI 将无法发现或调用该工具。</p></header>
-    <p class="policy-note">涉及重要修改的操作仍需确认。外部 MCP 的写入继续在「SMTP / MCP」中审批，此处仅管理内置 AI。</p>
+    <header><h2>AI 工具策略</h2><p class="ui-text ui-text--secondary">决定内置 AI 可以使用哪些能力。关闭后，AI 将无法发现或调用该工具。</p></header>
+    <p class="policy-note ui-text ui-text--secondary">涉及重要修改的操作仍需确认。外部 MCP 的写入继续在「SMTP / MCP」中审批，此处仅管理内置 AI。</p>
     <el-input v-model="query" placeholder="搜索工具、功能或模块" aria-label="搜索 AI 工具" clearable />
-    <div class="policy-status" role="status">{{ status || (loading ? '正在加载…' : `${tools.length - policy.disabled.filter(n => tools.some(t => t.name === n)).length} / ${tools.length} 个工具已启用 · 修改自动保存`) }}</div>
+    <div class="policy-status ui-text ui-text--secondary" role="status">{{ status || (loading ? '正在加载…' : `${tools.length - policy.disabled.filter(n => tools.some(t => t.name === n)).length} / ${tools.length} 个工具已启用 · 修改自动保存`) }}</div>
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button v-if="!tools.length" text @click="load">重新加载</el-button></el-alert>
     <div v-for="group in groups" :key="group.category" class="tool-group">
       <h3>{{ categories[group.category] || group.category }}</h3>
@@ -74,9 +75,13 @@ onBeforeUnmount(() => { revision++; stop() })
         <el-switch :model-value="!policy.disabled.includes(tool.name)" :disabled="loading || saving" :aria-label="`启用 ${tool.policy?.title || tool.name}`" @update:model-value="update(tool.name, Boolean($event))" />
       </div>
     </div>
-    <el-empty v-if="!loading && !error && !filtered.length" :description="query ? '没有匹配的工具，试试其他关键词' : '工具正在初始化，请稍后重试'"><el-button v-if="!query" @click="load">重新加载</el-button></el-empty>
+    <EmptyState v-if="!loading && !error && !filtered.length" :type="query ? 'search' : 'custom'" compact
+      :title="query ? '没有匹配的工具，试试其他关键词' : '工具正在初始化，请稍后重试'"
+      :action-text="query ? '清除关键词' : '重新加载'" :hide-action="false"
+      @action="query ? (query = '') : load()" />
   </section>
 </template>
 <style scoped>
-.tool-policy{max-width:960px}.tool-policy h2{font-size:20px;margin:0 0 8px}.tool-policy header p,.policy-note,.policy-status{font-size:13px;line-height:1.7;color:var(--c-text-secondary)}.policy-note{padding:12px 16px;background:var(--c-bg-subtle);border-radius:8px}.policy-status{min-height:32px;padding-top:8px}.tool-group h3{font-size:14px;padding:16px 0 8px;margin:0;border-bottom:1px solid var(--c-border)}.tool-row{display:flex;align-items:center;gap:20px;padding:16px 0;border-bottom:1px solid var(--c-border-light)}.tool-copy{flex:1;min-width:0}.tool-copy strong{font-size:13px;overflow-wrap:anywhere}.tool-copy p{font-size:12px;color:var(--c-text-secondary);line-height:1.6;margin:5px 0}.tool-copy small{font-size:11px;color:var(--c-text-secondary)}.tool-row .el-select{width:140px;flex-shrink:0}@media(max-width:700px){.tool-row{flex-wrap:wrap;gap:10px}.tool-copy{flex-basis:100%}}
+.tool-policy{max-width:960px}.tool-policy h2{font-size:20px;margin:0 0 8px}.tool-policy header p,.policy-note,.policy-status{line-height:1.7}.policy-note{padding:12px 16px;background:var(--c-bg-subtle);border-radius:8px}.policy-status{min-height:32px;padding-top:8px}.tool-group h3{font-size:14px;padding:16px 0 8px;margin:0;border-bottom:1px solid var(--c-border)}.tool-row{display:flex;align-items:center;gap:20px;padding:16px 0;border-bottom:1px solid var(--c-border-light)}.tool-copy{flex:1;min-width:0}.tool-copy strong{font-size:13px;overflow-wrap:anywhere}.tool-copy p{font-size:12px;color:var(--c-text-secondary);line-height:1.6;margin:5px 0}.tool-copy small{font-size:11px;color:var(--c-text-secondary)}.tool-row .el-select{width:140px;flex-shrink:0}
+
 </style>

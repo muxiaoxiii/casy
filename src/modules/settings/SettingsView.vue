@@ -101,7 +101,7 @@ onMounted(async () => {
         <span class="page-subtitle">Preferences</span>
       </div>
 
-      <div class="nav-group">
+      <div class="nav-group ui-col">
         <div class="nav-title">通用与账号</div>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'profile' }" @click="activeTab = 'profile'">
           <el-icon><User /></el-icon>
@@ -113,7 +113,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div class="nav-group">
+      <div class="nav-group ui-col">
         <div class="nav-title">系统引擎</div>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
           <el-icon><Cpu /></el-icon>
@@ -142,7 +142,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div class="nav-group">
+      <div class="nav-group ui-col">
         <div class="nav-title">同步与连接</div>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'webdav' }" @click="activeTab = 'webdav'">
           <el-icon><Cloudy /></el-icon>
@@ -162,7 +162,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div class="nav-group">
+      <div class="nav-group ui-col">
         <div class="nav-title">维护与信息</div>
         <button type="button" class="nav-item" :class="{ active: activeTab === 'backup' }" @click="activeTab = 'backup'">
           <el-icon><Briefcase /></el-icon>
@@ -252,8 +252,6 @@ onMounted(async () => {
 }
 
 .nav-group {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 
@@ -334,10 +332,5 @@ onMounted(async () => {
 }
 
 .settings-mobile-nav { display: none; }
-@media (max-width: 760px) {
-  .settings-page { flex-direction: column; min-width: 0; }
-  .settings-sidebar { display: none; }
-  .settings-mobile-nav { display: block; width: auto; flex-shrink: 0; margin: 12px 16px 0; }
-  .settings-content { padding: 20px 16px; min-height: 0; }
-}
+
 </style>

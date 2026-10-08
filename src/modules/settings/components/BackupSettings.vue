@@ -6,6 +6,7 @@ import { open, save } from '@tauri-apps/plugin-dialog'
 import { Download, Upload, Refresh } from '../../../shared/icons'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { casyContext } from '../../../core/plugin/context'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const keychainBusy = ref(false)
 async function backupKeyToKeychain() {
@@ -149,7 +150,7 @@ onMounted(() => {
     </el-dialog>
 
     <h3 class="snapshot-title">本机数据库快照</h3>
-    <p class="backup-note">仅包含数据库，不包含卷宗原件，也不能代替完整备份。</p>
+    <p class="backup-note ui-text--caption">仅包含数据库，不包含卷宗原件，也不能代替完整备份。</p>
 
     <div class="backup-actions">
       <el-button type="primary" :loading="backingUp" @click="createBackup">立即备份</el-button>
@@ -170,12 +171,12 @@ onMounted(() => {
           恢复此备份
         </el-button>
       </div>
-      <div v-if="!loading && backups.length === 0" class="backup-empty">
-        还没有备份。点击「立即备份」生成第一份加密快照。
+      <div v-if="!loading && backups.length === 0" class="backup-empty ui-text ui-text--secondary">
+        <EmptyState type="custom" compact hide-action title="还没有备份" description="点击「立即备份」生成第一份加密快照。" />
       </div>
     </div>
 
-    <div class="backup-note">
+    <div class="backup-note ui-text--caption">
       恢复操作会先自动保存当前数据的「恢复前快照」（pre-restore-*.db），误操作时可再回退。
     </div>
   </div>
@@ -222,15 +223,11 @@ onMounted(() => {
 .backup-empty {
   padding: 24px;
   text-align: center;
-  font-size: 13px;
-  color: var(--c-text-secondary);
 }
 .backup-note {
   margin-top: 12px;
-  font-size: 12px;
-  color: var(--c-text-secondary);
 }
 .backup-path { overflow-wrap: anywhere; font-size: 12px; margin-bottom: 16px; }
 .snapshot-title { font-size: 15px; margin: 28px 0 8px; }
-@media (max-width: 600px) { .backup-row { flex-wrap: wrap; } }
+
 </style>

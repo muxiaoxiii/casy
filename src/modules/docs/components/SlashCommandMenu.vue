@@ -338,7 +338,7 @@ const menuStyle = computed(() => {
     :style="menuStyle"
     @click.stop
   >
-    <div class="slash-search-bar">
+    <div class="slash-search-bar ui-row">
       <el-icon :size="14" color="var(--slate-gray-light)"><Edit /></el-icon>
       <input
         v-model="search"
@@ -348,9 +348,9 @@ const menuStyle = computed(() => {
       />
     </div>
 
-    <div class="slash-scroll-list">
+    <div class="slash-scroll-list ui-col">
       <!-- 基础块 -->
-      <div v-if="groupedCommands.basic.length" class="command-group">
+      <div v-if="groupedCommands.basic.length" class="command-group ui-col">
         <div class="group-label">基础排版块</div>
         <div
           v-for="cmd in groupedCommands.basic"
@@ -363,7 +363,7 @@ const menuStyle = computed(() => {
           <div class="cmd-icon-box">
             <el-icon><component :is="cmd.icon" /></el-icon>
           </div>
-          <div class="cmd-text-box">
+          <div class="cmd-text-box ui-col">
             <span class="cmd-title">{{ cmd.title }}</span>
             <span class="cmd-sub">{{ cmd.subtitle }}</span>
           </div>
@@ -371,7 +371,7 @@ const menuStyle = computed(() => {
       </div>
 
       <!-- 法律专属块 -->
-      <div v-if="groupedCommands.legal.length" class="command-group">
+      <div v-if="groupedCommands.legal.length" class="command-group ui-col">
         <div class="group-label">法律与案卷专属</div>
         <div
           v-for="cmd in groupedCommands.legal"
@@ -384,7 +384,7 @@ const menuStyle = computed(() => {
           <div class="cmd-icon-box legal">
             <el-icon><component :is="cmd.icon" /></el-icon>
           </div>
-          <div class="cmd-text-box">
+          <div class="cmd-text-box ui-col">
             <span class="cmd-title">{{ cmd.title }}</span>
             <span class="cmd-sub">{{ cmd.subtitle }}</span>
           </div>
@@ -392,7 +392,7 @@ const menuStyle = computed(() => {
       </div>
 
       <!-- AI 智能助手 -->
-      <div v-if="groupedCommands.ai.length" class="command-group">
+      <div v-if="groupedCommands.ai.length" class="command-group ui-col">
         <div class="group-label">AI 智伴赋能</div>
         <div
           v-for="cmd in groupedCommands.ai"
@@ -405,7 +405,7 @@ const menuStyle = computed(() => {
           <div class="cmd-icon-box ai">
             <el-icon><component :is="cmd.icon" /></el-icon>
           </div>
-          <div class="cmd-text-box">
+          <div class="cmd-text-box ui-col">
             <span class="cmd-title">{{ cmd.title }}</span>
             <span class="cmd-sub">{{ cmd.subtitle }}</span>
           </div>
@@ -450,8 +450,6 @@ const menuStyle = computed(() => {
 }
 
 .slash-search-bar {
-  display: flex;
-  align-items: center;
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--c-border-light);
@@ -471,14 +469,10 @@ const menuStyle = computed(() => {
   flex: 1;
   overflow-y: auto;
   padding: 6px;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
 }
 
 .command-group {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 
@@ -536,9 +530,6 @@ const menuStyle = computed(() => {
 }
 
 .cmd-text-box {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
   gap: 1px;
 }
 

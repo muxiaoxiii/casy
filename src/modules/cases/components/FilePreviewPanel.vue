@@ -68,23 +68,23 @@ async function reveal() {
 <template>
   <Teleport to="body">
     <div class="pp-mask" :class="{ open: modelValue && file }" @click.self="emit('update:modelValue', false)">
-      <aside class="preview-panel" :class="{ open: modelValue && file }">
+      <aside class="ui-col preview-panel" style="gap:0" :class="{ open: modelValue && file }">
         <!-- 头部 -->
-        <div class="pp-head">
+        <div class="ui-row pp-head" style="gap:10px">
           <div class="pp-title">
-            <div class="n">{{ file?.fileName }}</div>
+            <div class="ui-truncate n">{{ file?.fileName }}</div>
             <div class="p">{{ file?.filePath }}</div>
           </div>
           <div class="pp-actions">
             <el-button size="small" text :icon="FolderOpened" title="Finder 定位" @click="reveal" />
-            <button class="pp-close" title="关闭" @click="emit('update:modelValue', false)">
+            <button class="ui-row pp-close" title="关闭" @click="emit('update:modelValue', false)">
               <el-icon><Close /></el-icon>
             </button>
           </div>
         </div>
 
         <!-- 预览主体 -->
-        <div class="pp-stage">
+        <div class="ui-row pp-stage">
           <template v-if="file">
             <img
               v-if="isImage"
@@ -94,7 +94,7 @@ async function reveal() {
               @error="e => ((e.target as HTMLImageElement).style.display = 'none')"
             />
             <div v-else class="pv-placeholder">
-              <div class="pv-ico" :class="kind">
+              <div class="ui-row pv-ico" :class="kind">
                 <span class="pv-ext">{{ ext || '文件' }}</span>
               </div>
               <div class="pv-name">{{ file.fileName }}</div>
@@ -106,14 +106,14 @@ async function reveal() {
         </div>
 
         <!-- 信息栏 -->
-        <div class="pp-info">
-          <div class="pi-row"><span class="k">类型</span><span class="v">{{ ext.toUpperCase() || '—' }}</span></div>
-          <div class="pi-row"><span class="k">大小</span><span class="v">{{ fmtSize(file?.fileSize) }}</span></div>
-          <div class="pi-row"><span class="k">登记时间</span><span class="v">{{ file?.createdAt || '—' }}</span></div>
+        <div class="ui-col--tight pp-info">
+          <div class="ui-row pi-row"><span class="k">类型</span><span class="v">{{ ext.toUpperCase() || '—' }}</span></div>
+          <div class="ui-row pi-row"><span class="k">大小</span><span class="v">{{ fmtSize(file?.fileSize) }}</span></div>
+          <div class="ui-row pi-row"><span class="k">登记时间</span><span class="v">{{ file?.createdAt || '—' }}</span></div>
         </div>
 
         <!-- 底部操作 -->
-        <div class="pp-footer">
+        <div class="ui-row pp-footer" style="gap:6px">
           <el-button type="primary" @click="openDefault">打开文件</el-button>
           <el-button :icon="FolderOpened" @click="reveal">Finder 定位</el-button>
         </div>
@@ -144,8 +144,6 @@ async function reveal() {
   width: min(440px, 92vw);
   background: var(--c-surface);
   border-left: 1px solid var(--c-border);
-  display: flex;
-  flex-direction: column;
   transform: translateX(100%);
   transition: transform var(--motion-base) var(--ease-out);
   box-shadow: -8px 0 32px rgba(20, 24, 35, 0.12);
@@ -155,9 +153,6 @@ async function reveal() {
 }
 
 .pp-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--c-border);
   flex-shrink: 0;
@@ -165,7 +160,6 @@ async function reveal() {
 .pp-title { flex: 1; min-width: 0; }
 .pp-title .n {
   font-size: 13px; font-weight: 600; color: var(--c-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pp-title .p {
   font-size: 10.5px; color: var(--c-text-secondary); font-family: var(--font-mono);
@@ -173,7 +167,7 @@ async function reveal() {
 }
 .pp-close {
   width: 26px; height: 26px; border-radius: var(--c-radius-btn);
-  display: flex; align-items: center; justify-content: center;
+  justify-content: center;
   color: var(--c-text-secondary); cursor: pointer; border: none; background: transparent;
 }
 .pp-close:hover { background: var(--gray-100); color: var(--c-text); }
@@ -181,7 +175,7 @@ async function reveal() {
 .pp-stage {
   flex: 1; min-height: 0;
   background: #F1F2F5;
-  display: flex; align-items: center; justify-content: center;
+  justify-content: center;
   overflow: auto;
 }
 .pv-img {
@@ -196,7 +190,7 @@ async function reveal() {
 }
 .pv-ico {
   width: 56px; height: 56px; border-radius: 14px;
-  display: flex; align-items: center; justify-content: center;
+  justify-content: center;
   font-weight: 700; font-size: 14px;
 }
 .pv-ico.pdf { background: var(--c-danger-light); color: var(--c-danger); }
@@ -209,11 +203,11 @@ async function reveal() {
 
 .pp-info {
   flex-shrink: 0; border-top: 1px solid var(--c-border);
-  padding: 12px 16px; display: flex; flex-direction: column; gap: 2px;
+  padding: 12px 16px;
   background: var(--c-surface);
 }
 .pi-row {
-  display: flex; align-items: center; gap: 8px; height: 26px; font-size: 11.5px;
+  height: 26px; font-size: 11.5px;
 }
 .pi-row .k { width: 76px; color: var(--c-text-secondary); flex-shrink: 0; font-size: 10.5px; }
 .pi-row .v {
@@ -221,7 +215,6 @@ async function reveal() {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pp-footer {
-  display: flex; gap: 6px;
   padding: 10px 16px; border-top: 1px solid var(--c-border); flex-shrink: 0;
 }
 

@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Loading } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const props = defineProps({
   cases: { type: Array, default: () => [] },
@@ -99,14 +100,14 @@ function deadlineIcon(row) {
     <!-- 空状态 -->
     <div v-else-if="!cases.length" class="empty-state">
       <slot name="empty">
-        <el-empty description="还没有案件" />
+        <EmptyState type="cases" hide-action />
       </slot>
     </div>
 
     <!-- 案件列表 -->
-    <div v-else class="case-groups">
+    <div v-else class="ui-col case-groups">
       <div v-for="group in groupedCases" :key="group.key" class="case-group">
-        <div v-if="group.label" class="group-header" @click="group.collapsed = !group.collapsed">
+        <div v-if="group.label" class="ui-row group-header" @click="group.collapsed = !group.collapsed">
           <span class="group-toggle">{{ group.collapsed ? '▶' : '▼' }}</span>
           <span class="group-label">{{ group.label }}</span>
           <el-tag size="small" type="info">{{ group.cases.length }}件</el-tag>
@@ -191,15 +192,10 @@ function deadlineIcon(row) {
 }
 
 .case-groups {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
 .group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 8px 12px;
   background: var(--gray-50);
   border-radius: 4px;

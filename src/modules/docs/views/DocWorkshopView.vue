@@ -26,7 +26,7 @@
 
       <!-- 草稿列表 -->
       <template v-if="activeTab === 'drafts'">
-        <div class="draft-header">
+        <div class="draft-header ui-row ui-row--between">
           <h3>{{ $t('docs.drafts') }}</h3>
           <button class="btn-new-draft" :disabled="creatingDraft" @click="createNewDraft">
             + {{ $t('common.create') }}
@@ -71,10 +71,13 @@
             </el-button>
           </div>
 
-          <el-empty
+          <EmptyState
             v-if="!loading && !loadError && filteredDrafts.length === 0"
-            :description="searchText ? '没有匹配的草稿' : '暂无草稿'"
-            :image-size="60"
+            :type="searchText ? 'search' : 'custom'"
+            :title="searchText ? '没有匹配的草稿' : '暂无草稿'"
+            :action-text="searchText ? '清除搜索' : ''"
+            :hide-action="!searchText"
+            @action="searchText = ''"
           />
         </div>
       </template>
@@ -95,7 +98,7 @@
             class="notion-title-input"
             @input="scheduleSave"
           />
-          <div class="editor-actions">
+          <div class="editor-actions ui-row ui-row--wrap">
             <el-select
               v-model="currentDraft.status"
               size="small"
@@ -122,6 +125,7 @@
                 :value="c.id"
               />
             </el-select>
+            <el-alert v-if="caseError" :title="`案件读取失败：${caseError}`" type="error" :closable="false"><el-button text @click="loadCases">重试</el-button></el-alert>
             <el-dropdown trigger="click" :disabled="exporting" @command="exportToDocx"><el-button type="primary" size="small" :loading="exporting">导出</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="md">Markdown（.md）</el-dropdown-item><el-dropdown-item command="pdf">PDF 文档（.pdf）</el-dropdown-item><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
             <el-button size="small" @click="openHistory">历史版本</el-button>
             <el-button :type="showTypesetPreview ? 'primary' : 'default'" plain size="small" @click="showTypesetPreview = !showTypesetPreview">A4 预览</el-button>
@@ -164,9 +168,7 @@
       </template>
 
       <div v-else class="no-draft">
-        <el-empty :description="$t('docs.new_draft')" :image-size="80">
-          <el-button type="primary" @click="createNewDraft">{{ $t('docs.new_draft') }}</el-button>
-        </el-empty>
+        <EmptyState type="custom" :title="$t('docs.new_draft')" :action-text="$t('docs.new_draft')" @action="createNewDraft" />
       </div>
     </div>
 
@@ -181,6 +183,7 @@
 <script setup>
 import { useViewMemory } from '../../../composables/useViewMemory'
 import SaveConflictDialog from '../../../shared/components/SaveConflictDialog.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { formatTimestamp, relativeTimestamp } from '../../../shared/utils/date'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
@@ -226,6 +229,7 @@ const currentDraft = ref(null)
 const loading = ref(false)
 const creatingDraft = ref(false)
 const loadError = ref('')
+const caseError = ref('')
 const searchText = ref('')
 const saveStatus = ref('idle') // idle | saving | saved | error
 const saveTimer = ref(null)
@@ -290,7 +294,8 @@ async function loadCases() {
   const result = await casyContext.cases.list({ page: 1, perPage: 500 })
   if (result.ok) {
     cases.value = Array.isArray(result.data) ? result.data : (result.data?.items || [])
-  }
+    caseError.value = ''
+  } else caseError.value = result.error || '案件列表加载失败'
 }
 
 // 选择草稿
@@ -546,9 +551,6 @@ onUnmounted(observeChanges(casyContext, ['doc', 'case'], async () => { await Pro
 }
 
 .draft-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 14px 16px 8px;
 }
 
@@ -692,12 +694,6 @@ onUnmounted(observeChanges(casyContext, ['doc', 'case'], async () => { await Pro
   opacity: 0.6;
 }
 
-.editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .editor-statusbar {
   padding: 8px 36px;
   border-top: 1px solid var(--c-border);
@@ -745,7 +741,7 @@ onUnmounted(observeChanges(casyContext, ['doc', 'case'], async () => { await Pro
 .document-workspace>.notion-legal-editor-shell{min-width:0;min-height:0;}
 @media(max-width:1100px){.document-workspace.with-preview{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(220px,1fr) minmax(220px,1fr);}}
 
-.editor-header{flex-direction:column;align-items:stretch;padding:18px 24px 14px;gap:12px}.notion-title-input{width:100%;min-width:0;box-sizing:border-box}.editor-actions{flex-wrap:wrap;gap:8px}.editor-actions .el-button{margin-left:0}.editor-panel{min-height:0}.doc-workshop{height:100%;min-height:0}.draft-sidebar{width:240px;flex-shrink:0}@media(max-width:1000px){.draft-sidebar{width:205px}.editor-header{padding:14px 16px}.editor-statusbar{padding:8px 16px;flex-wrap:wrap;gap:6px}}
+.editor-header{flex-direction:column;align-items:stretch;padding:18px 24px 14px;gap:12px}.notion-title-input{width:100%;min-width:0;box-sizing:border-box}.editor-actions{flex-wrap:wrap;gap:8px}.editor-actions .el-button{margin-left:0}.editor-panel{min-height:0}.doc-workshop{height:100%;min-height:0}.draft-sidebar{width:240px;flex-shrink:0}@media(max-width: 1100px){.draft-sidebar{width:205px}.editor-header{padding:14px 16px}.editor-statusbar{padding:8px 16px;flex-wrap:wrap;gap:6px}}
 .draft-mobile-nav { display: none; }
 @container (max-width: 700px) {
   .doc-workshop { flex-direction: column; }

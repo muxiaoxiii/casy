@@ -58,11 +58,11 @@ onBeforeUnmount(()=>{ disposed=true;revision++;if(timer)clearTimeout(timer);rele
       <details>
         <summary>版式设置</summary>
         <div class="layout-options">
-          <label>页边距（mm）<input aria-label="页边距" type="number" min="10" max="40" :value="layout.marginMm" @change="setOption('marginMm',Number(($event.target as HTMLInputElement).value))"></label>
-          <label>装订边（mm）<input aria-label="装订边" type="number" min="0" max="15" :value="layout.bindingMm" @change="setOption('bindingMm',Number(($event.target as HTMLInputElement).value))"></label>
-          <label><input type="checkbox" :checked="layout.firstLineIndent" @change="setOption('firstLineIndent',($event.target as HTMLInputElement).checked)">首行缩进两字</label>
-          <label><input type="checkbox" :checked="layout.header" @change="setOption('header',($event.target as HTMLInputElement).checked)">标题与案号页眉</label>
-          <label><input type="checkbox" :checked="layout.skipFirstHeader" @change="setOption('skipFirstHeader',($event.target as HTMLInputElement).checked)">首页隐藏页眉</label>
+          <label class="ui-row">页边距（mm）<input aria-label="页边距" type="number" min="10" max="40" :value="layout.marginMm" @change="setOption('marginMm',Number(($event.target as HTMLInputElement).value))"></label>
+          <label class="ui-row">装订边（mm）<input aria-label="装订边" type="number" min="0" max="15" :value="layout.bindingMm" @change="setOption('bindingMm',Number(($event.target as HTMLInputElement).value))"></label>
+          <label class="ui-row"><input type="checkbox" :checked="layout.firstLineIndent" @change="setOption('firstLineIndent',($event.target as HTMLInputElement).checked)">首行缩进两字</label>
+          <label class="ui-row"><input type="checkbox" :checked="layout.header" @change="setOption('header',($event.target as HTMLInputElement).checked)">标题与案号页眉</label>
+          <label class="ui-row"><input type="checkbox" :checked="layout.skipFirstHeader" @change="setOption('skipFirstHeader',($event.target as HTMLInputElement).checked)">首页隐藏页眉</label>
         </div>
       </details>
     </div>
@@ -87,7 +87,7 @@ onBeforeUnmount(()=>{ disposed=true;revision++;if(timer)clearTimeout(timer);rele
 .typeset-preview{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--c-bg-subtle,#eee);border-left:1px solid var(--c-border);}
 .typeset-controls{padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--c-bg-card);border-bottom:1px solid var(--c-border);font-size:12px;}
 .typeset-controls>span{margin-left:auto;color:var(--c-text-secondary)}
-details{width:100%}summary{cursor:pointer}.layout-options{display:flex;flex-wrap:wrap;gap:10px;padding-top:10px}.layout-options label{display:flex;gap:6px;align-items:center}.layout-options input[type=number]{width:55px;padding:3px;background:var(--c-bg-card);color:var(--c-text);border:1px solid var(--c-border)}
+details{width:100%}summary{cursor:pointer}.layout-options{display:flex;flex-wrap:wrap;gap:10px;padding-top:10px}.layout-options label{gap:6px}.layout-options input[type=number]{width:55px;padding:3px;background:var(--c-bg-card);color:var(--c-text);border:1px solid var(--c-border)}
 .typeset-pages{overflow:auto;padding:20px;flex:1;min-height:0;overflow-anchor:none;}
 .typeset-page{position:relative;margin:0 0 30px;background:white;box-shadow:0 2px 10px #0002;width:100%;}.typeset-page.stale{opacity:.55}.typeset-page img{display:block;width:100%;height:100%}.typeset-page figcaption{position:absolute;bottom:-22px;left:0;right:0;text-align:center;color:var(--c-text-secondary);font-size:11px}
 .typeset-anchor{position:absolute;transform:translateY(-25%);width:22px;height:22px;border:0;border-radius:4px;color:#607080;background:#edf2f7;cursor:pointer;opacity:.4;padding:0}.typeset-anchor:hover,.typeset-anchor:focus-visible,.typeset-anchor.active{opacity:1;background:#dbeafe;color:#155ab6}.typeset-anchor:disabled{pointer-events:none}

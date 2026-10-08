@@ -3,7 +3,8 @@ import { useRouter } from 'vue-router'
 import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 const router = useRouter()
-import { Bell, Warning, CircleCheck, View, Hide, RefreshRight, Timer, AlarmClock, Notification } from '../../../shared/icons'
+import { Warning, CircleCheck, View, Hide, RefreshRight, Timer, AlarmClock, Notification } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 // ============================================================
 // 数据
@@ -181,9 +182,17 @@ onMounted(loadLogs)
 
       <!-- 列表 -->
       <div class="reminder-list" v-loading="loading">
-        <div v-if="filteredLogs.length === 0" class="empty-state">
-          <el-icon :size="48" color="#C0C4CC"><Bell /></el-icon>
-          <p>暂无提醒记录</p>
+        <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadLogs">重试</el-button></el-alert>
+        <div v-if="filteredLogs.length === 0 && !loadError" class="empty-state">
+          <EmptyState
+            v-if="activeTab !== 'all'"
+            type="search"
+            title="暂无提醒记录"
+            description="该级别下暂无记录，可切换其他级别查看"
+            action-text="查看全部"
+            @action="activeTab = 'all'"
+          />
+          <EmptyState v-else type="custom" hide-action title="暂无提醒记录" />
         </div>
 
         <div
@@ -207,7 +216,7 @@ onMounted(loadLogs)
             </div>
             <div class="item-type">{{ item.parsed.type || '提醒' }}</div>
             <div class="item-meta">
-              <span class="meta-date">
+              <span class="meta-date ui-row">
                 <el-icon><Timer /></el-icon>
                 {{ item.parsed.dueDate || '-' }}
               </span>
@@ -458,8 +467,6 @@ onMounted(loadLogs)
 }
 
 .meta-date {
-  display: flex;
-  align-items: center;
   gap: 3px;
 }
 

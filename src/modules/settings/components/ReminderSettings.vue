@@ -123,12 +123,12 @@ onMounted(() => {
   <div class="reminder-settings">
     <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadRules">重试</el-button></el-alert>
     <el-alert title="休息日前工作提醒" type="info" :closable="false" description="法定节假日、周末及自己添加的休息日，如果当天仍有未完成任务、日程或期限，或休息前一天仍有工作，通知中心会特别提醒。同一事项每天最多一条；完成或改期后自动撤下，个人上班日不额外提醒。" style="margin-bottom: 20px" />
-    <div class="section-head">
+    <div class="section-head ui-row ui-row--top ui-row--between ui-mb-12">
       <div>
         <h4>提醒规则</h4>
         <p class="desc">按期限/开庭/任务自动触发，支持多通道分发</p>
       </div>
-      <div class="head-actions">
+      <div class="head-actions ui-row">
         <span class="engine-badge" :class="{ running: engineRunning }">
           <el-icon><Bell /></el-icon>
           {{ engineRunning ? '引擎运行中' : '引擎未启动' }}
@@ -169,7 +169,7 @@ onMounted(() => {
       </el-table-column>
     </el-table>
 
-    <div class="section-head" style="margin-top: 24px">
+    <div class="section-head ui-row ui-row--top ui-row--between ui-mb-12" style="margin-top: 24px">
       <div>
         <h4>最近触发记录</h4>
         <p class="desc">最近 20 条提醒日志</p>
@@ -223,15 +223,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
+
 .section-head h4 { margin: 0 0 4px; }
 .desc { font-size: 12px; color: var(--gray-400); margin: 0; }
-.head-actions { display: flex; align-items: center; gap: 8px; }
+
 .engine-badge {
   display: inline-flex;
   align-items: center;

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Close, Refresh, Search, Setting } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import type { KnowledgeIndexJob, KnowledgeIndexStatus, KnowledgeSearchResponse } from '../../../types/knowledgeIndex'
 
@@ -102,11 +103,11 @@ onBeforeUnmount(() => { disposed = true; ++sequence; clearTimeout(timer) })
         </div>
       </form>
       <el-alert v-if="response?.warning" :title="response.warning" type="warning" :closable="false" />
-      <div v-if="response" class="result-count" role="status">{{ response.results.length }} 条结果 · {{ semanticLabel }}</div>
-      <div v-if="response && !response.results.length" class="empty-state">没有找到相关笔记</div>
+      <div v-if="response" class="result-count ui-text--caption" role="status">{{ response.results.length }} 条结果 · {{ semanticLabel }}</div>
+      <EmptyState v-if="response && !response.results.length" type="search" compact title="没有找到相关笔记" />
       <div class="knowledge-hits">
         <button v-for="hit in response?.results || []" :key="hit.id" class="knowledge-hit" @click="emit('navigate', hit.id)">
-          <span class="hit-heading"><strong>{{ hit.title }}</strong><small>{{ { fts: '关键词', semantic: '语义', hybrid: '混合' }[hit.source] || hit.source }}</small></span>
+          <span class="hit-heading ui-row"><strong>{{ hit.title }}</strong><small>{{ { fts: '关键词', semantic: '语义', hybrid: '混合' }[hit.source] || hit.source }}</small></span>
           <p>{{ hit.content }}</p>
         </button>
       </div>
@@ -124,12 +125,12 @@ onBeforeUnmount(() => { disposed = true; ++sequence; clearTimeout(timer) })
         <span>处理 <b>{{ status.running }}</b></span>
         <span>失败 <b>{{ status.failed }}</b></span>
       </div>
-      <div v-if="status && !status.configured" class="empty-state">尚未配置向量接口</div>
-      <div v-else-if="status && !status.jobs.length" class="empty-state">暂无索引任务</div>
+      <EmptyState v-if="status && !status.configured" type="custom" compact hide-action title="尚未配置向量接口" />
+      <EmptyState v-else-if="status && !status.jobs.length" type="custom" compact hide-action title="暂无索引任务" />
       <div v-for="job in status?.jobs || []" :key="job.id" class="index-job" :data-status="job.status">
         <div class="job-main">
           <button class="job-title" @click="emit('navigate', job.itemId)">{{ job.title }}</button>
-          <span class="job-state">{{ stateLabels[job.status] }} · {{ job.completedChunks }} / {{ job.totalChunks }} 段 · {{ job.model }}</span>
+          <span class="job-state ui-text--caption">{{ stateLabels[job.status] }} · {{ job.completedChunks }} / {{ job.totalChunks }} 段 · {{ job.model }}</span>
           <el-progress v-if="job.status === 'running'" :percentage="job.totalChunks ? Math.floor(job.completedChunks / job.totalChunks * 100) : 0" />
           <span v-if="job.error" class="job-error">{{ job.error }}</span>
         </div>
@@ -143,12 +144,12 @@ onBeforeUnmount(() => { disposed = true; ++sequence; clearTimeout(timer) })
 <style scoped>
 .knowledge-search-panel{min-width:0;color:var(--c-text)}
 .query-form{display:grid;gap:12px;margin:12px 0 18px}.query-row{display:flex;gap:8px}.query-row .el-input{min-width:0}
-.result-count,.job-state{color:var(--c-text-secondary);font-size:12px;line-height:1.6}.result-count{margin:14px 0 4px}
+.result-count,.job-state{line-height:1.6}.result-count{margin:14px 0 4px}
 .knowledge-hit{display:block;width:100%;padding:16px 0;border:0;border-bottom:1px solid var(--c-border);text-align:left;background:transparent;color:inherit;cursor:pointer}.knowledge-hit:hover strong,.job-title:hover{color:var(--c-primary)}
-.hit-heading{display:flex;gap:12px;align-items:baseline}.hit-heading strong{font-size:15px;overflow-wrap:anywhere;flex:1;min-width:0}.hit-heading small{font-size:11px;color:var(--c-text-secondary);white-space:nowrap}
+.hit-heading{gap:12px;align-items:baseline}.hit-heading strong{font-size:15px;overflow-wrap:anywhere;flex:1;min-width:0}.hit-heading small{font-size:11px;color:var(--c-text-secondary);white-space:nowrap}
 .knowledge-hit p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.7;margin:8px 0 0;max-height:13em;overflow:auto}
 .index-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 16px}.index-actions .el-button{margin:0}
 .index-counts{display:flex;flex-wrap:wrap;gap:12px;padding:12px 0;border-bottom:1px solid var(--c-border);font-size:12px}.index-counts b{color:var(--c-primary);font-variant-numeric:tabular-nums}
 .index-job{display:flex;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--c-border)}.job-main{display:grid;gap:5px;flex:1;min-width:0;overflow-wrap:anywhere}.job-title{border:0;padding:0;text-align:left;color:inherit;background:transparent;font:inherit;cursor:pointer;overflow-wrap:anywhere}.job-error{font-size:12px;color:var(--el-color-danger)}
-.empty-state{padding:28px 0;color:var(--c-text-secondary);text-align:center;font-size:13px}
+.empty-state{padding:28px 0;text-align:center}
 </style>

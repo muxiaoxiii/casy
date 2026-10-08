@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -208,7 +209,7 @@ function goToNode(node) {
         </g>
       </svg>
       <div v-else-if="!loading && !degraded" class="graph-empty">
-        暂无图谱数据——知识条目关联案件或任务后会出现在这里
+        <EmptyState type="custom" compact hide-action title="暂无图谱数据" description="知识条目关联案件或任务后会出现在这里" />
       </div>
     </div>
 

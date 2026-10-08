@@ -1,0 +1,66 @@
+/* 共享 UI 工具类（bunny 10 第 1 步）。
+   覆盖最高频的重复 CSS 签名：文本截断、flex 行/列、弱化/强调文本、段间距。
+   全部走设计 token，不引入具体业务样式。全局引入见 main.js。 */
+
+/* —— 文本截断（14+10 文件重复：overflow/text-overflow/white-space） —— */
+.ui-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-truncate-2 {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* —— 布局（41 文件重复：align-items/display/gap） —— */
+.ui-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ui-row--top { align-items: flex-start; }
+.ui-row--between { justify-content: space-between; }
+.ui-row--wrap { flex-wrap: wrap; }
+.ui-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ui-col--tight { gap: 4px; }
+.ui-grid { display: grid; gap: 12px; min-width: 0; }
+
+/* —— 文本层级（31+21+23 文件重复：color/font-size[/font-weight/line-height]） —— */
+.ui-text { font-size: 13px; color: var(--c-text); line-height: 1.6; }
+.ui-text--secondary { color: var(--c-text-secondary); }
+.ui-text--strong { font-weight: 600; color: var(--c-text-heading); }
+.ui-text--title { font-size: 14px; font-weight: 600; color: var(--c-text-heading); line-height: 1.5; }
+.ui-text--caption { font-size: 12px; color: var(--c-text-secondary); line-height: 1.5; }
+.ui-text--danger { color: var(--c-danger); }
+.ui-text--warning { color: var(--c-warning-dark, var(--c-warning)); }
+.ui-text--success { color: var(--c-success); }
+
+/* —— 间距工具 —— */
+.ui-mt-0 { margin-top: 0; }
+.ui-mb-0 { margin-bottom: 0; }
+.ui-mb-8 { margin-bottom: 8px; }
+.ui-mb-12 { margin-bottom: 12px; }
+
+/* —— 不可逆动作（bunny 10 第 4 步）：删除/覆盖类操作的统一危险分级。
+   三角隐喻见 docket.css；配合 ElMessageBox 二次确认使用。 —— */
+.btn-danger {
+  color: var(--c-danger);
+  border-color: currentColor;
+  background: transparent;
+}
+.btn-danger::before {
+  content: "△";
+  font-size: 10px;
+  margin-right: 4px;
+}
+.btn-danger.el-button:not(.is-disabled):hover,
+.btn-danger.el-button:not(.is-disabled):focus {
+  color: #fff;
+  background: var(--c-danger);
+  border-color: var(--c-danger);
+}
+
+/* 列表键盘流光标（j/k/Enter/Esc，见 shared/composables/useListNavigation） */
+.nav-cursor { outline: 2px solid var(--c-primary); outline-offset: -1px; border-radius: var(--c-radius-md, 4px); }

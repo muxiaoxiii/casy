@@ -20,7 +20,7 @@
         :key="category"
         class="template-category"
       >
-        <div class="category-header" role="button" tabindex="0" :aria-expanded="!!expandedCategories[category]" @keydown.enter="toggleCategory(category)" @keydown.space.prevent="toggleCategory(category)" @click="toggleCategory(category)">
+        <div class="category-header ui-row" role="button" tabindex="0" :aria-expanded="!!expandedCategories[category]" @keydown.enter="toggleCategory(category)" @keydown.space.prevent="toggleCategory(category)" @click="toggleCategory(category)">
           <el-icon>
             <ArrowRight v-if="!expandedCategories[category]" />
             <ArrowDown v-else />
@@ -34,13 +34,13 @@
             <div
               v-for="tpl in templates"
               :key="tpl.id"
-              :class="['template-card', { active: selected?.id === tpl.id }]"
+              :class="['template-card ui-row', { active: selected?.id === tpl.id }]"
               role="button" tabindex="0" :aria-label="`使用模板 ${tpl.name}`" @keydown.enter="selectTemplate(tpl)" @keydown.space.prevent="selectTemplate(tpl)" @click="selectTemplate(tpl)"
             >
               <div class="template-icon">📄</div>
               <div class="template-info">
                 <div class="template-name">{{ tpl.name }}</div>
-                <div class="template-meta">
+                <div class="template-meta ui-row">
                   <span class="field-count">{{ tpl.fieldCount }} 个字段</span>
                   <span class="template-desc" v-if="tpl.description">
                     {{ tpl.description }}
@@ -53,19 +53,12 @@
       </div>
 
       <!-- 空状态 -->
-      <el-empty
+      <EmptyState
         v-if="!loading && !error && Object.keys(filteredByCategory).length === 0"
-        description="暂无模板"
-        :image-size="60"
-      >
-        <template #description>
-          <p>暂无模板</p>
-          <p class="empty-hint">
-            请将 .docx 模板文件放入<br />
-            ~/Documents/Casy/templates/ 目录
-          </p>
-        </template>
-      </el-empty>
+        type="custom"
+        title="暂无模板"
+        description="请将 .docx 模板文件放入 ~/Documents/Casy/templates/ 目录"
+      />
     </div>
   </div>
 </template>
@@ -73,6 +66,7 @@
 <script setup>
 import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { useDocsyBridge } from '../composables/useDocsyBridge.js'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const props = defineProps({
   modelValue: {
@@ -161,8 +155,6 @@ onMounted(async () => {
 }
 
 .category-header {
-  display: flex;
-  align-items: center;
   gap: 8px;
   padding: 8px 16px;
   cursor: pointer;
@@ -185,8 +177,6 @@ onMounted(async () => {
 }
 
 .template-card {
-  display: flex;
-  align-items: center;
   gap: 12px;
   padding: 10px 12px;
   margin: 2px 0;
@@ -226,8 +216,6 @@ onMounted(async () => {
 }
 
 .template-meta {
-  display: flex;
-  align-items: center;
   gap: 8px;
   margin-top: 4px;
   font-size: 12px;

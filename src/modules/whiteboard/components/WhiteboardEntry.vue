@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Right, Grid } from '../../../shared/icons'
 import { tauriCall } from '../../../core/tauriBridge'
 import type { WhiteboardDto } from '../types'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 /**
  * WhiteboardEntry —— 事实白板入口小组件
@@ -72,7 +73,7 @@ watch(() => props.caseId, reload)
 
 <template>
   <section v-loading="loading" class="whiteboard-entry">
-    <header class="whiteboard-entry__header">
+    <header class="whiteboard-entry__header ui-row ui-row--between">
       <span class="whiteboard-entry__title">
         <el-icon><Grid /></el-icon>事实白板
       </span>
@@ -80,10 +81,7 @@ watch(() => props.caseId, reload)
     </header>
 
     <div v-if="whiteboards.length === 0 && !loading" class="whiteboard-entry__empty">
-      <p>还没有事实白板</p>
-      <el-button size="small" type="primary" plain :icon="Plus" @click="quickCreate">
-        快速新建
-      </el-button>
+      <EmptyState type="custom" compact title="还没有事实白板" action-text="快速新建" @action="quickCreate" />
     </div>
 
     <ul v-else class="whiteboard-entry__list">
@@ -115,9 +113,6 @@ watch(() => props.caseId, reload)
 }
 
 .whiteboard-entry__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: var(--space-2);
 }
 

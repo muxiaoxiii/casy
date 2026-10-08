@@ -186,7 +186,7 @@ async function onSaved() {
 <template>
   <div class="case-persons-panel">
     <div class="panel-header">
-      <span class="panel-title">
+      <span class="panel-title ui-text ui-text--strong">
         涉案人员
         <span class="panel-count">{{ links.length }}</span>
       </span>
@@ -214,7 +214,7 @@ async function onSaved() {
               <el-icon :size="14"><component :is="group.meta.icon" /></el-icon>
             </div>
             <div class="person-info">
-              <div class="person-name-row">
+              <div class="person-name-row ui-row">
                 <span class="person-name">{{ item.person.name }}</span>
                 <span v-if="item.role" class="role-tag">{{ item.role }}</span>
               </div>
@@ -280,7 +280,7 @@ async function onSaved() {
             :value="p.id"
             :label="p.name"
           >
-            <span class="option-row">
+            <span class="option-row ui-row">
               <el-icon :size="13" :color="kindMeta(p.kind).color">
                 <component :is="kindMeta(p.kind).icon" />
               </el-icon>
@@ -289,7 +289,7 @@ async function onSaved() {
             </span>
           </el-option>
           <template #empty>
-            <div class="option-empty">无可挂载的实体（已挂载的不会重复显示）</div>
+            <div class="option-empty ui-text ui-text--secondary">无可挂载的实体（已挂载的不会重复显示）</div>
           </template>
         </el-select>
       </template>
@@ -347,12 +347,6 @@ async function onSaved() {
   border-bottom: 1px solid var(--c-border-light);
 }
 
-.panel-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text-heading);
-}
-
 .panel-count {
   font-size: 11px;
   font-weight: 400;
@@ -406,8 +400,6 @@ async function onSaved() {
 }
 
 .person-name-row {
-  display: flex;
-  align-items: center;
   gap: 6px;
 }
 
@@ -456,8 +448,6 @@ async function onSaved() {
 }
 
 .option-row {
-  display: flex;
-  align-items: center;
   gap: 7px;
 }
 
@@ -472,8 +462,6 @@ async function onSaved() {
 
 .option-empty {
   padding: 12px;
-  font-size: 12px;
-  color: var(--c-text-secondary);
   text-align: center;
 }
 </style>

@@ -23,7 +23,7 @@ onMounted(() => {
   <div class="tab-content">
     <el-card>
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>律师画像</strong>
           <el-tag v-if="profileStore.onboardingCompleted" type="success" size="small">已完成</el-tag>
           <el-tag v-else type="info" size="small">未填写</el-tag>
@@ -60,8 +60,6 @@ onMounted(() => {
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 

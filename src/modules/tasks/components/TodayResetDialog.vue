@@ -128,11 +128,11 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
     @update:model-value="(v: boolean) => emit('update:modelValue', v)"
     @open="syncFromProps"
   >
-    <div class="reset-head">
+    <div class="reset-head ui-row">
       <div class="reset-count" :class="{ over: overCapacity }">
         {{ softCount }}
       </div>
-      <div class="reset-head-text">
+      <div class="reset-head-text ui-col">
         <b>{{ softCount }} 件自主安排<template v-if="urgentCount"> · {{ urgentCount }} 件临近截止</template></b>
         <span v-if="overCapacity">
           超出建议容量（≤5）。做完再加，不做堆积——临近截止的已置顶标红。
@@ -146,18 +146,18 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
       <div
         v-for="t in sortedWorking"
         :key="t.id"
-        class="reset-row"
+        class="reset-row ui-row"
         :class="'lane-' + laneOf(t)"
       >
         <span class="rr-focus" :class="{ on: t.isFocus === 1 }">{{ t.isFocus === 1 ? '★' : '' }}</span>
-        <span class="rr-name">
+        <span class="rr-name ui-truncate">
           {{ t.taskName }}
           <span v-if="laneOf(t) === 'urgent'" class="lane-badge urgent">
             {{ (daysToDue(t) ?? 0) <= 0 ? '今日到期' : '明天到期' }}
           </span>
           <span v-else-if="laneOf(t) === 'soon'" class="lane-badge soon">{{ daysToDue(t) }} 天后到期</span>
         </span>
-        <div class="rr-actions">
+        <div class="rr-actions ui-row">
           <el-button
             v-for="a in actions"
             :key="a.key"
@@ -191,8 +191,6 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
 
 <style scoped>
 .reset-head {
-  display: flex;
-  align-items: center;
   gap: 14px;
   padding: 4px 4px 14px;
 }
@@ -214,8 +212,6 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
   color: var(--c-danger);
 }
 .reset-head-text {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
   font-size: 13px;
   color: var(--c-text-secondary);
@@ -229,9 +225,6 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
   border-radius: var(--c-radius-lg);
 }
 .reset-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 9px 12px;
   border-bottom: 1px solid var(--c-border-lighter);
 }
@@ -240,12 +233,8 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
 .rr-focus { width: 14px; color: var(--c-warning); text-align: center; }
 .rr-name {
   flex: 1;
-  min-width: 0;
   font-size: 13.5px;
   color: var(--c-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .lane-badge {
   display: inline-block;
@@ -263,7 +252,7 @@ function onAction(action: { bucket: string | null; label: string }, task: ResetT
   background: var(--c-warning-light);
   color: var(--c-warning);
 }
-.rr-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.rr-actions { gap: 6px; flex-shrink: 0; }
 .reset-foot-hint {
   margin-right: auto;
   font-size: 11.5px;

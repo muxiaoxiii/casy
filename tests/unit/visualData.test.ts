@@ -5,6 +5,7 @@ import AreaLineChart from '../../src/shared/charts/AreaLineChart.vue'
 import DonutChart from '../../src/shared/charts/DonutChart.vue'
 import GanttTimeline from '../../src/shared/charts/GanttTimeline.vue'
 import DashboardView from '../../src/modules/dashboard/DashboardView.vue'
+import EmptyState from '../../src/shared/components/EmptyState.vue'
 
 const h = vi.hoisted(() => ({
   push: vi.fn(), trend: vi.fn(), status: vi.fn(), track: vi.fn(), hearings: vi.fn(), kpis: vi.fn(),
@@ -75,7 +76,7 @@ describe('dashboard service results and drill-down', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('任务趋势加载失败')
     expect(wrapper.findAll('.kv')[1].text()).toBe('4项')
-    expect(wrapper.text()).toContain('暂无案件')
+    expect(wrapper.findAllComponents(EmptyState).some(el => el.props('title') === '暂无案件')).toBe(true)
     wrapper.unmount()
   })
 

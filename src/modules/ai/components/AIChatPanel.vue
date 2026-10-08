@@ -397,7 +397,7 @@ function clearChat() {
 <template>
   <div class="ai-chat-panel">
     <!-- 顶部工具栏 -->
-    <div class="chat-toolbar">
+    <div class="chat-toolbar ui-row ui-row--between">
       <div class="model-selector">
         <el-select
           v-model="selectedProvider"
@@ -428,7 +428,7 @@ function clearChat() {
         </el-select>
       </div>
 
-      <div class="toolbar-actions">
+      <div class="toolbar-actions ui-row">
         <el-switch
           v-model="showToolCalls"
           size="small"
@@ -560,7 +560,7 @@ function clearChat() {
         <span class="ref-chips-hint">已引用 {{ refChips.length }} 项上下文</span>
       </div>
 
-      <div class="chat-input">
+      <div class="chat-input ui-row">
         <el-input
           ref="inputRef"
           v-model="inputMessage"
@@ -621,9 +621,6 @@ function clearChat() {
 }
 
 .chat-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--c-border);
   background: var(--c-bg-subtle);
@@ -635,8 +632,6 @@ function clearChat() {
 }
 
 .toolbar-actions {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 
@@ -818,8 +813,6 @@ function clearChat() {
 }
 
 .chat-input {
-  display: flex;
-  gap: 8px;
   padding: 12px;
 }
 
@@ -913,5 +906,5 @@ function clearChat() {
 .ai-starter-grid strong span { color: var(--c-primary); }
 .ai-starter-grid small { display: block; color: var(--c-text-secondary); line-height: 1.7; font-size: 11px; margin-top: 10px; }
 .ai-starter-grid button:hover { border-color: var(--c-primary); background: var(--c-primary-light); }
-@media(max-width: 800px) { .ai-starter-grid { grid-template-columns: 1fr; } .ai-workspace-start { padding: 24px 0; } }
+@media(max-width: 900px){ .ai-starter-grid { grid-template-columns: 1fr; } .ai-workspace-start { padding: 24px 0; } }
 </style>

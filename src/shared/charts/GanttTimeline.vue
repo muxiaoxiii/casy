@@ -41,7 +41,7 @@ const axisTicks = computed(() =>
 </script>
 
 <template>
-  <div class="gantt">
+  <div class="gantt ui-col">
     <div class="gt-axis">
       <span v-for="t in axisTicks" :key="t.d" class="gt-tick" :style="{ left: (t.d / windowDays) * 100 + '%' }">
         {{ t.label }}
@@ -71,7 +71,7 @@ const axisTicks = computed(() =>
 </template>
 
 <style scoped>
-.gantt { display: flex; flex-direction: column; gap: 2px; }
+.gantt { gap: 2px; } /* 布局走共享 .ui-col，此处只保留本文件特有的 2px 间距 */
 .gt-axis {
   margin-left: calc(var(--gt-label-width) + 8px);
   margin-right: 48px;
@@ -124,5 +124,5 @@ const axisTicks = computed(() =>
   padding: 18px 0; text-align: center;
   font-size: var(--text-base); color: var(--c-text-secondary);
 }
-@media (max-width: 600px) { .gantt { --gt-label-width: 88px; } }
+
 </style>

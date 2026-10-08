@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { useSettingsStore } from '../../../stores/settings'
 import { ElMessage } from 'element-plus'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const settingsStore = useSettingsStore()
 
@@ -259,7 +260,7 @@ onMounted(loadPendingWrites)
     <!-- SMTP / ICS 邀请 -->
     <el-card>
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>SMTP / ICS 邀请</strong>
           <el-tag v-if="settingsStore.smtp_host" type="success" size="small">已配置</el-tag>
           <el-tag v-else type="info" size="small">未配置</el-tag>
@@ -296,7 +297,7 @@ onMounted(loadPendingWrites)
     <!-- 日历同步（CalDAV） -->
     <el-card class="caldav-card">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>日历同步（CalDAV）</strong>
           <el-tag v-if="syncStatus?.enabled" type="success" size="small">已启用</el-tag>
           <el-tag v-else-if="settingsStore.caldav_url" type="warning" size="small">已配置未启用</el-tag>
@@ -368,7 +369,7 @@ onMounted(loadPendingWrites)
     <!-- MCP Server -->
     <el-card class="mcp-card">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>MCP Server</strong>
           <el-tag v-if="mcpEnabled" type="success" size="small">已启用</el-tag>
           <el-tag v-else type="info" size="small">已禁用</el-tag>
@@ -395,7 +396,7 @@ onMounted(loadPendingWrites)
     <!-- MCP 外部写操作待确认 -->
     <el-card class="mcp-writes-card">
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>外部写操作待确认</strong>
           <el-tag v-if="pendingWrites.length > 0" type="warning" size="small">
             {{ pendingWrites.length }} 条待确认
@@ -418,7 +419,7 @@ onMounted(loadPendingWrites)
       <template v-else>
         <div v-for="w in pendingWrites" :key="w.id" class="write-item">
           <div class="write-info">
-            <div class="write-head">
+            <div class="write-head ui-row">
               <span class="write-tool">{{ mcpToolLabel(w.tool) }}</span>
               <span class="write-time">{{ writeCreatedAt(w) }}</span>
             </div>
@@ -444,7 +445,7 @@ onMounted(loadPendingWrites)
             拒绝
           </el-button>
         </div>
-        <div v-if="pendingWrites.length === 0" class="writes-empty">暂无待确认的外部写操作</div>
+        <div v-if="pendingWrites.length === 0" class="writes-empty ui-text ui-text--secondary"><EmptyState type="custom" compact hide-action title="暂无待确认的外部写操作" /></div>
       </template>
     </el-card>
   </div>
@@ -456,8 +457,6 @@ onMounted(loadPendingWrites)
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 
@@ -490,8 +489,6 @@ onMounted(loadPendingWrites)
 }
 
 .write-head {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
@@ -518,8 +515,6 @@ onMounted(loadPendingWrites)
 .writes-empty {
   text-align: center;
   padding: 20px;
-  color: var(--c-text-secondary);
-  font-size: 13px;
 }
 
 .tip {

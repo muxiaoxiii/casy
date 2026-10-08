@@ -133,12 +133,12 @@ html:is([data-theme="docket-light"], [data-theme="docket-dark"], [data-theme="ri
 .app-shell .content-scroll .dossier-case-picker { width: min(420px, 40vw); }
 .app-shell .content-scroll .workspace-title-row { flex-wrap: wrap; }
 .app-shell .content-scroll .inspector-preview { background: var(--c-bg-subtle); border-radius: 8px; }
-@media (max-width: 1200px) {
+@media (max-width: 1100px){
   .app-shell .content-scroll .today-grid-layout { grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; }
   .app-shell .content-scroll .cases-master-detail:not(.full-workspace-mode) { grid-template-columns: minmax(240px, .85fr) minmax(320px, 1.15fr); gap: 14px; }
   .app-shell .topbar { padding-inline: 20px; }
 }
-@media (max-width: 900px) {
+@media (max-width: 1100px){
   .app-shell .content-scroll .today-grid-layout, .app-shell .content-scroll .cases-master-detail:not(.full-workspace-mode), .app-shell .content-scroll .inbox-layout { grid-template-columns: minmax(0, 1fr); }
   .app-shell .content-scroll .cases-sidebar-index { max-height: 360px; }
   .app-shell .content-scroll .today-summary { flex-wrap: wrap; gap: 16px; }

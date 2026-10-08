@@ -9,8 +9,8 @@
   >
     <!-- 第一步：目标类型 -->
     <div class="picker-section">
-      <div class="picker-label">目标类型</div>
-      <div class="type-cards">
+      <div class="picker-label ui-text--caption ui-text--strong">目标类型</div>
+      <div class="type-cards ui-grid">
         <div
           v-for="t in targetTypes"
           :key="t.value"
@@ -25,7 +25,7 @@
 
     <!-- 第二步：选择具体实体 -->
     <div class="picker-section">
-      <div class="picker-label">选择{{ currentTypeLabel }}</div>
+      <div class="picker-label ui-text--caption ui-text--strong">选择{{ currentTypeLabel }}</div>
 
       <!-- 卷宗文件：先选案件，再列文件 -->
       <template v-if="targetType === 'file'">
@@ -80,7 +80,7 @@
             :class="['entity-item', { active: selected?.id === e.id }]"
             @click="selectEntity(e)"
           >
-            <span class="entity-name">{{ e.name }}</span>
+            <span class="entity-name ui-text ui-truncate">{{ e.name }}</span>
             <span v-if="e.meta" class="entity-meta">{{ e.meta }}</span>
           </div>
         </template>
@@ -90,13 +90,13 @@
 
     <!-- 第三步：定位与展示文本 -->
     <div class="picker-section">
-      <div class="picker-row">
+      <div class="picker-row ui-row">
         <div v-if="targetType === 'file'" class="picker-field">
-          <div class="picker-label">页码（可选）</div>
+          <div class="picker-label ui-text--caption ui-text--strong">页码（可选）</div>
           <el-input-number v-model="pageNo" :min="1" :max="9999" placeholder="页码" style="width: 140px" />
         </div>
         <div class="picker-field" style="flex: 1">
-          <div class="picker-label">锚文本（可选，默认取目标名）</div>
+          <div class="picker-label ui-text--caption ui-text--strong">锚文本（可选，默认取目标名）</div>
           <el-input v-model="label" placeholder="正文中显示的链接文字" maxlength="60" />
         </div>
       </div>
@@ -371,14 +371,10 @@ watch(visible, v => {
 }
 
 .picker-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--c-text-secondary);
   margin-bottom: 6px;
 }
 
 .type-cards {
-  display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
@@ -447,14 +443,6 @@ watch(visible, v => {
   background: var(--c-bg-selected);
 }
 
-.entity-name {
-  font-size: 13px;
-  color: var(--c-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .entity-item.active .entity-name {
   color: var(--c-primary);
   font-weight: 600;
@@ -474,7 +462,6 @@ watch(visible, v => {
 }
 
 .picker-row {
-  display: flex;
   gap: 16px;
   align-items: flex-end;
 }

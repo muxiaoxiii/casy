@@ -695,3 +695,10 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* 信息密度 token（bunny 10 第 4 步）：律师是长时间专业用户，
+   案件索引/任务行/日历行这三处高密度工作面使用更紧凑的行距。 */
+:root {
+  --density-row-pad-y: 8px;
+  --density-row-pad-x: 14px;
+}

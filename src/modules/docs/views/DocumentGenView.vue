@@ -36,7 +36,7 @@
 
           <!-- 模板信息 -->
           <div v-if="selectedTemplate" class="template-info-card">
-            <div class="info-header">
+            <div class="info-header ui-row">
               <h3>{{ selectedTemplate.name }}</h3>
               <el-tag size="small">{{ selectedTemplate.category }}</el-tag>
             </div>
@@ -53,7 +53,7 @@
 
           <!-- 字段预览表格 -->
           <div v-if="fieldRows.length > 0" class="field-preview">
-            <div class="preview-header">
+            <div class="preview-header ui-row ui-row--between">
               <h4>字段映射预览</h4>
               <el-input
                 v-model="fieldFilter"
@@ -114,7 +114,7 @@
                   >
                     {{ hasUnsavedEdits ? '已修改，尚未保存为草稿' : draftId ? '已保存为草稿' : '与渲染结果一致' }}
                   </span>
-                  <div class="edit-toolbar-actions">
+                  <div class="edit-toolbar-actions ui-row">
                     <el-button
                       size="small"
                       :disabled="!isEditedFromRender"
@@ -209,12 +209,11 @@
             v-if="!selectedTemplate || !selectedCaseId"
             class="empty-state"
           >
-            <el-empty description="请选择模板和案件" :image-size="80">
-              <template #description>
-                <p v-if="!selectedTemplate">👈 请先选择一个模板</p>
-                <p v-else>请选择一个案件</p>
-              </template>
-            </el-empty>
+            <EmptyState
+              type="custom"
+              title="请选择模板和案件"
+              :description="!selectedTemplate ? '👈 请先选择一个模板' : '请选择一个案件'"
+            />
           </div>
         </div>
       </el-col>
@@ -226,6 +225,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, View, Download, EditPen } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { casyContext } from '../../../core/plugin/context'
 import { useDocsyBridge } from '../composables/useDocsyBridge.js'
 import {
@@ -604,8 +604,6 @@ onMounted(() => {
 }
 
 .info-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
   margin-bottom: 8px;
 }
@@ -634,9 +632,6 @@ onMounted(() => {
 }
 
 .preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 12px;
 }
 
@@ -729,8 +724,6 @@ onMounted(() => {
 }
 
 .edit-toolbar-actions {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 

@@ -36,6 +36,11 @@ const router = useRouter()
 const caseData = ref(null)
 const loading = ref(false)
 const loadError = ref('')
+// 分区读取失败（审查 N10）：子加载器失败不得渲染成空列表，集中到一条可重试的错误条
+const sectionErrors = ref([])
+function noteSectionError(message) {
+  if (!sectionErrors.value.includes(message)) sectionErrors.value = [...sectionErrors.value, message]
+}
 const tasks = ref([])
 const hearings = ref([])
 const timeline = ref([])
@@ -230,6 +235,7 @@ let detailLoad = 0
 async function loadCaseData() {
   const request = ++detailLoad
   loading.value = true;loadError.value=''
+  sectionErrors.value = []
   try {
   caseData.value = null
   tasks.value = []; hearings.value = []; timeline.value = []; knowledge.value = []; files.value = []; relatedCases.value = []; typeMetrics.value = null
@@ -256,6 +262,7 @@ async function loadTypeMetrics() {
     typeMetrics.value = result.data
   } else {
     typeMetrics.value = null
+    noteSectionError(result.error || '案件类型指标读取失败')
   }
 }
 
@@ -275,7 +282,7 @@ async function loadHearings() {
   if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     hearings.value = result.data || []
-  }
+  } else noteSectionError(result.error || '开庭排期读取失败')
 }
 
 async function loadTasks() {
@@ -284,7 +291,7 @@ async function loadTasks() {
   if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     tasks.value = result.data || []
-  }
+  } else noteSectionError(result.error || '案件任务读取失败')
 }
 
 async function loadTimeline() {
@@ -293,7 +300,7 @@ async function loadTimeline() {
   if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     timeline.value = result.data || []
-  }
+  } else noteSectionError(result.error || '动态轨迹读取失败')
 }
 
 async function loadRelations() {
@@ -302,7 +309,7 @@ async function loadRelations() {
   if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     relatedCases.value = result.data || []
-  }
+  } else noteSectionError(result.error || '关联案件读取失败')
 }
 
 async function handleRelationAdded() {
@@ -321,7 +328,7 @@ async function loadKnowledge() {
   const results = await Promise.all(searchTerms.map(term => casyContext.knowledge.search(term)))
   if (id !== caseId.value || request !== detailLoad) return
   const failed = results.find(result => !result.ok)
-  if (failed) { ElMessage.error(failed.error || '关联知识读取失败'); return }
+  if (failed) { noteSectionError(failed.error || '关联知识读取失败'); return }
   knowledge.value = [...new Map(results.flatMap(result => result.data || []).map(item => [item.id, item])).values()]
 
 }
@@ -332,7 +339,7 @@ async function loadFiles() {
   if (id !== caseId.value || request !== detailLoad) return
   if (result.ok) {
     files.value = result.data || []
-  }
+  } else noteSectionError(result.error || '卷宗文件读取失败')
 }
 
 // ============================================================
@@ -555,17 +562,18 @@ onUnmounted(() => {
     </div>
 
     <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" />
+    <el-alert v-if="sectionErrors.length" :title="`部分案件数据读取失败：${sectionErrors.join('；')}`" type="error" :closable="false"><el-button text @click="loadCaseData">重试</el-button></el-alert>
     <!-- ═══ 案件概要 Hero Card ═══ -->
-    <div v-if="caseData" class="case-hero-card">
-      <div class="hero-left">
+    <div v-if="caseData" class="ui-row ui-row--top case-hero-card" style="gap:16px">
+      <div class="ui-col hero-left" style="gap:6px">
         <h1 class="case-title">{{ caseData.caseName }}</h1>
-        <div class="case-subtitle">
+        <div class="ui-row ui-row--wrap case-subtitle" style="gap:10px">
           <span v-if="caseData.caseNo" class="sub-item mono">{{ caseData.caseNo }}</span>
           <span v-if="caseData.patentNo" class="sub-item mono">{{ caseData.patentNo }}</span>
           <span v-if="caseData.clientName" class="sub-item">客户：{{ caseData.clientName }}</span>
           <span v-if="caseData.court" class="sub-item">受理机构：{{ caseData.court }}</span>
         </div>
-        <div class="hero-tags">
+        <div class="ui-row ui-row--wrap hero-tags" style="gap:6px">
           <span v-for="b in trackBadges" :key="b.track" :class="b.tagClass">
             {{ b.track }} · {{ b.label }}
           </span>
@@ -578,7 +586,7 @@ onUnmounted(() => {
 
       <!-- 进度环 (5/8) -->
       <div class="hero-donut-wrap">
-        <div class="donut-outer">
+        <div class="ui-row donut-outer">
           <div class="donut-inner">
             <span class="donut-num">{{ taskStats.completed }}/{{ taskStats.total || 0 }}</span>
             <span class="donut-sub">推进率</span>
@@ -588,8 +596,8 @@ onUnmounted(() => {
     </div>
 
     <!-- ═══ 下一步行动 Hero Card（原则一：顺序项目唯一入口） ═══ -->
-    <div v-if="nextAction" class="next-card">
-      <div class="play" @click="openTaskEdit(nextAction)">
+    <div v-if="nextAction" class="ui-row next-card" style="gap:12px">
+      <div class="ui-row play" @click="openTaskEdit(nextAction)">
         <el-icon :size="14" color="#FFFFFF"><CaretRight /></el-icon>
       </div>
       <div class="info">
@@ -604,7 +612,7 @@ onUnmounted(() => {
     </div>
 
     <!-- ═══ 详情 Tab 切换栏 ═══ -->
-    <div class="detail-tabs">
+    <div class="ui-row detail-tabs" style="gap:6px">
       <button type="button"
         class="dtab"
         :class="{ active: activeTab === 'overview' }"
@@ -671,11 +679,11 @@ onUnmounted(() => {
     </div>
 
     <!-- ═══ Tab 1: 项目总览 ═══ -->
-    <div v-if="activeTab === 'overview'" class="tab-pane">
-      <div class="overview-grid">
+    <div v-if="activeTab === 'overview'" class="ui-col tab-pane" style="gap:14px">
+      <div class="ui-grid overview-grid">
         <!-- 左列：里程碑与目标 -->
         <div class="card">
-          <div class="ch">
+          <div class="ui-row ui-row--between ch">
             <span class="t">里程碑与顺序项目</span>
             <span class="s">{{ sequentialCompletedCount }}/{{ sequentialTotalCount }} 步完成</span>
           </div>
@@ -683,7 +691,7 @@ onUnmounted(() => {
 
           <!-- 案件目标 -->
           <div class="goal-box">
-            <div class="goal-header">
+            <div class="ui-row ui-row--between goal-header">
               <span class="goal-label">案件目标</span>
               <button v-if="!editingGoal" class="btn-text" @click="editingGoal = true">编辑</button>
             </div>
@@ -705,22 +713,22 @@ onUnmounted(() => {
           </div>
 
           <!-- 顺序步骤序列 -->
-          <div v-if="sequentialTasks.length" class="seq-list">
+          <div v-if="sequentialTasks.length" class="ui-col seq-list" style="gap:6px">
             <div
               v-for="task in sequentialTasks"
               :key="task.id"
-              class="seq-item"
+              class="ui-row seq-item" style="gap:10px"
               :class="{
                 done: task.completed,
                 locked: task.blocked,
                 active: !task.completed && !task.blocked,
               }"
             >
-              <div class="seq-check" @click="toggleTaskComplete(task)">
+              <div class="ui-row seq-check" @click="toggleTaskComplete(task)">
                 <el-icon v-if="task.completed" :size="12"><Check /></el-icon>
                 <el-icon v-else-if="task.blocked" :size="12"><Lock /></el-icon>
               </div>
-              <div class="seq-content" @click="openTaskEdit(task)">
+              <div class="ui-col seq-content" style="gap:2px" @click="openTaskEdit(task)">
                 <span class="seq-name">{{ task.taskName }}</span><span v-if="task.planDefined" class="seq-hint">{{ taskPlanLabel(task) }}</span>
                 <span v-if="task.blocked" class="seq-hint">等待前置步骤完成</span>
               </div>
@@ -739,28 +747,28 @@ onUnmounted(() => {
         </div>
 
         <!-- 右列：统计与指标 -->
-        <div class="vstack">
+        <div class="ui-col vstack" style="gap:14px">
           <!-- 任务统计 -->
           <div class="card">
-            <div class="ch">
+            <div class="ui-row ui-row--between ch">
               <span class="t">任务统计</span>
               <span class="s">全案看板</span>
             </div>
             <div class="sep"></div>
-            <div class="task-stats-row">
-              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+            <div class="ui-grid task-stats-row" style="gap:8px">
+              <div class="ui-col stat-cell" style="gap:0" @click="router.push({ name: 'tasks', query: { caseId } })">
                 <span class="num">{{ taskStats.total }}</span>
                 <span class="lbl">总计</span>
               </div>
-              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+              <div class="ui-col stat-cell" style="gap:0" @click="router.push({ name: 'tasks', query: { caseId } })">
                 <span class="num">{{ taskStats.pending }}</span>
                 <span class="lbl">待办</span>
               </div>
-              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+              <div class="ui-col stat-cell" style="gap:0" @click="router.push({ name: 'tasks', query: { caseId } })">
                 <span class="num text-success">{{ taskStats.completed }}</span>
                 <span class="lbl">已完成</span>
               </div>
-              <div class="stat-cell" @click="router.push({ name: 'tasks', query: { caseId } })">
+              <div class="ui-col stat-cell" style="gap:0" @click="router.push({ name: 'tasks', query: { caseId } })">
                 <span class="num" :class="{ 'text-danger': taskStats.overdue > 0 }">{{ taskStats.overdue }}</span>
                 <span class="lbl">逾期</span>
               </div>
@@ -769,11 +777,11 @@ onUnmounted(() => {
 
           <!-- 差异化指标卡片 -->
           <div v-if="typeMetrics" class="card">
-            <div class="ch">
+            <div class="ui-row ui-row--between ch">
               <span class="t">{{ metricsTypeLabel }}效能指标</span>
             </div>
             <div class="sep"></div>
-            <div class="metrics-list">
+            <div class="ui-col metrics-list">
               <template v-if="metricsCaseType === 'computational'">
                 <div class="m-row">
                   <span class="m-k">按时完成率</span>
@@ -805,17 +813,17 @@ onUnmounted(() => {
 
           <!-- 关联资源快速跳转 -->
           <div class="card">
-            <div class="ch">
+            <div class="ui-row ui-row--between ch">
               <span class="t">关联资源</span>
             </div>
             <div class="sep"></div>
-            <div class="resource-links">
-              <div class="res-item" @click="activeTab = 'files'">
+            <div class="ui-col resource-links" style="gap:6px">
+              <div class="ui-row res-item" @click="activeTab = 'files'" style="gap:10px">
                 <el-icon :size="16" class="res-ico blue"><Folder /></el-icon>
                 <span class="res-name">卷宗文件</span>
                 <span class="res-count">{{ files.length }}</span>
               </div>
-              <div class="res-item" @click="router.push({ name: 'knowledge' })">
+              <div class="ui-row res-item" @click="router.push({ name: 'knowledge' })" style="gap:10px">
                 <el-icon :size="16" class="res-ico purple"><Collection /></el-icon>
                 <span class="res-name">关联知识</span>
                 <span class="res-count">{{ knowledge.length }}</span>
@@ -825,7 +833,7 @@ onUnmounted(() => {
 
           <!-- 关联案件快速跳转 -->
           <div class="card" v-if="relatedCases.length > 0 || true">
-            <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="ui-row ui-row--between ch">
               <span class="t">关联案件 ({{ relatedCases.length }})</span>
               <el-button link type="primary" size="small" :icon="Plus" @click="showRelatedWizard = true">新建关联案</el-button>
               <el-button link type="primary" size="small" @click="showAddRelationDialog = true">
@@ -854,29 +862,29 @@ onUnmounted(() => {
     </div>
 
     <!-- ═══ Tab 2: 程序期限与统筹 ═══ -->
-    <div v-if="activeTab === 'tracks'" class="tab-pane">
+    <div v-if="activeTab === 'tracks'" class="ui-col tab-pane" style="gap:14px">
       <ProcedureBoard :case-id="String(caseId)" @open-case="router.push({name:'case-detail',params:{id:$event},query:{tab:'tracks'}})" />
     </div>
 
     <!-- ═══ Tab 3: 案卷管理 ═══ -->
-    <div v-if="activeTab === 'files'" class="tab-pane">
+    <div v-if="activeTab === 'files'" class="ui-col tab-pane" style="gap:14px">
       <CaseFilesPanel :case-id="caseId" :case-no="caseData?.caseNo" />
     </div>
 
     <!-- ═══ Tab: 实体对象（W6 · Capacities 式单一事实源） ═══ -->
-    <div v-if="activeTab === 'persons'" class="tab-pane">
+    <div v-if="activeTab === 'persons'" class="ui-col tab-pane" style="gap:14px">
       <CasePersonsPanel :case-id="caseId" />
     </div>
 
     <!-- ═══ Tab: 事实白板（W7 · LiquidText 式事实节点网络） ═══ -->
-    <div v-if="activeTab === 'whiteboard'" class="tab-pane">
+    <div v-if="activeTab === 'whiteboard'" class="ui-col tab-pane" style="gap:14px">
       <WhiteboardEntry :case-id="caseId" />
     </div>
 
     <!-- ═══ Tab 4: 动态轨迹 ═══ -->
-    <div v-if="activeTab === 'timeline'" class="tab-pane">
+    <div v-if="activeTab === 'timeline'" class="ui-col tab-pane" style="gap:14px">
       <div class="card">
-        <div class="ch">
+        <div class="ui-row ui-row--between ch">
           <span class="t">动态轨迹</span>
           <span class="s">案件生命周期全记录</span>
         </div>
@@ -885,7 +893,7 @@ onUnmounted(() => {
           <div v-for="(item, idx) in timeline" :key="idx" class="t-row">
             <div class="t-date">{{ item.eventDate || item.date || item.createdAt?.slice(5, 10) }}</div>
             <div class="t-track"><div class="t-dot"></div></div>
-            <div class="t-body">
+            <div class="ui-col t-body" style="gap:2px">
               <div class="t-head">
                 <span class="t-title">{{ item.title || item.action || '动态' }}</span>
                 <span v-if="item.author" class="t-author">{{ item.author }}</span>
@@ -895,13 +903,13 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div v-else class="empty-hint">暂无动态记录</div>
+        <div v-else class="empty-hint"><EmptyState type="custom" compact hide-action title="暂无动态记录" /></div>
       </div>
     </div>
     <!-- ═══ Tab: 开庭与口审排期 ═══ -->
-    <div v-if="activeTab === 'hearings'" class="tab-pane">
+    <div v-if="activeTab === 'hearings'" class="ui-col tab-pane" style="gap:14px">
       <div class="card">
-        <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="ui-row ui-row--between ch">
           <div>
             <span class="t">开庭与口审排期记录</span>
             <span class="s">历次出庭/口审信息沉淀 (共 {{ hearings.length }} 次)</span>
@@ -950,9 +958,9 @@ onUnmounted(() => {
                   </el-tag>
                 </td>
                 <td>
-                  <div class="row-ops">
+                  <div class="ui-row row-ops">
                     <button class="btn-text" @click="openEditHearing(h)">编辑</button>
-                    <button class="btn-text" @click="deleteHearing(h)">删除</button>
+                    <button class="btn-text btn-danger" @click="deleteHearing(h)">删除</button>
                     <button class="btn-text" @click="activeTab='tracks'">收转文与修订记录</button>
                   </div>
                 </td>
@@ -971,9 +979,9 @@ onUnmounted(() => {
     </div>
 
     <!-- ═══ Tab: 任务与待办事项 ═══ -->
-    <div v-if="activeTab === 'tasks'" class="tab-pane">
+    <div v-if="activeTab === 'tasks'" class="ui-col tab-pane" style="gap:14px">
       <div class="card">
-        <div class="ch" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="ui-row ui-row--between ch">
           <div>
             <span class="t">本案关联任务与待办</span>
             <span class="s">{{ taskStats.completed }}/{{ taskStats.total }} 项已完成</span>
@@ -1038,7 +1046,7 @@ onUnmounted(() => {
                 </td>
                 <td>{{ t.assignee || '—' }}</td>
                 <td>
-                  <div class="row-ops">
+                  <div class="ui-row row-ops">
                     <button class="btn-text" @click="openTaskEdit(t)">编辑</button>
                   </div>
                 </td>
@@ -1056,7 +1064,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-if="activeTab === 'fields'" class="tab-pane">
+    <div v-if="activeTab === 'fields'" class="ui-col tab-pane" style="gap:14px">
       <CaseAttributes v-if="caseData" :case-data="caseData" @saved="loadCase" />
       <CaseSourceRecords :case-id="String(caseId)" />
     </div>
@@ -1149,9 +1157,6 @@ onUnmounted(() => {
 
 /* ── 案件概要 Hero ─────────────────────────────────────────── */
 .case-hero-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
@@ -1162,9 +1167,6 @@ onUnmounted(() => {
 
 .hero-left {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   min-width: 0;
 }
 
@@ -1177,9 +1179,6 @@ onUnmounted(() => {
 }
 
 .case-subtitle {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
   font-size: 12px;
   color: var(--c-text-secondary);
 }
@@ -1189,9 +1188,6 @@ onUnmounted(() => {
 }
 
 .hero-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   margin-top: 4px;
 }
 
@@ -1204,8 +1200,6 @@ onUnmounted(() => {
   height: 54px;
   border-radius: 50%;
   background: conic-gradient(var(--c-primary) 65%, var(--gray-200) 0);
-  display: flex;
-  align-items: center;
   justify-content: center;
 }
 
@@ -1235,9 +1229,6 @@ onUnmounted(() => {
 
 /* ── 下一步行动 Hero ───────────────────────────────────────── */
 .next-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   padding: 12px 14px;
   border-radius: var(--c-radius-lg);
   background: var(--c-primary-light);
@@ -1250,8 +1241,6 @@ onUnmounted(() => {
   height: 32px;
   border-radius: 50%;
   background: var(--c-primary);
-  display: flex;
-  align-items: center;
   justify-content: center;
   flex-shrink: 0;
   cursor: pointer;
@@ -1276,8 +1265,6 @@ onUnmounted(() => {
 
 /* ── Detail Tabs ───────────────────────────────────────────── */
 .detail-tabs {
-  display: flex;
-  gap: 6px;
   border-bottom: 1px solid var(--c-border);
   margin-bottom: 16px;
   padding-bottom: 0;
@@ -1305,24 +1292,13 @@ onUnmounted(() => {
 }
 
 /* ── Tab Pane ──────────────────────────────────────────────── */
-.tab-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
 
 .overview-grid {
-  display: grid;
   grid-template-columns: 1.5fr 1fr;
   gap: 14px;
   align-items: start;
 }
 
-.vstack {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
 
 /* ── 卡片 ──────────────────────────────────────────────────── */
 .card {
@@ -1333,11 +1309,6 @@ onUnmounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
-.card .ch {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 
 .card .ch .t {
   font-size: 13px;
@@ -1366,9 +1337,6 @@ onUnmounted(() => {
 }
 
 .goal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 4px;
 }
 
@@ -1410,16 +1378,8 @@ onUnmounted(() => {
 }
 
 /* ── 顺序步骤列表 ──────────────────────────────────────────── */
-.seq-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
 .seq-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--c-border-light);
   border-radius: var(--c-radius);
@@ -1441,8 +1401,6 @@ onUnmounted(() => {
   height: 18px;
   border-radius: 50%;
   border: 1.5px solid var(--gray-300);
-  display: flex;
-  align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
@@ -1456,9 +1414,6 @@ onUnmounted(() => {
 
 .seq-content {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   cursor: pointer;
   min-width: 0;
 }
@@ -1476,14 +1431,10 @@ onUnmounted(() => {
 
 /* ── 任务统计格子 ──────────────────────────────────────────── */
 .task-stats-row {
-  display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
 }
 
 .stat-cell {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   padding: 8px;
   background: var(--gray-50);
@@ -1509,11 +1460,6 @@ onUnmounted(() => {
 }
 
 /* ── 指标行 ────────────────────────────────────────────────── */
-.metrics-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 .m-row {
   display: flex;
@@ -1532,16 +1478,8 @@ onUnmounted(() => {
 }
 
 /* ── 资源链接 ──────────────────────────────────────────────── */
-.resource-links {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
 .res-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 8px 10px;
   border-radius: var(--c-radius);
   cursor: pointer;
@@ -1683,9 +1621,6 @@ onUnmounted(() => {
 
 .t-body {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   padding-bottom: 10px;
 }
 
@@ -1807,11 +1742,6 @@ onUnmounted(() => {
   margin-top: 2px;
 }
 
-.row-ops {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 
 /* ── 全量字段网格编辑 ──────────────────────────────────────── */
 .fields-grid-layout {

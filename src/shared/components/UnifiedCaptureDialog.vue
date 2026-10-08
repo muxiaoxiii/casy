@@ -501,7 +501,7 @@ function actionLabel(value: string) {
 .done-stage { padding: 24px 0; text-align: center; color: var(--c-success); }
 .done-stage h3 { font-size: 16px; color: var(--c-text); margin: 12px 0; }
 .capture-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--c-border); }
-@media (max-width: 480px) { .capture-fields, .review-time { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+
 </style>
 <style>
 .unified-capture-dialog { max-height: calc(100dvh - min(15vh, 48px) - 16px); margin-top: min(15vh, 48px); display: flex; flex-direction: column; }

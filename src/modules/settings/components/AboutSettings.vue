@@ -44,10 +44,10 @@ onMounted(() => {
           <span class="grid-cell" />
         </div>
       </div>
-      <div class="brand-text-block">
+      <div class="brand-text-block ui-col ui-col--tight">
         <h2 class="app-name">Casy Workspace</h2>
         <p class="app-tagline">专为专业律师打造的本地优先 (Local-First) 智能诉讼管理与文书工作台</p>
-        <div class="version-badges">
+        <div class="version-badges ui-row">
           <span class="badge-version">v{{ appVersion }}</span>
           <span class="badge-status">
             <span class="status-dot"></span>
@@ -58,12 +58,12 @@ onMounted(() => {
     </div>
 
     <!-- 系统与底层架构卡片 -->
-    <div class="about-section">
+    <div class="about-section ui-col">
       <h3 class="section-heading">系统架构与存储引擎</h3>
-      <div class="arch-grid">
+      <div class="arch-grid ui-grid">
         <div class="arch-card">
           <div class="arch-icon"><Lock /></div>
-          <div class="arch-content">
+          <div class="arch-content ui-col">
             <span class="arch-title">数据底座</span>
             <strong class="arch-val">{{ dbStatus }}</strong>
             <p class="arch-desc">所有案件、证据、任务与文书均存放于本地数据库，绝不擅自上传云端。</p>
@@ -72,7 +72,7 @@ onMounted(() => {
 
         <div class="arch-card">
           <div class="arch-icon"><Cpu /></div>
-          <div class="arch-content">
+          <div class="arch-content ui-col">
             <span class="arch-title">核心驱动</span>
             <strong class="arch-val">{{ rustCoreStatus }}</strong>
             <p class="arch-desc">基于 Rust 高性能并发引擎，毫秒级检索全文与期限计算，丝滑稳定。</p>
@@ -81,7 +81,7 @@ onMounted(() => {
 
         <div class="arch-card">
           <div class="arch-icon"><Connection /></div>
-          <div class="arch-content">
+          <div class="arch-content ui-col">
             <span class="arch-title">开放连接</span>
             <strong class="arch-val">WebDAV / CalDAV / SMTP</strong>
             <p class="arch-desc">支持自由同步至个人私有云盘及本地系统日历，拥有完全的数据主权。</p>
@@ -90,7 +90,7 @@ onMounted(() => {
 
         <div class="arch-card">
           <div class="arch-icon"><Document /></div>
-          <div class="arch-content">
+          <div class="arch-content ui-col">
             <span class="arch-title">文书与知识引擎</span>
             <strong class="arch-val">Notion-Style Block Flow</strong>
             <p class="arch-desc">模块化富文本块编辑 + 专属智库双链穿插，支持 Word 文档一键导出。</p>
@@ -100,7 +100,7 @@ onMounted(() => {
     </div>
 
     <!-- 隐私与免责声明 -->
-    <div class="about-section">
+    <div class="about-section ui-col">
       <h3 class="section-heading">免责声明与安全准则</h3>
       <div class="disclaimer-box">
         <p>1. <strong>隐私保证</strong>：Casy 为独立客户端软件。除非您主动在设置中配置第三方大模型 API 或 WebDAV 账号，否则本软件不会向任何外部服务器发送您的案卷数据。</p>
@@ -156,8 +156,6 @@ onMounted(() => {
 }
 
 .brand-text-block {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
 }
 
@@ -177,8 +175,6 @@ onMounted(() => {
 }
 
 .version-badges {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
@@ -213,8 +209,6 @@ onMounted(() => {
 }
 
 .about-section {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
@@ -226,7 +220,6 @@ onMounted(() => {
 }
 
 .arch-grid {
-  display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
@@ -254,8 +247,6 @@ onMounted(() => {
 }
 
 .arch-content {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 

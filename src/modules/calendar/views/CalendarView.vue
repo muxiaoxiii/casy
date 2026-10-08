@@ -6,6 +6,9 @@ import PersonalDaysDialog from '../components/PersonalDaysDialog.vue'
 import YearHeatmap from '../components/YearHeatmap.vue'
 import CalendarComposer from '../components/CalendarComposer.vue'
 import TimeGrid from '../components/TimeGrid.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
+import DeadlineChip from '../../../shared/ui/DeadlineChip.vue'
+import SkeletonCard from '../../../shared/components/SkeletonCard.vue'
 import { timeString } from '../parseCalendarCapture'
 import { surroundingMonths, monthWorkingDays, eventDuration, isPlanningWorkday, planningRestIntervals } from '../calendarDates'
 import { enrichTasksWithCaseName } from '../enrichTasks'
@@ -89,7 +92,9 @@ const holidayError = ref('')
 let holidayRequest = 0
 const completedTaskIds = ref(new Set())
 const cases = ref([])
+const caseError = ref('')
 const deadlineWarnings = ref([])
+const deadlineError = ref('')
 const holidayEntries = ref([])
 const showPersonalDays = ref(false)
 const loading = ref(false)
@@ -128,7 +133,6 @@ const editingItem = ref({
 // 右侧统一 Holding / Schedule Tank 状态
 const tankFilter = ref('unscheduled') // 'unscheduled' | 'week' | 'multiday' | 'today'
 const tankSearch = ref('')
-
 
 // ============================================================
 // 拖拽调度引擎 (Drag & Drop Engine - 真实持久化)
@@ -663,10 +667,10 @@ const forecast14Days = computed(() => {
 
     if (hasCourt || hasDeadline) {
       riskLevel = 'risk'
-      riskTag = hasCourt ? '🔴 法庭庭审日 (强时间锁定)' : '🔴 法定诉讼期限截止日'
+      riskTag = hasCourt ? '法庭庭审日 (强时间锁定)' : '法定诉讼期限截止日'
     } else if (totalHours >= 4 || dayTasks.length >= 3) {
       riskLevel = 'busy'
-      riskTag = `🟡 高密度工作日 (${totalHours}h)`
+      riskTag = `高密度工作日 (${totalHours}h)`
     }
 
     list.push({
@@ -815,6 +819,7 @@ async function loadEvents() {
   } else {
     eventError.value = failed.error || '日程加载失败'
   }
+  if (!eventError.value && independent && !independent.ok) eventError.value = independent.error || '日程详情加载失败'
 }
 
 async function loadTasks() {
@@ -829,9 +834,10 @@ async function loadTasks() {
 
 async function loadCases() {
   const items = []
+  caseError.value = ''
   for (let page = 1; ; page++) {
     const result = await casyContext.cases.list({ page, perPage: 200 })
-    if (!result.ok || !Array.isArray(result.data?.items)) return
+    if (!result.ok || !Array.isArray(result.data?.items)) { caseError.value = result.error || '案件加载失败'; return }
     items.push(...result.data.items)
     if (!result.data.items.length || items.length >= result.data.total) break
   }
@@ -847,7 +853,8 @@ async function loadDeadlineWarnings() {
   const result = await casyContext.calendar.deadlineWarnings()
   if (result.ok && Array.isArray(result.data)) {
     deadlineWarnings.value = result.data
-  }
+    deadlineError.value = ''
+  } else deadlineError.value = result.error || '截止提醒加载失败'
 }
 
 async function loadHolidays() {
@@ -965,17 +972,19 @@ async function scheduleTaskBlock(event, date, hour) {
 </script>
 
 <template>
-  <div class="stitch-calendar-workspace">
-    <div v-if="eventError" class="calendar-data-error" role="alert">日程加载失败 <el-button text @click="loadEvents">重试</el-button></div>
-    <div v-if="holidayError || taskError || planError" class="calendar-data-error" role="alert">{{ holidayError || taskError || planError }} <el-button text @click="loadData">重试</el-button></div>
+  <div class="stitch-calendar-workspace ui-col">
+    <div v-if="eventError" class="calendar-data-error ui-row ui-text--danger" role="alert">日程加载失败 <el-button text @click="loadEvents">重试</el-button></div>
+    <div v-if="holidayError || taskError || planError" class="calendar-data-error ui-row ui-text--danger" role="alert">{{ holidayError || taskError || planError }} <el-button text @click="loadData">重试</el-button></div>
+    <div v-if="caseError" class="calendar-data-error ui-row ui-text--danger" role="alert">案件加载失败，案件筛选与关联信息可能不完整：{{ caseError }} <el-button text @click="loadCases">重试</el-button></div>
+    <div v-if="deadlineError" class="calendar-data-error ui-row ui-text--danger" role="alert">截止提醒加载失败，期限数据可能不完整：{{ deadlineError }} <el-button text @click="loadDeadlineWarnings">重试</el-button></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
-    <div class="calendar-top-header">
+    <div class="calendar-top-header ui-row ui-row--between ui-row--wrap">
       <div class="header-titles">
-        <div class="month-title-row">
+        <div class="month-title-row ui-row">
           <h1 class="month-display-title">
             {{ activeView === 'year' ? `${currentDate.getFullYear()} 年` : activeView === 'day' ? formatDate(currentDate) : activeView === 'forecast' ? (forecastMode === 'gantt' ? '任务甘特排期' : '未来 14 天诉讼与排期预测') : currentMonthInfo.label }}
           </h1>
-          <div v-if="!(activeView === 'forecast' && forecastMode === 'gantt')" class="month-nav-btns">
+          <div v-if="!(activeView === 'forecast' && forecastMode === 'gantt')" class="month-nav-btns ui-row">
             <button class="nav-arrow-btn" @click="prevPeriod" :title="t('calendar.previous')" :aria-label="t('calendar.previous')">
               <el-icon :size="16"><ArrowLeft /></el-icon>
             </button>
@@ -987,12 +996,12 @@ async function scheduleTaskBlock(event, date, hour) {
         </div>
       </div>
 
-      <div class="header-right-actions">
+      <div class="header-right-actions ui-row">
         <!-- 快速输入条 -->
         <CalendarComposer :date="formatDate(currentDate)" :cases="cases" @created="onCalendarCreated" />
 
         <!-- 视图切换胶囊 -->
-        <div class="view-switch-pill">
+        <div class="view-switch-pill ui-row">
           <button
             v-for="vo in viewOptions"
             :key="vo.key"
@@ -1006,7 +1015,7 @@ async function scheduleTaskBlock(event, date, hour) {
       </div>
     </div>
 
-    <div class="calendar-holiday-legend"><span>实色：法定休 / 班</span><span>虚线：个人自休 / 自班（可与法定安排并存）</span><el-button @click="showPersonalDays = true">添加休息日</el-button></div>
+    <div class="calendar-holiday-legend ui-row ui-row--wrap"><span>实色：法定休 / 班</span><span>虚线：个人自休 / 自班（可与法定安排并存）</span><el-button @click="showPersonalDays = true">添加休息日</el-button></div>
     <PersonalDaysDialog v-model="showPersonalDays" :date="formatDate(currentDate)" @saved="loadHolidays" />
 
     <div v-if="activeView === 'forecast'" class="forecast-mode-switch" aria-label="排期展示方式">
@@ -1022,15 +1031,15 @@ async function scheduleTaskBlock(event, date, hour) {
           <el-icon class="case-search-icon" :size="16"><Search /></el-icon>
           <input v-model="caseSearchQuery" placeholder="搜索案件…" class="case-search-input" />
         </div>
-        <div class="case-checkbox-list">
-          <label class="case-checkbox-item all-cases">
+        <div class="case-checkbox-list ui-col">
+          <label class="case-checkbox-item all-cases ui-row">
             <input type="checkbox" :checked="selectedCaseIds.has('all')" class="case-native-checkbox" @change="selectedCaseIds.clear(); if ($event.target.checked) selectedCaseIds.add('all')" />
             <span class="case-checkbox-name font-bold">全部案件</span>
           </label>
           <label
             v-for="c in filteredCases"
             :key="c.id"
-            class="case-checkbox-item"
+            class="case-checkbox-item ui-row"
           >
             <input type="checkbox" :checked="selectedCaseIds.has(c.id)" class="case-native-checkbox" @change="selectedCaseIds.delete('all'); selectedCaseIds.has(c.id) ? selectedCaseIds.delete(c.id) : selectedCaseIds.add(c.id)" />
             <span class="case-checkbox-name">{{ c.caseName || c.caseNo }}</span>
@@ -1045,45 +1054,52 @@ async function scheduleTaskBlock(event, date, hour) {
             <p class="stream-sub-caption">看清案件安排，留出推进工作的时间。</p>
           </div>
         </div>
-        <TimelineStream :groups="timelineStream" @open="item => openEditDetail(item.source, item.sourceKind)" />
+        <div v-if="loading && !timelineStream.length" class="ui-col" role="status" aria-live="polite" aria-label="正在加载日程数据" style="gap:12px">
+          <SkeletonCard v-for="row in 3" :key="row" :rows="2" />
+        </div>
+        <TimelineStream v-else :groups="timelineStream" @open="item => openEditDetail(item.source, item.sourceKind)" />
       </main>
     </div>
 
     <!-- ═══ 3. 主工作区：月视图 / 周视图 / 日视图 / 预测视图 统一联动 Holding Tank ═══ -->
+    <!-- 首次加载骨架屏：数据未就绪前占位，已有数据时保留当前内容 -->
+    <div v-if="loading && !allTasks.length && !events.length" class="calendar-first-load ui-col" role="status" aria-live="polite" aria-label="正在加载日程数据">
+      <SkeletonCard v-for="row in 4" :key="row" :rows="3" />
+    </div>
     <YearHeatmap v-else-if="activeView === 'year'" :year="currentDate.getFullYear()" :tasks="yearTasks" :holidays="holidayEntries" :loading="loading" @month="openYearDate($event, 'month')" @day="openYearDate($event, 'day')" @task="openEditDetail($event, 'task')" />
-    <TaskGantt v-else-if="activeView === 'forecast' && forecastMode === 'gantt'" :date="formatDate(currentDate)" :tasks="allTasks" :plans="taskPlans" :cases="cases" :holidays="holidayEntries" :events="events" :loading="loading || plansLoading" :error="planError || taskError || holidayError || eventError" @saved="onPlanSaved" @refresh="loadData" @navigate="navigateGantt" @open="openEditDetail($event, 'task')" @event="openEditDetail($event, 'event')" />
-    <div v-else class="calendar-unified-workspace-grid">
+    <TaskGantt v-else-if="activeView === 'forecast' && forecastMode === 'gantt'" :date="formatDate(currentDate)" :tasks="allTasks" :plans="taskPlans" :cases="cases" :holidays="holidayEntries" :events="events" :loading="loading || plansLoading" :error="planError || taskError || holidayError || eventError || caseError || deadlineError" @saved="onPlanSaved" @refresh="loadData" @navigate="navigateGantt" @open="openEditDetail($event, 'task')" @event="openEditDetail($event, 'event')" />
+    <div v-else class="calendar-unified-workspace-grid ui-grid">
       <!-- ── A. 左侧主视图区域 ── -->
       <div class="calendar-main-stage">
         <!-- 1. 月视图 (Month View) -->
         <div v-if="activeView === 'month'" class="month-full-card">
           <!-- 上方一排月度洞察小卡片 -->
-          <div class="month-top-stats-strip">
-            <div class="m-stat-pill">
+          <div class="month-top-stats-strip ui-grid">
+            <div class="m-stat-pill ui-row ui-row--between">
               <span class="m-stat-lbl">{{ t('calendar.deadlines') }}</span>
               <strong class="m-stat-val text-risk">{{ monthInsights.deadlines }}</strong>
             </div>
-            <div class="m-stat-pill">
+            <div class="m-stat-pill ui-row ui-row--between">
               <span class="m-stat-lbl">{{ t('calendar.workload') }}</span>
               <strong class="m-stat-val text-primary">{{ monthInsights.workload }}</strong>
             </div>
-            <div class="m-stat-pill">
+            <div class="m-stat-pill ui-row ui-row--between">
               <span class="m-stat-lbl">{{ t('calendar.workdays') }}</span>
               <strong class="m-stat-val">{{ monthInsights.workdays }}</strong>
             </div>
-            <div class="m-stat-pill">
+            <div class="m-stat-pill ui-row ui-row--between">
               <span class="m-stat-lbl">{{ t('calendar.holidays') }}</span>
               <strong class="m-stat-val text-warning">{{ monthInsights.holidays }}</strong>
             </div>
           </div>
 
           <!-- 星期头 -->
-          <div class="month-days-of-week-row">
+          <div class="month-days-of-week-row ui-grid">
             <div v-for="d in (locale === 'en-US' ? weekDaysEn : weekDaysCn.map(day => '周' + day))" :key="d" class="dow-cell">{{ d }}</div>
           </div>
 
           <!-- 紧凑日历矩阵 -->
-          <div class="month-dates-matrix-grid">
+          <div class="month-dates-matrix-grid ui-grid">
             <div
               v-for="(cell, cIdx) in monthGridDays"
               :key="cIdx"
@@ -1100,7 +1116,7 @@ async function scheduleTaskBlock(event, date, hour) {
               @click="openDayModal(cell)"
             >
               <div class="cell-header-flex">
-                <div class="cell-dots-indicator-group">
+                <div class="cell-dots-indicator-group ui-row">
                   <span v-if="cell.hasHard" class="dot-indicator dot-risk" title="Hard Deadline" />
                   <span v-if="cell.hasWaiting" class="dot-indicator dot-warning" title="Waiting on Client" />
                   <span v-if="cell.hasPlan" class="dot-indicator dot-primary" title="Flexible Task" />
@@ -1112,8 +1128,8 @@ async function scheduleTaskBlock(event, date, hour) {
               </div>
 
               <!-- 当日事项流 -->
-              <div class="cell-items-preview">
-                <div v-for="event in cell.events.filter(e=>e.type==='event')" :key="'event-'+event.id" class="cell-task-capsule" draggable="true" @dragstart.stop="onDragStart($event,event)" @dragend="onDragEnd" @click.stop="openEditDetail(event,'event')"><span class="capsule-title">{{ event.startTime || '全天' }} · {{ event.title }}</span></div>
+              <div class="cell-items-preview ui-col">
+                <div v-for="event in cell.events.filter(e=>e.type==='event')" :key="'event-'+event.id" class="cell-task-capsule" draggable="true" @dragstart.stop="onDragStart($event,event)" @dragend="onDragEnd" @click.stop="openEditDetail(event,'event')"><span class="capsule-title ui-truncate">{{ event.startTime || '全天' }} · {{ event.title }}</span></div>
                 <!-- 跨天条带 -->
                 <div
                   v-for="mt in cell.multiDayTasks"
@@ -1131,10 +1147,10 @@ async function scheduleTaskBlock(event, date, hour) {
                   @dblclick.stop="openEditDetail(mt, 'task')"
                   :title="`${mt.taskName} (${scheduleStart(mt)} ~ ${scheduleEnd(mt)}) · 双击编辑`"
                 >
-                  <span v-if="formatDate(cell.date) === scheduleStart(mt)" class="ribbon-text">
+                  <span v-if="formatDate(cell.date) === scheduleStart(mt)" class="ribbon-text ui-truncate">
                     ▶ {{ mt.taskName }}
                   </span>
-                  <span v-else-if="formatDate(cell.date) === scheduleEnd(mt)" class="ribbon-text">
+                  <span v-else-if="formatDate(cell.date) === scheduleEnd(mt)" class="ribbon-text ui-truncate">
                     🏁 结束
                   </span>
                   <span v-else class="ribbon-cont-line" />
@@ -1162,7 +1178,7 @@ async function scheduleTaskBlock(event, date, hour) {
                   title="单击查看当日，双击编辑任务"
                 >
                   <span class="capsule-dot" />
-                  <span class="capsule-title">{{ t.taskName }}</span>
+                  <span class="capsule-title ui-truncate">{{ t.taskName }}</span>
 
                   <!-- 右边缘拉伸把手 -->
                   <div
@@ -1185,7 +1201,7 @@ async function scheduleTaskBlock(event, date, hour) {
             <div
               v-for="col in weekColumns"
               :key="col.dateStr"
-              class="week-col-header-cell"
+              class="week-col-header-cell ui-col"
               :class="{ 'is-today-col': col.isToday }"
             >
               <span class="week-col-name">周{{ col.weekDayCn }}</span>
@@ -1200,7 +1216,7 @@ async function scheduleTaskBlock(event, date, hour) {
               <div
                 v-for="col in weekColumns"
                 :key="'ad-' + col.dateStr"
-                class="allday-col-drop-slot"
+                class="allday-col-drop-slot ui-col"
                 @dragover="onDragOver"
                 @drop="onDropOnDay($event, col.date)"
               >
@@ -1210,7 +1226,7 @@ async function scheduleTaskBlock(event, date, hour) {
                 <div
                   v-for="mt in col.multiDayTasks"
                   :key="'w-mt-' + mt.id"
-                  class="allday-multiday-pill"
+                  class="allday-multiday-pill ui-truncate"
                   @dblclick="openEditDetail(mt, 'task')"
                 >
                   {{ mt.taskName }}
@@ -1224,7 +1240,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
         <!-- 3. 日视图 (Day View) -->
         <div v-else-if="activeView === 'day'" class="day-full-card">
-          <div class="day-schedule-header">
+          <div class="day-schedule-header ui-row ui-row--top ui-row--between">
             <div>
               <h2 class="day-schedule-heading">{{ formatDate(currentDate) }}</h2><HolidayBadges :entries="holidaysOn(currentDate)" />
               <span class="day-schedule-sub">
@@ -1234,12 +1250,12 @@ async function scheduleTaskBlock(event, date, hour) {
             <span class="day-view-mode-tag">时间安排</span>
           </div>
 
-          <div v-if="multiDayTasksForDay(currentDate).length" class="day-multiday-active-banner">
-            <div class="dma-title-row">
+          <div v-if="multiDayTasksForDay(currentDate).length" class="day-multiday-active-banner ui-col">
+            <div class="dma-title-row ui-row">
               <el-icon :size="15"><Timer /></el-icon>
               <strong>跨天进行中任务</strong>
             </div>
-            <div class="dma-cards-list">
+            <div class="dma-cards-list ui-col ui-col--tight">
               <div
                 v-for="mt in multiDayTasksForDay(currentDate)"
                 :key="'dma-' + mt.id"
@@ -1269,9 +1285,9 @@ async function scheduleTaskBlock(event, date, hour) {
         </div>
 
         <!-- 4. 预测视图 (Forecast: 完整 14 天诉讼与负荷预测工作台) -->
-        <div v-else-if="activeView === 'forecast'" class="forecast-full-card">
+        <div v-else-if="activeView === 'forecast'" class="forecast-full-card ui-col">
           <!-- 顶部 14 天宏观指标面板 -->
-          <div class="forecast-overview-header">
+          <div class="forecast-overview-header ui-row ui-row--between ui-row--wrap">
             <div>
               <h2 class="forecast-heading">未来 14 天诉讼与负荷全景预测</h2>
               <p class="forecast-sub">
@@ -1280,16 +1296,16 @@ async function scheduleTaskBlock(event, date, hour) {
             </div>
 
             <!-- 3 宫格统计 -->
-            <div class="forecast-stats-strip">
-              <div class="f-stat-card">
+            <div class="forecast-stats-strip ui-row">
+              <div class="f-stat-card ui-col">
                 <span class="f-stat-label">诉讼/开庭日</span>
                 <strong class="f-stat-number text-risk">{{ forecastOverviewStats.riskDays }} 天</strong>
               </div>
-              <div class="f-stat-card">
+              <div class="f-stat-card ui-col">
                 <span class="f-stat-label">预估总工时</span>
                 <strong class="f-stat-number text-primary">{{ forecastOverviewStats.workloadHours }}h</strong>
               </div>
-              <div class="f-stat-card">
+              <div class="f-stat-card ui-col">
                 <span class="f-stat-label">黄金专注窗口</span>
                 <strong class="f-stat-number text-success">{{ forecastOverviewStats.freeDays }} 天</strong>
               </div>
@@ -1297,8 +1313,8 @@ async function scheduleTaskBlock(event, date, hour) {
           </div>
 
           <!-- 快速筛选 Tab -->
-          <div class="forecast-filter-bar">
-            <div class="f-filter-tabs">
+          <div class="forecast-filter-bar ui-row ui-row--between">
+            <div class="f-filter-tabs ui-row">
               <button class="f-filter-tab" :class="{ active: forecastFilter === 'all' }" @click="forecastFilter = 'all'">全部 14 天</button>
               <button class="f-filter-tab" :class="{ active: forecastFilter === 'risk_only' }" @click="forecastFilter = 'risk_only'">仅看开庭与期限日</button>
               <button class="f-filter-tab" :class="{ active: forecastFilter === 'free_only' }" @click="forecastFilter = 'free_only'">仅看专注空闲窗口</button>
@@ -1324,15 +1340,20 @@ async function scheduleTaskBlock(event, date, hour) {
               @drop="onDropOnDay($event, day.date)"
             >
               <!-- 日期与定位 -->
-              <div class="f-date-col">
+              <div class="f-date-col ui-col">
                 <span class="f-day-badge" :class="day.riskLevel">{{ day.dayLabel }}</span>
                 <strong class="f-day-date">{{ day.monthDayStr }}</strong>
                 <small class="f-day-weekday">周{{ day.weekdayCn }}</small><HolidayBadges :entries="holidaysOn(day.dateStr)" />
               </div>
 
               <!-- 中间：当日事项概览与预警标签 -->
-              <div class="f-events-col">
-                <div class="f-risk-tag-row">
+              <div class="f-events-col ui-col">
+                <div class="f-risk-tag-row ui-row">
+                  <DeadlineChip
+                    v-if="day.riskLevel === 'risk' || day.riskLevel === 'busy'"
+                    :level="day.riskLevel === 'risk' ? 'R1' : 'R2'"
+                    :text="day.riskLevel === 'risk' ? '风险日' : '高密度'"
+                  />
                   <span class="f-risk-pill" :class="day.riskLevel">{{ day.riskTag }}</span>
                   <span v-if="day.totalHours > 0" class="f-hours-pill">工时: {{ day.totalHours }}h</span>
                 </div>
@@ -1376,7 +1397,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
                   <!-- 无排期 -->
                   <div v-if="!day.events.length && !day.tasks.length && !day.multiDayTasks.length" class="f-empty-slot">
-                    <span>{{ holidaysOn(day.dateStr).some(entry => entry.kind === 'holiday') ? '当日有休息安排，请结合个人计划排期' : '暂无已排期事项 · 支持将右侧任务拖入落位' }}</span>
+                    <EmptyState type="custom" compact hide-action :title="holidaysOn(day.dateStr).some(entry => entry.kind === 'holiday') ? '当日有休息安排，请结合个人计划排期' : '暂无已排期事项 · 支持将右侧任务拖入落位'" />
                   </div>
                 </div>
               </div>
@@ -1387,7 +1408,7 @@ async function scheduleTaskBlock(event, date, hour) {
 
       <!-- ── B. 右侧统一 Holding Tank 真实任务池 ── -->
       <aside
-        class="calendar-unified-holding-tank"
+        class="calendar-unified-holding-tank ui-col"
         :class="{ 'is-drag-target': isOverTank }"
         @dragover="onDragOver"
         @dragenter="isOverTank = true"
@@ -1396,12 +1417,12 @@ async function scheduleTaskBlock(event, date, hour) {
       >
         <div class="agenda-mini">
           <label>跳转日期 <input v-model="jumpDate" type="date" /></label>
-          <HolidayBadges :entries="holidaysOn(currentDate)" /><div class="agenda-mini-title"><strong>{{ formatDate(currentDate) }}</strong><button type="button" @click="activeView = 'day'">展开当日 ↗</button></div>
-          <p v-if="!eventsForDay(currentDate).length">当天暂无日程</p>
-          <button v-for="event in eventsForDay(currentDate)" :key="event.type + event.id" class="agenda-mini-item" type="button" @click="openEditDetail(event, 'event')"><time>{{ event.time || '全天' }}</time><span>{{ event.title }}</span></button>
+          <HolidayBadges :entries="holidaysOn(currentDate)" /><div class="agenda-mini-title ui-row ui-row--between"><strong>{{ formatDate(currentDate) }}</strong><button type="button" @click="activeView = 'day'">展开当日 ↗</button></div>
+          <p v-if="!eventsForDay(currentDate).length"><EmptyState type="custom" compact hide-action title="当天暂无日程" /></p>
+          <button v-for="event in eventsForDay(currentDate)" :key="event.type + event.id" class="agenda-mini-item" type="button" @click="openEditDetail(event, 'event')"><time>{{ event.time || '全天' }}</time><span class="ui-truncate">{{ event.title }}</span></button>
         </div>
         <div class="tank-header-card">
-          <div class="tank-title-row">
+          <div class="tank-title-row ui-row ui-row--top ui-row--between">
             <div>
               <h3 class="tank-title">{{ t('calendar.taskPool') }}</h3>
               <p class="tank-sub-desc">
@@ -1411,7 +1432,7 @@ async function scheduleTaskBlock(event, date, hour) {
             <span class="tank-badge">{{ tankTasks.length }} 项</span>
           </div>
 
-          <div class="tank-filter-pills">
+          <div class="tank-filter-pills ui-row">
             <button class="tank-tab-btn" :class="{ active: tankFilter === 'unscheduled' }" @click="tankFilter = 'unscheduled'">未安排</button>
             <button class="tank-tab-btn" :class="{ active: tankFilter === 'week' }" @click="tankFilter = 'week'">本周</button>
             <button class="tank-tab-btn" :class="{ active: tankFilter === 'multiday' }" @click="tankFilter = 'multiday'">跨天</button>
@@ -1424,7 +1445,7 @@ async function scheduleTaskBlock(event, date, hour) {
           </div>
         </div>
 
-        <div class="holding-tasks-scroll-list">
+        <div class="holding-tasks-scroll-list ui-col">
           <div
             v-for="task in tankTasks"
             :key="task.id"
@@ -1434,12 +1455,12 @@ async function scheduleTaskBlock(event, date, hour) {
             @dragend="onDragEnd"
             @dblclick="openEditDetail(task, 'task')"
           >
-            <div class="tank-task-main">
-              <div class="tank-task-header">
+            <div class="tank-task-main ui-col">
+              <div class="tank-task-header ui-row">
                 <el-icon class="tank-drag-handle" :size="16"><Rank /></el-icon>
-                <strong class="tank-task-name" :class="{ struck: task.completed }">{{ task.taskName }}</strong>
+                <strong class="tank-task-name ui-truncate" :class="{ struck: task.completed }">{{ task.taskName }}</strong>
               </div>
-              <div class="tank-task-meta">
+              <div class="tank-task-meta ui-row">
                 <span v-if="task.caseName" class="meta-case-tag">{{ task.caseName }}</span>
                 <span v-if="isMultiDayTask(task)" class="meta-multiday-badge">
                   跨 {{ getDaySpan(scheduleStart(task), scheduleEnd(task)) }} 天 ({{ scheduleStart(task).slice(5) }} ~ {{ scheduleEnd(task).slice(5) }})
@@ -1448,7 +1469,7 @@ async function scheduleTaskBlock(event, date, hour) {
               </div>
             </div>
 
-            <div class="tank-task-right">
+            <div class="tank-task-right ui-row">
               <span class="tank-est-pill">{{ task.estimatedMinutes || 60 }}m</span>
               <button
                 class="tank-check-box"
@@ -1462,7 +1483,8 @@ async function scheduleTaskBlock(event, date, hour) {
           </div>
 
           <div v-if="!tankTasks.length" class="tank-empty-box">
-            <span>暂无此类待办事项</span>
+            <EmptyState v-if="tankFilter !== 'unscheduled' || tankSearch.trim()" type="search" compact action-text="清除筛选" @action="tankFilter = 'unscheduled'; tankSearch = ''" />
+            <EmptyState v-else type="custom" compact hide-action title="暂无此类待办事项" />
           </div>
         </div>
       </aside>
@@ -1475,14 +1497,14 @@ async function scheduleTaskBlock(event, date, hour) {
       width="540px"
       destroy-on-close
     >
-      <div v-if="activeDaySummary" class="day-modal-content">
+      <div v-if="activeDaySummary" class="day-modal-content ui-col">
         <!-- 1. 跨天进行中任务 -->
         <div v-if="multiDayTasksForDay(activeDaySummary.date).length" class="modal-sec-box">
-          <div class="sec-title-flex">
+          <div class="sec-title-flex ui-row ui-row--between">
             <span class="sec-label-caps">跨天进行中专项 (Multi-day Sprints)</span>
             <small class="sec-hint-txt">支持拖拽 / 双击编辑</small>
           </div>
-          <div class="modal-tasks-list">
+          <div class="modal-tasks-list ui-col">
             <div
               v-for="mt in multiDayTasksForDay(activeDaySummary.date)"
               :key="'m-mt-' + mt.id"
@@ -1493,7 +1515,7 @@ async function scheduleTaskBlock(event, date, hour) {
               @dblclick="openEditDetail(mt, 'task')"
               title="按住拖拽可直接改期，双击编辑详情"
             >
-              <div class="m-left">
+              <div class="m-left ui-row">
                 <el-icon class="m-drag-icon"><Rank /></el-icon>
                 <span class="m-badge">共 {{ getDaySpan(scheduleStart(mt), scheduleEnd(mt)) }} 天</span>
                 <strong>{{ mt.taskName }}</strong>
@@ -1508,11 +1530,11 @@ async function scheduleTaskBlock(event, date, hour) {
 
         <!-- 2. 客观排期与开庭事项 -->
         <div v-if="distinctEventsForModal(activeDaySummary.date).length" class="modal-sec-box">
-          <div class="sec-title-flex">
+          <div class="sec-title-flex ui-row ui-row--between">
             <span class="sec-label-caps">法庭开庭与客观排期 (Court & Fixed Events)</span>
             <small class="sec-hint-txt">双击编辑</small>
           </div>
-          <div class="modal-tasks-list">
+          <div class="modal-tasks-list ui-col">
             <div
               v-for="ev in distinctEventsForModal(activeDaySummary.date)"
               :key="ev.id"
@@ -1521,7 +1543,7 @@ async function scheduleTaskBlock(event, date, hour) {
               @dblclick="openEditDetail(ev, 'event')"
               title="双击编辑排期详情"
             >
-              <div class="m-ev-left">
+              <div class="m-ev-left ui-row">
                 <span class="m-ev-time">{{ ev.time || '全天' }}</span>
                 <strong>{{ ev.title }}</strong>
                 <span v-if="ev.location" class="m-ev-loc">· {{ ev.location }}</span>
@@ -1532,11 +1554,11 @@ async function scheduleTaskBlock(event, date, hour) {
 
         <!-- 3. 当日待办清单 -->
         <div class="modal-sec-box">
-          <div class="sec-title-flex">
+          <div class="sec-title-flex ui-row ui-row--between">
             <span class="sec-label-caps">当日待办清单 (Action Items · 可打勾完成)</span>
             <small class="sec-hint-txt">支持拖出改期 / 双击编辑</small>
           </div>
-          <div class="modal-tasks-list">
+          <div class="modal-tasks-list ui-col">
             <div
               v-for="t in tasksForDay(activeDaySummary.date).filter(t => !isMultiDayTask(t))"
               :key="'m-t-' + t.id"
@@ -1547,7 +1569,7 @@ async function scheduleTaskBlock(event, date, hour) {
               @dblclick="openEditDetail(t, 'task')"
               title="按住拖拽可直接改期到其他天，双击编辑详情"
             >
-              <div class="m-t-left">
+              <div class="m-t-left ui-row">
                 <el-icon class="m-drag-icon"><Rank /></el-icon>
                 <span v-if="t.startTime" class="m-t-time">{{ t.startTime }}</span>
                 <strong :class="{ struck: t.completed }">{{ t.taskName }}</strong>
@@ -1557,7 +1579,7 @@ async function scheduleTaskBlock(event, date, hour) {
                 <el-icon v-if="t.completed" :size="12"><Check /></el-icon>
               </button>
             </div>
-            <div v-if="!tasksForDay(activeDaySummary.date).filter(t => !isMultiDayTask(t)).length" class="modal-empty-hint">暂无当日待办事项</div>
+            <div v-if="!tasksForDay(activeDaySummary.date).filter(t => !isMultiDayTask(t)).length" class="modal-empty-hint"><EmptyState type="custom" compact hide-action title="暂无当日待办事项" /></div>
           </div>
         </div>
       </div>
@@ -1578,25 +1600,25 @@ async function scheduleTaskBlock(event, date, hour) {
     >
       <el-button v-if="editingItem.type === 'event' && editingItem.taskId" text @click="router.push({ path: '/tasks', query: { edit: editingItem.taskId } })">打开关联任务 ↗</el-button>
       <p v-if="editingItem.type === 'task' && hasIndependentPlan(tasks.find(t => t.id === editingItem.id) || {})" class="calendar-plan-note">此任务的独立计划在甘特图中调整；下方编辑任务属性和截止日期。<el-button text @click="showEditDialog = false; activeView = 'forecast'; forecastMode = 'gantt'">打开甘特图</el-button></p>
-      <div class="edit-modal-body">
-        <div class="edit-form-item">
+      <div class="edit-modal-body ui-col">
+        <div class="edit-form-item ui-col">
           <label>标题 / 名称</label>
           <input v-model="editingItem.title" class="edit-input" placeholder="输入名称..." />
         </div>
 
-        <div class="edit-form-row">
-          <div class="edit-form-item">
+        <div class="edit-form-row ui-row">
+          <div class="edit-form-item ui-col">
             <label>开始日期</label>
             <input v-model="editingItem.startDate" type="date" class="edit-input" :disabled="editingItem.type === 'task' && hasIndependentPlan(tasks.find(t => t.id === editingItem.id) || {})" />
           </div>
-          <div class="edit-form-item">
+          <div class="edit-form-item ui-col">
             <label>截止日期</label>
             <input v-model="editingItem.dueDate" type="date" class="edit-input" />
           </div>
         </div>
 
-        <div class="edit-form-row">
-          <div class="edit-form-item">
+        <div class="edit-form-row ui-row">
+          <div class="edit-form-item ui-col">
             <label>开始时间</label>
             <input v-model="editingItem.startTime" type="time" class="edit-input" />
           </div>
@@ -1610,7 +1632,7 @@ async function scheduleTaskBlock(event, date, hour) {
           </div>
         </div>
 
-        <div class="edit-form-item">
+        <div class="edit-form-item ui-col">
           <label>关联案件</label>
           <select v-model="editingItem.caseId" class="edit-select">
             <option value="">（无关联案件）</option>
@@ -1620,19 +1642,19 @@ async function scheduleTaskBlock(event, date, hour) {
           </select>
         </div>
 
-        <div class="edit-form-item">
+        <div class="edit-form-item ui-col">
           <label>备注 / 说明</label>
           <textarea v-model="editingItem.description" rows="3" class="edit-textarea" placeholder="填写事项补充说明或庭室地点..." />
         </div>
       </div>
 
       <template #footer>
-        <div class="edit-dialog-footer">
+        <div class="edit-dialog-footer ui-row ui-row--between">
           <button v-if="editingItem.id" class="btn-delete" @click="deleteEditingItem">
             <el-icon :size="14"><Delete /></el-icon>
             <span>删除</span>
           </button>
-          <div class="right-btns">
+          <div class="right-btns ui-row">
             <button class="btn-cancel" @click="showEditDialog = false">取消</button>
             <button class="btn-primary-action" @click="saveEditingItem">保存修改</button>
           </div>
@@ -1646,9 +1668,11 @@ async function scheduleTaskBlock(event, date, hour) {
 .forecast-mode-switch { display:flex; gap:4px; align-self:flex-start; padding:3px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg-subtle); }
 .forecast-mode-switch button { padding:7px 12px; font:inherit; font-size:12px; color:var(--c-text); background:transparent; border:0; border-radius:5px; cursor:pointer; }
 .forecast-mode-switch button[aria-pressed=true] { background:var(--c-primary); color:var(--c-primary-contrast); }
-.calendar-holiday-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--c-text-secondary); font-size: 12px; }
+.calendar-holiday-legend { gap: 14px; color: var(--c-text-secondary); font-size: 12px; }
+.forecast-filter-bar { gap: 0; }
+.sec-title-flex { gap: 0; }
 
-.calendar-data-error { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--c-danger); }
+.calendar-data-error { padding: 12px; color: var(--c-danger); }
 .calendar-event-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-left: 3px solid var(--c-danger); border-radius: 4px; background: var(--c-bg-hover); color: var(--c-text); text-align: left; font: inherit; cursor: pointer; margin-block: 4px; }
 .calendar-event-item strong, .calendar-event-item span { overflow-wrap: anywhere; min-width: 0; }
 .calendar-event-item span { font-size: 12px; color: var(--c-text-secondary); }
@@ -1663,8 +1687,6 @@ async function scheduleTaskBlock(event, date, hour) {
   max-width: 1440px;
   margin: 0 auto;
   padding: 16px 24px 32px;
-  display: flex;
-  flex-direction: column;
   gap: 16px;
   color: var(--c-text);
   font-family: var(--font-family);
@@ -1672,19 +1694,9 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 /* ── 顶部 Header ─────────────────────────────────────────── */
-.calendar-top-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-}
+.calendar-top-header { gap: 20px; }
 
-.month-title-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
+.month-title-row { gap: 16px; }
 
 .month-display-title {
   font-size: 22px;
@@ -1695,8 +1707,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .month-nav-btns {
-  display: flex;
-  align-items: center;
   gap: 2px;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
@@ -1731,16 +1741,9 @@ async function scheduleTaskBlock(event, date, hour) {
 
 .nav-today-pill:hover { background: var(--c-bg-hover); }
 
-.header-right-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
+.header-right-actions { gap: 12px; }
 
 .natural-input-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
@@ -1766,7 +1769,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .view-switch-pill {
-  display: flex;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
@@ -1796,18 +1798,13 @@ async function scheduleTaskBlock(event, date, hour) {
    主工作区双栏统一布局 (Left: 主日历/周/日视图, Right: Holding Tank)
    ═══════════════════════════════════════════════════════════ */
 .calendar-unified-workspace-grid {
-  display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 20px;
   align-items: stretch;
   flex: 1;
 }
 
-.calendar-main-stage {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
+.calendar-main-stage { min-width: 0; }
 
 /* ── 1. Month View (上方一排统计药丸 + 紧凑月历网格) ── */
 .month-full-card {
@@ -1822,7 +1819,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .month-top-stats-strip {
-  display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   padding: 10px 14px;
@@ -1831,9 +1827,7 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .m-stat-pill {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  gap: 0;
   background: var(--c-bg-card);
   padding: 6px 12px;
   border-radius: var(--c-radius-lg);
@@ -1859,8 +1853,8 @@ async function scheduleTaskBlock(event, date, hour) {
 .m-stat-val.text-warning { color: var(--status-warning); }
 
 .month-days-of-week-row {
-  display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0;
   background: var(--c-bg-page);
   border-bottom: 1px solid var(--c-border);
 }
@@ -1877,7 +1871,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .month-dates-matrix-grid {
-  display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: minmax(78px, 1fr);
   background: var(--c-border);
@@ -1915,11 +1908,7 @@ async function scheduleTaskBlock(event, date, hour) {
   pointer-events: none;
 }
 
-.cell-dots-indicator-group {
-  display: flex;
-  gap: 3px;
-  margin-top: 2px;
-}
+.cell-dots-indicator-group { gap: 3px; margin-top: 2px; }
 
 .dot-indicator {
   width: 5px;
@@ -1951,12 +1940,7 @@ async function scheduleTaskBlock(event, date, hour) {
   font-size: 10.5px;
 }
 
-.cell-items-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 2.5px;
-  margin-top: 3px;
-}
+.cell-items-preview { gap: 2.5px; margin-top: 3px; }
 
 /* 跨天连续条带 + 右端把手 */
 .cell-multiday-ribbon {
@@ -1986,12 +1970,6 @@ async function scheduleTaskBlock(event, date, hour) {
   border-right: 3px solid var(--c-primary);
   border-top-right-radius: 3px;
   border-bottom-right-radius: 3px;
-}
-
-.ribbon-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .ribbon-cont-line {
@@ -2040,12 +2018,7 @@ async function scheduleTaskBlock(event, date, hour) {
   flex-shrink: 0;
 }
 
-.capsule-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--c-text);
-}
+.capsule-title { color: var(--c-text); }
 
 /* ── 2. Week View ─────────────────────────────────────────── */
 .week-full-card {
@@ -2070,9 +2043,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .week-col-header-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   padding: 8px 0;
   gap: 2px;
   border-right: 1px solid var(--c-border-light);
@@ -2134,8 +2104,6 @@ async function scheduleTaskBlock(event, date, hour) {
   min-width: 0;
   padding: 3px 4px;
   border-right: 1px solid var(--c-border-light);
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 
@@ -2155,9 +2123,6 @@ async function scheduleTaskBlock(event, date, hour) {
   border-radius: 3px;
   background: var(--c-primary-light);
   color: var(--c-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
 }
 
@@ -2216,12 +2181,7 @@ async function scheduleTaskBlock(event, date, hour) {
   cursor: pointer;
 }
 
-.w-task-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--c-text);
-}
+.w-task-title { color: var(--c-text); }
 
 /* ── 3. Day View ─────────────────────────────────────────── */
 .day-full-card {
@@ -2235,9 +2195,7 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .day-schedule-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  gap: 0;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--c-border);
   margin-bottom: 12px;
@@ -2273,24 +2231,16 @@ async function scheduleTaskBlock(event, date, hour) {
   border-radius: var(--c-radius-lg);
   padding: 10px 14px;
   margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
 }
 
 .dma-title-row {
-  display: flex;
-  align-items: center;
   gap: 6px;
   font-size: 11.5px;
   color: var(--c-primary);
 }
 
-.dma-cards-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+.dma-cards-list { gap: 4px; }
 
 .dma-item-card {
   display: flex;
@@ -2346,11 +2296,7 @@ async function scheduleTaskBlock(event, date, hour) {
   border-color: var(--c-primary);
 }
 
-.day-hours-drop-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.day-hours-drop-stream { gap: 8px; }
 
 .day-hour-drop-row {
   display: grid;
@@ -2380,8 +2326,6 @@ async function scheduleTaskBlock(event, date, hour) {
   border: 1px dashed var(--c-border);
   background: var(--c-bg-page);
   padding: 6px 10px;
-  display: flex;
-  flex-direction: column;
   gap: 4px;
   justify-content: center;
 }
@@ -2429,16 +2373,10 @@ async function scheduleTaskBlock(event, date, hour) {
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-xl);
   padding: 20px;
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
 .forecast-overview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--c-border);
@@ -2457,18 +2395,13 @@ async function scheduleTaskBlock(event, date, hour) {
   margin: 4px 0 0;
 }
 
-.forecast-stats-strip {
-  display: flex;
-  gap: 12px;
-}
+.forecast-stats-strip { gap: 12px; }
 
 .f-stat-card {
   padding: 8px 14px;
   background: var(--c-bg-page);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 
@@ -2489,14 +2422,7 @@ async function scheduleTaskBlock(event, date, hour) {
 .f-stat-number.text-primary { color: var(--c-primary); }
 .f-stat-number.text-success { color: var(--status-success); }
 
-.forecast-filter-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .f-filter-tabs {
-  display: flex;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
@@ -2571,8 +2497,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .f-date-col {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
   border-right: 1px solid var(--c-border);
   padding-right: 12px;
@@ -2618,15 +2542,7 @@ async function scheduleTaskBlock(event, date, hour) {
 .f-events-col {
   min-width: 0;
   overflow-wrap: anywhere;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-}
-
-.f-risk-tag-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .f-risk-pill {
@@ -2718,8 +2634,6 @@ async function scheduleTaskBlock(event, date, hour) {
   border-radius: var(--c-radius-xl);
   padding: 16px;
   box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
   gap: 12px;
   height: 100%;
 }
@@ -2729,12 +2643,7 @@ async function scheduleTaskBlock(event, date, hour) {
   background: var(--c-primary-light);
 }
 
-.tank-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
+.tank-title-row { gap: 0; margin-bottom: 10px; }
 
 .tank-title {
   font-size: 15px;
@@ -2760,7 +2669,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .tank-filter-pills {
-  display: flex;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius);
@@ -2809,8 +2717,6 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .holding-tasks-scroll-list {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
   overflow-y: auto;
   flex: 1;
@@ -2837,27 +2743,17 @@ async function scheduleTaskBlock(event, date, hour) {
 }
 
 .tank-task-main {
-  display: flex;
-  flex-direction: column;
   gap: 3px;
   flex: 1;
-  min-width: 0;
 }
 
-.tank-task-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
+.tank-task-header { gap: 5px; }
 
 .tank-drag-handle { color: var(--slate-gray-light); flex-shrink: 0; }
 
 .tank-task-name {
   font-size: 12px;
   color: var(--c-text-heading);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tank-task-name.struck {
@@ -2865,12 +2761,7 @@ async function scheduleTaskBlock(event, date, hour) {
   color: var(--slate-gray-light);
 }
 
-.tank-task-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-left: 20px;
-}
+.tank-task-meta { gap: 6px; padding-left: 20px; }
 
 .meta-case-tag { font-size: 10.5px; color: var(--c-primary); }
 
@@ -2890,12 +2781,7 @@ async function scheduleTaskBlock(event, date, hour) {
   color: var(--slate-gray-light);
 }
 
-.tank-task-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
+.tank-task-right { gap: 6px; flex-shrink: 0; }
 
 .tank-est-pill {
   font-family: var(--font-mono);
@@ -2968,9 +2854,9 @@ async function scheduleTaskBlock(event, date, hour) {
   outline: none;
 }
 
-.case-checkbox-list { display: flex; flex-direction: column; gap: 8px; }
+.case-checkbox-list { gap: 8px; }
 
-.case-checkbox-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.case-checkbox-item { cursor: pointer; }
 
 .case-native-checkbox { accent-color: var(--c-primary); }
 
@@ -2991,26 +2877,14 @@ async function scheduleTaskBlock(event, date, hour) {
 /* ═══════════════════════════════════════════════════════════
    4. 单日日程明细弹窗样式 (Day Modal)
    ═══════════════════════════════════════════════════════════ */
-.day-modal-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+.day-modal-content { gap: 16px; }
 
 .modal-sec-box {
   background: var(--c-bg-page);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
   padding: 14px;
-  display: flex;
-  flex-direction: column;
   gap: 8px;
-}
-
-.sec-title-flex {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .sec-label-caps {
@@ -3026,11 +2900,7 @@ async function scheduleTaskBlock(event, date, hour) {
   color: var(--slate-gray-light);
 }
 
-.modal-tasks-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.modal-tasks-list { gap: 6px; }
 
 .modal-multiday-item {
   display: flex;
@@ -3050,11 +2920,7 @@ async function scheduleTaskBlock(event, date, hour) {
   filter: brightness(0.98);
 }
 
-.m-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.m-left { gap: 6px; }
 
 .m-drag-icon {
   color: var(--slate-gray-light);
@@ -3089,12 +2955,6 @@ async function scheduleTaskBlock(event, date, hour) {
   border-left: 3.5px solid var(--c-primary);
 }
 
-.m-ev-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .m-ev-time {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -3123,12 +2983,6 @@ async function scheduleTaskBlock(event, date, hour) {
 .modal-task-item:hover {
   box-shadow: var(--shadow-sm);
   background: var(--c-bg-hover);
-}
-
-.m-t-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .m-t-time {
@@ -3183,15 +3037,9 @@ async function scheduleTaskBlock(event, date, hour) {
 /* ═══════════════════════════════════════════════════════════
    5. 编辑详情弹窗样式
    ═══════════════════════════════════════════════════════════ */
-.edit-modal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+.edit-modal-body { gap: 14px; }
 
 .edit-form-item {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
   flex: 1;
 }
@@ -3202,10 +3050,7 @@ async function scheduleTaskBlock(event, date, hour) {
   color: var(--c-text-heading);
 }
 
-.edit-form-row {
-  display: flex;
-  gap: 14px;
-}
+.edit-form-row { gap: 14px; }
 
 .edit-input,
 .edit-select,
@@ -3226,16 +3071,9 @@ async function scheduleTaskBlock(event, date, hour) {
   border-color: var(--c-primary);
 }
 
-.edit-dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
+.edit-dialog-footer { gap: 0; width: 100%; }
 
 .btn-delete {
-  display: flex;
-  align-items: center;
   gap: 4px;
   padding: 6px 12px;
   border-radius: var(--c-radius-lg);
@@ -3251,10 +3089,7 @@ async function scheduleTaskBlock(event, date, hour) {
   color: var(--c-primary-contrast);
 }
 
-.right-btns {
-  display: flex;
-  gap: 10px;
-}
+.right-btns { gap: 10px; }
 
 .btn-cancel {
   padding: 6px 14px;
@@ -3266,7 +3101,7 @@ async function scheduleTaskBlock(event, date, hour) {
   cursor: pointer;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1100px){
   .calendar-unified-workspace-grid { grid-template-columns: 1fr; }
   .calendar-unified-holding-tank { width: 100%; }
 }
@@ -3299,17 +3134,17 @@ async function scheduleTaskBlock(event, date, hour) {
 .month-display-title { font-size: 28px; letter-spacing: -.035em; font-weight: 600; }
 .calendar-unified-holding-tank { background: var(--c-bg-card); box-shadow: none; border-radius: 10px; }
 .agenda-mini { padding: 18px; border-bottom: 1px solid var(--c-border); }
-.agenda-mini label { display: flex; align-items: center; gap: 10px; color: var(--c-text-secondary); font-size: 11px; }
+.agenda-mini label { gap: 10px; color: var(--c-text-secondary); font-size: 11px; }
 .agenda-mini input { min-width: 0; flex: 1; font: inherit; color: var(--c-text); padding: 6px; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 5px; }
-.agenda-mini-title { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 12px; font-size: 13px; }
+.agenda-mini-title { gap: 0; margin: 18px 0 12px; font-size: 13px; }
 .agenda-mini button { background: transparent; border: 0; color: var(--c-text); font: inherit; cursor: pointer; border-radius: 5px; }
 .agenda-mini-title button { font-size: 11px; color: var(--c-primary); }
-.agenda-mini .agenda-mini-item { width: 100%; padding: 9px 2px; display: flex; align-items: baseline; gap: 12px; text-align: left; font-size: 12px; }
+.agenda-mini .agenda-mini-item { width: 100%; padding: 9px 2px; gap: 12px; text-align: left; font-size: 12px; }
 .agenda-mini-item time { flex: 0 0 38px; color: var(--c-text-secondary); font-size: 10px; }
-.agenda-mini-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda-mini-item span { min-width: 0; }
 .agenda-mini .agenda-mini-item:hover { background: var(--c-bg-hover); }
 .agenda-mini p { font-size: 12px; color: var(--c-text-secondary); }
 .agenda-mini button:focus-visible { outline: 2px solid var(--c-primary); }
 .tank-sub-desc { line-height: 1.7; }
-@media (max-width: 650px) { .stitch-calendar-workspace { padding: 20px 12px; } .header-right-actions { width: 100%; flex-wrap: wrap; } .month-display-title { font-size: 24px; } }
+
 </style>

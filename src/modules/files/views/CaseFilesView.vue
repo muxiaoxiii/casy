@@ -1,5 +1,6 @@
 <script setup>
 import { useReturnOrigin } from '../../../composables/useReturnOrigin'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCasesStore } from '../../../stores/cases'
@@ -22,6 +23,7 @@ const casesStore = useCasesStore()
 const caseId = computed(() => String(route.params.caseId || ''))
 const caseChoices = ref([])
 const caseChoiceLoading = ref(false)
+const caseChoiceError = ref('')
 let caseChoiceRevision = 0
 async function searchCaseChoices(search = '') {
   const revision = ++caseChoiceRevision
@@ -29,8 +31,8 @@ async function searchCaseChoices(search = '') {
   const result = await casyContext.cases.list({ search, page: 1, perPage: 100 })
   if (disposed || revision !== caseChoiceRevision) return
   caseChoiceLoading.value = false
-  if (result.ok) caseChoices.value = result.data?.items || []
-  else ElMessage.warning(result.error || '案件列表加载失败')
+  if (result.ok) { caseChoices.value = result.data?.items || []; caseChoiceError.value = '' }
+  else caseChoiceError.value = result.error || '案件列表加载失败'
 }
 function chooseCase(id) { if (id) router.push({ name: 'files', params: { caseId: id } }) }
 const caseData = ref(null)
@@ -215,7 +217,7 @@ async function loadCase() {
   const target = caseId.value
   const result = await casesStore.loadCase(target)
   if (disposed || target !== caseId.value) return
-  if (result.ok) caseData.value = result.data
+  if (result.ok) { caseData.value = result.data; caseError.value = '' }
   // 案件头加载失败（审查 N10）：此前静默留空，改为与卷宗错误并列展示在同一错误条上
   else caseError.value = result.error || '案件加载失败'
   loading.value = false
@@ -533,7 +535,8 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
         </el-button>
       </div>
     </header>
-    <el-alert v-if="loadError || caseError" :title="[loadError, caseError].filter(Boolean).join('；')" type="error" :closable="false" class="files-load-error" />
+    <el-alert v-if="loadError || caseError" :title="[loadError, caseError].filter(Boolean).join('；')" type="error" :closable="false" class="files-load-error"><el-button text @click="loadCase(); loadFiles()">重试</el-button></el-alert>
+    <el-alert v-if="caseChoiceError" :title="`案件检索失败：${caseChoiceError}`" type="error" :closable="false" class="files-load-error"><el-button text @click="searchCaseChoices()">重试</el-button></el-alert>
 
     <div class="files-workbench">
       <aside class="folder-panel">
@@ -615,7 +618,9 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
 
         <div v-else class="file-empty">
           <div class="empty-icon"><el-icon><Document /></el-icon></div>
-          <strong>{{ fileSearch ? '没有匹配的文件' : '这个目录还是空的' }}</strong>
+          <EmptyState :type="fileSearch ? 'search' : 'custom'" compact
+            :title="fileSearch ? '没有匹配的文件' : '这个目录还是空的'"
+            :action-text="fileSearch ? '清除搜索' : ''" :hide-action="!fileSearch" @action="fileSearch = ''" />
         </div>
       </main>
 
@@ -902,21 +907,10 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
   overflow-wrap: anywhere; user-select: text;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1100px){
   .files-workbench { grid-template-columns: 190px minmax(330px, 1fr); }
   .file-inspector { grid-column: 1 / -1; border-top: 1px solid var(--c-border); scroll-margin-top: 72px; }
   .inspector-preview { min-height: 110px; padding: 16px; }
 }
-@media (max-width: 760px) {
-  .case-files-view { padding: 18px 14px 24px; }
-  .workspace-header { align-items: flex-start; flex-direction: column; }
-  .workspace-actions { width: 100%; flex-wrap: wrap; }
-  .file-search { flex: 1 1 calc(100% - 48px); width: auto; min-width: 0; }
-  .files-workbench { display: block; min-height: auto; }
-  .folder-panel { border-right: 0; border-bottom: 1px solid var(--c-border); }
-  .folder-list { display: flex; overflow-x: auto; }
-  .folder-item { flex: 0 0 auto; width: auto; }
-  .folder-note { display: none; }
-  .file-index { min-height: 160px; border-right: 0; }
-}
+
 </style>

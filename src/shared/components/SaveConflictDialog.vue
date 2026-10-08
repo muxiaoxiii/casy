@@ -63,5 +63,6 @@ defineExpose({ open })
   </el-dialog>
 </template>
 <style scoped>
-.conflict-columns{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.conflict-columns section{min-width:0}.conflict-columns h3{font-size:14px;overflow-wrap:anywhere}.conflict-columns pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.7;height:40vh;overflow:auto;border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-bg-page)}@media(max-width:640px){.conflict-columns{grid-template-columns:1fr}.conflict-columns pre{height:22vh}}
+.conflict-columns{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.conflict-columns section{min-width:0}.conflict-columns h3{font-size:14px;overflow-wrap:anywhere}.conflict-columns pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.7;height:40vh;overflow:auto;border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-bg-page)}
+
 </style>

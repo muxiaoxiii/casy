@@ -70,22 +70,22 @@ defineExpose({ saveIfDirty: () => snapshot() === savedSnapshot ? Promise.resolve
   <section class="task-quick-editor" aria-label="编辑任务" @keydown.meta.enter.prevent="saveAndClose" @keydown.ctrl.enter.prevent="saveAndClose" @keydown.esc.stop="!busy && emit('close')">
     <input v-model="title" aria-label="任务名称" class="quick-title" placeholder="下一步要做什么？" :disabled="busy" />
     <textarea v-model="notes" aria-label="任务备注" placeholder="补充思路、准备材料或下一步…" rows="3" :disabled="busy" />
-    <div class="quick-fields">
-      <label>何时开始<select v-model="bucket" :disabled="busy"><option value="inbox">收件箱</option><option value="today">今天</option><option value="anytime">随时</option><option value="someday">将来</option></select></label>
-      <label>截止日期<input v-model="dueDate" type="date" :disabled="busy" /></label>
-      <label>关联案件<select v-model="caseId" :disabled="busy"><option value="">独立任务</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option></select></label>
+    <div class="quick-fields ui-grid">
+      <label class="ui-col">何时开始<select v-model="bucket" :disabled="busy"><option value="inbox">收件箱</option><option value="today">今天</option><option value="anytime">随时</option><option value="someday">将来</option></select></label>
+      <label class="ui-col">截止日期<input v-model="dueDate" type="date" :disabled="busy" /></label>
+      <label class="ui-col">关联案件<select v-model="caseId" :disabled="busy"><option value="">独立任务</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option></select></label>
     </div>
     <p v-if="task.planDefined">{{ taskPlanLabel(task) }} · 截止日期单独管理。</p>
     <button type="button" :disabled="busy" @click="async () => { if (await save()) await router.push({path:'/calendar',query:{view:'forecast',layout:'gantt',date:task.plannedStartDate || day}}) }">在甘特图调整计划</button>
-    <div v-if="scheduling" class="schedule-fields">
+    <div v-if="scheduling" class="schedule-fields ui-grid">
       <p>为这项任务留出一段时间，截止日期单独管理。</p>
-      <label>排期日期<input v-model="day" type="date" :disabled="busy" /></label>
-      <label>开始<input v-model="time" type="time" :disabled="busy" /></label>
-      <label>分钟<input v-model.number="duration" type="number" min="5" max="720" step="15" :disabled="busy" /></label>
+      <label class="ui-col">排期日期<input v-model="day" type="date" :disabled="busy" /></label>
+      <label class="ui-col">开始<input v-model="time" type="time" :disabled="busy" /></label>
+      <label class="ui-col">分钟<input v-model.number="duration" type="number" min="5" max="720" step="15" :disabled="busy" /></label>
       <button type="button" class="primary" :disabled="busy || !title.trim()" @click="schedule">安排并打开日历</button>
     </div>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
-    <footer>
+    <footer class="ui-row">
       <button type="button" :disabled="busy" :aria-expanded="scheduling" @click="scheduling = !scheduling">◷ 安排时间</button>
       <button type="button" :disabled="busy" @click="async () => { if (await save()) emit('advanced') }">更多选项</button>
       <span />
@@ -103,19 +103,19 @@ input, textarea, select, button { font: inherit; color: var(--c-text); }
 input, select { min-width: 0; width: 100%; border: 1px solid var(--c-border); background: var(--c-bg-card); border-radius: 6px; padding: 7px 8px; box-sizing: border-box; }
 .quick-title { border: 0; font-size: 18px; font-weight: 600; padding: 4px 0; }
 textarea { width: 100%; box-sizing: border-box; resize: vertical; margin: 10px 0 16px; line-height: 1.8; border: 0; background: transparent; }
-.quick-fields { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 12px; }
-label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--c-text-secondary); }
+.quick-fields { grid-template-columns: 1fr 1fr 1.4fr; }
+label { gap: 6px; font-size: 11px; color: var(--c-text-secondary); }
 label input, label select { font-size: 13px; }
-footer { display: flex; align-items: center; gap: 8px; margin-top: 20px; }
+footer { margin-top: 20px; }
 footer span { flex: 1; }
 button { border: 0; background: transparent; padding: 7px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; }
 button:hover { background: var(--c-bg-hover); }
 button.primary { background: var(--c-primary); color: var(--c-text-on-primary, white); }
 button:disabled { opacity: .5; cursor: wait; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 3px; }
-.schedule-fields { margin-top: 16px; display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 10px; padding: 14px; background: var(--c-bg-hover); border-radius: 8px; }
+.schedule-fields { margin-top: 16px; grid-template-columns: 1.5fr 1fr 1fr; gap: 10px; padding: 14px; background: var(--c-bg-hover); border-radius: 8px; }
 .schedule-fields p { grid-column: 1 / -1; font-size: 12px; color: var(--c-text-secondary); margin: 0 0 6px; }
 .schedule-fields button { grid-column: 1 / -1; justify-self: end; }
 .error { color: var(--c-danger); font-size: 12px; }
-@media (max-width: 640px) { .task-quick-editor { margin-left: 0; padding: 16px; } .quick-fields { grid-template-columns: 1fr; } footer { flex-wrap: wrap; } }
+
 </style>

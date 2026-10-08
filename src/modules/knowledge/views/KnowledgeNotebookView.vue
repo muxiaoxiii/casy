@@ -1,6 +1,7 @@
 <script setup>
 import { useViewMemory } from '../../../composables/useViewMemory'
 import SaveConflictDialog from '../../../shared/components/SaveConflictDialog.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { formatTimestamp, relativeTimestamp } from '../../../shared/utils/date'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
@@ -15,7 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
 import {
-  Collection, Delete, Document, Folder, Link, Plus, Search,
+  Collection, Delete, Folder, Link, Plus, Search,
   Tickets, View, EditPen, Clock, Connection, Download, MagicStick, List,
 } from '../../../shared/icons'
 import MarkdownCodeMirror from '../components/MarkdownCodeMirror.vue'
@@ -42,6 +43,7 @@ const selectedCaseIds = ref([])
 const sources = ref([])
 const selectedSource = ref(null)
 const sourceError = ref('')
+const caseOptionError = ref('')
 let sourceRevision = 0
 let sourceTimer
 let stopWorkspaceListener
@@ -77,6 +79,7 @@ const visibleSources = computed(() => {
 async function refreshNoteList() {
   const result = await casyContext.knowledge.list({})
   if (!unmounted && !dirty.value && !saving.value && result.ok) notes.value = normalizeList(result.data)
+  else if (!result.ok) loadError.value = result.error || '无法读取笔记列表'
 }
 const selectedId = ref('')
 const search = ref('')
@@ -303,7 +306,8 @@ async function loadAll(preferredId = '') {
   loadError.value = noteRes.ok ? '' : noteRes.error || '无法读取笔记列表'
   if (!noteRes.ok) return
   notes.value = normalizeList(noteRes.data)
-  if (caseRes.ok) cases.value = normalizeList(caseRes.data)
+  if (caseRes.ok) { cases.value = normalizeList(caseRes.data); caseOptionError.value = '' }
+  else caseOptionError.value = caseRes.error || '案件选项读取失败'
   const queryId = typeof route.query.select === 'string' ? route.query.select : ''
   const nextId = preferredId || queryId || notes.value.find(note => note.id === selectedId.value)?.id || filteredNotes.value[0]?.id
   if (nextId) await selectNote(notes.value.find(n => n.id === nextId) || { id: nextId })
@@ -352,6 +356,16 @@ async function selectNote(note) {
     mobilePane.value = 'editor'
     await nextTick()
   } finally { documentBusy.value = false }
+}
+
+// 空态动作：有筛选时清除筛选，否则新建笔记
+function onNotesEmptyAction() {
+  if (search.value || category.value !== 'all') {
+    search.value = ''
+    category.value = 'all'
+    return
+  }
+  createNote()
 }
 
 async function createNote(parentId = '') {
@@ -507,7 +521,9 @@ onBeforeUnmount(observeChanges(casyContext, ['knowledge', 'case', 'inbox'], asyn
   const [noteRes, caseRes] = await Promise.all([casyContext.knowledge.list({}), loadCaseOptions()])
   if (unmounted) return
   if (noteRes.ok) notes.value = normalizeList(noteRes.data)
-  if (caseRes.ok) cases.value = normalizeList(caseRes.data)
+  else loadError.value = noteRes.error || '无法读取笔记列表'
+  if (caseRes.ok) { cases.value = normalizeList(caseRes.data); caseOptionError.value = '' }
+  else caseOptionError.value = caseRes.error || '案件选项读取失败'
 }))
 
 async function openSearchHit(id) {
@@ -537,6 +553,7 @@ async function openSearchHit(id) {
       </div>
       <div class="search-box"><Search /><input v-model="search" placeholder="搜索标题、正文或标签" /></div>
       <el-select class="case-scope" :model-value="selectedCaseIds" multiple filterable clearable collapse-tags placeholder="筛选案件" aria-label="筛选案件" @change="changeCaseScope"><el-option v-for="c in cases" :key="c.id" :value="c.id" :label="c.caseName || c.caseNo" /></el-select>
+      <el-alert v-if="caseOptionError" :title="`案件选项读取失败：${caseOptionError}`" type="error" :closable="false"><el-button text @click="loadAll()">重试</el-button></el-alert>
       <div class="category-strip">
         <button v-for="item in categories" :key="item.value" :class="{ active: category === item.value }" @click="category = item.value">
           <span class="category-dot" :style="{ background: item.color }" />{{ item.label }}<b>{{ counts[item.value] || 0 }}</b>
@@ -546,14 +563,18 @@ async function openSearchHit(id) {
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadAll()">重试</el-button></el-alert>
         <el-alert v-if="sourceError" :title="sourceError" type="error" :closable="false" />
         <div v-if="visibleSources.length" class="source-group-title">案卷正文</div>
-        <button v-for="source in visibleSources" :key="source.fileId" class="note-card" :class="{ active: selectedSource?.fileId === source.fileId }" @click="selectSource(source)"><div class="note-card-top"><strong>{{ source.fileName }}</strong><span class="note-category">案卷</span></div><p>{{ source.missing ? '原件缺失' : source.status === 'completed' ? 'Markdown' : source.status === 'running' ? '正文提取中' : source.status === 'queued' ? '等待提取正文' : source.status === 'failed' ? '提取失败' : '待提取正文' }}</p></button>
+        <button v-for="source in visibleSources" :key="source.fileId" class="note-card" :class="{ active: selectedSource?.fileId === source.fileId }" @click="selectSource(source)"><div class="note-card-top ui-row"><strong>{{ source.fileName }}</strong><span class="note-category">案卷</span></div><p>{{ source.missing ? '原件缺失' : source.status === 'completed' ? 'Markdown' : source.status === 'running' ? '正文提取中' : source.status === 'queued' ? '等待提取正文' : source.status === 'failed' ? '提取失败' : '待提取正文' }}</p></button>
         <div v-if="visibleSources.length && visibleNotes.length" class="source-group-title">知识笔记与快照</div>
         <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: !selectedSource && note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)" @contextmenu="showObjectMenu($event, note.title, [{ label: '打开笔记', disabled: documentBusy, run: () => selectNote(note) }, { label: '新建子笔记', disabled: documentBusy, run: () => createNote(note.id) }])">
-          <div class="note-card-top"><strong>{{ note.title || '无标题笔记' }}</strong><span class="note-category">{{ categories.find(c => c.value === note.category)?.label || '其他' }}</span></div>
+          <div class="note-card-top ui-row"><strong>{{ note.title || '无标题笔记' }}</strong><span class="note-category">{{ categories.find(c => c.value === note.category)?.label || '其他' }}</span></div>
           <p>{{ noteSummary(note) }}</p>
-          <div class="note-meta"><span><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span></div>
+          <div class="note-meta ui-row ui-row--wrap"><span class="ui-row"><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId" class="ui-row"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span></div>
         </button>
-        <div v-if="!loading && !loadError && !filteredNotes.length && !visibleSources.length" class="empty-notes"><Document /><p>{{ search || category !== 'all' ? '没有匹配的笔记' : '这里还没有笔记' }}</p><button v-if="search || category !== 'all'" @click="search = ''; category = 'all'">清除筛选</button><button v-else @click="createNote">新建笔记</button></div>
+        <EmptyState v-if="!loading && !loadError && !filteredNotes.length && !visibleSources.length"
+          :type="search || category !== 'all' ? 'search' : 'custom'" compact
+          :title="search || category !== 'all' ? '' : '这里还没有笔记'"
+          :action-text="search || category !== 'all' ? '清除筛选' : '新建笔记'"
+          @action="onNotesEmptyAction" />
       </div>
       <div class="list-utilities">
         <button @click="router.push({ name: 'knowledge-graph' })"><Link />知识图谱</button>
@@ -583,7 +604,7 @@ async function openSearchHit(id) {
           </el-dropdown>
           <button class="save-button" @click="saveNow(false)">保存</button>
           <button class="child-button" title="在当前笔记下新建子笔记" aria-label="新建子笔记" @click="createChildNote"><Plus /></button>
-          <button class="delete-button" title="删除笔记" @click="deleteNote"><Delete /></button>
+          <button class="delete-button btn-danger" title="删除笔记" @click="deleteNote"><Delete /></button>
         </header>
         <section class="editor-document">
         <div class="note-fields">
@@ -617,7 +638,7 @@ async function openSearchHit(id) {
         <button :class="{active:infoTab==='history'}" @click="infoTab='history'"><Clock /> 历史</button>
         <button :class="{active:infoTab==='import'}" @click="infoTab='import'"><Download /> 沉淀</button>
       </div>
-      <div v-if="infoTab==='work'" class="note-related-work"><RelatedWork v-if="draft.linkedCaseId" :case-id="draft.linkedCaseId" /><p v-else>关联案件后，在这里查看同案任务、日程与文书。</p></div>
+      <div v-if="infoTab==='work'" class="note-related-work"><RelatedWork v-if="draft.linkedCaseId" :case-id="draft.linkedCaseId" /><p v-else class="ui-text--caption">关联案件后，在这里查看同案任务、日程与文书。</p></div>
       <KnowledgeRelationsPanel v-else-if="infoTab==='relations'" ref="relationPanelRef" :note="selectedNote" :notes="notes" @navigate="id => selectNote(notes.find(item => item.id === id))" />
       <nav v-else-if="infoTab==='outline'" class="outline-panel">
         <div class="outline-heading">本文目录</div>
@@ -634,7 +655,7 @@ async function openSearchHit(id) {
 <style scoped>
 .notebook-shell{height:calc(100dvh - var(--app-topbar-height));min-height:0;display:grid;grid-template-columns:300px minmax(520px,1fr) 280px;background:var(--c-bg-page);overflow:hidden;color:var(--c-text)}
 .notebook-sidebar{padding:22px 14px;border-right:1px solid var(--c-border);background:color-mix(in srgb,var(--c-bg-card) 86%,var(--c-bg-page));display:flex;flex-direction:column;gap:5px}.vault-title{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:750;padding:0 8px 16px}.vault-title svg,.side-link svg,.new-note svg{width:16px}.new-note{display:flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:9px;padding:10px;background:var(--c-primary);color:var(--c-primary-contrast);font-weight:650;cursor:pointer;margin-bottom:16px}.side-label{padding:8px 10px 5px;text-transform:uppercase;letter-spacing:.08em;font-size:10px;color:var(--c-text-secondary)}.relation-label{margin-top:12px}.category-item,.side-link{width:100%;border:0;background:transparent;color:var(--c-text);display:flex;align-items:center;gap:8px;text-align:left;padding:8px 10px;border-radius:8px;cursor:pointer}.category-item:hover,.side-link:hover,.category-item.active{background:var(--c-bg-subtle)}.category-item.active{font-weight:650}.category-item b{margin-left:auto;font-size:11px;color:var(--c-text-secondary)}.category-dot{width:8px;height:8px;border-radius:50%}.license-note{margin-top:auto;padding:12px 9px;font-size:10px;line-height:1.5;color:var(--c-text-secondary)}
-.note-list-panel{border-right:1px solid var(--c-border);background:var(--c-bg-card);display:flex;flex-direction:column;min-width:0}.list-head{padding:21px 18px 12px;display:flex;align-items:baseline;justify-content:space-between}.list-head h2{font-size:18px;margin:0}.list-head span{font-size:12px;color:var(--c-text-secondary)}.search-box{margin:0 14px 12px;display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-bg-page)}.search-box svg{width:14px;color:var(--c-text-secondary)}.search-box input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:inherit}.note-scroll{overflow:auto;padding:0 9px 20px}.note-card{width:100%;padding:14px 12px;border:1px solid transparent;border-bottom-color:var(--c-border);background:transparent;text-align:left;color:inherit;cursor:pointer}.note-card:hover{background:var(--c-bg-subtle)}.note-card.active{border-color:color-mix(in srgb,var(--c-primary) 35%,transparent);background:color-mix(in srgb,var(--c-primary) 8%,var(--c-bg-card));border-radius:10px}.note-card-top{display:flex;gap:10px;align-items:flex-start}.note-card-top strong{flex:1;font-size:14px;line-height:1.45}.note-category{font-size:10px;color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 10%,transparent);padding:2px 5px;border-radius:5px}.note-card p{font-size:12px;color:var(--c-text-secondary);line-height:1.55;margin:7px 0 10px}.note-meta{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--c-text-secondary)}.note-meta span{display:flex;align-items:center;gap:3px}.note-meta svg{width:11px}.empty-notes,.editor-empty{display:grid;place-items:center;text-align:center;color:var(--c-text-secondary);padding:50px 20px}.empty-notes svg,.editor-empty svg{width:36px}.empty-notes button,.editor-empty button{border:0;background:var(--c-primary);color:var(--c-primary-contrast);border-radius:8px;padding:9px 13px;cursor:pointer}
+.note-list-panel{border-right:1px solid var(--c-border);background:var(--c-bg-card);display:flex;flex-direction:column;min-width:0}.list-head{padding:21px 18px 12px;display:flex;align-items:baseline;justify-content:space-between}.list-head h2{font-size:18px;margin:0}.list-head span{font-size:12px;color:var(--c-text-secondary)}.search-box{margin:0 14px 12px;display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-bg-page)}.search-box svg{width:14px;color:var(--c-text-secondary)}.search-box input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:inherit}.note-scroll{overflow:auto;padding:0 9px 20px}.note-card{width:100%;padding:14px 12px;border:1px solid transparent;border-bottom-color:var(--c-border);background:transparent;text-align:left;color:inherit;cursor:pointer}.note-card:hover{background:var(--c-bg-subtle)}.note-card.active{border-color:color-mix(in srgb,var(--c-primary) 35%,transparent);background:color-mix(in srgb,var(--c-primary) 8%,var(--c-bg-card));border-radius:10px}.note-card-top{gap:10px;align-items:flex-start}.note-card-top strong{flex:1;font-size:14px;line-height:1.45}.note-category{font-size:10px;color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 10%,transparent);padding:2px 5px;border-radius:5px}.note-card p{font-size:12px;color:var(--c-text-secondary);line-height:1.55;margin:7px 0 10px}.note-meta{gap:10px;flex-wrap:wrap;font-size:12px;color:var(--c-text-secondary)}.note-meta span{gap:3px}.note-meta svg{width:11px}.empty-notes,.editor-empty{display:grid;place-items:center;text-align:center;color:var(--c-text-secondary);padding:50px 20px}.empty-notes svg,.editor-empty svg{width:36px}.empty-notes button,.editor-empty button{border:0;background:var(--c-primary);color:var(--c-primary-contrast);border-radius:8px;padding:9px 13px;cursor:pointer}
 .editor-panel{min-width:0;display:flex;flex-direction:column;background:var(--c-bg-page)}.editor-toolbar{height:56px;padding:0 16px;border-bottom:1px solid var(--c-border);display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--c-bg-card) 92%,var(--c-bg-page))}.save-state{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--c-text-secondary);margin-right:auto;white-space:nowrap;flex-shrink:0}.save-state>span{width:8px;height:8px;border-radius:50%;background:#67c23a}.save-state>span.dirty{background:#e6a23c}.mode-switch{display:flex;padding:3px;gap:2px;background:var(--c-bg-subtle);border-radius:9px}.mode-switch button{display:flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--c-text-secondary);padding:6px 10px;border-radius:7px;cursor:pointer;font-size:11.5px;font-weight:550;transition:all var(--motion-fast);white-space:nowrap;flex-shrink:0}.mode-switch button:hover{color:var(--c-text)}.mode-switch button.active{background:var(--c-bg-card);color:var(--c-text);box-shadow:var(--shadow-sm)}.mode-switch svg,.delete-button svg{width:13px}.save-button{border:0;background:var(--c-primary);color:var(--c-primary-contrast);border-radius:7px;padding:7px 13px;cursor:pointer;font-weight:600;white-space:nowrap;flex-shrink:0}.save-button:hover{filter:brightness(1.06)}.delete-button{border:0;background:transparent;color:var(--c-text-secondary);padding:6px;cursor:pointer;border-radius:6px}.delete-button:hover{color:var(--status-risk);background:color-mix(in srgb,var(--status-risk) 10%,transparent)}.note-fields{padding:24px 28px 14px;border-bottom:1px solid var(--c-border)}.title-editor{width:100%;border:0;outline:0;background:transparent;color:var(--c-text-heading);font-size:28px;font-weight:750;margin-bottom:16px}.property-row{display:flex;gap:16px;align-items:end;flex-wrap:wrap}.property-row label{display:flex;flex-direction:column;gap:5px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--c-text-secondary)}.property-row select,.property-row input{border:1px solid var(--c-border);border-radius:7px;background:var(--c-bg-page);color:var(--c-text);padding:7px 8px;min-width:145px}.tags-field{flex:1}.tags-field input{width:100%;box-sizing:border-box}.case-chip{display:inline-flex;align-items:center;gap:5px;margin-top:10px;padding:4px 8px;border-radius:6px;background:color-mix(in srgb,var(--c-primary) 9%,transparent);color:var(--c-primary);font-size:11px}.case-chip svg{width:12px}.markdown-workspace{flex:1;min-height:0;display:grid;overflow:hidden}.markdown-workspace.mode-split{grid-template-columns:1fr 1fr}.markdown-source,.markdown-preview{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow:auto;padding:26px 32px;border:0;outline:0;background:var(--c-bg-card);color:var(--c-text);font-size:15px;line-height:1.75}.markdown-source{resize:none;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace}.mode-split .markdown-source{border-right:1px solid var(--c-border)}.markdown-preview{font-family:var(--font-family);max-width:none}.markdown-preview :deep(h1){font-size:28px;border-bottom:1px solid var(--c-border);padding-bottom:8px}.markdown-preview :deep(h2){font-size:22px}.markdown-preview :deep(p){margin:0 0 13px}.markdown-preview :deep(blockquote){border-left:3px solid var(--c-primary);margin:12px 0;padding:5px 14px;color:var(--c-text-secondary);background:var(--c-bg-subtle)}.markdown-preview :deep(pre){background:#18202b;color:#e7edf5;padding:14px;border-radius:8px;overflow:auto}.markdown-preview :deep(code){font-family:monospace;background:var(--c-bg-subtle);padding:2px 4px;border-radius:4px}.markdown-preview :deep(pre code){background:transparent;padding:0}.markdown-preview :deep(a){color:var(--c-primary)}.editor-empty{height:100%;align-content:center}.editor-empty h3{color:var(--c-text-heading);margin:14px 0 4px}.editor-empty p{margin:0 0 18px}
 .note-card{width:calc(100% - var(--tree-depth,0) * 12px);margin-left:calc(var(--tree-depth,0) * 12px);position:relative}
 .child-button{display:flex;align-items:center;gap:3px;border:1px solid var(--c-border);background:transparent;color:var(--c-text);border-radius:7px;padding:6px 8px;cursor:pointer;font-size:11px}.child-button svg{width:12px}
@@ -675,12 +696,12 @@ async function openSearchHit(id) {
 .outline-panel button{width:100%;display:block;border:0;border-radius:6px;background:transparent;color:var(--c-text-secondary);padding-top:6px;padding-right:8px;padding-bottom:6px;text-align:left;font-size:11px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .outline-panel button:hover{background:var(--c-bg-subtle);color:var(--c-primary)}
 .outline-empty{padding:12px 8px;color:var(--c-text-secondary);font-size:10px;line-height:1.6}
-@media(max-width:1380px){.notebook-shell{grid-template-columns:260px minmax(440px,1fr) 240px}.editor-toolbar{padding-left:10px;padding-right:10px;gap:6px}.child-button{font-size:0}.child-button svg{width:13px}.note-fields{padding-left:18px;padding-right:18px}.mode-switch button{font-size:12px}.mode-switch svg{width:14px}}
-@media(max-width:980px){.notebook-shell{grid-template-columns:240px minmax(430px,1fr)}.knowledge-info-rail{display:none}}
+@media(max-width: 1360px){.notebook-shell{grid-template-columns:260px minmax(440px,1fr) 240px}.editor-toolbar{padding-left:10px;padding-right:10px;gap:6px}.child-button{font-size:0}.child-button svg{width:13px}.note-fields{padding-left:18px;padding-right:18px}.mode-switch button{font-size:12px}.mode-switch svg{width:14px}}
+@media(max-width: 1100px){.notebook-shell{grid-template-columns:240px minmax(430px,1fr)}.knowledge-info-rail{display:none}}
 .mobile-notebook-nav{display:none;gap:4px;padding:4px 12px;border-bottom:1px solid var(--c-border);background:var(--c-bg-card)}
 .mobile-notebook-nav button{flex:1;border:0;padding:5px 12px;background:transparent;color:var(--c-text-secondary);border-radius:var(--c-radius);font:inherit;font-size:12px;cursor:pointer}
 .mobile-notebook-nav button.active{background:var(--c-primary-light);color:var(--c-primary);font-weight:600}
-@media(max-width:1180px){
+@media(max-width: 1100px){
   .notebook-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:40px minmax(0,1fr);min-height:0}
   .mobile-notebook-nav{display:flex;gap:4px;padding:4px 8px;border-bottom:1px solid var(--c-border)}
   .mobile-notebook-nav button{flex:1;border:0;background:transparent;color:var(--c-text);border-radius:4px}
@@ -698,9 +719,8 @@ async function openSearchHit(id) {
   .markdown-preview{padding:16px}
   .knowledge-info-rail{border-left:0}
 }
-@media(max-width:500px){
-  .property-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-}
+
+
 @container (min-width: 1180px) {
   .notebook-shell { grid-template-columns: 260px minmax(0,1fr) 240px; }
 }
@@ -732,7 +752,7 @@ async function openSearchHit(id) {
 .writing-focus :deep(.editor-toolbar-shell) { opacity: .6; }
 .writing-focus :deep(.tiptap) { font-size: 17px; line-height: 1.95; }
 .note-related-work { padding: 0 16px 20px; min-width: 0; overflow: auto; }
-.note-related-work > p { font-size: 12px; color: var(--c-text-secondary); line-height: 1.8; }
+.note-related-work > p { line-height: 1.8; }
 .note-related-work :deep(nav) { flex-wrap: wrap; }
 .info-tabs { flex-wrap: wrap; }
 </style>

@@ -111,7 +111,7 @@ onMounted(() => {
     <p v-if="formDirty" class="tip" role="status">邮箱配置有未保存修改，切换设置分类会保留输入；离开设置前请保存。</p>
     <el-card>
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>📧 邮件监听</strong>
           <el-tag v-if="statusError" type="warning" size="small">状态未知</el-tag>
           <el-tag v-else-if="emailMonitoring" type="success" size="small">监听中</el-tag>
@@ -197,8 +197,6 @@ onMounted(() => {
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 

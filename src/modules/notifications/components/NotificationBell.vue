@@ -15,6 +15,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Bell, AlarmClock, InfoFilled, Check, Delete, CircleCheck } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 // ── 本地类型契约（对齐后端 AppNotification DTO，serde camelCase）──
 interface AppNotification {
@@ -40,6 +41,8 @@ const unreadCount = ref(0)
 const notifications = ref<AppNotification[]>([])
 const panelOpen = ref(false)
 const listLoading = ref(false)
+const listError = ref('')
+const countError = ref('')
 const bellRef = ref<HTMLElement | null>(null)
 
 onUnmounted(observeChanges(casyContext, ['task','calendar','holiday'], async () => { await refreshUnread(); if (panelOpen.value) await loadList() }))
@@ -48,13 +51,24 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 async function refreshUnread() {
   const n = await tauriCall('unread_notification_count', {}, { silent: true })
-  if (typeof n === 'number') unreadCount.value = n
+  if (typeof n === 'number') { unreadCount.value = n; countError.value = '' }
+  else {
+    // 角标轮询失败：不得静默显示 0（那等于"没有待办"）
+    countError.value = '未读数量读取失败'
+    console.warn('[Casy] 未读通知数量读取失败')
+  }
 }
 
 async function loadList() {
   listLoading.value = true
+  listError.value = ''
   const list = await tauriCall('list_notifications', {}, { silent: true })
   if (Array.isArray(list)) notifications.value = list
+  else {
+    // 读取失败不得渲染成"暂无待处理通知"
+    listError.value = '通知列表读取失败'
+    console.warn('[Casy] 通知列表读取失败')
+  }
   listLoading.value = false
 }
 
@@ -176,6 +190,9 @@ onUnmounted(() => {
       <span v-if="unreadCount > 0" class="nc-badge">
         {{ unreadCount > 99 ? '99+' : unreadCount }}
       </span>
+      <el-tooltip v-if="countError" :content="`${countError}，点击重试`" placement="bottom">
+        <span class="nc-count-error" role="alert" @click.stop="refreshUnread">!</span>
+      </el-tooltip>
     </button>
 
     <!-- 自绘 dropdown 面板（transform/opacity 动效） -->
@@ -195,9 +212,13 @@ onUnmounted(() => {
 
         <div v-if="listLoading" class="nc-empty">加载中…</div>
 
+        <div v-else-if="listError" class="nc-empty nc-error" role="alert">
+          <span>{{ listError }}</span>
+          <el-button text @click="loadList">重试</el-button>
+        </div>
+
         <div v-else-if="!notifications.length" class="nc-empty">
-          <el-icon :size="22" class="nc-empty-icon"><CircleCheck /></el-icon>
-          <span>一切就绪，暂无待处理通知</span>
+          <EmptyState type="custom" compact hide-action title="一切就绪，暂无待处理通知" />
         </div>
 
         <div v-else class="nc-list">
@@ -212,7 +233,7 @@ onUnmounted(() => {
               <el-icon :size="14"><component :is="typeIcon(n.type)" /></el-icon>
             </span>
             <div class="nc-item-body">
-              <div class="nc-item-top">
+              <div class="nc-item-top ui-row ui-row--between">
                 <span class="nc-item-title">{{ n.title }}</span>
                 <span class="nc-item-time">{{ relativeTime(n.createdAt) }}</span>
               </div>
@@ -256,6 +277,23 @@ onUnmounted(() => {
 .nc-bell-btn.open {
   background: var(--c-bg-hover);
   color: var(--c-text);
+}
+
+/* 未读数读取失败标记（不得静默显示 0） */
+.nc-count-error {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 8px;
+  background: var(--c-danger, #d14343);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  cursor: pointer;
 }
 
 /* 克制的灰蓝角标（非刺眼红） */
@@ -350,6 +388,11 @@ onUnmounted(() => {
   color: var(--slate-gray-light);
 }
 
+.nc-empty.nc-error {
+  color: var(--c-danger, #d14343);
+  gap: 4px;
+}
+
 .nc-empty-icon {
   color: var(--status-success);
   opacity: 0.7;
@@ -400,9 +443,7 @@ onUnmounted(() => {
 }
 
 .nc-item-top {
-  display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
 }
 

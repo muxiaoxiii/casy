@@ -13,6 +13,7 @@ import { ref, shallowRef, watch, nextTick, computed, onBeforeUnmount } from 'vue
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, Finished, Folder, Reading } from '../shared/icons'
+import EmptyState from '../shared/components/EmptyState.vue'
 import { casyContext } from '../core/plugin/context'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -45,6 +46,8 @@ const listRef = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
 const semanticLoading = ref(false)
 const semanticWarning = ref('')
+// 检索失败不得伪装成「没有匹配结果」（四态纪律）：至少一个来源失败即显示可重试的错误行
+const searchError = ref('')
 const mode = ref(localStorage.getItem('casy_global_search_mode') || 'keyword')
 
 interface ResultItem {
@@ -79,6 +82,7 @@ async function runSearch(q: string, request: number) {
     return
   }
   loading.value = true
+  searchError.value = ''
   const [tasksRes, casesRes, knRes, projRes, filesRes] = await Promise.all([
     casyContext.tasks.searchTasks(text),
     casyContext.cases.search(text),
@@ -148,6 +152,7 @@ async function runSearch(q: string, request: number) {
   }
 
   publish(out)
+  searchError.value = [tasksRes, casesRes, filesRes, projRes].filter(item => !item.ok).map(item => item.error || '检索失败').join('；')
   if (!knRes.ok) semanticWarning.value = knRes.error || '知识检索失败'
   if (mode.value === 'hybrid') {
     semanticLoading.value = true
@@ -272,6 +277,7 @@ function onKeydown(e: KeyboardEvent) {
             <span v-if="semanticLoading" role="status">语义检索中</span>
           </div>
           <div v-if="semanticWarning" class="cmdk-warning" role="status">{{ semanticWarning }}</div>
+          <div v-if="searchError" class="cmdk-warning cmdk-error" role="alert">检索失败：{{ searchError }}<el-button text @click="runSearch(query, ++sequence)">重试</el-button></div>
 
           <div ref="listRef" class="cmdk-list">
             <template v-if="flatResults.length">
@@ -294,16 +300,17 @@ function onKeydown(e: KeyboardEvent) {
                     @click="choose(r)"
                   >
                     <el-icon class="cmdk-item-icon"><component :is="r.icon" /></el-icon>
-                    <span class="cmdk-item-body"><span class="cmdk-item-title">{{ r.title }}</span><span class="cmdk-item-meta">{{ r.meta }}</span></span>
+                    <span class="cmdk-item-body"><span class="cmdk-item-title">{{ r.title }}</span><span class="cmdk-item-meta ui-truncate">{{ r.meta }}</span></span>
                     <span v-if="flatResults[activeIndex]?.key === r.key" class="cmdk-enter-hint">↵</span>
                   </button>
                 </template>
               </template>
             </template>
-            <div v-else-if="!loading" class="cmdk-empty">
-              {{ query.trim() ? '没有匹配结果' : '输入以搜索任务、案件、知识…' }}
+            <div v-else-if="!loading && !searchError" class="cmdk-empty ui-text ui-text--secondary">
+              <template v-if="!query.trim()">输入以搜索任务、案件、知识…</template>
+              <EmptyState v-else type="custom" compact hide-action title="没有匹配结果" />
             </div>
-            <div v-if="loading && !flatResults.length" class="cmdk-empty">搜索中…</div>
+            <div v-if="loading && !flatResults.length" class="cmdk-empty ui-text ui-text--secondary">搜索中…</div>
           </div>
 
           <div class="cmdk-footer">
@@ -353,6 +360,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 .cmdk-modes { display:flex; gap:12px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--c-border-light); font-size:12px; color:var(--c-text-secondary); }
 .cmdk-warning { padding:8px 16px; font-size:12px; color:var(--c-text-secondary); overflow-wrap:anywhere; }
+.cmdk-warning.cmdk-error { display:flex; align-items:center; gap:8px; color:var(--c-danger); }
 .cmdk-search-icon {
   color: var(--c-text-secondary);
   font-size: 16px;
@@ -413,20 +421,13 @@ function onKeydown(e: KeyboardEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cmdk-item-meta {
-  font-size: 11px;
-  color: var(--c-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+
 .cmdk-enter-hint { color: var(--c-text-secondary); font-size: 13px; }
+.cmdk-item-meta { font-size: 11px; color: var(--c-text-secondary); }
 
 .cmdk-empty {
   padding: 28px 12px;
   text-align: center;
-  font-size: 13px;
-  color: var(--c-text-secondary);
 }
 
 .cmdk-footer {

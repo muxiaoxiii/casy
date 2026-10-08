@@ -109,7 +109,7 @@ async function migrateLegacy() {
         <button v-for="p in store.config.profiles" :key="p.id" type="button" role="tab" :aria-selected="selectedId === p.id" @click="selectedId = p.id; testResult = ''">{{ p.name }}</button>
       </div>
       <template v-if="selected">
-        <div class="fields">
+        <div class="fields ui-grid">
           <el-form-item label="配置名称"><el-input v-model="selected.name" /></el-form-item>
           <el-form-item label="接口协议"><el-select v-model="selected.mode"><el-option label="OpenAI 兼容" value="openai" /><el-option label="Ollama" value="ollama" /></el-select></el-form-item>
           <el-form-item class="wide" label="API 基础地址"><el-input v-model="selected.apiUrl" :placeholder="selected.mode === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" /></el-form-item>
@@ -121,7 +121,7 @@ async function migrateLegacy() {
       </template>
       <el-divider />
       <el-form-item label="知识库语义检索"><el-switch v-model="embeddingEnabled" /></el-form-item>
-      <div v-if="store.config.embedding" class="fields">
+      <div v-if="store.config.embedding" class="fields ui-grid">
         <el-form-item label="向量模型来源"><el-select v-model="store.config.embedding.profileId" @change="changeEmbeddingProfile"><el-option label="内置本地 E5-base（多语言）" value="builtin-e5-base" /><el-option v-for="p in store.config.profiles" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
         <el-form-item v-if="store.config.embedding.profileId !== 'builtin-e5-base'" label="向量模型 ID"><el-input v-model="store.config.embedding.model" /></el-form-item>
         <el-form-item label="每段字数"><el-input-number v-model="store.config.embedding.chunkChars" :min="128" :max="4000" :step="128" :precision="0" /></el-form-item>
@@ -134,24 +134,24 @@ async function migrateLegacy() {
       <el-button type="primary" :icon="Check" :loading="store.loading" @click="save">保存配置</el-button>
     </el-form>
     <el-divider />
-    <div class="tool-policy-entry"><div><h3>AI 工具策略</h3><p>管理各模块工具的启用状态与写入审批。</p></div><el-button @click="router.push({ path: '/settings', query: { tab: 'tools' } })">管理工具策略</el-button></div>
+    <div class="tool-policy-entry ui-row ui-row--between ui-row--wrap"><div><h3>AI 工具策略</h3><p class="ui-text--caption">管理各模块工具的启用状态与写入审批。</p></div><el-button @click="router.push({ path: '/settings', query: { tab: 'tools' } })">管理工具策略</el-button></div>
   </section>
 </template>
 
 <style scoped>
-.tool-policy-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.tool-policy-entry h3{font-size:14px;margin:0 0 6px}.tool-policy-entry p{font-size:12px;color:var(--c-text-secondary);margin:0}
+.tool-policy-entry{gap:16px}.tool-policy-entry h3{font-size:14px;margin:0 0 6px}.tool-policy-entry p{margin:0}
 
 .ai-settings { max-width: 780px; }
 .usage-status { margin-left: 12px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
 h3 { font-size: 18px; margin: 0; }
 .el-select { width: 100%; }
-.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
 .wide { grid-column: 1 / -1; }
 .profile-tabs { display: flex; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--c-border); margin-bottom: 20px; }
 .profile-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--c-text); padding: 10px 0; font: inherit; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
 .profile-tabs button[aria-selected="true"] { border-bottom-color: var(--el-color-primary); color: var(--el-color-primary); }
 .profile-actions { display: flex; gap: 8px; margin-bottom: 20px; }
 .el-alert { margin-bottom: 16px; }
-@media (max-width: 640px) { .fields { grid-template-columns: minmax(0, 1fr); } }
+
 </style>

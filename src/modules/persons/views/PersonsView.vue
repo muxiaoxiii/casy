@@ -122,8 +122,8 @@ async function onDetailChanged() {
 <template>
   <div class="persons-page fade-in">
     <!-- 顶部工具栏 -->
-    <div class="page-header">
-      <div class="page-title-row">
+    <div class="page-header ui-row ui-row--between">
+      <div class="page-title-row ui-row">
         <h2 class="page-title">实体管理</h2>
         <span v-if="!loading && !loadError" class="page-count">{{ totalCount }} 个实体</span>
       </div>
@@ -176,7 +176,7 @@ async function onDetailChanged() {
           @keydown.enter.self="openDetail(p)" @keydown.space.prevent.self="openDetail(p)"
           @click="openDetail(p)"
         >
-          <div class="card-top">
+          <div class="card-top ui-row ui-row--between">
             <div
               class="person-avatar"
               :style="{ background: kindMeta(p.kind).color + '1A', color: kindMeta(p.kind).color }"
@@ -247,16 +247,12 @@ async function onDetailChanged() {
 }
 
 .page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 14px;
 }
 
 .page-title-row {
-  display: flex;
-  align-items: baseline;
   gap: 10px;
+  align-items: baseline;
 }
 
 .page-title {
@@ -342,9 +338,7 @@ async function onDetailChanged() {
 }
 
 .card-top {
-  display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   margin-bottom: 10px;
 }
 

@@ -8,6 +8,8 @@ import './style.css'
 import './assets/theme.css'
 import './assets/workspace.css'
 import './assets/docket.css'
+import './shared/ui/ui-utils.css'
+import './assets/deadline-channel.css'
 import i18n from './locales/index.ts'
 
 // ============================================================

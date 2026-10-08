@@ -342,7 +342,7 @@ function onMenuSelect(name) {
       <nav class="sidebar-nav">
         <section v-for="group in navGroups" :key="group.label" class="nav-group">
           <h3 v-show="!sidebarCollapsed" class="nav-group-label">{{ group.label }}</h3>
-          <div class="nav-items-stack">
+          <div class="nav-items-stack ui-col">
             <button
               v-for="item in group.items"
               :key="item.name"
@@ -365,7 +365,7 @@ function onMenuSelect(name) {
         </section>
         <section class="nav-group">
           <h3 v-show="!sidebarCollapsed || mobileNavOpen" class="nav-group-label">Workspace</h3>
-          <div class="nav-items-stack">
+          <div class="nav-items-stack ui-col">
             <button v-for="item in utilityModules" :key="item.name" type="button" class="nav-item" :class="{ active: isNavActive(item) }" :aria-current="isNavActive(item) ? 'page' : undefined" :title="`${item.label} / ${item.sublabel}`" @click="onMenuSelect(item.name)">
               <el-icon class="nav-icon" :size="18"><component :is="item.icon" /></el-icon>
               <span v-show="!sidebarCollapsed || mobileNavOpen" class="nav-label-group"><span class="nav-label-main">{{ item.label }}</span><span class="nav-label-sub">{{ item.sublabel }}</span></span>
@@ -393,7 +393,7 @@ function onMenuSelect(name) {
           </div>
           <div class="user-info">
             <span class="user-name">{{ profileStore.name?.trim() || '个人工作台' }}</span>
-            <span class="user-role">{{ profileStore.practice_areas?.[0] || '执业信息未设置' }}</span>
+            <span class="user-role ui-truncate">{{ profileStore.practice_areas?.[0] || '执业信息未设置' }}</span>
           </div>
         </button>
 
@@ -595,8 +595,7 @@ function onMenuSelect(name) {
 }
 
 .nav-items-stack {
-  display: flex;
-  flex-direction: column;
+  /* 布局走共享 .ui-col；此处只保留本文件特有的 2px 间距 */
   gap: 2px;
 }
 
@@ -750,9 +749,6 @@ function onMenuSelect(name) {
 .user-role {
   font-size: 10.5px;
   color: var(--slate-gray-light);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .settings-item {
@@ -986,7 +982,7 @@ function onMenuSelect(name) {
   background: var(--c-bg-page);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px){
   .topbar { padding: 0 16px; gap: 10px; }
   .topbar-right { gap: 8px; }
   .shortcut-tag, .kbd-badge { display: none; }
@@ -1006,17 +1002,7 @@ function onMenuSelect(name) {
   .mobile-open .brand-copy, .mobile-open .nav-label-group, .mobile-open .nav-group-label, .mobile-open .ai-status-pill { display: flex !important; }
   .nav-backdrop { position: fixed; inset: 0; background: var(--c-overlay); border: 0; z-index: 45; }
 }
-@media (max-width: 600px) {
-  .app-sidebar:not(.mobile-open) { display: none; }
-  .topbar { height: 56px; padding: 0 12px; }
-  .topbar-left { gap: 8px; }
-  .search-trigger { flex: 0 0 34px; width: 34px; padding: 0; justify-content: center; }
-  .search-placeholder, .conversion-label { display: none; }
-  .topbar .btn-secondary { width: 34px; padding: 0; justify-content: center; flex: 0 0 34px; }
-  .browser-preview-pill { display: none; }
-  .btn-primary { padding: 0 10px; }
-  .browser-preview-pill { padding: 3px 6px; font-size: 10px; }
-}
+
 .app-sidebar.collapsed .sidebar-brand { padding-inline: 18px; }
 .ai-status-pill.disabled { background: var(--c-bg-subtle); border-color: var(--c-border); }
 .ai-status-pill.disabled .ai-status-text { color: var(--c-text-secondary); }

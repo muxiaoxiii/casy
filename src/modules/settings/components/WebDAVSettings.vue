@@ -103,7 +103,7 @@ async function testWebdavConnection() {
   <div class="tab-content">
     <el-card>
       <template #header>
-        <div class="card-header">
+        <div class="card-header ui-row">
           <strong>WebDAV 备份与同步</strong>
           <el-tag v-if="settingsStore.webdavUrl" type="success" size="small">已配置</el-tag>
           <el-tag v-else type="info" size="small">未配置</el-tag>
@@ -193,8 +193,6 @@ async function testWebdavConnection() {
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 

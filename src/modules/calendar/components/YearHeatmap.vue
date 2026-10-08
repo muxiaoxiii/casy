@@ -28,12 +28,12 @@ const selectedTasks = computed(() => taskDays.value.get(selected.value) || [])
 </script>
 <template>
   <section class="year-heatmap" aria-label="年度任务热力图" :aria-busy="loading">
-    <div class="heatmap-intro"><div><h2>全年工作密度</h2><p>按每天已排期的任务数着色（含已完成），跨日任务在每天计一次；未排期任务不计入。</p></div><div class="heatmap-legend" aria-label="任务数量色阶"><span>少</span><span v-for="(label, level) in ['0 项', '1 项', '2—3 项', '4—6 项', '7 项及以上']" :key="level" class="heat-swatch" :data-level="level" :title="label" /><span>多</span></div></div>
-    <div class="year-months">
+    <div class="heatmap-intro ui-row ui-row--between ui-row--wrap"><div><h2>全年工作密度</h2><p>按每天已排期的任务数着色（含已完成），跨日任务在每天计一次；未排期任务不计入。</p></div><div class="heatmap-legend ui-row" aria-label="任务数量色阶"><span>少</span><span v-for="(label, level) in ['0 项', '1 项', '2—3 项', '4—6 项', '7 项及以上']" :key="level" class="heat-swatch" :data-level="level" :title="label" /><span>多</span></div></div>
+    <div class="year-months ui-grid">
       <section v-for="month in months" :key="month.month" class="mini-month" :style="{ '--month-density': `${month.density}%` }">
         <button class="mini-month-heading" @click="emit('month', month.date)"><strong>{{ month.month + 1 }} 月</strong><span>{{ month.busyDays }} 天有任务</span></button>
-        <div class="mini-weekdays"><span v-for="day in ['一','二','三','四','五','六','日']" :key="day">{{ day }}</span></div>
-        <div class="mini-days">
+        <div class="mini-weekdays ui-grid"><span v-for="day in ['一','二','三','四','五','六','日']" :key="day">{{ day }}</span></div>
+        <div class="mini-days ui-grid">
           <span v-for="space in month.offset" :key="`blank-${space}`" aria-hidden="true" />
           <button v-for="day in month.days" :key="day.key" class="heat-day" :data-level="day.level" :class="{ today: day.key === todayLocalISO(), selected: selected === day.key }" :title="day.title" :aria-label="day.title" :aria-pressed="selected === day.key" @click="selected = day.key">
             <span>{{ day.number }}</span><HolidayBadges class="heat-day-badges" :entries="day.holiday" compact />
@@ -42,7 +42,7 @@ const selectedTasks = computed(() => taskDays.value.get(selected.value) || [])
       </section>
     </div>
     <section v-if="selected.startsWith(`${year}-`)" class="heatmap-detail" aria-live="polite">
-      <header><strong>{{ selected }} · {{ selectedTasks.length }} 项任务</strong><el-button @click="emit('day', selected)">打开当日日历</el-button></header>
+      <header class="ui-row ui-row--between ui-row--wrap"><strong>{{ selected }} · {{ selectedTasks.length }} 项任务</strong><el-button @click="emit('day', selected)">打开当日日历</el-button></header>
       <HolidayBadges :entries="holidayMap.get(selected) || []" />
       <button v-for="task in selectedTasks" :key="task.id" class="heat-task" @click="emit('task', task)"><span>{{ task.taskName || '未命名任务' }}</span><small>{{ task.completed ? '已完成' : '待完成' }}</small></button>
       <p v-if="!selectedTasks.length">当日没有已排期任务。</p>
@@ -51,16 +51,16 @@ const selectedTasks = computed(() => taskDays.value.get(selected.value) || [])
 </template>
 <style scoped>
 .year-heatmap { --heat-0: var(--c-bg-subtle); --heat-1: color-mix(in srgb, var(--c-primary) 18%, var(--c-bg-card)); --heat-2: color-mix(in srgb, var(--c-primary) 36%, var(--c-bg-card)); --heat-3: color-mix(in srgb, var(--c-primary) 60%, var(--c-bg-card)); --heat-4: var(--c-primary); }
-.heatmap-intro, .heatmap-detail header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.heatmap-intro, .heatmap-detail header { gap: 16px; }
 h2 { font-size: 17px; margin: 0; }
 p { color: var(--c-text-secondary); line-height: 1.6; font-size: 13px; }
-.heatmap-legend { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-text-secondary); }
+.heatmap-legend { gap: 5px; font-size: 12px; color: var(--c-text-secondary); }
 .heat-swatch { width: 15px; height: 15px; border-radius: 3px; }
-.year-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 16px; margin-top: 12px; }
+.year-months { grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 16px; margin-top: 12px; }
 .mini-month { border: 1px solid var(--c-border); border-radius: 12px; padding: 14px; background: color-mix(in srgb, var(--c-primary) var(--month-density), var(--c-bg-card)); }
 .mini-month-heading { border: 0; background: none; color: var(--c-text-heading); display: flex; align-items: baseline; justify-content: space-between; width: 100%; padding: 0 0 12px; cursor: pointer; }
 .mini-month-heading strong { font-size: 16px; }.mini-month-heading span { color: var(--c-text-secondary); font-size: 11px; }
-.mini-weekdays, .mini-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.mini-weekdays, .mini-days { grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .mini-weekdays { color: var(--c-text-secondary); font-size: 11px; text-align: center; padding-bottom: 7px; }
 .heat-day { border: 1px solid transparent; border-radius: 4px; min-width: 0; aspect-ratio: 1; min-height: 36px; position: relative; display: grid; place-content: center; color: var(--c-text); font-size: 12px; cursor: pointer; padding: 0 0 10px; }
 [data-level="0"] { background: var(--heat-0); } [data-level="1"] { background: var(--heat-1); } [data-level="2"] { background: var(--heat-2); } [data-level="3"] { background: var(--heat-3); } [data-level="4"] { background: var(--heat-4); color: var(--c-primary-contrast); }

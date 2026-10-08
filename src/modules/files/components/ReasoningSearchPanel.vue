@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import { isTauriRuntime } from '../../../core/mockData'
 import { Search, Close, Document, FolderOpened } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import type { DocumentPassage } from '../../../types/documentRetrieval'
 import DocumentSourceViewer from './DocumentSourceViewer.vue'
 
@@ -76,16 +77,16 @@ async function openSource(passage:DocumentPassage) {
       </el-select>
       <form class="query-row" @submit.prevent="search"><el-input v-model="query" :disabled="busy" placeholder="关键词或案情问题" maxlength="500" clearable /><el-button :icon="Search" :loading="busy" :disabled="!query.trim()" type="primary" native-type="submit" aria-label="检索" title="检索" /></form>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <p v-if="busy" role="status" class="progress">{{ logs[logs.length-1] || (mode === 'source' ? '正在查找原文…' : '正在读取文档证据…') }}</p>
+      <p v-if="busy" role="status" class="progress ui-text ui-text--secondary">{{ logs[logs.length-1] || (mode === 'source' ? '正在查找原文…' : '正在读取文档证据…') }}</p>
       <div class="results">
-        <p v-if="searched && !answer" class="result-count">{{ passages.length }} 处命中</p>
+        <p v-if="searched && !answer" class="result-count ui-text ui-text--secondary">{{ passages.length }} 处命中</p>
         <article v-for="passage in passages" :key="passage.citation" class="passage">
           <div class="passage-heading"><Document /><strong>{{ passage.fileName }}</strong><span>第 {{ [...new Set([passage.number,...(passage.locations||[]).map(l=>l.pageNumber)])].join('、') }} {{ passage.locationKind === 'segment' ? '段' : '页' }}</span><el-button :icon="FolderOpened" title="定位原文" aria-label="定位原文" @click="openSource(passage)" /></div>
           <pre>{{ passage.content.slice(0,800) }}</pre>
           <details v-if="passage.content.length > 800"><summary>展开原文片段</summary><pre>{{ passage.content }}</pre></details>
         </article>
         <template v-if="answer"><h3>回答</h3><p class="answer">{{ answer.answer }}</p><h3>原文依据</h3><blockquote v-for="(citation,index) in answer.excerpts" :key="index"><p>{{ citation.quote }}</p><cite>{{ citation.source }}</cite></blockquote></template>
-        <el-empty v-if="searched && !passages.length && !answer" description="没有找到相关原文" :image-size="60" />
+        <EmptyState v-if="searched && !passages.length && !answer" type="search" compact title="没有找到相关原文" />
       </div>
     </section>
   </el-drawer>
@@ -97,7 +98,7 @@ async function openSource(passage:DocumentPassage) {
 header {display:flex;align-items:center;justify-content:space-between;gap:12px}
 h2 {font-size:20px;margin:0} h3 {font-size:15px;margin:16px 0 10px}
 .query-row {display:flex;gap:8px}.query-row .el-input {min-width:0}
-.results {flex:1;min-height:0;overflow:auto}.result-count,.progress {font-size:13px;color:var(--c-text-secondary);margin:0}
+.results {flex:1;min-height:0;overflow:auto}.result-count,.progress {margin:0}
 .passage {padding:18px 0;border-bottom:1px solid var(--c-border)}
 .passage-heading {display:flex;align-items:center;gap:8px;font-size:13px}.passage-heading>svg {width:16px;flex-shrink:0}
 .passage-heading strong {flex:1;min-width:0;overflow-wrap:anywhere}.passage-heading>span {white-space:nowrap;color:var(--c-text-secondary)}
@@ -105,5 +106,6 @@ pre,.answer,blockquote p {white-space:pre-wrap;overflow-wrap:anywhere;font:inher
 pre {margin:12px 0}.answer {margin:0} summary {font-size:12px;color:var(--c-primary);cursor:pointer}
 blockquote {margin:12px 0;padding:4px 14px;border-left:3px solid var(--c-border)}
 cite {font-size:11px;color:var(--c-text-secondary);overflow-wrap:anywhere}
-@media(max-width:520px){.passage-heading {flex-wrap:wrap}.passage-heading strong {flex-basis:60%}}
+
+
 </style>

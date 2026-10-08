@@ -92,16 +92,8 @@ button { touch-action: manipulation; }
   outline-offset: 2px;
 }
 
-@media (max-width: 600px) {
-  :root, html[data-theme] { --app-topbar-height: 56px; }
-  .content-scroll.content-scroll > :is(.today-page-container, .stitch-cases-view, .stitch-tasks-workspace, .stitch-calendar-workspace, .inbox-page, .dash-page, .client-page, .projects-page, .persons-page, .reminder-view, .sync-status-view) {
-    padding-top: 20px;
-    padding-inline: 16px;
-  }
-  .el-dialog { padding: 20px 16px; }
-  .el-dialog__footer .el-button + .el-button { margin-left: 8px; }
-  .el-table td.el-table__cell { padding-block: 9px; }
-}
+
+
 
 @media (prefers-contrast: more) {
   :root, html[data-theme] {

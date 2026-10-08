@@ -73,9 +73,9 @@ function name(row: {fields: Record<string,unknown>}) { return String(row.fields[
   <section class="snapshot-import">
     <el-form label-position="top" :disabled="busy">
       <el-form-item label="飞书多维表格链接">
-        <div class="source-row"><el-input v-model="url" clearable /><el-button :icon="Download" :loading="busy" :disabled="!url.trim()" @click="download">只读获取</el-button></div>
+        <div class="ui-row source-row" style="gap:12px"><el-input v-model="url" clearable /><el-button :icon="Download" :loading="busy" :disabled="!url.trim()" @click="download">只读获取</el-button></div>
       </el-form-item>
-      <div class="source-row"><el-button :icon="Upload" @click="input?.click()">打开本地快照</el-button><el-button v-if="snapshot" :icon="Download" @click="exportSnapshot">保存快照</el-button><input ref="input" type="file" accept=".json,application/json" hidden @change="loadFile" /></div>
+      <div class="ui-row source-row" style="gap:12px"><el-button :icon="Upload" @click="input?.click()">打开本地快照</el-button><el-button v-if="snapshot" :icon="Download" @click="exportSnapshot">保存快照</el-button><input ref="input" type="file" accept=".json,application/json" hidden @change="loadFile" /></div>
       <template v-if="snapshot">
         <el-table :data="snapshot.tables" class="tables" size="small"><el-table-column prop="name" label="工作表" /><el-table-column label="字段数" width="100"><template #default="{row}">{{ row.fields.length }}</template></el-table-column><el-table-column label="记录数" width="100"><template #default="{row}">{{ row.records.length }}</template></el-table-column></el-table>
         <el-form-item label="案件主表"><el-select v-model="primaryId" @change="selected = []"><el-option v-for="table in snapshot.tables" :key="table.table_id" :value="table.table_id" :label="table.name" /></el-select></el-form-item>
@@ -88,20 +88,21 @@ function name(row: {fields: Record<string,unknown>}) { return String(row.fields[
     <div v-if="report" class="report" role="status">
       <h3>本地导入完成</h3>
       <p>本地附件：{{ report.assets }} · 卷宗文件：{{ report.files }}</p>
-      <dl><template v-for="[key,label] in [['cases','案件'],['logs','日志'],['hearings','庭审'],['tasks','任务'],['officials','联系人'],['relations','案件关系'],['sourceRecords','原始记录'],['sourceLinks','原始引用'],['skipped','已有案件']]" :key="key"><dt>{{ label }}</dt><dd>{{ report[key as keyof SnapshotReport] }}</dd></template></dl>
+      <dl class="ui-grid"><template v-for="[key,label] in [['cases','案件'],['logs','日志'],['hearings','庭审'],['tasks','任务'],['officials','联系人'],['relations','案件关系'],['sourceRecords','原始记录'],['sourceLinks','原始引用'],['skipped','已有案件']]" :key="key"><dt>{{ label }}</dt><dd>{{ report[key as keyof SnapshotReport] }}</dd></template></dl>
       <el-alert v-for="warning in report.warnings" :key="warning" :title="warning" type="warning" :closable="false" />
     </div>
   </section>
 </template>
 <style scoped>
 .snapshot-import { padding: 16px 0; }
-.source-row { display: flex; width: 100%; gap: 12px; }
+.source-row { width: 100%; }
 .tables { margin: 24px 0; }
 .case-picker { display: block; margin-top: 16px; }
 .import-action { display: flex; justify-content: flex-end; padding-top: 24px; }
 h3 { font-size: 16px; }
-dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr) 40px); gap: 12px; }
+dl { grid-template-columns: repeat(3,minmax(0,1fr) 40px); }
 dt { color: var(--c-text-secondary); } dd { margin: 0; font-weight: 600; }
 .report .el-alert { margin-top: 8px; }
-@media(max-width: 520px) { .source-row { flex-wrap: wrap; } dl { grid-template-columns: 1fr 40px; } }
+
+
 </style>

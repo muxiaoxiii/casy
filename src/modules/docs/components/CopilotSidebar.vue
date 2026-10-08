@@ -49,11 +49,11 @@
             :class="{ expanded: expandedItemId === item.id }"
           >
             <div class="card-header" @click="emit('toggle-expand', item.id)">
-              <div class="card-title-row">
+              <div class="card-title-row ui-row">
                 <span class="card-icon">{{ getCategoryIcon(item.category) }}</span>
                 <span class="card-title">{{ item.title }}</span>
               </div>
-              <div class="card-meta">
+              <div class="card-meta ui-row">
                 <el-tag size="small" type="info">{{ getCategoryLabel(item.category) }}</el-tag>
                 <span v-if="item.score" class="card-score">{{ formatScore(item.score) }}</span>
                 <span v-if="item.source" class="card-source">{{ item.source }}</span>
@@ -104,13 +104,13 @@
             :class="{ expanded: expandedItemId === item.id }"
           >
             <div class="card-header" @click="emit('toggle-expand', item.id)">
-              <div class="card-title-row">
+              <div class="card-title-row ui-row">
                 <span class="card-icon">📖</span>
                 <span class="card-title">
                   {{ item.lawName ? `《${item.lawName}》` : '' }}{{ item.articleNo || '' }}
                 </span>
               </div>
-              <div class="card-meta">
+              <div class="card-meta ui-row">
                 <el-tag size="small" type="warning">法条</el-tag>
                 <span v-if="item.score" class="card-score">{{ formatScore(item.score) }}</span>
               </div>
@@ -158,11 +158,11 @@
             :class="{ expanded: expandedItemId === item.id }"
           >
             <div class="card-header" @click="emit('toggle-expand', item.id)">
-              <div class="card-title-row">
+              <div class="card-title-row ui-row">
                 <span class="card-icon">⚖️</span>
                 <span class="card-title">{{ item.title }}</span>
               </div>
-              <div class="card-meta">
+              <div class="card-meta ui-row">
                 <el-tag size="small" type="success">判例</el-tag>
                 <span v-if="item.score" class="card-score">{{ formatScore(item.score) }}</span>
               </div>
@@ -433,8 +433,6 @@ function formatScore(score) {
 }
 
 .card-title-row {
-  display: flex;
-  align-items: center;
   gap: 6px;
 }
 
@@ -462,8 +460,6 @@ function formatScore(score) {
 }
 
 .card-meta {
-  display: flex;
-  align-items: center;
   gap: 6px;
   margin-top: 4px;
 }

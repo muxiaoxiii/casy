@@ -11,6 +11,7 @@
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Edit, Delete, Collection, Check, Close } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { casyContext } from '../../../core/plugin/context'
 
 interface AreaRow {
@@ -133,7 +134,7 @@ async function removeArea(area: AreaRow) {
     :close-on-click-modal="false"
   >
     <!-- 新建 -->
-    <div class="area-create">
+    <div class="area-create ui-row">
       <el-input
         v-model="newName"
         placeholder="新领域名称（如：客户开发、专业进修）"
@@ -153,8 +154,8 @@ async function removeArea(area: AreaRow) {
     </div>
 
     <!-- 列表 -->
-    <div v-loading="loading" class="area-list">
-      <div v-for="area in areas" :key="area.id" class="area-row">
+    <div v-loading="loading" class="area-list ui-col ui-col--tight">
+      <div v-for="area in areas" :key="area.id" class="area-row ui-row">
         <template v-if="editingId === area.id">
           <el-input v-model="editName" size="small" @keyup.enter="saveEdit" />
           <el-input
@@ -163,7 +164,7 @@ async function removeArea(area: AreaRow) {
             placeholder="描述"
             @keyup.enter="saveEdit"
           />
-          <div class="row-actions">
+          <div class="row-actions ui-row">
             <el-button size="small" type="primary" :loading="saving" @click="saveEdit">
               <el-icon><Check /></el-icon>
             </el-button>
@@ -174,11 +175,11 @@ async function removeArea(area: AreaRow) {
         </template>
         <template v-else>
           <el-icon class="area-icon"><Collection /></el-icon>
-          <div class="area-info">
+          <div class="area-info ui-col">
             <span class="area-name">{{ area.name }}</span>
-            <span v-if="area.description" class="area-desc">{{ area.description }}</span>
+            <span v-if="area.description" class="area-desc ui-truncate">{{ area.description }}</span>
           </div>
-          <div class="row-actions">
+          <div class="row-actions ui-row">
             <el-button size="small" text @click="startEdit(area)">
               <el-icon><Edit /></el-icon>
             </el-button>
@@ -189,7 +190,8 @@ async function removeArea(area: AreaRow) {
         </template>
       </div>
       <div v-if="!loading && areas.length === 0" class="area-empty">
-        还没有领域。领域用于划分人生的责任范围（如「执业发展」「家庭」），任务与案件都可归属其中。
+        <EmptyState type="custom" compact hide-action title="还没有领域"
+          description="领域用于划分人生的责任范围（如「执业发展」「家庭」），任务与案件都可归属其中。" />
       </div>
     </div>
   </el-dialog>
@@ -197,7 +199,6 @@ async function removeArea(area: AreaRow) {
 
 <style scoped>
 .area-create {
-  display: flex;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -212,14 +213,10 @@ async function removeArea(area: AreaRow) {
   min-height: 120px;
   max-height: 400px;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
   gap: 4px;
 }
 
 .area-row {
-  display: flex;
-  align-items: center;
   gap: 10px;
   padding: 8px 10px;
   border-radius: 6px;
@@ -238,9 +235,6 @@ async function removeArea(area: AreaRow) {
 }
 .area-info {
   flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 .area-name {
@@ -251,12 +245,8 @@ async function removeArea(area: AreaRow) {
 .area-desc {
   font-size: 12px;
   color: var(--c-text-secondary, var(--c-text-secondary));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .row-actions {
-  display: flex;
   gap: 4px;
   flex-shrink: 0;
   opacity: 0;

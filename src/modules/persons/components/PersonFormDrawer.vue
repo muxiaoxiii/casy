@@ -119,7 +119,7 @@ async function save() {
       <el-form-item label="类型" required>
         <el-select v-model="form.kind" style="width: 100%">
           <el-option v-for="k in KIND_OPTIONS" :key="k" :value="k" :label="KIND_META[k].label">
-            <span class="kind-option">
+            <span class="kind-option ui-row">
               <el-icon :color="KIND_META[k].color"><component :is="KIND_META[k].icon" /></el-icon>
               {{ KIND_META[k].label }}
             </span>
@@ -135,7 +135,7 @@ async function save() {
         <el-input v-model="form.org" placeholder="如：某某中级人民法院 / 某某律所" maxlength="100" />
       </el-form-item>
 
-      <div class="form-row">
+      <div class="form-row ui-grid">
         <el-form-item label="电话">
           <el-input v-model="form.phone" placeholder="联系电话" maxlength="30" />
         </el-form-item>
@@ -169,13 +169,10 @@ async function save() {
 
 <style scoped>
 .kind-option {
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
 }
 
 .form-row {
-  display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }

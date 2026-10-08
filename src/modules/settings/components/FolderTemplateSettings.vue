@@ -4,6 +4,7 @@ import { useFormBaseline } from '../../../composables/useFormBaseline'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Lock, Edit, Delete, Top, Bottom } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const templates = ref([])
 const loading = ref(false)
@@ -186,7 +187,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
       <!-- 模板列表 -->
       <el-col :span="10">
         <div class="template-list">
-          <div class="list-header">
+          <div class="list-header ui-row ui-row--between">
             <span>模板列表</span>
             <el-button type="primary" size="small" @click="startNewTemplate">
               <el-icon><Plus /></el-icon> 新建
@@ -198,7 +199,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
             <div
               v-for="tpl in builtinTemplates"
               :key="tpl.id"
-              class="template-item"
+              class="template-item ui-row"
               :class="{ active: selectedTemplate?.id === tpl.id }"
               @click="selectTemplate(tpl)"
             >
@@ -213,7 +214,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
             <div
               v-for="tpl in customTemplates"
               :key="tpl.id"
-              class="template-item"
+              class="template-item ui-row"
               :class="{ active: selectedTemplate?.id === tpl.id }"
               @click="selectTemplate(tpl)"
             >
@@ -236,7 +237,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
       <el-col :span="14">
         <!-- 编辑器 -->
         <div v-if="showEditor && editingTemplate" class="template-editor" :inert="templateSaving || undefined">
-          <div class="editor-header">
+          <div class="editor-header ui-row ui-row--between">
             <h4>{{ isNewTemplate ? '新建模板' : '编辑模板' }}</h4>
             <div>
               <el-button size="small" @click="closeTemplate" :disabled="templateSaving">取消</el-button>
@@ -300,7 +301,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 
         <!-- 预览 -->
         <div v-else-if="selectedTemplate" class="template-preview">
-          <div class="preview-header">
+          <div class="preview-header ui-row ui-row--between">
             <h4>{{ selectedTemplate.name }}</h4>
             <el-tag v-if="selectedTemplate.isBuiltin" size="small" type="info">内置</el-tag>
             <el-button
@@ -311,7 +312,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
             >编辑</el-button>
           </div>
           <p class="preview-type">类型: {{ caseTypeOptions.find(o => o.value === selectedTemplate.caseType)?.label || selectedTemplate.caseType }}</p>
-          <div class="dir-list">
+          <div class="dir-list ui-col ui-col--tight">
             <div
               v-for="dir in selectedTemplate.directories"
               :key="dir.id"
@@ -326,7 +327,7 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 
         <!-- 空状态 -->
         <div v-else class="empty-preview">
-          <el-empty description="选择模板查看或点击新建" :image-size="80" />
+          <EmptyState type="custom" compact hide-action title="选择模板查看或点击新建" />
         </div>
       </el-col>
     </el-row>
@@ -379,9 +380,6 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .list-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   padding: 10px 12px;
   background: var(--gray-50);
   font-weight: 600;
@@ -397,8 +395,6 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .template-item {
-  display: flex;
-  align-items: center;
   gap: 8px;
   padding: 8px 12px;
   cursor: pointer;
@@ -433,9 +429,6 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 
 .preview-header,
 .editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 12px;
 }
 
@@ -452,8 +445,6 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 }
 
 .dir-list {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
 }
 

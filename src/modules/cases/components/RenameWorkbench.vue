@@ -149,7 +149,7 @@ async function applyAll() {
 
 <template>
   <div class="rename-view open">
-    <div class="rename-head">
+    <div class="ui-row ui-row--wrap rename-head" style="gap:10px">
       <span class="rh-title">智能重命名 · {{ dirName }}</span>
       <span class="rh-rule">规则：日期 + 文档类型 + 清洗主体</span>
       <el-button class="back" size="small" text @click="emit('close')">返回列表</el-button>
@@ -159,14 +159,14 @@ async function applyAll() {
       <div
         v-for="r in rows"
         :key="r.id"
-        class="rename-row"
+        class="ui-row rename-row" style="gap:12px"
         :class="{ done: r.done, skip: r.suggested === r.orig && !r.done }"
       >
         <div class="rr-orig">
           <div class="k">原名</div>
           <div class="v">{{ r.orig }}</div>
         </div>
-        <div class="rr-arrow"><el-icon><ArrowRight /></el-icon></div>
+        <div class="ui-row rr-arrow"><el-icon><ArrowRight /></el-icon></div>
         <div class="rr-new">
           <div class="k">
             新名
@@ -174,7 +174,7 @@ async function applyAll() {
           </div>
           <template v-if="!r.done">
             <input v-model="r.edited" class="rn-input" :placeholder="r.suggested" @focus="editRow(r)" />
-            <div class="extract">
+            <div class="ui-row ui-row--wrap extract" style="gap:4px">
               <span class="extract-chip">{{ currentName(r) }}</span>
               <button class="mini-btn" title="采用建议" @click.stop="r.edited = null; editRow(r)">
                 <el-icon><Check /></el-icon>
@@ -210,7 +210,7 @@ async function applyAll() {
       />
     </div>
 
-    <div class="rename-footer">
+    <div class="ui-row rename-footer" style="gap:10px">
       <span class="rf-count">待应用 {{ pendingRows.length }} 条 · 已完成 {{ doneCount }} 条</span>
       <el-button type="primary" :loading="applying" @click="applyAll">全部应用</el-button>
     </div>
@@ -220,7 +220,6 @@ async function applyAll() {
 <style scoped>
 .rename-view { padding: 2px; }
 .rename-head {
-  display: flex; align-items: center; gap: 10px;
   margin-bottom: 12px; flex-wrap: wrap;
 }
 .rh-title { font-size: 13px; font-weight: 600; color: var(--c-text); }
@@ -232,7 +231,6 @@ async function applyAll() {
 .back { margin-left: auto; }
 
 .rename-row {
-  display: flex; align-items: center; gap: 12px;
   padding: 12px; margin-bottom: 8px;
   border: 1px solid var(--c-border); border-radius: var(--c-radius-lg);
   background: var(--c-surface);
@@ -253,7 +251,7 @@ async function applyAll() {
 .rr-arrow {
   width: 26px; height: 26px; border-radius: 50%;
   background: var(--c-primary-light); color: var(--c-primary);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  justify-content: center; flex-shrink: 0;
 }
 .rr-new { flex: 1.2; min-width: 0; }
 .rr-new .k {
@@ -273,7 +271,7 @@ async function applyAll() {
   padding: 4px 8px; outline: none;
 }
 .rn-input:focus { border-color: var(--c-primary); }
-.extract { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
+.extract { margin-top: 5px; flex-wrap: wrap; }
 .mini-btn {
   border: none; background: transparent; cursor: pointer;
   color: var(--c-text-secondary); padding: 2px;
@@ -290,7 +288,6 @@ async function applyAll() {
 .rr-badge.ai { background: var(--c-primary); color: #fff; }
 
 .rename-footer {
-  display: flex; align-items: center; gap: 10px;
   padding-top: 12px; border-top: 1px solid var(--c-border); margin-top: 4px;
 }
 .rf-count { font-size: 12px; color: var(--c-text-secondary); margin-right: auto; }

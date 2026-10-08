@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { Connection } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -115,14 +116,14 @@ onMounted(reload)
   <div class="case-network-view">
     <el-card v-loading="loading">
       <template #header>
-        <div class="card-header">
+        <div class="ui-row ui-row--between card-header">
           <strong>案件关系网络</strong>
           <el-button size="small" :loading="loading" @click="reload">刷新</el-button>
         </div>
       </template>
 
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="reload">重试</el-button></el-alert>
-      <el-empty v-else-if="!loading && cases.length === 0" description="暂无案件数据" />
+      <EmptyState v-else-if="!loading && cases.length === 0" type="cases" title="暂无案件数据" hide-action />
 
       <template v-else>
         <!-- 关系统计 -->
@@ -130,7 +131,7 @@ onMounted(reload)
           <el-row :gutter="16">
             <el-col :span="6" v-for="(group, type) in groupedRelations" :key="type">
               <el-card class="stat-card" shadow="hover" :style="{ borderLeft: `4px solid ${group.color}` }">
-                <div class="stat-content">
+                <div class="ui-row stat-content" style="gap:12px">
                   <span class="stat-icon"><el-icon><Connection /></el-icon></span>
                   <div class="stat-info">
                     <div class="stat-label">{{ group.label }}</div>
@@ -151,15 +152,15 @@ onMounted(reload)
               :name="type"
               :title="`${group.label} (${group.relations.length})`"
             >
-              <el-empty v-if="group.relations.length === 0" description="暂无此类关系" :image-size="60" />
+              <EmptyState v-if="group.relations.length === 0" type="custom" compact hide-action title="暂无此类关系" />
 
-              <div v-else class="relation-list">
+              <div v-else class="ui-col relation-list" style="gap:12px">
                 <div
                   v-for="rel in group.relations"
                   :key="rel._key"
-                  class="relation-item"
+                  class="ui-row ui-row--between relation-item"
                 >
-                  <div class="relation-cases">
+                  <div class="ui-row relation-cases" style="gap:12px">
                     <el-tag
                       class="case-tag"
                       effect="plain"
@@ -197,7 +198,7 @@ onMounted(reload)
         <!-- 选中案件的关联详情 -->
         <el-card v-if="selectedCaseId" class="selected-case-card" style="margin-top: 20px">
           <template #header>
-            <div class="card-header">
+            <div class="ui-row ui-row--between card-header">
               <strong>📌 选中案件关联详情</strong>
               <el-button size="small" @click="selectedCaseId = null">取消选择</el-button>
             </div>
@@ -258,12 +259,6 @@ onMounted(reload)
   max-width: 1200px;
 }
 
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .relation-stats {
   margin-bottom: 24px;
 }
@@ -277,11 +272,6 @@ onMounted(reload)
   transform: translateY(-2px);
 }
 
-.stat-content {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 
 .stat-icon {
   font-size: 24px;
@@ -306,16 +296,8 @@ onMounted(reload)
   margin-top: 16px;
 }
 
-.relation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
 
 .relation-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 12px;
   background: var(--gray-50);
   border-radius: 8px;
@@ -326,11 +308,6 @@ onMounted(reload)
   background: #ecf5ff;
 }
 
-.relation-cases {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 
 .case-tag {
   cursor: pointer;

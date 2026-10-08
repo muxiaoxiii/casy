@@ -19,7 +19,7 @@
             <component :is="sourceIcon(link.sourceType)" />
           </el-icon>
           <div class="bl-main">
-            <div class="bl-name-row">
+            <div class="bl-name-row ui-row">
               <span class="bl-name">{{ sourceName(link) }}</span>
               <el-tag size="small" effect="plain" class="bl-type-tag">
                 {{ sourceTypeLabel(link.sourceType) }}
@@ -41,7 +41,7 @@
           />
         </div>
       </template>
-      <div v-else-if="!loading" class="panel-empty">暂无其他模块引用此条目</div>
+      <EmptyState v-else-if="!loading" type="custom" compact hide-action title="暂无其他模块引用此条目" />
     </div>
   </div>
 </template>
@@ -51,6 +51,7 @@ import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Link, Delete, Document, Collection, Checked, Briefcase, Folder } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 
 // ── 本地 DTO（双链后端，commandMap 未收录，动态泛型调用） ──
@@ -308,12 +309,6 @@ defineExpose({ reload: loadBacklinks })
 .bl-main {
   flex: 1;
   min-width: 0;
-}
-
-.bl-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .bl-name {

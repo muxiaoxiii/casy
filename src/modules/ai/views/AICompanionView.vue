@@ -13,6 +13,7 @@ import {
   Warning
 } from '../../../shared/icons'
 import AIChatPanel from '../components/AIChatPanel.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import AIAuditView from './AIAuditView.vue'
 import DecisionsView from './DecisionsView.vue'
 import { useTasksStore } from '../../../stores/tasks'
@@ -436,7 +437,7 @@ onMounted(async () => {
   <div class="ai-companion-page">
     <el-alert v-if="configError" :title="configError" type="error" :closable="false"><el-button text @click="loadAIData">重试</el-button></el-alert>
     <!-- 页面头部 -->
-    <div class="page-header">
+    <div class="page-header ui-row ui-row--between">
       <div class="header-left">
         <h3>AI 智伴</h3>
         <span class="header-desc">智能对话 · 工具调用 · 审计追踪</span>
@@ -445,26 +446,26 @@ onMounted(async () => {
 
     <!-- AI 状态摘要 -->
     <div class="status-bar">
-      <div class="status-item">
+      <div class="status-item ui-row">
         <span class="status-label">AI 模式</span>
         <el-tag :color="statusSummary.modeColor" effect="dark" size="small">
           {{ statusSummary.modeLabel }}
         </el-tag>
       </div>
       <el-divider direction="vertical" />
-      <div class="status-item">
+      <div class="status-item ui-row">
         <span class="status-label">今日调用</span>
         <span class="status-value">{{ configError ? '暂不可用' : statusSummary.todayCalls }}</span>
       </div>
       <el-divider direction="vertical" />
-      <div class="status-item">
+      <div class="status-item ui-row">
         <span class="status-label">剩余配额</span>
         <span class="status-value" :class="{ 'text-warning': statusSummary.remaining !== '不限' && statusSummary.remaining < 10 }">
           {{ configError ? '暂不可用' : statusSummary.remaining }}
         </span>
       </div>
       <el-divider direction="vertical" />
-      <div class="status-item">
+      <div class="status-item ui-row">
         <span class="status-label">已注册工具</span>
         <span class="status-value">{{ toolStats.total }}</span>
       </div>
@@ -486,9 +487,10 @@ onMounted(async () => {
           </div>
 
           <!-- 降级提示条：推荐服务不可用 → 本地规则排序兜底 -->
-          <div v-if="recommendDegraded" class="degrade-banner">
+          <div v-if="recommendDegraded" class="degrade-banner" role="alert">
             <el-icon><Warning /></el-icon>
-            推荐服务不可用，已按截止日期规则本地排序
+            <span>推荐服务不可用，已按截止日期规则本地排序</span>
+            <el-button text @click="loadRecommendations">重试</el-button>
           </div>
 
           <div class="recommend-cards">
@@ -510,8 +512,8 @@ onMounted(async () => {
                   <el-button size="small" type="primary" plain @click="adoptRecommendation(rec)">采纳</el-button>
                   <el-button size="small" text @click="rejectRecommendation(rec)">拒绝</el-button>
                 </div>
-                <div v-if="recommendations.length === 0" class="recommend-empty">
-                  暂无推荐
+                <div v-if="recommendations.length === 0" class="recommend-empty ui-text ui-text--secondary">
+                  <EmptyState type="custom" compact hide-action title="暂无推荐" />
                 </div>
               </div>
             </div>
@@ -531,7 +533,7 @@ onMounted(async () => {
                     </div>
                   </div>
                 </div>
-                <div v-if="followupSuggestions.length === 0" class="recommend-empty">
+                <div v-if="followupSuggestions.length === 0" class="recommend-empty ui-text ui-text--secondary">
                   无需跟进
                 </div>
               </div>
@@ -558,9 +560,10 @@ onMounted(async () => {
               </el-button>
             </div>
             <div class="recommend-card-body">
-              <div v-if="learningDegraded" class="degrade-banner">
+              <div v-if="learningDegraded" class="degrade-banner" role="alert">
                 <el-icon><Warning /></el-icon>
-                学习分析数据暂不可用
+                <span>学习分析数据暂不可用</span>
+                <el-button text @click="loadLearningAnalysis">重试</el-button>
               </div>
               <template v-else-if="learningAnalysis">
                 <div v-if="learningAnalysis.lastCalibratedAt" class="insight-meta">
@@ -569,7 +572,7 @@ onMounted(async () => {
                 <div class="insight-grid">
                   <div class="insight-block">
                     <div class="insight-block-title">耗时校准</div>
-                    <div v-if="learningAnalysis.durationStats.length === 0" class="recommend-empty">样本不足</div>
+                    <div v-if="learningAnalysis.durationStats.length === 0" class="recommend-empty ui-text ui-text--secondary">样本不足</div>
                     <div v-for="s in learningAnalysis.durationStats" :key="s.taskPattern" class="insight-row">
                       <span class="insight-key">{{ s.taskPattern }}</span>
                       <span class="insight-val">
@@ -580,7 +583,7 @@ onMounted(async () => {
                   </div>
                   <div class="insight-block">
                     <div class="insight-block-title">活跃时段</div>
-                    <div v-if="learningAnalysis.activityPatterns.length === 0" class="recommend-empty">样本不足</div>
+                    <div v-if="learningAnalysis.activityPatterns.length === 0" class="recommend-empty ui-text ui-text--secondary">样本不足</div>
                     <div v-for="p in learningAnalysis.activityPatterns.slice(0, 5)" :key="p.hour" class="insight-row">
                       <span class="insight-key">{{ p.hour }}:00</span>
                       <span class="insight-val">完成 {{ p.completions }} 次 · {{ Math.round(p.percentage * 100) }}%</span>
@@ -588,7 +591,7 @@ onMounted(async () => {
                   </div>
                   <div class="insight-block">
                     <div class="insight-block-title">延期模式</div>
-                    <div v-if="learningAnalysis.delayPatterns.length === 0" class="recommend-empty">无明显延期模式</div>
+                    <div v-if="learningAnalysis.delayPatterns.length === 0" class="recommend-empty ui-text ui-text--secondary">无明显延期模式</div>
                     <div v-for="d in learningAnalysis.delayPatterns" :key="d.caseType" class="insight-row">
                       <span class="insight-key">{{ d.caseType }}</span>
                       <span class="insight-val">
@@ -598,7 +601,7 @@ onMounted(async () => {
                   </div>
                 </div>
               </template>
-              <div v-else class="recommend-empty">加载中…</div>
+              <div v-else class="recommend-empty ui-text ui-text--secondary">加载中…</div>
             </div>
           </div>
 
@@ -609,9 +612,10 @@ onMounted(async () => {
               <span class="recommend-sub" style="margin-left: 8px">蒸馏候选需人工确认后才入库</span>
             </div>
             <div class="recommend-card-body">
-              <div v-if="memoriesDegraded" class="degrade-banner">
+              <div v-if="memoriesDegraded" class="degrade-banner" role="alert">
                 <el-icon><Warning /></el-icon>
-                记忆服务暂不可用
+                <span>记忆服务暂不可用</span>
+                <el-button text @click="loadPendingMemories">重试</el-button>
               </div>
               <template v-else>
                 <div v-for="m in pendingMemories" :key="m.id" class="recommend-item">
@@ -625,7 +629,7 @@ onMounted(async () => {
                   <el-button size="small" type="primary" plain @click="confirmMemory(m)">采纳入库</el-button>
                   <el-button size="small" text @click="dismissMemory(m)">忽略</el-button>
                 </div>
-                <div v-if="pendingMemories.length === 0" class="recommend-empty">
+                <div v-if="pendingMemories.length === 0" class="recommend-empty ui-text ui-text--secondary">
                   没有待确认的候选记忆
                 </div>
               </template>
@@ -649,9 +653,10 @@ onMounted(async () => {
               </el-button>
             </div>
             <div class="recommend-card-body">
-              <div v-if="insightsDegraded" class="degrade-banner">
+              <div v-if="insightsDegraded" class="degrade-banner" role="alert">
                 <el-icon><Warning /></el-icon>
-                关联洞察服务暂不可用
+                <span>关联洞察服务暂不可用</span>
+                <el-button text @click="loadPendingInsights">重试</el-button>
               </div>
               <template v-else>
                 <div v-for="ins in pendingInsights" :key="ins.id" class="recommend-item">
@@ -680,7 +685,7 @@ onMounted(async () => {
                   <el-button size="small" plain @click="confirmInsight(ins, false)">确认</el-button>
                   <el-button size="small" text @click="dismissInsight(ins)">忽略</el-button>
                 </div>
-                <div v-if="pendingInsights.length === 0" class="recommend-empty">
+                <div v-if="pendingInsights.length === 0" class="recommend-empty ui-text ui-text--secondary">
                   没有待确认的关联洞察，可点击「立即分析」手动生成
                 </div>
               </template>
@@ -720,8 +725,14 @@ onMounted(async () => {
                     v-html="s.renderedContent"
                   ></div>
                 </div>
-                <div v-if="summaries.length === 0 && !summariesLoading" class="recommend-empty">
-                  暂无{{ summaryTab === 'daily' ? '每日早报' : '每周总结' }}记录，生成后会出现在这里
+                <div v-if="summariesDegraded" class="degrade-banner" role="alert">
+                  <el-icon><Warning /></el-icon>
+                  <span>报表历史读取失败</span>
+                  <el-button text @click="loadSummaries">重试</el-button>
+                </div>
+                <div v-if="summaries.length === 0 && !summariesLoading && !summariesDegraded" class="recommend-empty ui-text ui-text--secondary">
+                  <EmptyState type="custom" compact hide-action
+                    :title="`暂无${summaryTab === 'daily' ? '每日早报' : '每周总结'}记录，生成后会出现在这里`" />
                 </div>
               </template>
             </div>
@@ -766,7 +777,7 @@ onMounted(async () => {
         <div class="tools-section">
           <el-card shadow="never">
             <template #header>
-              <div class="card-header">
+              <div class="card-header ui-row ui-row--between">
                 <span>已启用工具</span><el-button text @click="router.push({path:'/settings',query:{tab:'tools'}})">管理工具策略</el-button>
                 <el-tag size="small">{{ toolStats.total }} 个</el-tag>
               </div>
@@ -782,13 +793,13 @@ onMounted(async () => {
               </el-tag>
             </div>
             
-            <div class="tool-list">
+            <div class="tool-list ui-col">
               <div 
                 v-for="tool in tools" 
                 :key="tool.name"
                 class="tool-item"
               >
-                <div class="tool-info">
+                <div class="tool-info ui-row">
                   <span class="tool-name">{{ tool.name }}</span>
                   <span class="tool-category">{{ tool.category || 'other' }}</span>
                 </div>
@@ -811,9 +822,6 @@ onMounted(async () => {
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 16px;
 }
 
@@ -837,12 +845,6 @@ onMounted(async () => {
   background: #f9fafb;
   border-radius: 8px;
   margin-bottom: 16px;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .status-label {
@@ -878,12 +880,6 @@ onMounted(async () => {
   overflow-y: auto;
 }
 
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .tool-categories {
   display: flex;
   flex-wrap: wrap;
@@ -895,12 +891,6 @@ onMounted(async () => {
   text-transform: capitalize;
 }
 
-.tool-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .tool-item {
   padding: 12px;
   border: 1px solid #e5e7eb;
@@ -908,9 +898,6 @@ onMounted(async () => {
 }
 
 .tool-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 4px;
 }
 
@@ -1035,8 +1022,6 @@ onMounted(async () => {
 .recommend-empty {
   text-align: center;
   padding: 24px;
-  color: var(--c-text-secondary);
-  font-size: 13px;
 }
 
 .recommend-note {

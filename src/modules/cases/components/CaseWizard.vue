@@ -94,16 +94,16 @@ async function save() {
 <template>
   <el-drawer :model-value="modelValue" :before-close="close" :close-on-press-escape="!saving" :close-on-click-modal="false" size="min(860px, 100vw)" class="case-wizard-drawer" :with-header="false" destroy-on-close>
     <div class="intake">
-      <header><div><h2>{{ title || (initialCase ? '新建关联案件' : '新建案件') }}</h2><span class="case-name">{{ formData.caseName || '未命名案件' }}</span></div><el-button :icon="Close" :disabled="saving" aria-label="关闭" title="关闭" @click="close" /></header>
-      <nav aria-label="案件录入步骤"><button v-for="item in sections" :key="item.key" type="button" :aria-current="activeStep === item.key ? 'step' : undefined" :class="{active:activeStep === item.key}" @click="activeStep = item.key">{{ item.label }}</button></nav>
+      <header class="ui-row ui-row--between" style="gap:16px"><div><h2>{{ title || (initialCase ? '新建关联案件' : '新建案件') }}</h2><span class="case-name">{{ formData.caseName || '未命名案件' }}</span></div><el-button :icon="Close" :disabled="saving" aria-label="关闭" title="关闭" @click="close" /></header>
+      <nav aria-label="案件录入步骤" class="ui-row ui-row--wrap" style="gap:4px"><button v-for="item in sections" :key="item.key" type="button" :aria-current="activeStep === item.key ? 'step' : undefined" :class="{active:activeStep === item.key}" @click="activeStep = item.key">{{ item.label }}</button></nav>
       <div class="intake-body">
         <el-form label-position="top" :disabled="saving" @submit.prevent="save">
           <template v-if="activeStep === 'basic'">
             <el-collapse><el-collapse-item title="从案件资料提取" name="paste"><el-input v-model="sourceText" type="textarea" :rows="4" placeholder="案件名称：&#10;案号：&#10;客户名称：&#10;第三人：" /><el-button :icon="MagicStick" :disabled="!sourceText.trim()" class="extract" @click="fillFromText">提取信息</el-button></el-collapse-item></el-collapse>
             <el-form-item label="案件程序" class="route-field"><el-select :model-value="formData.caseRoute" @update:model-value="setIntakeRoute(formData, $event)"><el-option v-for="[value,label] in routeOptions" :key="value" :label="label" :value="value" /></el-select></el-form-item>
-            <div class="fields"><el-form-item v-for="group in statusGroups.filter(g => formData.caseRoute === '三轨并行' || formData.caseRoute?.includes(g.route))" :key="group.key" :label="group.label"><el-select v-model="formData[group.key]"><el-option v-for="[value,label] in group.options" :key="value" :value="value" :label="label" /></el-select></el-form-item></div>
+            <div class="ui-grid fields"><el-form-item v-for="group in statusGroups.filter(g => formData.caseRoute === '三轨并行' || formData.caseRoute?.includes(g.route))" :key="group.key" :label="group.label"><el-select v-model="formData[group.key]"><el-option v-for="[value,label] in group.options" :key="value" :value="value" :label="label" /></el-select></el-form-item></div>
           </template>
-          <div v-if="section.fields" class="fields">
+          <div v-if="section.fields" class="ui-grid fields">
             <el-form-item v-for="field in section.fields" :key="field.key" :label="field.label" :required="field.key === 'caseName'" :class="{wide:field.type === 'textarea' || field.key === 'caseName'}">
               <el-date-picker v-if="['date','datetime'].includes(field.type)" v-model="formData[field.key]" :type="field.type" :value-format="field.type === 'datetime' ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD'" clearable />
               <el-select v-else-if="['select','enum','tags'].includes(field.type)" v-model="formData[field.key]" filterable :allow-create="field.type !== 'enum'" :multiple="field.type === 'tags'" default-first-option clearable><el-option v-for="option in field.options" :key="option" :value="option" /></el-select>
@@ -117,41 +117,41 @@ async function save() {
             <el-form-item label="关联案件"><el-select v-model="relatedId" filterable remote :remote-method="searchRelated" :loading="searching" @visible-change="$event && searchRelated('')" placeholder="案件名称或案号"><el-option v-for="item in relatedOptions" :key="item.id" :value="item.id" :label="[item.caseName,item.caseNo].filter(Boolean).join(' · ')" /></el-select></el-form-item>
             <el-form-item label="关联类型"><el-select v-model="relationType"><el-option v-for="[value,label] in relationTypes" :key="value" :value="value" :label="label" /></el-select></el-form-item>
             <el-button :icon="Plus" :disabled="!relatedId" @click="addRelated">添加关联</el-button>
-            <div v-for="(relation,index) in formData.relatedCases" :key="index" class="relation-row"><div><strong>{{ relation.label }}</strong><p>{{ relationTypes.find(r => r[0] === relation.relationType)?.[1] }}</p></div><el-button :icon="Delete" aria-label="移除关联" title="移除关联" @click="formData.relatedCases.splice(index,1)" /></div>
+            <div v-for="(relation,index) in formData.relatedCases" :key="index" class="ui-row ui-row--between relation-row" style="gap:16px"><div><strong>{{ relation.label }}</strong><p>{{ relationTypes.find(r => r[0] === relation.relationType)?.[1] }}</p></div><el-button :icon="Delete" aria-label="移除关联" title="移除关联" @click="formData.relatedCases.splice(index,1)" /></div>
           </template>
         </el-form>
       </div>
       <footer>
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-        <div class="footer-actions"><el-button :disabled="saving" @click="close">取消</el-button><span class="spacer" /><el-button v-if="currentIndex > 0" :icon="Back" :disabled="saving" @click="activeStep = sections[currentIndex - 1].key">上一项</el-button><el-button v-if="currentIndex < sections.length - 1" :icon="Right" :disabled="saving" @click="activeStep = sections[currentIndex + 1].key">下一项</el-button><el-button type="primary" :icon="Check" :loading="saving" @click="save">创建案件</el-button></div>
+        <div class="ui-row ui-row--wrap footer-actions"><el-button :disabled="saving" @click="close">取消</el-button><span class="spacer" /><el-button v-if="currentIndex > 0" :icon="Back" :disabled="saving" @click="activeStep = sections[currentIndex - 1].key">上一项</el-button><el-button v-if="currentIndex < sections.length - 1" :icon="Right" :disabled="saving" @click="activeStep = sections[currentIndex + 1].key">下一项</el-button><el-button type="primary" :icon="Check" :loading="saving" @click="save">创建案件</el-button></div>
       </footer>
     </div>
   </el-drawer>
 </template>
 <style scoped>
 .intake { height: 100%; display: flex; flex-direction: column; color: var(--c-text); background: var(--c-bg); }
-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; border-bottom: 1px solid var(--c-border); }
+header { padding: 22px 24px 16px; border-bottom: 1px solid var(--c-border); }
 header > div { min-width: 0; }
 h2 { margin: 0 0 6px; font-size: 20px; }
 .case-name { display: block; color: var(--c-text-secondary); font-size: 13px; overflow-wrap: anywhere; }
-nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--c-border); }
+nav { padding: 12px 20px; border-bottom: 1px solid var(--c-border); }
 nav button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 8px; color: var(--c-text-secondary); cursor: pointer; font: inherit; font-size: 13px; }
 nav button.active { color: var(--el-color-primary); border-bottom-color: var(--el-color-primary); font-weight: 600; }
 .intake-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; scroll-padding-block: 24px; }
 .intake-body :deep(input), .intake-body :deep(textarea) { scroll-margin-block: 24px; }
-.fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 20px; }
+.fields { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 20px; }
 .wide { grid-column: 1 / -1; }
 :deep(.el-date-editor), :deep(.el-autocomplete), :deep(.el-select) { width: 100%; min-width: 0; }
 .route-field { margin-top: 20px; }
 .extract { margin-top: 12px; }
 footer { border-top: 1px solid var(--c-border); padding: 14px 24px; background: var(--c-bg-soft); }
-.footer-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .footer-actions .el-button + .el-button { margin-left: 0; }
 footer .el-alert { margin-bottom: 12px; }
 .spacer { flex: 1; }
-.relation-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; border-top: 1px solid var(--c-border); margin-top: 16px; padding-top: 16px; overflow-wrap: anywhere; }
+.relation-row { border-top: 1px solid var(--c-border); margin-top: 16px; padding-top: 16px; overflow-wrap: anywhere; }
 .relation-row p { color: var(--c-text-secondary); margin: 6px 0 0; font-size: 12px; }
-@media(max-width: 520px) { .fields { grid-template-columns: minmax(0,1fr); } header,.intake-body,footer { padding-left: 16px; padding-right: 16px; } nav { padding: 8px; } .spacer { display: none; } .footer-actions { justify-content: flex-end; } }
+
+
 </style>
 <style>
 .case-wizard-drawer > .el-drawer__body { padding: 0; overflow: hidden; }

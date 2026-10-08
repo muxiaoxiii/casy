@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const loading = ref(false)
 const knowledgeList = ref([])
@@ -170,10 +171,11 @@ onMounted(() => {
           <div class="section">
             <h4>知识条目（{{ filteredKnowledge.length }}）</h4>
             <div v-if="filteredKnowledge.length === 0" class="empty-hint">
-              暂无{{ currentStyle.label }}风格的知识条目。<br>
-              在编辑器中选中文本，右键选择"标注：{{ currentStyle.label }}风格"即可入库。
+              <EmptyState type="custom" compact hide-action
+                :title="`暂无${currentStyle.label}风格的知识条目`"
+                :description='`在编辑器中选中文本，右键选择"标注：${currentStyle.label}风格"即可入库`' />
             </div>
-            <div v-else class="knowledge-cards">
+            <div v-else class="knowledge-cards ui-col">
               <div
                 v-for="item in filteredKnowledge"
                 :key="item.id"
@@ -181,7 +183,7 @@ onMounted(() => {
               >
                 <div class="card-title">{{ item.title }}</div>
                 <div class="card-content">{{ truncate(item.content, 120) }}</div>
-                <div class="card-meta">
+                <div class="card-meta ui-row ui-row--between">
                   <span v-if="item.tags" class="card-tags">
                     <el-tag v-for="tag in item.tags.split(',').slice(0, 3)" :key="tag" size="small" type="info">
                       {{ tag.trim() }}
@@ -331,8 +333,6 @@ onMounted(() => {
 }
 
 .knowledge-cards {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
@@ -359,12 +359,6 @@ onMounted(() => {
   color: #606266;
   line-height: 1.6;
   margin-bottom: 8px;
-}
-
-.card-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .card-tags {

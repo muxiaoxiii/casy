@@ -6,6 +6,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, VideoPlay } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 interface SmartRule {
   id: string
@@ -208,14 +209,14 @@ onMounted(loadRules)
 
 <template>
   <div class="smart-rules-settings">
-    <div class="section-head">
+    <div class="section-head ui-row ui-row--top ui-row--between ui-mb-12">
       <div>
         <h4>Smart Rules 自动化</h4>
         <p class="desc">
           文件名类规则在文件登记时立即生效；OCR 文本类规则在 OCR 完成后自动生效（大小写不敏感的包含匹配）
         </p>
       </div>
-      <div class="head-actions">
+      <div class="head-actions ui-row">
         <el-button size="small" :loading="runningAll" @click="runForAll">
           <el-icon><VideoPlay /></el-icon> 对全部文件立即执行
         </el-button>
@@ -251,7 +252,7 @@ onMounted(loadRules)
         </template>
       </el-table-column>
       <template #empty>
-        <span class="empty-tip">还没有规则。新建一条，例如：文件名包含「传票」→ 设置分类为传票/通知书。</span>
+        <span class="empty-tip"><EmptyState type="custom" compact hide-action title="还没有规则" description="新建一条，例如：文件名包含「传票」→ 设置分类为传票/通知书。" /></span>
       </template>
     </el-table>
 
@@ -315,15 +316,10 @@ onMounted(loadRules)
 </template>
 
 <style scoped>
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
+
 .section-head h4 { margin: 0 0 4px; }
 .desc { font-size: 12px; color: var(--gray-400); margin: 0; max-width: 520px; line-height: 1.6; }
-.head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.head-actions { flex-shrink: 0; }
 .empty-tip { font-size: 12px; color: var(--gray-400); }
 .inline-note { font-size: 12px; color: var(--gray-400); }
 </style>

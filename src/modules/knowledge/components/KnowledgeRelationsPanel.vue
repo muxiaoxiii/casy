@@ -50,7 +50,7 @@ defineExpose({ reload: async () => { await load(); backlinksRef.value?.reload?.(
 <template>
   <div class="relations-panel">
     <div class="section-title"><Link /> 指向的笔记 <span>{{ outgoing.length }}</span></div>
-    <div class="relation-create">
+    <div class="relation-create ui-grid">
       <el-select v-model="targetId" filterable placeholder="选择要关联的笔记" size="small">
         <el-option v-for="item in candidates" :key="item.id" :label="item.title || '无标题笔记'" :value="item.id" />
       </el-select>
@@ -69,5 +69,5 @@ defineExpose({ reload: async () => { await load(); backlinksRef.value?.reload?.(
 </template>
 
 <style scoped>
-.relations-panel{padding:14px}.section-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--c-text-heading);margin-bottom:10px}.section-title svg{width:14px}.section-title span{margin-left:auto;color:var(--c-text-secondary)}.relation-create{display:grid;grid-template-columns:1fr auto;gap:6px}.outgoing-list{min-height:50px;margin-top:10px}.relation-item{width:100%;display:flex;align-items:center;gap:7px;padding:8px;border:0;border-bottom:1px solid var(--c-border);background:transparent;color:inherit;text-align:left;cursor:pointer}.relation-item:hover{background:var(--c-bg-subtle)}.relation-kind{font-size:9px;color:var(--c-primary);border:1px solid color-mix(in srgb,var(--c-primary) 30%,transparent);padding:1px 4px;border-radius:4px}.relation-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.relation-item svg{width:13px;color:var(--c-text-secondary)}.empty{font-size:11px;color:var(--c-text-secondary);line-height:1.5;padding:10px 2px}.empty code{color:var(--c-primary)}
+.relations-panel{padding:14px}.section-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--c-text-heading);margin-bottom:10px}.section-title svg{width:14px}.section-title span{margin-left:auto;color:var(--c-text-secondary)}.relation-create{grid-template-columns:1fr auto;gap:6px}.outgoing-list{min-height:50px;margin-top:10px}.relation-item{width:100%;display:flex;align-items:center;gap:7px;padding:8px;border:0;border-bottom:1px solid var(--c-border);background:transparent;color:inherit;text-align:left;cursor:pointer}.relation-item:hover{background:var(--c-bg-subtle)}.relation-kind{font-size:9px;color:var(--c-primary);border:1px solid color-mix(in srgb,var(--c-primary) 30%,transparent);padding:1px 4px;border-radius:4px}.relation-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.relation-item svg{width:13px;color:var(--c-text-secondary)}.empty{font-size:11px;color:var(--c-text-secondary);line-height:1.5;padding:10px 2px}.empty code{color:var(--c-primary)}
 </style>

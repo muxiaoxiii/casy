@@ -644,24 +644,24 @@ onUnmounted(() => {
     <FeishuSnapshotImport v-if="wholeBase" @imported="emit('imported')" @busy="snapshotBusy = $event" />
     <template v-else>
     <!-- 步骤导航条 -->
-    <div class="wizard-steps-bar">
-      <div class="step-item" :class="{ active: currentStep === 1, done: currentStep > 1 }">
-        <div class="step-badge">1</div>
+    <div class="ui-row ui-row--between wizard-steps-bar" style="gap:0">
+      <div class="ui-row step-item" :class="{ active: currentStep === 1, done: currentStep > 1 }">
+        <div class="ui-row step-badge">1</div>
         <span class="step-text">选择数据源与配置</span>
       </div>
       <div class="step-connector" :class="{ active: currentStep > 1 }" />
-      <div class="step-item" :class="{ active: currentStep === 2, done: currentStep > 2 }">
-        <div class="step-badge">2</div>
+      <div class="ui-row step-item" :class="{ active: currentStep === 2, done: currentStep > 2 }">
+        <div class="ui-row step-badge">2</div>
         <span class="step-text">智能字段映射</span>
       </div>
       <div class="step-connector" :class="{ active: currentStep > 2 }" />
-      <div class="step-item" :class="{ active: currentStep === 3, done: currentStep > 3 }">
-        <div class="step-badge">3</div>
+      <div class="ui-row step-item" :class="{ active: currentStep === 3, done: currentStep > 3 }">
+        <div class="ui-row step-badge">3</div>
         <span class="step-text">清洗预览与查重策略</span>
       </div>
       <div class="step-connector" :class="{ active: currentStep > 3 }" />
-      <div class="step-item" :class="{ active: currentStep === 4 }">
-        <div class="step-badge">4</div>
+      <div class="ui-row step-item" :class="{ active: currentStep === 4 }">
+        <div class="ui-row step-badge">4</div>
         <span class="step-text">导入报告</span>
       </div>
     </div>
@@ -671,7 +671,7 @@ onUnmounted(() => {
       <!-- 实体/分表类型选择卡片 -->
       <div class="entity-select-section">
         <div class="section-badge-label">1. 选择导入目标分表实体类型</div>
-        <div class="entity-options-grid">
+        <div class="ui-grid entity-options-grid" style="gap:10px">
           <div
             v-for="opt in ENTITY_OPTIONS"
             :key="opt.value"
@@ -688,9 +688,9 @@ onUnmounted(() => {
       <div class="section-badge-label mt-4">2. 选择数据来源渠道</div>
 
       <!-- 数据源切换 Tab -->
-      <div class="source-toggle-bar">
+      <div class="ui-row source-toggle-bar" style="gap:12px">
         <button
-          class="source-tab-btn"
+          class="ui-row source-tab-btn"
           :class="{ active: importSource === 'excel' }"
           @click="importSource = 'excel'"
         >
@@ -698,7 +698,7 @@ onUnmounted(() => {
           <span>Excel / CSV 本地文件</span>
         </button>
         <button
-          class="source-tab-btn"
+          class="ui-row source-tab-btn"
           :class="{ active: importSource === 'feishu' }"
           @click="importSource = 'feishu'"
         >
@@ -722,19 +722,19 @@ onUnmounted(() => {
           <div class="dropzone-sub">支持 .xlsx、.xls、.xlsb、.ods、.csv 格式</div>
         </div>
 
-        <div v-if="fileName" class="file-info-card">
-          <div class="file-icon-box">
+        <div v-if="fileName" class="ui-row file-info-card" style="gap:12px">
+          <div class="ui-row file-icon-box">
             <el-icon :size="22"><Document /></el-icon>
           </div>
           <div class="file-details">
             <div class="file-name">{{ fileName }}</div>
-            <div class="file-path">{{ filePath }}</div>
+            <div class="ui-truncate file-path">{{ filePath }}</div>
           </div>
           <el-button type="primary" link @click="pickFile">重新选择</el-button>
         </div>
 
-        <div v-if="excelSheets.length > 0" class="sheet-config-section">
-          <div class="form-row">
+        <div v-if="excelSheets.length > 0" class="ui-col sheet-config-section" style="gap:12px">
+          <div class="ui-row form-row" style="gap:12px">
             <label class="form-label">选择工作表 (Sheet):</label>
             <el-select
               v-model="selectedExcelSheet"
@@ -751,7 +751,7 @@ onUnmounted(() => {
             </el-select>
           </div>
 
-          <div class="form-row">
+          <div class="ui-row form-row" style="gap:12px">
             <label class="form-label">表头所在行:</label>
             <el-input-number
               v-model="headerRowIndex"
@@ -771,7 +771,7 @@ onUnmounted(() => {
       <div v-else class="source-panel-feishu">
         <!-- 飞书凭证配置卡片 (未配置或展开编辑) -->
         <div v-if="showFeishuConfigForm || !feishuConfigured" class="feishu-guide-card">
-          <div class="guide-header">
+          <div class="ui-row guide-header">
             <el-icon :size="20" class="guide-icon"><Setting /></el-icon>
             <div class="guide-title">飞书开放平台应用接入指引</div>
             <el-button
@@ -784,21 +784,21 @@ onUnmounted(() => {
             </el-button>
           </div>
 
-          <div class="guide-steps-list">
-            <div class="guide-step">
-              <div class="g-num">1</div>
+          <div class="ui-col guide-steps-list" style="gap:6px">
+            <div class="ui-row ui-row--top guide-step">
+              <div class="ui-row g-num">1</div>
               <div class="g-text">
                 登录 <strong><a href="https://open.feishu.cn/" target="_blank" class="link-styled">飞书开放平台</a></strong>，创建「企业自建应用」，获取 <code>App ID</code> 与 <code>App Secret</code>。
               </div>
             </div>
-            <div class="guide-step">
-              <div class="g-num">2</div>
+            <div class="ui-row ui-row--top guide-step">
+              <div class="ui-row g-num">2</div>
               <div class="g-text">
                 在应用的「权限管理」中搜索并开通 <strong>bitable:app</strong>（查看、编辑多维表格）。
               </div>
             </div>
-            <div class="guide-step">
-              <div class="g-num">3</div>
+            <div class="ui-row ui-row--top guide-step">
+              <div class="ui-row g-num">3</div>
               <div class="g-text">
                 在「版本管理与发布」中发布一个可用版本。
               </div>
@@ -806,7 +806,7 @@ onUnmounted(() => {
           </div>
 
           <div class="feishu-cred-form">
-            <div class="form-grid">
+            <div class="ui-grid form-grid">
               <div class="form-item">
                 <label class="form-label">App ID (cli_...):</label>
                 <el-input
@@ -842,8 +842,8 @@ onUnmounted(() => {
         </div>
 
         <!-- 飞书凭证已就绪卡片 -->
-        <div v-else class="feishu-connected-card">
-          <div class="conn-status">
+        <div v-else class="ui-row ui-row--between feishu-connected-card">
+          <div class="ui-row conn-status">
             <el-icon class="check-ico"><CircleCheck /></el-icon>
             <span>飞书自建应用已就绪 ({{ feishuAppId }})</span>
           </div>
@@ -853,13 +853,13 @@ onUnmounted(() => {
         </div>
 
         <!-- 飞书多维表格 URL 输入区 -->
-        <div class="feishu-url-section">
-          <div class="section-title-box">
+        <div class="ui-col feishu-url-section" style="gap:12px">
+          <div class="ui-col section-title-box" style="gap:2px">
             <label class="form-label">飞书多维表格链接 (或 Base Token):</label>
             <span class="url-hint">支持完整分享网址，系统自动提取 app_token 与 table_id</span>
           </div>
 
-          <div class="url-input-group">
+          <div class="ui-row url-input-group" style="gap:10px">
             <el-input
               v-model="feishuUrl"
               placeholder="例如: https://myfirm.feishu.cn/base/bascnXYZ123?table=tblABC789"
@@ -882,7 +882,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 重要授权注意事项提示 -->
-          <div class="permission-tip-box">
+          <div class="ui-row ui-row--top permission-tip-box">
             <el-icon class="tip-ico"><InfoFilled /></el-icon>
             <div class="tip-text">
               <strong>文档授权卡点提示</strong>：在飞书多维表格页面右上角点击 <strong>「···」$\rightarrow$「添加文档应用」</strong> 并添加您的自建应用，飞书 API 方可获得读取权限。
@@ -890,7 +890,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 错误明细提示 -->
-          <div v-if="feishuErrorTip" class="feishu-error-alert">
+          <div v-if="feishuErrorTip" class="ui-row ui-row--top feishu-error-alert">
             <el-icon><Warning /></el-icon>
             <div class="err-content">
               <pre>{{ feishuErrorTip }}</pre>
@@ -898,7 +898,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 多工作表切换下拉框 -->
-          <div v-if="feishuTables.length > 1" class="feishu-subtables-row">
+          <div v-if="feishuTables.length > 1" class="ui-row feishu-subtables-row" style="gap:12px">
             <label class="form-label">选择子工作表 (Table):</label>
             <el-select
               v-model="selectedFeishuTableId"
@@ -921,13 +921,13 @@ onUnmounted(() => {
 
     <!-- ═══ 步骤 2: 智能字段映射与清洗规则 ═══ -->
     <div v-if="currentStep === 2" class="step-content step-2" v-loading="loadingInspect || loadingFeishuInspect">
-      <div class="mapping-toolbar">
+      <div class="ui-row ui-row--between mapping-toolbar">
         <div class="mapping-summary">
           当前分表：<strong>{{ ENTITY_OPTIONS.find(o => o.value === targetEntity)?.label }}</strong>，来源：<strong>{{ importSource === 'excel' ? 'Excel 文件' : '飞书多维表格' }}</strong>，共识别到
           <strong>{{ columns.length }}</strong> 个列，已配置
           <strong>{{ mappedColCount }}</strong> 个映射。
         </div>
-        <div class="mapping-alert" v-if="!hasRequiredField">
+        <div class="ui-row mapping-alert" v-if="!hasRequiredField" style="gap:6px">
           <el-icon><Warning /></el-icon>
           <span v-if="targetEntity === 'tasks'">任务分表至少需要映射「任务/待办名称」</span>
           <span v-else-if="targetEntity === 'hearings'">庭审分表至少需要映射「开庭/口审时间」</span>
@@ -953,7 +953,7 @@ onUnmounted(() => {
                 <div class="col-idx">第 {{ col.columnIndex + 1 }} 列</div>
               </td>
               <td class="col-sample-cell">
-                <div v-if="col.sampleValues.length > 0" class="sample-tags">
+                <div v-if="col.sampleValues.length > 0" class="ui-row ui-row--wrap sample-tags" style="gap:4px">
                   <span
                     v-for="(val, idx) in col.sampleValues.slice(0, 3)"
                     :key="idx"
@@ -1086,7 +1086,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 案件主表统计 -->
-      <div v-if="targetEntity === 'cases'" class="report-stats-grid">
+      <div v-if="targetEntity === 'cases'" class="ui-grid report-stats-grid" style="gap:14px">
         <div class="stat-box success">
           <div class="stat-num">{{ importReport.createdCount }}</div>
           <div class="stat-label">新增案件</div>
@@ -1106,7 +1106,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 关联分表统计 -->
-      <div v-else class="report-stats-grid">
+      <div v-else class="ui-grid report-stats-grid" style="gap:14px">
         <div class="stat-box success">
           <div class="stat-num">{{ importReport.createdCount }}</div>
           <div class="stat-label">成功入库记录</div>
@@ -1127,7 +1127,7 @@ onUnmounted(() => {
 
       <div v-if="importReport.errors.length > 0" class="error-log-section">
         <div class="error-log-title">异常明细 ({{ importReport.errors.length }} 条)</div>
-        <div class="error-log-box">
+        <div class="ui-col error-log-box" style="gap:4px">
           <div v-for="(err, idx) in importReport.errors" :key="idx" class="error-log-item">
             {{ err }}
           </div>
@@ -1138,7 +1138,7 @@ onUnmounted(() => {
     <!-- 底部操作按钮 -->
     </template>
     <template v-if="!wholeBase" #footer>
-      <div class="dialog-footer">
+      <div class="ui-row ui-row--between dialog-footer">
         <div class="footer-left">
           <el-button v-if="currentStep > 1 && currentStep < 4" @click="currentStep--">
             <el-icon><Back /></el-icon>
@@ -1146,7 +1146,7 @@ onUnmounted(() => {
           </el-button>
         </div>
 
-        <div class="footer-right">
+        <div class="ui-row footer-right">
           <el-button v-if="currentStep < 4" @click="visible = false">取消</el-button>
 
           <el-button
@@ -1214,9 +1214,6 @@ onUnmounted(() => {
 }
 
 .step-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   color: var(--c-text-muted, #94a3b8);
 }
 
@@ -1235,8 +1232,6 @@ onUnmounted(() => {
   border-radius: 50%;
   background: var(--c-border, #cbd5e1);
   color: #fff;
-  display: flex;
-  align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 600;
@@ -1276,9 +1271,7 @@ onUnmounted(() => {
 }
 
 .entity-options-grid {
-  display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
 }
 
 .entity-card {
@@ -1316,17 +1309,12 @@ onUnmounted(() => {
 
 /* 数据源切换 Tab */
 .source-toggle-bar {
-  display: flex;
-  gap: 12px;
   margin-bottom: 18px;
 }
 
 .source-tab-btn {
   flex: 1;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
   padding: 10px 16px;
   border-radius: 8px;
   border: 1px solid var(--c-border, #e2e8f0);
@@ -1392,9 +1380,6 @@ onUnmounted(() => {
 }
 
 .file-info-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-top: 14px;
   padding: 10px 14px;
   background: var(--c-bg-subtle, #f8fafc);
@@ -1408,8 +1393,6 @@ onUnmounted(() => {
   border-radius: 6px;
   background: var(--c-primary-subtle, #eff6ff);
   color: var(--c-primary, #2563eb);
-  display: flex;
-  align-items: center;
   justify-content: center;
 }
 
@@ -1427,27 +1410,16 @@ onUnmounted(() => {
 .file-path {
   font-size: 11px;
   color: var(--c-text-muted, #64748b);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sheet-config-section {
   margin-top: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   padding: 14px;
   background: var(--c-bg-card, #ffffff);
   border: 1px solid var(--c-border, #e2e8f0);
   border-radius: 8px;
 }
 
-.form-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 
 .form-label {
   font-size: 13px;
@@ -1470,9 +1442,6 @@ onUnmounted(() => {
 }
 
 .guide-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 10px;
 }
 
@@ -1488,16 +1457,10 @@ onUnmounted(() => {
 }
 
 .guide-steps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   margin-bottom: 12px;
 }
 
 .guide-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   font-size: 12px;
   color: #334155;
 }
@@ -1509,8 +1472,6 @@ onUnmounted(() => {
   background: #0284c7;
   color: #fff;
   font-size: 10px;
-  display: flex;
-  align-items: center;
   justify-content: center;
   flex-shrink: 0;
   margin-top: 1px;
@@ -1529,16 +1490,11 @@ onUnmounted(() => {
 }
 
 .form-grid {
-  display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
   margin-bottom: 10px;
 }
 
 .feishu-connected-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
   border-radius: 8px;
@@ -1547,9 +1503,6 @@ onUnmounted(() => {
 }
 
 .conn-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   font-size: 13px;
   font-weight: 600;
   color: #15803d;
@@ -1560,35 +1513,20 @@ onUnmounted(() => {
 }
 
 .feishu-url-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   background: var(--c-bg-card, #ffffff);
   border: 1px solid var(--c-border, #e2e8f0);
   border-radius: 8px;
   padding: 16px;
 }
 
-.section-title-box {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 
 .url-hint {
   font-size: 11px;
   color: var(--c-text-muted, #64748b);
 }
 
-.url-input-group {
-  display: flex;
-  gap: 10px;
-}
 
 .permission-tip-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   background: #fefce8;
   border: 1px solid #fef08a;
   border-radius: 6px;
@@ -1603,9 +1541,6 @@ onUnmounted(() => {
 }
 
 .feishu-error-alert {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   background: #fef2f2;
   border: 1px solid #fecaca;
   border-radius: 6px;
@@ -1621,17 +1556,11 @@ onUnmounted(() => {
 }
 
 .feishu-subtables-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-top: 4px;
 }
 
 /* 步骤 2: 字段映射 */
 .mapping-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 12px;
 }
 
@@ -1641,9 +1570,6 @@ onUnmounted(() => {
 }
 
 .mapping-alert {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   color: var(--c-warning, #d97706);
   font-size: 12px;
   font-weight: 500;
@@ -1690,11 +1616,6 @@ onUnmounted(() => {
   color: var(--c-text-muted, #94a3b8);
 }
 
-.sample-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
 
 .sample-tag {
   background: var(--c-bg-subtle, #f1f5f9);
@@ -1827,9 +1748,7 @@ onUnmounted(() => {
 }
 
 .report-stats-grid {
-  display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
   margin: 16px 0;
 }
 
@@ -1893,21 +1812,8 @@ onUnmounted(() => {
   overflow-y: auto;
   font-size: 12px;
   color: #991b1b;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 /* 底部操作 */
-.dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 
-.footer-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 </style>

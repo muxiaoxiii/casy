@@ -32,7 +32,7 @@
         @dragstart="onDragStart($event, item)"
         @click="previewItem(item)"
       >
-        <div class="ks-item-header">
+        <div class="ks-item-header ui-row ui-row--between">
           <el-tag size="small" :type="item.item_type === 'file' ? 'success' : 'primary'">
             {{ item.item_type === 'file' ? '案卷' : '知识' }}
           </el-tag>
@@ -42,7 +42,7 @@
         <div class="ks-item-snippet" v-html="item.safeSnippet"></div>
       </div>
       
-      <el-empty v-if="!loading && results.length === 0" description="输入关键词开始检索" :image-size="60" />
+      <EmptyState v-if="!loading && results.length === 0" type="custom" compact hide-action title="输入关键词开始检索" />
     </div>
   </div>
 </template>
@@ -50,6 +50,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { Collection, Close, Search } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { casyContext } from '../../../core/plugin/context'
 // 审查 P0-3：SQLite FTS5 的 snippet() 只插入 <b> 高亮、不转义原文，渲染前必须消毒
 import { sanitizeInlineHtml } from '../../../shared/markdown/mdBridge'
@@ -157,9 +158,6 @@ function previewItem(item) {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 .ks-item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 6px;
 }
 .ks-item-category {

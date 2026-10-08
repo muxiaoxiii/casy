@@ -22,12 +22,12 @@ onUnmounted(() => clearInterval(timer))
 <template>
   <fieldset class="workspace-settings"><legend>案卷与知识库同步</legend>
     <label v-for="[key, label] in flags" :key="key"><span>{{ label }}</span><el-switch v-model="settings.workspace_sync[key]" :aria-label="label" /></label>
-    <div v-if="status?.checkedAt" class="sync-status" role="status">最近检查 {{ formatTimestamp(status.checkedAt) }}<span v-if="status.missing"> · {{ status.missing }} 份原件缺失</span></div>
+    <div v-if="status?.checkedAt" class="sync-status ui-text--caption" role="status">最近检查 {{ formatTimestamp(status.checkedAt) }}<span v-if="status.missing"> · {{ status.missing }} 份原件缺失</span></div>
     <el-alert v-for="error in status?.errors || []" :key="error" :title="error" type="warning" :closable="false" />
   </fieldset>
 </template>
 <style scoped>
 .workspace-settings{border:0;border-top:1px solid var(--c-border);margin:16px 0;padding:16px 0;max-width:680px}
 .workspace-settings legend{font-weight:600;padding-right:12px}.workspace-settings label{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:8px 0;font-size:13px}
-.sync-status{font-size:12px;color:var(--c-text-secondary);margin-top:10px}
+.sync-status{margin-top:10px}
 </style>

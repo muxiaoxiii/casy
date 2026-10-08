@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** HBarChart —— 水平条形分布图（对标设计稿 TrackChart） */
 import { computed } from 'vue'
+import EmptyState from '../components/EmptyState.vue'
 
 export interface BarDatum {
   key?: string
@@ -17,7 +18,7 @@ const maxValue = computed(() => Math.max(1, props.max || Math.max(...props.data.
 </script>
 
 <template>
-  <div class="hbar">
+  <div class="hbar ui-col">
     <button v-for="d in data" :key="d.label" type="button" class="hb-row" @click="emit('select', d)" :aria-label="`${d.label}，${d.value} 件，查看案件`">
       <span class="hb-label" :title="d.label">{{ d.label }}</span>
       <span class="hb-track">
@@ -28,12 +29,12 @@ const maxValue = computed(() => Math.max(1, props.max || Math.max(...props.data.
       </span>
       <span class="hb-value">{{ d.value }}</span>
     </button>
-    <div v-if="!data.length" class="hb-empty">暂无数据</div>
+    <div v-if="!data.length" class="hb-empty"><EmptyState type="custom" compact hide-action title="暂无数据" /></div>
   </div>
 </template>
 
 <style scoped>
-.hbar { display: flex; flex-direction: column; gap: 10px; }
+.hbar { gap: 10px; } /* 布局走共享 .ui-col，此处只保留本文件特有的 10px 间距 */
 .hb-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
 .hb-row:hover { background: var(--c-bg-hover); }
 .hb-label {

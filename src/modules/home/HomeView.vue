@@ -38,6 +38,8 @@ import { useProfileStore } from '../../stores/profile'
 import { useInboxStore } from '../../stores/inbox'
 import { useSettingsStore } from '../../stores/settings'
 import BriefingModal from '../../shared/components/BriefingModal.vue'
+import EmptyState from '../../shared/components/EmptyState.vue'
+import DegradedBanner from '../../shared/components/DegradedBanner.vue'
 // 审查 P0-3：rec.text 的 <strong> 由模板生成，但任务名/案件名来自用户或同步数据，渲染前必须消毒
 import { sanitizeInlineHtml } from '../../shared/markdown/mdBridge'
 import { daysUntil } from '../../shared/utils/date'
@@ -155,6 +157,7 @@ const showDailyModal = ref(false)
 const showWeeklyModal = ref(false)
 const brief = ref(null)
 const briefDegraded = ref(false)
+const briefError = ref('')
 const briefLoading = ref(false)
 
 function extractBriefContent(data) {
@@ -171,9 +174,11 @@ async function loadBrief() {
   if (result.ok && result.data && extractBriefContent(result.data)) {
     brief.value = result.data
     briefDegraded.value = false
+    briefError.value = ''
   } else {
     brief.value = null
     briefDegraded.value = true
+    briefError.value = result.error || '今日早报读取失败'
   }
 }
 
@@ -184,9 +189,11 @@ async function regenerateBrief() {
   if (result.ok && result.data && extractBriefContent(result.data)) {
     brief.value = result.data
     briefDegraded.value = false
+    briefError.value = ''
     ElMessage.success('早报已重新生成')
   } else {
     briefDegraded.value = true
+    briefError.value = result.error || '今日早报生成失败'
   }
 }
 
@@ -448,18 +455,18 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 </script>
 
 <template>
-  <div class="today-page-container">
+  <div class="today-page-container ui-col">
     <!-- ═══ 顶部日期、状态指标与报表入口 ═══ -->
-    <header class="today-hero-header">
-      <div class="header-left">
+    <header class="today-hero-header ui-row ui-row--top ui-row--between ui-row--wrap">
+      <div class="header-left ui-col">
         <p class="today-date">今日工作台</p>
         <h1 class="header-date-title">{{ fullDateDisplay }}</h1>
       </div>
 
-      <div class="header-actions-group">
+      <div class="header-actions-group ui-row">
         <!-- 今日早报按钮 -->
         <button
-          class="btn-report-trigger"
+          class="btn-report-trigger ui-row"
           title="打开今日秩序早报/晚报"
           @click="showDailyModal = true"
         >
@@ -469,7 +476,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
         <!-- 周报/周复盘按钮 -->
         <button
-          class="btn-report-trigger"
+          class="btn-report-trigger ui-row"
           title="打开每周复盘与综合分析"
           @click="showWeeklyModal = true"
         >
@@ -479,7 +486,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
         <!-- 查看日历 -->
         <button
-          class="btn-report-trigger sub"
+          class="btn-report-trigger sub ui-row"
           title="前往排期日历"
           @click="router.push('/calendar')"
         >
@@ -489,20 +496,31 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
       </div>
     </header>
 
-    <nav class="today-summary" aria-label="今日事项概览">
-      <button class="summary-item" @click="router.push('/calendar')">
+    <DegradedBanner
+      v-if="briefError"
+      title="今日早报读取失败"
+      :reason="briefError"
+      feature="home-daily-brief"
+      :dismissible="false"
+      :retryable="true"
+      alternative="早报弹窗打开后可能为空，可重试或改用「查看日历 / 到期与逾期」概览"
+      @retry="loadBrief"
+    />
+
+    <nav class="today-summary ui-grid" aria-label="今日事项概览">
+      <button class="summary-item ui-row" @click="router.push('/calendar')">
         <span class="summary-icon"><el-icon><Calendar /></el-icon></span>
         <span class="summary-copy"><span class="summary-label">今日日程</span><span class="summary-hint">查看时间安排</span></span>
         <strong class="summary-value">{{ hardCount }}</strong>
         <el-icon class="summary-arrow"><ArrowRight /></el-icon>
       </button>
-      <button class="summary-item" :class="{ 'has-urgent': expiringCount > 0 }" @click="router.push({ name: 'tasks', query: { tab: 'all', metric: 'dueOrOverdue' } })">
+      <button class="summary-item ui-row" :class="{ 'has-urgent': expiringCount > 0 }" @click="router.push({ name: 'tasks', query: { tab: 'all', metric: 'dueOrOverdue' } })">
         <span class="summary-icon"><el-icon><Finished /></el-icon></span>
         <span class="summary-copy"><span class="summary-label">到期与逾期</span><span class="summary-hint">优先处理截止事项</span></span>
         <strong class="summary-value">{{ expiringCount }}</strong>
         <el-icon class="summary-arrow"><ArrowRight /></el-icon>
       </button>
-      <button class="summary-item" @click="router.push({ name: 'tasks', query: { tab: 'waiting' } })">
+      <button class="summary-item ui-row" @click="router.push({ name: 'tasks', query: { tab: 'waiting' } })">
         <span class="summary-icon"><el-icon><Waiting /></el-icon></span>
         <span class="summary-copy"><span class="summary-label">等待跟进</span><span class="summary-hint">核实回复与进展</span></span>
         <strong class="summary-value">{{ waitingCount }}</strong>
@@ -511,39 +529,39 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
     </nav>
 
     <!-- ═══ 主内容区：双栏 8 + 4 架构 (Stitch v4.5) ═══ -->
-    <div class="today-grid-layout">
+    <div class="today-grid-layout ui-grid">
       <!-- ── 左侧 8 栏：核心办案执行流 ── -->
-      <div class="main-column-left">
+      <div class="main-column-left ui-col">
         <!-- 1. Hard Schedule (法庭开庭与硬日程) -->
-        <section class="section-block">
-          <div class="section-title-row">
-            <div class="title-with-icon">
+        <section class="section-block ui-col">
+          <div class="section-title-row ui-row ui-row--between">
+            <div class="title-with-icon ui-row">
               <el-icon class="icon-primary"><Compass /></el-icon>
               <h2 class="sec-heading">{{ t('home.hard_schedule') }}</h2>
             </div>
             <span class="count-badge">{{ t('home.hard_schedule_count', { count: hardScheduleItems.length }) }}</span>
           </div>
 
-          <div v-if="hardScheduleItems.length" class="hard-schedule-card-list">
+          <div v-if="hardScheduleItems.length" class="hard-schedule-card-list ui-col">
             <div
               v-for="item in hardScheduleItems"
               :key="item.id"
-              class="hard-schedule-row group"
+              class="hard-schedule-row group ui-row"
             >
-              <div class="time-col">
+              <div class="time-col ui-col">
                 <span class="time-text">{{ item.time }}</span>
                 <span class="time-sub" :class="{ 'text-risk': item.risk }">
                   {{ item.timeRemaining || item.court }}
                 </span>
               </div>
 
-              <div class="info-col">
-                <div class="title-line">
+              <div class="info-col ui-col">
+                <div class="title-line ui-row">
                   <span v-if="item.risk" class="dot-indicator risk"></span>
                   <span v-else class="dot-indicator safe"></span>
                   <strong class="matter-title">{{ item.title }}</strong>
                 </div>
-                <div class="meta-line">
+                <div class="meta-line ui-row">
                   <span class="track-tag">{{ item.track }}</span>
                   <span v-if="item.court || item.judge" class="judge-text">{{ [item.court, item.judge].filter(Boolean).join(' · ') }}</span>
                 </div>
@@ -560,24 +578,24 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
               </div>
             </div>
           </div>
-          <p v-if="!hardScheduleItems.length" class="section-empty">今日暂无日程<button @click="router.push('/calendar')">查看日历 <el-icon><ArrowRight /></el-icon></button></p>
+          <p v-if="!hardScheduleItems.length" class="section-empty ui-row ui-row--between ui-row--wrap"><EmptyState type="custom" :icon="Calendar" compact title="今日暂无日程" action-text="查看日历" @action="router.push('/calendar')" /></p>
         </section>
 
         <!-- 2. Today's Commitments (今日承诺 / 待办事项) -->
-        <section class="section-block">
-          <div class="section-title-row">
-            <div class="title-with-icon">
+        <section class="section-block ui-col">
+          <div class="section-title-row ui-row ui-row--between">
+            <div class="title-with-icon ui-row">
               <el-icon class="icon-primary"><Finished /></el-icon>
               <h2 class="sec-heading">{{ t('home.today_commitments') }}</h2>
             </div>
             <span class="count-badge">{{ t('home.commitments_unresolved', { count: todayCommitments.filter(c => !c.completed).length }) }}</span>
           </div>
 
-          <div v-if="todayCommitments.length" class="commitments-list">
+          <div v-if="todayCommitments.length" class="commitments-list ui-col">
             <div
               v-for="c in todayCommitments"
               :key="c.id"
-              class="commitment-item"
+              class="commitment-item ui-row"
               :class="{ 'is-completed': c.completed, 'is-overdue': c.overdue && !c.completed }"
             >
               <input
@@ -588,8 +606,8 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
                 :disabled="pendingCompletions.has(c.id)"
                 @click.stop="toggleCommitment(c)"
               />
-              <div class="commitment-info">
-                <div class="commitment-title-row">
+              <div class="commitment-info ui-col">
+                <div class="commitment-title-row ui-row">
                   <button type="button" class="c-title task-open" @click="openNextActionMatter(c.task)">{{ c.title }}</button>
                   <span v-if="c.overdue && !c.completed" class="badge-overdue">已逾期</span>
                 </div>
@@ -600,48 +618,48 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
               </span>
             </div>
           </div>
-          <p v-if="!todayCommitments.length" class="section-empty">今日承诺事项已清空<button @click="router.push({ name: 'tasks', query: { tab: 'all' } })">查看全部任务 <el-icon><ArrowRight /></el-icon></button></p>
+          <p v-if="!todayCommitments.length" class="section-empty ui-row ui-row--between ui-row--wrap">今日承诺事项已清空<button class="ui-row" @click="router.push({ name: 'tasks', query: { tab: 'all' } })">查看全部任务 <el-icon><ArrowRight /></el-icon></button></p>
         </section>
 
         <!-- 3. Waitlist (等待跟进 / 外部回执) -->
-        <section class="section-block">
-          <div class="section-title-row">
-            <div class="title-with-icon">
+        <section class="section-block ui-col">
+          <div class="section-title-row ui-row ui-row--between">
+            <div class="title-with-icon ui-row">
               <el-icon class="icon-discovery"><Waiting /></el-icon>
               <h2 class="sec-heading">{{ t('home.waitlist') }}</h2>
             </div>
             <span class="count-badge">{{ t('home.waitlist_count', { count: waitlistItems.length }) }}</span>
           </div>
 
-          <div class="waitlist-grid">
+          <div class="waitlist-grid ui-grid">
             <button type="button"
               v-for="w in waitlistItems"
               :key="w.id"
-              class="waitlist-card"
+              class="waitlist-card ui-col"
               @click="router.push({ name: 'tasks', query: { edit: w.id } })"
             >
               <div class="wl-left-accent"></div>
-              <div class="wl-content">
-                <div class="wl-head">
+              <div class="wl-content ui-col">
+                <div class="wl-head ui-row ui-row--top ui-row--between">
                   <strong class="wl-title">{{ w.title }}</strong>
                   <span class="wl-elapsed" :class="{ 'text-risk': w.overdue }">{{ w.elapsedText }}</span>
                 </div>
-                <div class="wl-foot">
+                <div class="wl-foot ui-row ui-row--between">
                   <span>{{ w.submittedText }}</span>
                   <span>{{ w.expectedText }}</span>
                 </div>
               </div>
             </button>
           </div>
-          <p v-if="!waitlistItems.length" class="section-empty">暂无等待跟进事项</p>
+          <p v-if="!waitlistItems.length" class="section-empty ui-row ui-row--between ui-row--wrap"><EmptyState type="custom" compact hide-action title="暂无等待跟进事项" /></p>
         </section>
       </div>
 
       <!-- ── 右侧 4 栏：重点聚焦、智能建议与精力容量 ── -->
-      <div class="side-column-right">
+      <div class="side-column-right ui-col">
         <!-- 1. Focused Next Action 卡片 (高对比度深蓝) -->
-        <div class="next-action-card">
-          <div class="na-header">
+        <div class="next-action-card ui-col">
+          <div class="na-header ui-row ui-row--between">
             <span class="na-kicker">下一步行动</span>
             <span class="na-code" v-if="displayNextAction.caseCode">{{ displayNextAction.caseCode }}</span>
           </div>
@@ -661,23 +679,23 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
         </div>
 
         <!-- 2. Smart Recommendations (智能建议 / AI) -->
-        <div class="smart-recs-card">
-          <div class="recs-head">
-            <div class="recs-title-left">
+        <div class="smart-recs-card ui-col">
+          <div class="recs-head ui-row ui-row--between">
+            <div class="recs-title-left ui-row">
               <el-icon class="icon-sparkle"><Sparkles /></el-icon>
               <span class="recs-title">{{ t('home.smart_recs') }}</span>
             </div>
             <span class="recs-ai-tag">待办提醒</span>
           </div>
 
-          <div class="recs-body">
+          <div class="recs-body ui-col">
             <div
               v-for="rec in safeRecommendations"
               :key="rec.id"
-              class="rec-item"
+              class="rec-item ui-row ui-row--top"
             >
               <span class="rec-dot"></span>
-              <div class="rec-content">
+              <div class="rec-content ui-col">
                 <p v-html="rec.safeText"></p>
                 <div class="rec-actions">
                   <button class="btn-rec-action accept" @click="handleRecAction(rec, 'accept')">{{ rec.actionLabel }}</button>
@@ -689,8 +707,8 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
         </div>
 
         <!-- 3. 精力负荷与容量 (Energy & Capacity) -->
-        <div class="capacity-meter-card">
-          <div class="cap-head">
+        <div class="capacity-meter-card ui-col">
+          <div class="cap-head ui-row ui-row--between">
             <span class="cap-title">今日任务预估</span>
             <span class="cap-metric-val">{{ committedHours }} / {{ totalCapacityHours }}h</span>
           </div>
@@ -704,7 +722,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
           </div>
           <p v-if="unestimatedCount" class="estimate-note">{{ unestimatedCount }} 项任务未填写预估时长</p>
 
-          <div class="cap-foot-info">
+          <div class="cap-foot-info ui-row ui-row--between">
             <span class="cap-free">{{ t('home.capacity_free') }}<strong>{{ freeSpaceHours }}</strong></span>
             <span class="cap-percent">{{ t('home.capacity_percent', { percent: capacityPercent }) }}</span>
           </div>
@@ -760,26 +778,16 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
   max-width: 1280px;
   margin: 0 auto;
   padding: 24px 32px 48px;
-  display: flex;
-  flex-direction: column;
   gap: 24px;
 }
 
 /* ── 顶部日期与操作栏 ── */
 .today-hero-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
   padding-bottom: 0;
   gap: 20px;
-  flex-wrap: wrap;
 }
 
-.header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.header-left { gap: 8px; }
 
 .header-date-title {
   font-size: 28px;
@@ -791,12 +799,12 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 .today-date { margin: 0; color: var(--c-text-secondary); font-size: 13px; }
-.today-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--c-radius-xl); }
-.summary-item { display: flex; align-items: center; gap: 12px; padding: 18px 20px; text-align: left; border: 0; background: transparent; color: var(--c-text); cursor: pointer; min-width: 0; border-radius: var(--c-radius-xl); transition: background var(--motion-fast); }
+.today-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--c-radius-xl); }
+.summary-item { gap: 12px; padding: 18px 20px; text-align: left; border: 0; background: transparent; color: var(--c-text); cursor: pointer; min-width: 0; border-radius: var(--c-radius-xl); transition: background var(--motion-fast); }
 .summary-item + .summary-item { border-left: 1px solid var(--c-border-light); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .summary-item:hover { background: var(--c-bg-subtle); }
 .summary-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--c-radius-lg); background: var(--c-primary-light); color: var(--c-primary); font-size: 18px; flex-shrink: 0; }
-.summary-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.summary-copy { gap: 3px; }
 .summary-label { font-size: 13px; font-weight: 600; }
 .summary-hint { color: var(--c-text-secondary); font-size: 12px; }
 .summary-value { margin-left: auto; font-size: 28px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -812,15 +820,9 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
   .summary-hint, .summary-arrow { display: block; }
 }
 
-.header-actions-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+.header-actions-group { gap: 10px; }
 
 .btn-report-trigger {
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
   padding: 7px 14px;
   border-radius: var(--c-radius-md);
@@ -846,7 +848,6 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
 /* ── 主栅格布局 (8 + 4 架构) ── */
 .today-grid-layout {
-  display: grid;
   grid-template-columns: 1fr;
   gap: 24px;
 }
@@ -858,29 +859,9 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 /* ── 左栏 ── */
-.main-column-left {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
+.main-column-left { gap: 24px; }
 
-.section-block {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.section-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.title-with-icon {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.section-block { gap: 12px; }
 
 .icon-primary { color: var(--c-primary); font-size: 18px; }
 .icon-discovery { color: var(--status-discovery); font-size: 18px; }
@@ -903,6 +884,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
 /* 1. Hard Schedule */
 .hard-schedule-card-list {
+  gap: 0;
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-xl);
@@ -911,8 +893,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 .hard-schedule-row {
-  display: flex;
-  align-items: center;
+  gap: 0;
   padding: 14px 18px;
   border-bottom: 1px solid var(--c-border-light);
   transition: background var(--motion-fast);
@@ -928,8 +909,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
 .time-col {
   width: 90px;
-  display: flex;
-  flex-direction: column;
+  gap: 0;
   padding-right: 14px;
   border-right: 1px solid var(--c-border-light);
   flex-shrink: 0;
@@ -956,15 +936,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 .info-col {
   flex: 1;
   padding-left: 16px;
-  display: flex;
-  flex-direction: column;
   gap: 4px;
-}
-
-.title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .dot-indicator {
@@ -984,9 +956,6 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 .meta-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--slate-gray-light);
@@ -1022,8 +991,6 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
 /* 2. Today's Commitments */
 .commitments-list {
-  display: flex;
-  flex-direction: column;
   gap: 0;
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
@@ -1032,8 +999,6 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 .commitment-item {
-  display: flex;
-  align-items: center;
   gap: 12px;
   padding: 16px;
   background: var(--c-bg-card);
@@ -1063,15 +1028,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
 .commitment-info {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   gap: 2px;
-}
-
-.commitment-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .c-title {
@@ -1112,12 +1069,11 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 
 /* 3. Waitlist */
 .waitlist-grid {
-  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
 }
 
 .waitlist-card {
+  gap: 0;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -1140,16 +1096,8 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 .wl-content {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
   padding-left: 4px;
-}
-
-.wl-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
 }
 
 .wl-title {
@@ -1179,19 +1127,13 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 }
 
 .wl-foot {
-  display: flex;
-  justify-content: space-between;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--slate-gray-light);
 }
 
 /* ── 右栏 (4 栏) ── */
-.side-column-right {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
+.side-column-right { gap: 20px; }
 
 /* 1. Next Action Card (深蓝高对比度) */
 .next-action-card {
@@ -1200,15 +1142,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
   border-radius: var(--c-radius-xl);
   padding: 20px;
   box-shadow: var(--shadow-md);
-  display: flex;
-  flex-direction: column;
   gap: 12px;
-}
-
-.na-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .na-kicker {
@@ -1277,23 +1211,14 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
   border-radius: var(--c-radius-xl);
   padding: 16px;
   box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
 .recs-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  gap: 0;
   padding-bottom: 8px;
+.recs-title-left { gap: 6px; }
   border-bottom: 1px dashed var(--c-border-light);
-}
-
-.recs-title-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .icon-sparkle {
@@ -1317,23 +1242,11 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
   color: var(--c-primary);
 }
 
-.recs-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+.recs-body { gap: 10px; }
 
-.rec-item {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
+.rec-item { gap: 12px; }
 
-.rec-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.rec-content { gap: 8px; }
 
 .rec-content p {
   font-size: 12px;
@@ -1393,15 +1306,7 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
   border-radius: var(--c-radius-xl);
   padding: 16px;
   box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
   gap: 10px;
-}
-
-.cap-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .cap-title {
@@ -1434,12 +1339,15 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 .cap-bar-fill.cap-over {
   background: var(--status-warning);
 }
-.section-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 22px 18px; color: var(--c-text-secondary); font-size: 13px; background: var(--c-bg-card); border: 1px dashed var(--c-border-strong); border-radius: var(--c-radius-lg); }
-.section-empty button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--c-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
+.section-empty { gap: 12px; padding: 22px 18px; color: var(--c-text-secondary); font-size: 13px; background: var(--c-bg-card); border: 1px dashed var(--c-border-strong); border-radius: var(--c-radius-lg); }
+.section-empty button { gap: 6px; border: 0; background: transparent; color: var(--c-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
 .task-open { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .task-open:hover { color: var(--c-primary); }
 .commitment-info, .info-col, .main-column-left, .side-column-right { min-width: 0; }
 .matter-title, .c-title, .wl-title, .na-title { overflow-wrap: anywhere; }
+.section-title-row { gap: 0; }
+.na-header { gap: 0; }
+.cap-head { gap: 0; }
 .title-line, .meta-line, .commitment-title-row, .wl-head, .wl-foot, .cap-foot-info { flex-wrap: wrap; }
 .wl-head, .wl-foot { gap: 8px; }
 .estimate-note { margin: 0; font-size: 12px; color: var(--c-warning); }
@@ -1450,20 +1358,10 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
 .btn-na-open { background: var(--c-primary); color: var(--c-primary-contrast); }
 .btn-na-open:hover { background: var(--c-primary-hover); }
 .smart-recs-card, .capacity-meter-card { background: transparent; border: 0; border-top: 1px solid var(--c-border); border-radius: 0; box-shadow: none; padding: 16px 0; }
-@media (max-width: 600px) {
-  .today-page-container { padding: 20px 16px 32px; gap: 24px; }
-  .header-date-title { font-size: 20px; }
-  .header-status-chips, .header-actions-group { flex-wrap: wrap; gap: 10px; }
-  .btn-report-trigger { padding: 7px 10px; }
-  .hard-schedule-row { padding: 12px; }
-  .time-col { width: 64px; padding-right: 8px; }
-  .info-col { padding-left: 10px; }
-  .waitlist-grid { grid-template-columns: minmax(0, 1fr); }
-}
+
 
 .cap-foot-info {
-  display: flex;
-  justify-content: space-between;
+  gap: 0;
   font-size: 11px;
   color: var(--slate-gray-light);
 }

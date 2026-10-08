@@ -134,7 +134,7 @@ onMounted(async () => {
   >
     <!-- 自定义头部 -->
     <template #header>
-      <div class="brief-header">
+      <div class="brief-header ui-row">
         <div class="brief-icon">
           <el-icon :size="24" color="var(--c-warning)"><Bell /></el-icon>
         </div>
@@ -214,8 +214,7 @@ onMounted(async () => {
 
 <style scoped>
 .brief-header {
-  display: flex;
-  align-items: center;
+  /* 布局走共享 .ui-row；此处只保留本文件特有的 12px 间距 */
   gap: 12px;
 }
 

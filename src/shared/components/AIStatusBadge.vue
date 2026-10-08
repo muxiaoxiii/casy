@@ -79,9 +79,9 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
       </button>
     </template>
 
-    <div class="ai-popover">
+    <div class="ai-popover ui-col">
       <div class="popover-header">
-        <div class="popover-status">
+        <div class="popover-status ui-row">
           <span class="popover-dot" :class="dotClass"></span>
           <span class="popover-status-text">{{ statusLabel }}</span>
         </div>
@@ -184,12 +184,8 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
   letter-spacing: 0.5px;
 }
 
-/* Popover 内容 */
-.ai-popover {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+/* Popover 内容：布局走共享 .ui-col，此处只保留 12px 间距 */
+.ai-popover { gap: 12px; }
 
 .popover-header {
   display: flex;
@@ -197,11 +193,7 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
   justify-content: space-between;
 }
 
-.popover-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.popover-status { gap: 6px; }
 
 .popover-dot {
   width: 8px;

@@ -113,7 +113,7 @@ onMounted(() => {
                   :style="{ background: swatch }"
                 />
               </span>
-              <span class="theme-copy">
+              <span class="theme-copy ui-col">
                 <strong>{{ option.label }}</strong>
                 <small>{{ option.description }}</small>
               </span>
@@ -258,8 +258,6 @@ onMounted(() => {
 
 .theme-copy {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 
@@ -322,7 +320,7 @@ h4 {
   color: var(--c-text-heading);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px){
   .theme-grid {
     grid-template-columns: 1fr;
   }

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { tauriCallSafe } from '../../../core/tauriBridge'
 import type { SourceRecord } from '../../../types/feishuSnapshot'
 import { Download } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { isTauriRuntime } from '../../../core/mockData'
 const props = defineProps<{caseId: string}>()
 const records = ref<SourceRecord[]>([])
@@ -49,10 +50,11 @@ const filtered = computed(() => records.value.filter(r => !query.value || JSON.s
     <el-input v-model="query" clearable placeholder="搜索原始字段或内容" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <p v-else-if="loading" role="status">正在读取原始记录…</p>
-    <el-empty v-else-if="!filtered.length" description="暂无原始记录" :image-size="48" />
+    <EmptyState v-else-if="query && !filtered.length" type="search" action-text="清除筛选" @action="query = ''" />
+    <EmptyState v-else-if="!filtered.length" type="custom" compact hide-action title="暂无原始记录" />
     <el-collapse>
       <el-collapse-item v-for="record in filtered" :key="record.tableName + record.recordId" :title="record.tableName + ' · ' + String(Object.values(record.fields).find(Boolean) || record.recordId)">
-        <dl><template v-for="(value,label) in record.fields" :key="label"><dt>{{ label }}</dt><dd>{{ value || '未填写' }}</dd></template></dl>
+        <dl class="ui-grid"><template v-for="(value,label) in record.fields" :key="label"><dt>{{ label }}</dt><dd>{{ value || '未填写' }}</dd></template></dl>
         <details><summary>原始数据与字段定义</summary><pre>{{ JSON.stringify({ fields: record.raw, schema: record.schema },null,2) }}</pre></details>
         <el-button v-for="file in attachments(record)" :key="file.file_token" :icon="Download" @click="download(record,file.file_token)">{{ file.name }}</el-button>
       </el-collapse-item>
@@ -61,9 +63,10 @@ const filtered = computed(() => records.value.filter(r => !query.value || JSON.s
 </template>
 <style scoped>
 .source-records { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--c-border); }
-h3 { font-size: 16px; } dl { display: grid; grid-template-columns: minmax(100px,180px) minmax(0,1fr); gap: 10px 20px; }
+h3 { font-size: 16px; } dl { grid-template-columns: minmax(100px,180px) minmax(0,1fr); gap: 10px 20px; }
 dt { color: var(--c-text-secondary); } dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; }
 :deep(.el-collapse-item__header) { height: auto; min-height: 48px; text-align: left; }
-@media(max-width: 520px) { dl { grid-template-columns: minmax(0,1fr); } dd { margin-bottom: 12px; } }
+
+
 </style>

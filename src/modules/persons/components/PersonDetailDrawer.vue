@@ -117,7 +117,7 @@ async function remove() {
           <el-icon :size="24"><component :is="kindMeta(person.kind).icon" /></el-icon>
         </div>
         <div class="profile-main">
-          <div class="profile-name-row">
+          <div class="profile-name-row ui-row">
             <span class="profile-name">{{ person.name }}</span>
             <span
               class="kind-badge"
@@ -234,8 +234,6 @@ async function remove() {
 }
 
 .profile-name-row {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 

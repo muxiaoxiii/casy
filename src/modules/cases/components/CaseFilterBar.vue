@@ -301,7 +301,7 @@ filtersStore.loadFilters('cases')
 
 <template>
   <div class="filter-bar">
-    <div class="filter-primary-row">
+    <div class="ui-grid filter-primary-row">
       <el-input
         :model-value="filter.search"
         placeholder="搜索案件名称、案号、当事人..."
@@ -337,7 +337,7 @@ filtersStore.loadFilters('cases')
     </div>
 
     <div v-if="showAdvancedFilter" class="advanced-filter-panel">
-      <div class="advanced-filter-grid">
+      <div class="ui-grid advanced-filter-grid">
         <el-select :model-value="filter.client" clearable filterable remote reserve-keyword placeholder="客户" :remote-method="remoteClientSearch" :loading="clientLoading" @change="updateClient">
           <el-option v-for="opt in clientOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
@@ -413,7 +413,6 @@ filtersStore.loadFilters('cases')
 }
 
 .filter-primary-row {
-  display: grid;
   grid-template-columns: minmax(260px, 1fr) 140px 120px auto auto auto;
   align-items: center;
   gap: 8px;
@@ -470,7 +469,6 @@ filtersStore.loadFilters('cases')
 }
 
 .advanced-filter-grid {
-  display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 8px;
 }
@@ -497,14 +495,5 @@ filtersStore.loadFilters('cases')
   }
 }
 
-@media (max-width: 760px) {
-  .filter-primary-row,
-  .advanced-filter-grid {
-    grid-template-columns: 1fr 1fr;
-  }
 
-  .case-search {
-    grid-column: 1 / -1;
-  }
-}
 </style>

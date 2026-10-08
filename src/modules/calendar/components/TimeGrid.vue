@@ -36,5 +36,5 @@ onMounted(() => { if (scroller.value) scroller.value.scrollTop = 7 * 56 })
 .time-event.completed { opacity: .6; }
 .time-event.completed strong { text-decoration: line-through; }
 .time-event:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 1px; z-index: 3; }
-@media (max-width: 640px) { .time-event { padding: 3px; border-left-width: 2px; } .time-event strong { font-size: 10px; } .time-event small { font-size: 9px; } }
+
 </style>

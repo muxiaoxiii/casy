@@ -54,16 +54,16 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
     </div>
 
     <!-- ═══ 1. 每日早报样式选择器 (16 种) ═══ -->
-    <div class="report-style-group">
-      <div class="group-title-bar">
-        <div class="bar-left">
+    <div class="report-style-group ui-col">
+      <div class="group-title-bar ui-row ui-row--between">
+        <div class="bar-left ui-row">
           <el-icon class="icon-blue"><Reading /></el-icon>
           <span class="group-name">每日早报样式 (Daily Pulse Reports)</span>
         </div>
         <span class="group-count">{{ dailyStyles.length }} 种可选风格</span>
       </div>
 
-      <div class="styles-cards-grid">
+      <div class="styles-cards-grid ui-grid">
         <div
           v-for="item in dailyStyles"
           :key="item.id"
@@ -96,7 +96,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
               <span class="thumb-kicker">CASY / {{ item.label }}</span>
               <strong>{{ item.name }}</strong>
               <div class="thumb-rule"></div>
-              <div class="thumb-columns"><i></i><i></i><i></i></div>
+              <div class="thumb-columns ui-grid"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -129,16 +129,16 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
     </div>
 
     <!-- ═══ 2. 每周报告样式选择器 (16 种) ═══ -->
-    <div class="report-style-group mt-8">
-      <div class="group-title-bar">
-        <div class="bar-left">
+    <div class="report-style-group mt-8 ui-col">
+      <div class="group-title-bar ui-row ui-row--between">
+        <div class="bar-left ui-row">
           <el-icon class="icon-amber"><DataAnalysis /></el-icon>
           <span class="group-name">每周复盘样式 (Weekly Synthesis Reports)</span>
         </div>
         <span class="group-count">{{ weeklyStyles.length }} 种可选风格</span>
       </div>
 
-      <div class="styles-cards-grid">
+      <div class="styles-cards-grid ui-grid">
         <div
           v-for="item in weeklyStyles"
           :key="item.id"
@@ -171,7 +171,7 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
               <span class="thumb-kicker">CASY / {{ item.label }}</span>
               <strong>{{ item.name }}</strong>
               <div class="thumb-rule"></div>
-              <div class="thumb-columns"><i></i><i></i><i></i></div>
+              <div class="thumb-columns ui-grid"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -250,20 +250,10 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
 }
 
 .report-style-group {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
-.group-title-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .bar-left {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
@@ -287,7 +277,6 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
 
 /* 4 列网格 */
 .styles-cards-grid {
-  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
 }
@@ -407,7 +396,6 @@ function openPreview(type: 'daily' | 'weekly', styleId: string) {
 }
 
 .thumb-columns {
-  display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;
   gap: 5px;
 }

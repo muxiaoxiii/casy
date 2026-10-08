@@ -8,6 +8,7 @@ import {
   type DeadlineRuleAuditDto,
   type DeadlineRuleDto,
 } from './deadlineRuleMeta'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -110,7 +111,7 @@ function close() {
     @close="close"
   >
     <div v-loading="loading" class="audit-body">
-      <el-empty v-if="!loading && audits.length === 0" description="暂无留痕记录" :image-size="80" />
+      <EmptyState v-if="!loading && audits.length === 0" type="custom" compact hide-action title="暂无留痕记录" />
 
       <el-timeline v-else class="audit-timeline">
         <el-timeline-item
@@ -120,7 +121,7 @@ function close() {
           placement="top"
         >
           <div class="audit-card">
-            <div class="audit-head">
+            <div class="audit-head ui-row ui-row--between">
               <el-tag :type="actionMeta(item.action).type" size="small" effect="light">
                 {{ actionMeta(item.action).label }}
               </el-tag>
@@ -129,7 +130,7 @@ function close() {
 
             <!-- update / toggle：字段级 before → after -->
             <template v-if="item.action === 'update' || item.action === 'toggle'">
-              <div v-if="diffOf(item).length" class="audit-diff">
+              <div v-if="diffOf(item).length" class="audit-diff ui-col ui-col--tight">
                 <div v-for="c in diffOf(item)" :key="c.key" class="diff-row">
                   <span class="diff-label">{{ c.label }}</span>
                   <span class="diff-values">
@@ -143,7 +144,7 @@ function close() {
             </template>
 
             <!-- create / delete：快照 -->
-            <div v-else class="audit-diff">
+            <div v-else class="audit-diff ui-col ui-col--tight">
               <div v-for="s in snapshotOf(item)" :key="s.label" class="diff-row">
                 <span class="diff-label">{{ s.label }}</span>
                 <span class="diff-values">
@@ -173,9 +174,6 @@ function close() {
   padding: 10px 12px;
 }
 .audit-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 8px;
 }
 .audit-actor {
@@ -183,8 +181,6 @@ function close() {
   color: var(--c-text-secondary);
 }
 .audit-diff {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
 }
 .diff-row {

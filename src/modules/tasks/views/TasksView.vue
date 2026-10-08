@@ -2,6 +2,7 @@
 import { useViewMemory } from '../../../composables/useViewMemory'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
+import { useListNavigation } from "../../../shared/composables/useListNavigation"
 const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
 
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
@@ -24,6 +25,8 @@ import TaskQuickEditor from '../components/TaskQuickEditor.vue'
 import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
+import SkeletonCard from '../../../shared/components/SkeletonCard.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
 import { registerShortcut } from '../../../shared/keyboard'
@@ -48,6 +51,8 @@ const cases = ref([])
 const areas = ref([])
 const loading = ref(false)
 const loadError = ref('')
+const caseLoadError = ref('')
+const areaLoadError = ref('')
 const savingTask = ref(false)
 const busyTasks = new Set()
 const undoAvailable = computed(canUndo)
@@ -88,7 +93,6 @@ async function closeTaskEditor(done) {
     else showDrawer.value = false
   }
 }
-
 
 // 弹窗状态
 const showCreateDialog = ref(false)
@@ -215,10 +219,17 @@ const filteredTasks = computed(() => applyTaskCardFilters(
 ))
 
 // Preserve independently actionable children when their parent is outside this perspective/filter.
+const taskListEl = ref<HTMLElement | null>(null)
 const gtdTasks = computed(() => {
   if(activePerspective.value==='bycase')return filteredTasks.value
   return topLevelPerspectiveTasks(filteredTasks.value)
 })
+// 列表键盘流（j/k/Enter/Esc）：GTD 清单视图（bunny 10 第 4 步）
+const taskNav = useListNavigation(gtdTasks, {
+  onOpen: (task) => inspectTask(task),
+  container: taskListEl,
+})
+
 
 // 案件分组视图
 const caseGroupSections = computed(() => buildCaseGroupSections(gtdTasks.value, getCaseName))
@@ -295,14 +306,16 @@ async function loadCases() {
     cases.value = Array.isArray(result.data)
       ? result.data
       : (Array.isArray(result.data?.items) ? result.data.items : [])
-  }
+    caseLoadError.value = ''
+  } else caseLoadError.value = result.error || '案件列表加载失败'
 }
 
 async function loadAreas() {
   const result = await casyContext.tasks.areas()
   if (result.ok && Array.isArray(result.data)) {
     areas.value = result.data
-  }
+    areaLoadError.value = ''
+  } else areaLoadError.value = result.error || '任务领域加载失败'
 }
 
 function getCaseName(caseId) {
@@ -662,39 +675,41 @@ function getCustomPerspectiveCount(perspectiveId) {
 
 <template>
   <div class="stitch-tasks-workspace">
-    <aside class="task-navigation" aria-label="任务导航">
-      <div class="task-nav-brand"><span class="task-nav-mark">✓</span><div><strong>行动</strong><small>给重要的事留出空间</small></div></div>
-      <nav class="task-primary-nav" aria-label="常用清单">
+    <aside class="task-navigation ui-col" aria-label="任务导航">
+      <div class="task-nav-brand ui-row"><span class="task-nav-mark">✓</span><div><strong>行动</strong><small>给重要的事留出空间</small></div></div>
+      <nav class="task-primary-nav ui-col" aria-label="常用清单">
         <button v-for="p in primaryPerspectives" :key="p.key" type="button" :class="{ selected: activePerspective === p.key }" :aria-pressed="activePerspective === p.key" @click="switchPerspective(p.key)">
-          <el-icon :style="{ color: p.color }"><component :is="p.icon" /></el-icon><span>{{ p.label }}</span><small>{{ gtdStats[p.key] || '' }}</small>
+          <el-icon :style="{ color: p.color }"><component :is="p.icon" /></el-icon><span class="ui-truncate">{{ p.label }}</span><small>{{ gtdStats[p.key] || '' }}</small>
         </button>
       </nav>
-      <button class="task-nav-section" type="button" :aria-expanded="showAllPerspectives" @click="showAllPerspectives = !showAllPerspectives">更多视角 <span>{{ showAllPerspectives ? '−' : '+' }}</span></button>
-      <nav v-if="showAllPerspectives || secondaryPerspectives.some(p => p.key === activePerspective)" class="task-primary-nav" aria-label="更多视角">
-        <button v-for="p in secondaryPerspectives" :key="p.key" type="button" :class="{ selected: activePerspective === p.key }" @click="switchPerspective(p.key)"><el-icon><component :is="p.icon" /></el-icon><span>{{ p.label }}</span><small>{{ gtdStats[p.key] || '' }}</small></button>
+      <button class="task-nav-section ui-row ui-row--between" type="button" :aria-expanded="showAllPerspectives" @click="showAllPerspectives = !showAllPerspectives">更多视角 <span>{{ showAllPerspectives ? '−' : '+' }}</span></button>
+      <nav v-if="showAllPerspectives || secondaryPerspectives.some(p => p.key === activePerspective)" class="task-primary-nav ui-col" aria-label="更多视角">
+        <button v-for="p in secondaryPerspectives" :key="p.key" type="button" :class="{ selected: activePerspective === p.key }" @click="switchPerspective(p.key)"><el-icon><component :is="p.icon" /></el-icon><span class="ui-truncate">{{ p.label }}</span><small>{{ gtdStats[p.key] || '' }}</small></button>
       </nav>
-      <div class="task-nav-section">案件 <button type="button" @click="showAreasDialog = true" title="管理领域">管理领域</button></div>
-      <nav class="task-primary-nav task-case-nav" aria-label="按案件筛选">
-        <button type="button" :class="{ selected: selectedCaseFilter === 'all' }" @click="selectCase('all')"><el-icon><Folder /></el-icon><span>全部案件</span></button>
-        <button v-for="c in cases" :key="c.id" type="button" :class="{ selected: selectedCaseFilter === c.id }" @click="selectCase(c.id)"><span class="case-dot"/><span>{{ c.caseName || c.caseNo }}</span></button>
+      <div class="task-nav-section ui-row ui-row--between">案件 <button type="button" @click="showAreasDialog = true" title="管理领域">管理领域</button></div>
+      <nav class="task-primary-nav task-case-nav ui-col" aria-label="按案件筛选">
+        <el-alert v-if="caseLoadError" :title="`案件读取失败：${caseLoadError}`" type="error" :closable="false"><el-button text @click="loadCases">重试</el-button></el-alert>
+        <button type="button" :class="{ selected: selectedCaseFilter === 'all' }" @click="selectCase('all')"><el-icon><Folder /></el-icon><span class="ui-truncate">全部案件</span></button>
+        <button v-for="c in cases" :key="c.id" type="button" :class="{ selected: selectedCaseFilter === c.id }" @click="selectCase(c.id)"><span class="case-dot"/><span class="ui-truncate">{{ c.caseName || c.caseNo }}</span></button>
       </nav>
-      <div v-if="customPerspectives.length" class="task-nav-section">我的清单</div>
-      <nav class="task-primary-nav" aria-label="自定义清单">
-        <div v-for="cp in customPerspectives" :key="cp.id" class="custom-nav-row"><button type="button" :class="{ selected: activePerspective === cp.id }" @click="switchPerspective(cp.id)"><el-icon><Files /></el-icon><span>{{ cp.name }}</span></button><el-dropdown trigger="click" @command="cmd => handlePerspectiveCommand(cmd, cp)"><button type="button" :aria-label="'管理' + cp.name">···</button><template #dropdown><el-dropdown-menu><el-dropdown-item command="edit">编辑</el-dropdown-item><el-dropdown-item command="delete">删除</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
+      <div v-if="customPerspectives.length" class="task-nav-section ui-row ui-row--between">我的清单</div>
+      <nav class="task-primary-nav ui-col" aria-label="自定义清单">
+        <div v-for="cp in customPerspectives" :key="cp.id" class="custom-nav-row"><button type="button" :class="{ selected: activePerspective === cp.id }" @click="switchPerspective(cp.id)"><el-icon><Files /></el-icon><span class="ui-truncate">{{ cp.name }}</span></button><el-dropdown trigger="click" @command="cmd => handlePerspectiveCommand(cmd, cp)"><button type="button" :aria-label="'管理' + cp.name">···</button><template #dropdown><el-dropdown-menu><el-dropdown-item command="edit">编辑</el-dropdown-item><el-dropdown-item command="delete" class="btn-danger">删除</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
       </nav>
       <button type="button" class="task-new-list" @click="openCreatePerspective">＋ 新建自定义清单</button>
-      <button type="button" class="task-nav-calendar" @click="router.push('/calendar')"><el-icon><Calendar /></el-icon> 在日历中安排时间 <span>↗</span></button>
+      <button type="button" class="task-nav-calendar ui-row" @click="router.push('/calendar')"><el-icon><Calendar /></el-icon> 在日历中安排时间 <span>↗</span></button>
     </aside>
     <main class="task-focus-pane">
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false"><el-button text @click="loadData">重试</el-button></el-alert>
+      <el-alert v-if="areaLoadError" :title="`任务领域读取失败：${areaLoadError}`" type="error" :closable="false"><el-button text @click="loadAreas">重试</el-button></el-alert>
       <div class="task-mobile-filters"><select :value="activePerspective" aria-label="选择任务视角" @change="switchPerspective($event.target.value)"><option v-for="p in perspectives" :key="p.key" :value="p.key">{{ p.label }}</option><option v-for="p in customPerspectives" :key="p.id" :value="p.id">{{ p.name }}</option></select><select :value="selectedCaseFilter" aria-label="筛选关联案件" @change="selectCase($event.target.value)"><option value="all">全部案件</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option></select></div>
     <!-- ═══ 1. 顶部 Header 栏 ═══ -->
-    <div class="tasks-top-header">
+    <div class="tasks-top-header ui-row ui-row--between ui-row--wrap">
       <div class="header-titles">
         <p class="task-page-eyebrow">{{ new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }) }}</p><h1 class="tasks-heading">{{ currentPerspective.label }}</h1><p class="task-page-description">{{ currentPerspective.desc }}</p>
       </div>
 
-      <div class="header-actions">
+      <div class="header-actions ui-row">
         <el-button :icon="RefreshLeft" :disabled="!undoAvailable || undoBusy" aria-label="撤销任务操作" title="撤销任务操作" @click="undoTaskAction" />
         <!-- 快速搜索 -->
         <div class="task-search-box">
@@ -703,12 +718,12 @@ function getCustomPerspectiveCount(perspectiveId) {
           <el-icon v-if="searchQuery" class="clear-icon" :size="12" @click="searchQuery = ''"><Close /></el-icon>
         </div>
 
-        <button class="btn-action-ghost" @click="showAreasDialog = true">
+        <button class="btn-action-ghost ui-row" @click="showAreasDialog = true">
           <el-icon :size="14"><Folder /></el-icon>
           <span>领域</span>
         </button>
 
-        <button class="btn-action-primary" @click="openNewTask">
+        <button class="btn-action-primary ui-row" @click="openNewTask">
           <el-icon :size="14"><Plus /></el-icon>
           <span>新建任务</span>
         </button>
@@ -719,7 +734,7 @@ function getCustomPerspectiveCount(perspectiveId) {
     <el-tag v-if="metricLabel" class="metric-filter" closable @close="clearMetric">{{ metricLabel }}</el-tag>
     <!-- ═══ 3. 快速自然语言捕获栏 ═══ -->
     <div class="capture-bar-wrapper">
-      <div class="capture-real-box">
+      <div class="capture-real-box ui-row">
         <el-icon class="cap-icon" :size="16"><Plus /></el-icon>
         <input
           ref="captureInputRef"
@@ -738,20 +753,24 @@ function getCustomPerspectiveCount(perspectiveId) {
       </div>
     </div>
 
-    <div v-if="captureInput.trim()" class="capture-interpretation"><span>{{ capturePreview.taskName }}</span><small>{{ capturePreview.date || '收件箱' }} {{ capturePreview.time || '' }}</small><small>⌘ / Ctrl + Enter 放入今天</small></div>
+    <div v-if="captureInput.trim()" class="capture-interpretation ui-row ui-row--wrap"><span>{{ capturePreview.taskName }}</span><small>{{ capturePreview.date || '收件箱' }} {{ capturePreview.time || '' }}</small><small>⌘ / Ctrl + Enter 放入今天</small></div>
 
     <!-- ═══ 4. 主工作区分发渲染 (根据当前激活 Tab 渲染专属视图) ═══ -->
 
     <!-- A. 四象限决策看板 (Matrix View) -->
-    <div v-if="activePerspective === 'matrix'" class="matrix-board-grid">
+    <div v-if="activePerspective === 'matrix'" class="matrix-board-grid ui-grid">
+      <!-- 首次加载骨架屏：任务尚未取回前占位 -->
+      <div v-if="loading && !tasks.length" v-for="row in 4" :key="'sk-' + row" class="quadrant-card ui-col" role="status" aria-label="正在加载任务数据">
+        <SkeletonCard :rows="3" />
+      </div>
       <div
         v-for="(quad, qKey) in matrixQuadrants"
         :key="qKey"
-        class="quadrant-card"
+        class="quadrant-card ui-col"
         @dragover="onDragOver"
         @drop="onDropToQuadrant($event, quad.key)"
       >
-        <div class="quad-header" :style="{ borderTopColor: quad.color }">
+        <div class="quad-header ui-row ui-row--top ui-row--between" :style="{ borderTopColor: quad.color }">
           <div>
             <h3 class="quad-title" :style="{ color: quad.color }">{{ quad.title }}</h3>
             <p class="quad-sub">{{ quad.desc }}</p>
@@ -759,11 +778,11 @@ function getCustomPerspectiveCount(perspectiveId) {
           <span class="quad-count-pill">{{ quad.tasks.length }}</span>
         </div>
 
-        <div class="quad-tasks-list">
+        <div class="quad-tasks-list ui-col">
           <div
             v-for="task in quad.tasks"
             :key="task.id"
-            class="quad-task-item" @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
+            class="quad-task-item ui-row" @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
             draggable="true"
             @dragstart="onDragStartTask($event, task)"
             @click="openDrawer(task)"
@@ -772,8 +791,8 @@ function getCustomPerspectiveCount(perspectiveId) {
               <el-icon v-if="task.completed" :size="11"><Check /></el-icon>
             </button>
             <div class="quad-task-info">
-              <strong class="quad-task-name">{{ task.taskName }}</strong>
-              <div class="quad-task-meta">
+              <strong class="quad-task-name ui-truncate">{{ task.taskName }}</strong>
+              <div class="quad-task-meta ui-row">
                 <span v-if="task.caseId" class="q-case">{{ getCaseName(task.caseId) }}</span>
                 <span v-if="task.dueDate" class="q-due">{{ task.dueDate }}</span>
               </div>
@@ -781,24 +800,24 @@ function getCustomPerspectiveCount(perspectiveId) {
           </div>
 
           <div v-if="!quad.tasks.length" class="quad-empty">
-            <span>暂无此类任务 · 可拖拽任务落入此象限</span>
+            <EmptyState type="custom" compact hide-action title="暂无此类任务 · 可拖拽任务落入此象限" />
           </div>
         </div>
       </div>
     </div>
 
     <!-- B. 按案件分组视图 (By Matter View) -->
-    <div v-else-if="activePerspective === 'bycase'" class="case-groups-stream">
-      <div v-for="cg in caseGroupSections" :key="cg.caseId" class="case-group-card">
-        <div class="cg-header">
-          <div class="cg-title-row">
+    <div v-else-if="activePerspective === 'bycase'" class="case-groups-stream ui-col">
+      <div v-for="cg in caseGroupSections" :key="cg.caseId" class="case-group-card ui-col">
+        <div class="cg-header ui-row ui-row--between">
+          <div class="cg-title-row ui-row">
             <el-icon class="cg-icon"><Folder /></el-icon>
             <h3 class="cg-title">{{ cg.caseName }}</h3>
           </div>
           <span class="cg-count-tag">{{ cg.tasks.length }} 项待办</span>
         </div>
 
-        <div class="cg-tasks-list">
+        <div class="cg-tasks-list ui-col">
           <template v-for="task in cg.tasks" :key="task.id"><TaskRow
             :task="task"
             @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
@@ -833,8 +852,8 @@ function getCustomPerspectiveCount(perspectiveId) {
     </div>
 
     <!-- C. 常规待办 / GTD / 跨天 / 已完成列表视图 -->
-    <div v-else class="tasks-main-list-card">
-      <div class="list-section-header">
+    <div v-else class="tasks-main-list-card ui-col">
+      <div class="list-section-header ui-row ui-row--between">
         <div class="lsh-left">
           <h2 class="lsh-title">
             {{ perspectives.find(p => p.key === activePerspective)?.label || '任务列表' }}
@@ -844,10 +863,12 @@ function getCustomPerspectiveCount(perspectiveId) {
         <span class="lsh-badge">{{ gtdTasks.length }} 项</span>
       </div>
 
-      <div class="task-rows-stack">
+      <div ref="taskListEl" class="task-rows-stack ui-col" tabindex="0" @keydown="taskNav.onKeydown">
         <template v-for="task in gtdTasks" :key="task.id">
           <TaskRow
             :task="task"
+            :data-nav-id="task.id"
+            :class="{ 'nav-cursor': taskNav.cursorId.value === task.id }"
             @contextmenu="showObjectMenu($event, task.taskName, [{ label: '编辑任务', run: () => openDrawer(task) }, { label: task.completed ? '重新打开' : '完成任务', run: () => toggleComplete(task) }, { label: '删除任务', danger: true, separator: true, run: () => deleteTask(task) }])"
             :perspective="activePerspective"
             :snooze-options="snoozeOptions"
@@ -871,11 +892,11 @@ function getCustomPerspectiveCount(perspectiveId) {
           <TaskQuickEditor ref="quickEditors" v-if="inspectedTaskId === task.id" :key="'edit-' + task.id" :task="task" :cases="cases" @close="inspectedTaskId = ''" @saved="loadTasks" @advanced="advancedTask(task)" />
 
           <!-- 展开子任务 -->
-          <div v-if="expandedParents.has(task.id)" class="subtasks-container">
+          <div v-if="expandedParents.has(task.id)" class="subtasks-container ui-col">
             <div
               v-for="child in (childrenMap.get(task.id) || [])"
               :key="'sub-' + child.id"
-              class="subtask-row"
+              class="subtask-row ui-row"
             >
               <button class="sub-check-btn" :class="{ checked: child.completed }" @click.stop="toggleComplete(child)">
                 <el-icon v-if="child.completed" :size="10"><Check /></el-icon>
@@ -916,20 +937,20 @@ function getCustomPerspectiveCount(perspectiveId) {
       :show-close="!savingTask"
       destroy-on-close
     >
-      <fieldset v-if="editingTask" class="drawer-body" :disabled="savingTask">
-        <div class="form-item">
+      <fieldset v-if="editingTask" class="drawer-body ui-col" :disabled="savingTask">
+        <div class="form-item ui-col">
           <label for="task-edit-name">任务名称</label>
           <input id="task-edit-name" v-model="editForm.taskName" class="form-input" placeholder="输入任务名称..." />
         </div>
 
         <div class="form-row">
-          <div class="form-item">
+          <div class="form-item ui-col">
             <label for="task-edit-type">任务类型</label>
             <select id="task-edit-type" v-model="editForm.taskType" class="form-select">
               <option value="action">行动</option><option value="waiting">等待</option><option value="deadline">期限</option>
             </select>
           </div>
-          <div class="form-item">
+          <div class="form-item ui-col">
             <label for="task-edit-bucket">开始安排</label>
             <select id="task-edit-bucket" v-model="editForm.startBucket" class="form-select">
               <option value="inbox">待整理</option><option value="today">今天</option><option value="anytime">随时</option><option value="someday">将来也许</option>
@@ -938,19 +959,19 @@ function getCustomPerspectiveCount(perspectiveId) {
         </div>
 
         <div class="form-row">
-          <div class="form-item">
+          <div class="form-item ui-col">
             <label>开始日期 (Do When)</label>
             <input v-model="editForm.startDate" type="date" class="form-input" :disabled="editingTask?.planDefined" />
             <p v-if="editingTask?.planDefined">计划：{{ editingTask.plannedStartDate || '未安排' }}{{ editingTask.plannedEndDate ? ' — ' + editingTask.plannedEndDate : '' }}。<button type="button" @click="router.push({path:'/calendar',query:{view:'forecast',layout:'gantt',date:editingTask.plannedStartDate || todayStr}})">去甘特图调整</button></p>
           </div>
-          <div class="form-item">
+          <div class="form-item ui-col">
             <label>截止日期 (Deadline)</label>
             <input v-model="editForm.dueDate" type="date" class="form-input" />
           </div>
         </div>
 
         <div class="form-row">
-          <div class="form-item">
+          <div class="form-item ui-col">
             <label>四象限优先级</label>
             <select v-model="editForm.priority" class="form-select">
               <option v-for="po in priorityOptions" :key="po.value" :value="po.value">
@@ -958,27 +979,27 @@ function getCustomPerspectiveCount(perspectiveId) {
               </option>
             </select>
           </div>
-          <div class="form-item">
+          <div class="form-item ui-col">
             <label>预估工时 (分钟)</label>
             <input v-model.number="editForm.estimatedMinutes" type="number" min="0" step="15" class="form-input" />
           </div>
         </div>
 
         <div class="form-row">
-          <div class="form-item"><label>截止时间</label><input v-model="editForm.dueTime" type="time" class="form-input" aria-label="截止时间" /></div>
-          <div class="form-item"><label>重复</label><select v-model="editForm.recurrenceRule" class="form-select" aria-label="重复">
+          <div class="form-item ui-col"><label>截止时间</label><input v-model="editForm.dueTime" type="time" class="form-input" aria-label="截止时间" /></div>
+          <div class="form-item ui-col"><label>重复</label><select v-model="editForm.recurrenceRule" class="form-select" aria-label="重复">
             <option value="">不重复</option><option value="daily">每天</option><option value="weekdays">每个工作日</option>
             <option v-for="(day,index) in ['周一','周二','周三','周四','周五','周六','周日']" :key="day" :value="`weekly:${index + 1}`">每{{ day }}</option>
             <option v-for="day in 31" :key="day" :value="`monthly:${day}`">每月 {{ day }} 日</option>
           </select></div>
         </div>
         <div class="form-row">
-          <div class="form-item"><label>等待对象</label><input v-model="editForm.waitingFor" class="form-input" aria-label="等待对象" /></div>
-          <div class="form-item"><label>跟进日期</label><input v-model="editForm.followUpDate" type="date" class="form-input" aria-label="跟进日期" /></div>
+          <div class="form-item ui-col"><label>等待对象</label><input v-model="editForm.waitingFor" class="form-input" aria-label="等待对象" /></div>
+          <div class="form-item ui-col"><label>跟进日期</label><input v-model="editForm.followUpDate" type="date" class="form-input" aria-label="跟进日期" /></div>
         </div>
-        <div class="form-item"><label>下次回顾</label><input v-model="editForm.nextReviewDate" type="date" class="form-input" aria-label="下次回顾" /></div>
+        <div class="form-item ui-col"><label>下次回顾</label><input v-model="editForm.nextReviewDate" type="date" class="form-input" aria-label="下次回顾" /></div>
 
-        <div class="form-item">
+        <div class="form-item ui-col">
           <label>关联案件 (Matter)</label>
           <select v-model="editForm.caseId" class="form-select">
             <option value="">（无关联案件）</option>
@@ -988,9 +1009,9 @@ function getCustomPerspectiveCount(perspectiveId) {
           </select>
         </div>
 
-        <div class="form-item">
+        <div class="form-item ui-col">
           <label>推迟到 (Defer Until)</label>
-          <div class="defer-field-row">
+          <div class="defer-field-row ui-row">
             <input v-model="editForm.deferUntil" type="date" class="form-input" />
             <button
               v-if="editForm.deferUntil"
@@ -1003,9 +1024,9 @@ function getCustomPerspectiveCount(perspectiveId) {
           </div>
         </div>
 
-        <div class="form-item">
+        <div class="form-item ui-col">
           <label>上下文场景 (Context)</label>
-          <div class="context-pill-group">
+          <div class="context-pill-group ui-row ui-row--wrap">
             <button
               v-for="ctx in contextOptions"
               :key="ctx.value"
@@ -1018,19 +1039,19 @@ function getCustomPerspectiveCount(perspectiveId) {
           </div>
         </div>
 
-        <div class="form-item">
+        <div class="form-item ui-col">
           <label>备注与案情要点</label>
           <textarea v-model="editForm.description" rows="4" class="form-textarea" placeholder="记录事项细节、会见要点或草案说明..." />
         </div>
       </fieldset>
 
       <template #footer>
-        <div class="drawer-footer">
-          <button v-if="editingTask?.id" class="btn-danger-del" :disabled="savingTask" @click="deleteTask(editingTask)">
+        <div class="drawer-footer ui-row ui-row--between">
+          <button v-if="editingTask?.id" class="btn-danger-del ui-row" :disabled="savingTask" @click="deleteTask(editingTask)">
             <el-icon><Delete /></el-icon>
             <span>删除</span>
           </button>
-          <div class="drawer-right-btns">
+          <div class="drawer-right-btns ui-row">
             <button class="btn-cancel" :disabled="savingTask" @click="closeTaskEditor">取消</button>
             <button class="btn-primary" :disabled="savingTask" @click="saveTask">{{ savingTask ? '保存中...' : editingTask?.id ? '保存修改' : '创建任务' }}</button>
           </div>
@@ -1045,7 +1066,7 @@ function getCustomPerspectiveCount(perspectiveId) {
       width="360px"
       destroy-on-close
     >
-      <div class="defer-dialog-body">
+      <div class="defer-dialog-body ui-col">
         <p class="defer-dialog-desc">
           「{{ deferTargetTask?.taskName }}」在到期前将从「今日专注」隐藏，到期当天自动回归。
         </p>
@@ -1059,7 +1080,7 @@ function getCustomPerspectiveCount(perspectiveId) {
         />
       </div>
       <template #footer>
-        <div class="drawer-right-btns">
+        <div class="drawer-right-btns ui-row">
           <button class="btn-cancel" @click="showDeferDialog = false">取消</button>
           <button class="btn-primary" :disabled="!deferDate || deferSaving" @click="confirmDefer">
             {{ deferSaving ? '推迟中…' : '确定推迟' }}
@@ -1097,13 +1118,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 /* ── 1. 顶部 Header ───────────────────────────────────────── */
-.tasks-top-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-}
 
 .tasks-heading {
   font-size: 22px;
@@ -1117,12 +1131,6 @@ function getCustomPerspectiveCount(perspectiveId) {
   color: var(--slate-gray-light);
   margin-top: 2px;
   display: block;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .task-search-box {
@@ -1163,8 +1171,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 .search-real-input:focus { border-color: var(--c-primary); }
 
 .btn-action-ghost {
-  display: flex;
-  align-items: center;
   gap: 6px;
   height: 34px;
   padding: 0 12px;
@@ -1179,8 +1185,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 .btn-action-ghost:hover { background: var(--c-bg-hover); color: var(--c-text); }
 
 .btn-action-primary {
-  display: flex;
-  align-items: center;
   gap: 6px;
   height: 34px;
   padding: 0 16px;
@@ -1269,8 +1273,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 .capture-real-box {
-  display: flex;
-  align-items: center;
   gap: 10px;
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
@@ -1309,7 +1311,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 
 /* ── 4. A. 四象限看板 ────────────────────────────────────── */
 .matrix-board-grid {
-  display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
@@ -1320,16 +1321,12 @@ function getCustomPerspectiveCount(perspectiveId) {
   border-radius: var(--c-radius-xl);
   box-shadow: var(--shadow-sm);
   padding: 16px;
-  display: flex;
-  flex-direction: column;
   gap: 12px;
   min-height: 280px;
 }
 
 .quad-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  gap: 0;
   border-top: 3.5px solid transparent;
   padding-top: 8px;
 }
@@ -1356,15 +1353,11 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 .quad-tasks-list {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
   flex: 1;
 }
 
 .quad-task-item {
-  display: flex;
-  align-items: center;
   gap: 10px;
   padding: 8px 12px;
   border-radius: var(--c-radius-lg);
@@ -1406,14 +1399,9 @@ function getCustomPerspectiveCount(perspectiveId) {
 .quad-task-name {
   font-size: 12.5px;
   color: var(--c-text-heading);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .quad-task-meta {
-  display: flex;
-  align-items: center;
   gap: 6px;
   font-size: 10.5px;
   margin-top: 2px;
@@ -1430,11 +1418,7 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 /* ── 4. B. 按案件分组 ────────────────────────────────────── */
-.case-groups-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+.case-groups-stream { gap: 16px; }
 
 .case-group-card {
   background: var(--c-bg-card);
@@ -1442,23 +1426,13 @@ function getCustomPerspectiveCount(perspectiveId) {
   border-radius: var(--c-radius-xl);
   box-shadow: var(--shadow-sm);
   padding: 16px;
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
 .cg-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  gap: 0;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--c-border);
-}
-
-.cg-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .cg-icon { color: var(--c-primary); }
@@ -1475,11 +1449,7 @@ function getCustomPerspectiveCount(perspectiveId) {
   color: var(--slate-gray-light);
 }
 
-.cg-tasks-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.cg-tasks-list { gap: 6px; }
 
 /* ── 4. C. 常规列表卡片 ──────────────────────────────────── */
 .tasks-main-list-card {
@@ -1488,15 +1458,11 @@ function getCustomPerspectiveCount(perspectiveId) {
   border-radius: var(--c-radius-xl);
   box-shadow: var(--shadow-sm);
   padding: 20px;
-  display: flex;
-  flex-direction: column;
   gap: 14px;
 }
 
 .list-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  gap: 0;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--c-border);
 }
@@ -1524,26 +1490,16 @@ function getCustomPerspectiveCount(perspectiveId) {
   border-radius: 10px;
 }
 
-.task-rows-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .subtasks-container {
   margin-left: 28px;
   padding-left: 12px;
   border-left: 2px solid var(--c-border);
-  display: flex;
-  flex-direction: column;
   gap: 6px;
   margin-top: -2px;
   margin-bottom: 6px;
 }
 
 .subtask-row {
-  display: flex;
-  align-items: center;
   gap: 8px;
   padding: 4px 8px;
   background: var(--c-bg-page);
@@ -1593,8 +1549,6 @@ function getCustomPerspectiveCount(perspectiveId) {
   padding: 48px 0;
   text-align: center;
   color: var(--slate-gray-light);
-  display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 10px;
 }
@@ -1603,16 +1557,10 @@ function getCustomPerspectiveCount(perspectiveId) {
 .drawer-body {
   border: 0;
   margin: 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
 .form-item {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
   flex: 1;
 }
@@ -1647,11 +1595,7 @@ function getCustomPerspectiveCount(perspectiveId) {
   border-color: var(--c-primary);
 }
 
-.context-pill-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+.context-pill-group { gap: 6px; }
 
 .ctx-pill-btn {
   padding: 4px 10px;
@@ -1670,16 +1614,9 @@ function getCustomPerspectiveCount(perspectiveId) {
   font-weight: 600;
 }
 
-.drawer-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
+.drawer-footer { gap: 0; width: 100%; }
 
 .btn-danger-del {
-  display: flex;
-  align-items: center;
   gap: 4px;
   padding: 6px 12px;
   border-radius: var(--c-radius-lg);
@@ -1690,10 +1627,7 @@ function getCustomPerspectiveCount(perspectiveId) {
   cursor: pointer;
 }
 
-.drawer-right-btns {
-  display: flex;
-  gap: 8px;
-}
+.drawer-right-btns { gap: 8px; }
 
 .btn-cancel {
   padding: 6px 14px;
@@ -1722,11 +1656,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 }
 
 /* ── W2 推迟到… ─────────────────────────────────────────── */
-.defer-field-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
 .btn-defer-clear {
   flex-shrink: 0;
@@ -1750,11 +1679,7 @@ function getCustomPerspectiveCount(perspectiveId) {
   color: var(--slate-gray-light);
 }
 
-.defer-dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.defer-dialog-body { gap: 12px; }
 
 .defer-dialog-desc {
   margin: 0;
@@ -1763,14 +1688,7 @@ function getCustomPerspectiveCount(perspectiveId) {
   color: var(--c-text-secondary);
 }
 
-@media (max-width: 600px) {
-  .stitch-tasks-workspace { padding: 20px 16px 32px; }
-  .header-actions { width: 100%; display: grid; grid-template-columns: 34px 1fr auto; }
-  .header-actions > .el-button { width: 34px; padding: 0; }
-  .task-search-box { grid-column: 1 / -1; grid-row: 2; width: 100%; }
-  .btn-action-ghost { justify-self: start; }
-  .btn-action-ghost, .btn-action-primary { white-space: nowrap; }
-}
+
 @container (max-width: 700px) {
   .header-actions { flex-wrap: wrap; width: 100%; gap: 8px; }
   .task-search-box { flex: 1; min-width: 140px; width: auto; }
@@ -1780,26 +1698,26 @@ function getCustomPerspectiveCount(perspectiveId) {
 
 <style scoped>
 .stitch-tasks-workspace { display: grid; grid-template-columns: 214px minmax(0, 1fr); padding: 0; gap: 0; height: 100%; min-height: 0; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 12px; overflow: hidden; }
-.task-navigation { display: flex; flex-direction: column; gap: 3px; padding: 26px 14px 18px; background: var(--c-bg); border-right: 1px solid var(--c-border); overflow-y: auto; }
-.task-nav-brand { display: flex; gap: 12px; align-items: center; padding: 2px 12px 26px; }
+.task-navigation { gap: 3px; padding: 26px 14px 18px; background: var(--c-bg); border-right: 1px solid var(--c-border); overflow-y: auto; }
+.task-nav-brand { gap: 12px; padding: 2px 12px 26px; }
 .task-nav-mark { display: grid; place-items: center; width: 30px; height: 30px; color: var(--c-primary); background: var(--c-primary-light); border-radius: 9px; font-size: 20px; }
 .task-nav-brand strong { display: block; font-size: 18px; letter-spacing: .08em; }
 .task-nav-brand small { display: block; font-size: 10px; color: var(--c-text-secondary); margin-top: 5px; }
 .task-navigation button { font: inherit; color: var(--c-text); background: transparent; border: 0; cursor: pointer; border-radius: 6px; }
-.task-primary-nav { display: flex; flex-direction: column; gap: 3px; }
-.task-primary-nav button { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; font-size: 13px; min-width: 0; }
-.task-primary-nav button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+.task-primary-nav { gap: 3px; }
+.task-primary-nav button { width: 100%; gap: 10px; text-align: left; padding: 10px 12px; font-size: 13px; }
+.task-primary-nav button > span { flex: 1; }
 .task-primary-nav button > small { color: var(--c-text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .task-primary-nav button:hover { background: var(--c-bg-hover); }
 .task-primary-nav button.selected { background: var(--c-primary-light); color: var(--c-primary); font-weight: 600; }
-.task-navigation .task-nav-section { display: flex; justify-content: space-between; padding: 22px 12px 8px; color: var(--c-text-secondary); font-size: 11px; text-align: left; }
+.task-navigation .task-nav-section { gap: 0; padding: 22px 12px 8px; color: var(--c-text-secondary); font-size: 11px; text-align: left; }
 .task-nav-section button { font-size: 10px; color: var(--c-text-secondary); }
 .task-primary-nav .case-dot { flex: 0 0 6px; height: 6px; border-radius: 50%; background: var(--c-primary); margin: 0 4px; opacity: .6; }
 .task-case-nav { max-height: 260px; overflow: auto; }
 .custom-nav-row { display: flex; align-items: center; }
 .custom-nav-row > button { flex: 1; }
 .task-navigation .task-new-list { font-size: 12px; text-align: left; padding: 14px 12px; color: var(--c-text-secondary); }
-.task-navigation .task-nav-calendar { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 18px 6px 0; font-size: 11px; color: var(--c-text-secondary); border-radius: 0; border-top: 1px solid var(--c-border); }
+.task-navigation .task-nav-calendar { margin-top: auto; gap: 8px; padding: 18px 6px 0; font-size: 11px; color: var(--c-text-secondary); border-radius: 0; border-top: 1px solid var(--c-border); }
 .task-focus-pane { padding: 40px clamp(24px, 4vw, 64px) 32px; overflow-y: auto; min-width: 0; }
 .tasks-top-header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 32px; flex-wrap: wrap; }
 .task-page-eyebrow { margin: 0 0 12px; font-size: 11px; color: var(--c-text-secondary); letter-spacing: .08em; }
@@ -1812,7 +1730,7 @@ function getCustomPerspectiveCount(perspectiveId) {
 .capture-real-box { background: var(--c-bg); border: 1px solid var(--c-border); box-shadow: none; border-radius: 8px; min-height: 48px; }
 .cap-input { font-size: 13px; }
 .cap-right-btns kbd { color: var(--c-text-secondary); font-size: 15px; }
-.capture-interpretation { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 0 4px 20px; color: var(--c-primary); font-size: 12px; }
+.capture-interpretation { gap: 12px; padding: 0 4px 20px; color: var(--c-primary); font-size: 12px; }
 .capture-interpretation small { color: var(--c-text-secondary); font-size: 11px; }
 .tasks-main-list-card { background: transparent; border: 0; box-shadow: none; border-radius: 0; margin-top: 8px; }
 .list-section-header { padding: 12px 0; border-bottom: 1px solid var(--c-border); }
@@ -1826,20 +1744,10 @@ function getCustomPerspectiveCount(perspectiveId) {
 .task-focus-pane :deep(.task-check) { width: 18px; height: 18px; border-radius: 6px; border-width: 1.5px; }
 .task-focus-pane :deep(.task-meta) { font-size: 11px; margin-top: 5px; }
 .task-navigation button:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
-@media (max-width: 1050px) { .stitch-tasks-workspace { grid-template-columns: 184px minmax(0, 1fr); } .task-focus-pane { padding: 28px 24px; } .header-actions { margin-left: 0; } }
-@media (max-width: 650px) {
-  .stitch-tasks-workspace { display: flex; flex-direction: column; overflow: auto; }
-  .task-navigation { flex: 0 0 auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--c-border); overflow: visible; }
-  .task-nav-brand, .task-nav-section, .task-case-nav, .task-new-list, .task-nav-calendar, .custom-nav-row { display: none !important; }
-  .task-primary-nav { flex-direction: row; overflow-x: auto; }
-  .task-primary-nav button { flex: 0 0 auto; width: auto; padding: 9px 12px; }
-  .task-primary-nav:has(.custom-nav-row) { display: none; }
-  .task-focus-pane { padding: 22px 16px; overflow: visible; }
-  .tasks-top-header { margin-bottom: 20px; }
-  .tasks-heading { font-size: 25px; }
-}
+@media (max-width: 1100px){ .stitch-tasks-workspace { grid-template-columns: 184px minmax(0, 1fr); } .task-focus-pane { padding: 28px 24px; } .header-actions { margin-left: 0; } }
+
 </style>
 <style scoped>
 .task-mobile-filters { display: none; }
-@media (max-width:650px) { .task-mobile-filters { display: flex; gap: 8px; margin-bottom: 20px; } .task-mobile-filters select { width: 50%; min-width: 0; color: var(--c-text); background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 6px; padding: 8px; } }
+
 </style>

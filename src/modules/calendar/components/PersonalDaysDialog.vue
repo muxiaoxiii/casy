@@ -59,19 +59,19 @@ function add() {
 <template>
   <el-dialog :model-value="modelValue" title="添加休息日 / 时段" width="min(560px, 94vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy" @update:model-value="!busy && emit('update:modelValue', $event)">
     <p>可以请全天、半天或指定时段。个人安排以虚线标记，法律期限仍按法定日历计算。已定时的工作按时段交叠提醒；没有具体时间的计划会提示核对。</p>
-    <form class="rest-form" @submit.prevent="add">
+    <form class="rest-form ui-col" @submit.prevent="add">
       <label>日期<input v-model="date" type="date" min="1900-01-01" max="2200-12-31" :disabled="busy || !loaded" /></label>
       <label>休息范围<select v-model="period" :disabled="busy || !loaded"><option value="all">全天</option><option value="morning">上午 · 09:00–12:00</option><option value="afternoon">下午 · 13:00–18:00</option><option value="custom">自定义时段</option></select></label>
-      <div v-if="period !== 'all'" class="time-range"><label>开始时间<input v-model="startTime" type="time" :disabled="busy || !loaded" /></label><label>结束时间<input v-model="endTime" type="time" :disabled="busy || !loaded || endTime === '24:00'" /><button v-if="endTime === '24:00'" type="button" @click="endTime='23:59'">结束于次日 00:00，点此修改</button></label></div>
+      <div v-if="period !== 'all'" class="time-range ui-grid"><label>开始时间<input v-model="startTime" type="time" :disabled="busy || !loaded" /></label><label>结束时间<input v-model="endTime" type="time" :disabled="busy || !loaded || endTime === '24:00'" /><button v-if="endTime === '24:00'" type="button" @click="endTime='23:59'">结束于次日 00:00，点此修改</button></label></div>
       <label>备注（可选）<input v-model="name" maxlength="80" :disabled="busy || !loaded" /></label>
       <p v-if="selected">保存会替换 {{ date }} 已有的个人安排（{{ availabilityTimeLabel(selected) }}）。跨日期请分别添加。</p>
       <p v-if="error" role="alert" class="rest-error">{{ error }}</p>
       <el-button native-type="submit" type="primary" :loading="busy" :disabled="!loaded">保存休息安排</el-button>
     </form>
-    <div class="personal-days"><div v-for="entry in entries" :key="entry.date"><span>{{ entry.date }} · {{ entry.kind === 'holiday' ? '自休' : '自班' }} · {{ availabilityTimeLabel(entry) }} {{ entry.name }}</span><div><el-button text :disabled="busy" @click="date=entry.date; fill(entry)">编辑</el-button><el-button text :disabled="busy" @click="persist(entries.filter(day => day.date !== entry.date))">移除</el-button></div></div><p v-if="loaded && !entries.length">尚未添加休息安排。</p></div>
+    <div class="personal-days"><div v-for="entry in entries" :key="entry.date" class="ui-row ui-row--between ui-row--wrap"><span>{{ entry.date }} · {{ entry.kind === 'holiday' ? '自休' : '自班' }} · {{ availabilityTimeLabel(entry) }} {{ entry.name }}</span><div><el-button text :disabled="busy" @click="date=entry.date; fill(entry)">编辑</el-button><el-button text :disabled="busy" @click="persist(entries.filter(day => day.date !== entry.date))">移除</el-button></div></div><p v-if="loaded && !entries.length">尚未添加休息安排。</p></div>
   </el-dialog>
 </template>
 <style scoped>
 p { color:var(--c-text-secondary); font-size:13px; line-height:1.7; }
-.rest-form { display:flex; flex-direction:column; gap:12px; }.rest-form label { display:flex; flex-direction:column; gap:6px; font-size:13px; }.rest-form input,.rest-form select { font:inherit; color:var(--c-text); background:var(--c-bg-card); border:1px solid var(--c-border); border-radius:6px; padding:8px; min-width:0; }.time-range { display:grid; grid-template-columns:1fr 1fr; gap:12px; }.rest-error { color:var(--c-danger); }.personal-days { max-height:240px; overflow:auto; margin-top:18px; }.personal-days>div { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; border-bottom:1px solid var(--c-border); padding-block:5px; }.personal-days>div>span { overflow-wrap:anywhere; flex:1; font-size:12px; }.personal-days>div>div { display:flex; }
+.rest-form { gap:12px; }.rest-form label { display:flex; flex-direction:column; gap:6px; font-size:13px; }.rest-form input,.rest-form select { font:inherit; color:var(--c-text); background:var(--c-bg-card); border:1px solid var(--c-border); border-radius:6px; padding:8px; min-width:0; }.time-range { grid-template-columns:1fr 1fr; }.rest-error { color:var(--c-danger); }.personal-days { max-height:240px; overflow:auto; margin-top:18px; }.personal-days>div { border-bottom:1px solid var(--c-border); padding-block:5px; }.personal-days>div>span { overflow-wrap:anywhere; flex:1; font-size:12px; }.personal-days>div>div { display:flex; }
 </style>

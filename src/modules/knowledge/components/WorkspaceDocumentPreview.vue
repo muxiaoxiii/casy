@@ -100,5 +100,6 @@ async function editCopy() {
 </template>
 <style scoped>
 .workspace-document{height:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden}.workspace-document header{padding:16px 20px 8px;display:flex;align-items:center;gap:12px}.workspace-document h2{font-size:18px;line-height:1.5;margin:0;flex:1;overflow-wrap:anywhere}.workspace-document header span{font-size:11px;color:var(--c-text-secondary);white-space:nowrap}.document-actions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 20px 14px;border-bottom:1px solid var(--c-border)}.document-actions .el-button{margin:0}.source-markdown-preview{flex:1;min-height:0;overflow:auto;padding:24px 32px;overflow-wrap:anywhere}.source-markdown-preview :deep(table){border-collapse:collapse;width:100%}.source-markdown-preview :deep(img){max-width:100%}.source-markdown-preview :deep(pre){overflow:auto}.document-pending{padding:24px;display:flex;align-items:center;gap:16px}
-@media(max-width:600px){.source-markdown-preview{padding:16px}.workspace-document header{flex-wrap:wrap}}
+
+
 </style>

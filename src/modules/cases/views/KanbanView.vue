@@ -235,9 +235,9 @@ onMounted(async () => {
 
 <template>
   <div class="kanban-page">
-    <div class="kanban-header">
+    <div class="ui-row ui-row--between kanban-header">
       <h2>案件看板</h2>
-      <div class="kanban-controls">
+      <div class="ui-row kanban-controls" style="gap:12px">
         <el-segmented
           v-model="activeRoute"
           :options="routeOptions"
@@ -250,13 +250,13 @@ onMounted(async () => {
     <el-alert v-if="casesStore.listError" :title="casesStore.listError" type="error" :closable="false"><el-button text @click="casesStore.loadCases()">重试</el-button></el-alert>
     <div v-if="loading" class="kanban-loading">加载中...</div>
 
-    <div v-else class="kanban-board">
+    <div v-else class="ui-row kanban-board" style="gap:12px">
       <div
         v-for="col in activeColumns"
         :key="col.key"
         class="kanban-column"
       >
-        <div class="column-header" :style="{ borderTopColor: col.color }">
+        <div class="ui-row column-header" :style="{ borderTopColor: col.color, gap: '6px' }">
           <el-icon class="column-icon" :color="col.color" :size="15">
             <component :is="col.icon" />
           </el-icon>
@@ -268,7 +268,7 @@ onMounted(async () => {
           v-model="columnCases[col.key]"
           group="kanban"
           item-key="id"
-          class="column-body"
+          class="ui-col column-body"
           ghost-class="kanban-ghost"
           drag-class="kanban-drag"
           :animation="200"
@@ -280,14 +280,14 @@ onMounted(async () => {
             class="kanban-card"
             @click="goToCase(caseItem)"
           >
-            <div class="card-top">
-              <span class="card-case-name">{{ caseItem.caseName || '未命名' }}</span>
+            <div class="ui-row ui-row--top ui-row--between card-top" style="gap:4px">
+              <span class="ui-truncate card-case-name">{{ caseItem.caseName || '未命名' }}</span>
               <el-tag v-if="getStatusLabel(caseItem)" size="small" effect="plain" type="info">
                 {{ getStatusLabel(caseItem) }}
               </el-tag>
             </div>
-            <div class="card-case-no">{{ caseItem.caseNo || '—' }}</div>
-            <div class="card-parties">
+            <div class="ui-truncate card-case-no">{{ caseItem.caseNo || '—' }}</div>
+            <div class="ui-truncate card-parties">
               <span>{{ caseItem.clientName || '—' }}</span>
               <span class="vs">vs</span>
               <span>{{ caseItem.opponentName || '—' }}</span>
@@ -316,9 +316,6 @@ onMounted(async () => {
 }
 
 .kanban-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 16px;
   flex-shrink: 0;
 }
@@ -329,11 +326,6 @@ onMounted(async () => {
   font-weight: 500;
 }
 
-.kanban-controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 
 .kanban-loading {
   text-align: center;
@@ -342,8 +334,6 @@ onMounted(async () => {
 }
 
 .kanban-board {
-  display: flex;
-  gap: 12px;
   flex: 1;
   overflow-x: auto;
   overflow-y: hidden;
@@ -362,9 +352,6 @@ onMounted(async () => {
 }
 
 .column-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 12px;
   font-size: 13px;
   font-weight: 500;
@@ -388,9 +375,6 @@ onMounted(async () => {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   min-height: 100px;
 }
 
@@ -423,20 +407,11 @@ onMounted(async () => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
-.card-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 4px;
-}
 
 .card-case-name {
   font-size: 13px;
   font-weight: 500;
   color: #303133;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   flex: 1;
 }
 
@@ -444,18 +419,12 @@ onMounted(async () => {
   font-size: 11px;
   color: var(--gray-400);
   margin-top: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .card-parties {
   font-size: 11px;
   color: #606266;
   margin-top: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .card-parties .vs {

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Filter, View } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const loading = ref(false)
 const decisions = ref([])
@@ -84,12 +85,13 @@ const stats = computed(() => ({
 
 async function loadDecisions() {
   loading.value = true
+  decisionsError.value = ''
   const result = await casyContext.ai.listDecisions({ limit: 200 })
   if (result.ok) {
     decisions.value = result.data || []
   } else {
     decisions.value = []
-    ElMessage.error(result.error || '决策记录加载失败')
+    decisionsError.value = result.error || '决策记录加载失败'
   }
   loading.value = false
 }
@@ -129,16 +131,19 @@ function parseBasis(basis) {
 // ============================================================
 const pendingReviews = ref([])
 const pendingLoading = ref(false)
+const pendingError = ref('')
+const decisionsError = ref('')
 const reviewBusyId = ref(null)              // 正在写回复核结果的决策 id
 const recursiveCheckingId = ref(null)       // 正在递归核对的决策 id
 const recursiveResults = ref({})            // id -> { consistent, gaps, source }
 
 async function loadPendingReviews() {
   pendingLoading.value = true
+  pendingError.value = ''
   const result = await casyContext.ai.pendingDecisionReviews()
   if (result.ok) {
     pendingReviews.value = result.data || []
-  }
+  } else pendingError.value = result.error || '待复核决策读取失败'
   pendingLoading.value = false
 }
 
@@ -207,9 +212,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="decisions-view">
+  <div class="decisions-view ui-col">
     <!-- 统计卡片 -->
-    <div class="stats-row">
+    <div class="stats-row ui-row">
       <el-card shadow="never" class="stat-card">
         <div class="stat-value">{{ stats.total }}</div>
         <div class="stat-label">总决策</div>
@@ -229,9 +234,10 @@ onMounted(() => {
     </div>
 
     <!-- 待复核决策 -->
+    <el-alert v-if="pendingError" :title="`待复核决策读取失败：${pendingError}`" type="error" :closable="false" style="margin-bottom: 12px"><el-button text @click="loadPendingReviews">重试</el-button></el-alert>
     <el-card v-if="pendingLoading || pendingReviews.length > 0" shadow="never" class="review-card" v-loading="pendingLoading">
       <template #header>
-        <div class="review-header">
+        <div class="review-header ui-row">
           <strong>待复核决策</strong>
           <el-tag v-if="pendingReviews.length > 0" type="warning" size="small">{{ pendingReviews.length }} 条到期</el-tag>
         </div>
@@ -289,7 +295,8 @@ onMounted(() => {
     </el-card>
 
     <!-- 筛选工具栏 -->
-    <div class="filter-bar">
+    <el-alert v-if="decisionsError" :title="`决策记录读取失败：${decisionsError}`" type="error" :closable="false" style="margin-bottom: 12px"><el-button text @click="loadDecisions">重试</el-button></el-alert>
+    <div class="filter-bar ui-row ui-row--between">
       <div class="filter-left">
         <el-icon><Filter /></el-icon>
         <el-select v-model="selectedType" size="small" style="width: 140px;">
@@ -343,9 +350,17 @@ onMounted(() => {
       </el-table-column>
     </el-table>
 
-    <!-- 空状态 -->
+    <!-- 空状态 / 筛选无结果 -->
     <div v-if="!loading && filteredDecisions.length === 0" class="empty-state">
-      <el-empty description="暂无决策记录" />
+      <EmptyState
+        v-if="selectedType || selectedStatus"
+        type="search"
+        title="没有找到结果"
+        description="尝试调整类型或状态筛选条件"
+        action-text="清除筛选"
+        @action="selectedType = ''; selectedStatus = ''"
+      />
+      <EmptyState v-else type="custom" hide-action title="暂无决策记录" />
     </div>
 
     <!-- 详情对话框 -->
@@ -390,13 +405,10 @@ onMounted(() => {
 
 <style scoped>
 .decisions-view {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
 .stats-row {
-  display: flex;
   gap: 12px;
 }
 
@@ -425,12 +437,6 @@ onMounted(() => {
 .stat-success .stat-value { color: #67C23A; }
 .stat-danger .stat-value { color: #F56C6C; }
 .stat-warning .stat-value { color: #E6A23C; }
-
-.filter-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 
 .filter-left {
   display: flex;
@@ -484,8 +490,6 @@ onMounted(() => {
 }
 
 .review-header {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 

@@ -2,6 +2,7 @@
 import { useViewMemory } from '../../../composables/useViewMemory'
 import ContextMenu from "../../../shared/components/ContextMenu.vue"
 import { useContextActions } from "../../../shared/composables/useContextActions"
+import { useListNavigation } from "../../../shared/composables/useListNavigation"
 const { contextMenu: objectMenu, showContextMenu: showObjectMenu } = useContextActions()
 
 import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
@@ -66,6 +67,8 @@ import ProcedureBoard from '../components/ProcedureBoard.vue'
 import WhiteboardEntry from '../../whiteboard/components/WhiteboardEntry.vue'
 import CaseImportDialog from '../components/CaseImportDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
+import SkeletonCard from '../../../shared/components/SkeletonCard.vue'
 import {
   CIVIL_STATUS_LABELS,
   INVALIDATION_STATUS_LABELS,
@@ -89,6 +92,7 @@ const selectedTab = ref('overview') // 'overview' | 'timeline' | 'record' | 'tra
 // 卷宗文件与目录树状态
 const caseFiles = ref([])
 const caseDirs = ref([])
+const caseFilesError = ref('')
 const filesLoading = ref(false)
 const selectedDirRel = ref('') // '' 代表根目录（穿透全部），非空代表具体子文件夹（不穿透）
 const activeCategory = ref('all')
@@ -99,6 +103,7 @@ const domainTimeline = ref([])
 const timelineFilter = ref('all') // 'all' | 'task' | 'event' | 'deadline' | 'doc' | 'memo'
 useViewMemory('cases', { selectedCaseId, selectedTab, selectedDirRel, activeCategory, fileSortOrder, fileSearchQuery, timelineFilter }, ["#main-content"])
 const calendarEvents = ref([])
+const caseEventsError = ref('')
 // 办案笔记/备忘列表
 const caseMemos = ref([])
 // ── 记录工作台输入表单 ──
@@ -355,6 +360,13 @@ function selectCase(item) {
   loadCaseFiles()
   loadCaseEvents()
 }
+// 列表键盘流（j/k/Enter/Esc）：案件索引侧栏（bunny 10 第 4 步）
+const caseListEl = ref<HTMLElement | null>(null)
+const caseNav = useListNavigation(computed(() => casesStore.cases), {
+  onOpen: (item) => selectCase(item),
+  container: caseListEl,
+})
+
 function enterFullWorkspace() {
   isFullWorkspace.value = true
 }
@@ -371,6 +383,7 @@ async function loadCaseFiles() {
   const request = ++filesRequest
   const id = selectedCaseId.value
   caseFiles.value = []; caseDirs.value = []
+  caseFilesError.value = ''
   if (!selectedCase.value) {
     caseFiles.value = []
     caseDirs.value = []
@@ -386,6 +399,7 @@ async function loadCaseFiles() {
     caseFiles.value = filesRes.data
   } else {
     caseFiles.value = []
+    caseFilesError.value = filesRes.error || '案件文件读取失败'
   }
   if (dirsRes.ok && Array.isArray(dirsRes.data)) {
     caseDirs.value = dirsRes.data
@@ -399,6 +413,7 @@ let eventsRequest = 0
 async function loadCaseEvents() {
   const request = ++eventsRequest; const id = selectedCaseId.value
   calendarEvents.value = [];domainTimeline.value=[]
+  caseEventsError.value = ''
   if (!selectedCase.value) return
   const now = new Date()
   const [res,domain] = await Promise.all([casyContext.calendar.events(now.getFullYear(), now.getMonth() + 1),casyContext.cases.timeline(id)])
@@ -406,7 +421,8 @@ async function loadCaseEvents() {
   if(domain.ok)domainTimeline.value=domain.data || []
   if (res.ok && Array.isArray(res.data)) {
     calendarEvents.value = res.data.filter((ev) => ev.caseId === id)
-  }
+    caseEventsError.value = ''
+  } else caseEventsError.value = res.error || '案件日程读取失败'
 }
 // 快速完成/取消待办
 async function toggleCaseTask(task) {
@@ -715,6 +731,13 @@ function onSidebarSearch(value) {
   if (sidebarSearchTimer) clearTimeout(sidebarSearchTimer)
   sidebarSearchTimer = setTimeout(() => onSearch(), 300)
 }
+// 侧栏空态「清除筛选」：清空搜索与轨道筛选后重新加载
+function clearSidebarCaseFilters() {
+  casesStore.filter.search = ''
+  casesStore.filter.track = ''
+  casesStore.page = 1
+  casesStore.loadCases()
+}
 // 导出 CSV（审查 P1-18a）：CaseFilterBar 的导出按钮此前无人监听，接通 CasesService.exportCases
 async function exportCasesCsv() {
   if (exporting.value) return
@@ -746,17 +769,17 @@ async function handleCreateCase(formData) {
 }
 </script>
 <template>
-  <div class="stitch-cases-view">
+  <div class="ui-col stitch-cases-view" style="gap:16px">
     <el-alert v-if="casesStore.listError && casesStore.cases.length" :title="casesStore.listError" type="error" :closable="false"><el-button text @click="casesStore.loadCases()">重试</el-button></el-alert>
     <!-- ═══ 顶部 Action Bar (完整工作区模式下切换返回按钮) ═══ -->
-    <div class="cases-topbar">
-      <div class="topbar-heading">
+    <div class="ui-row ui-row--between cases-topbar" style="gap:16px">
+      <div class="ui-row topbar-heading" style="gap:16px">
         <template v-if="isFullWorkspace">
-          <button class="btn-back-cases-list" @click="exitFullWorkspace">
+          <button class="ui-row btn-back-cases-list" style="gap:6px" @click="exitFullWorkspace">
             <el-icon><ArrowLeft /></el-icon>
             <span>返回案件列表</span>
           </button>
-          <div class="topbar-ws-title">
+          <div class="ui-col topbar-ws-title" style="gap:2px">
             <span class="eyebrow-kicker">Full Matter Workspace</span>
             <h1 class="page-main-title">{{ selectedCase?.caseName || '案件工作区' }}</h1>
           </div>
@@ -765,27 +788,27 @@ async function handleCreateCase(formData) {
           <h1 class="page-main-title">案件</h1>
         </template>
       </div>
-      <div class="topbar-actions">
+      <div class="ui-row topbar-actions" style="gap:12px">
         <template v-if="!isFullWorkspace">
           <button
-            class="btn-action-filter"
+            class="ui-row btn-action-filter" style="gap:6px"
             :class="{ active: showCaseFilters }"
             @click="showCaseFilters = !showCaseFilters"
           >
             <el-icon :size="16"><Filter /></el-icon>
             <span>{{ showCaseFilters ? '收起筛选' : '筛选' }}</span>
           </button>
-          <button class="btn-action-import" @click="showExcelImportDialog = true" title="从 Excel / 飞书多维表格批量导入案件">
+          <button class="ui-row btn-action-import" style="gap:6px" @click="showExcelImportDialog = true" title="从 Excel / 飞书多维表格批量导入案件">
             <el-icon :size="15"><Upload /></el-icon>
             <span>批量导入</span>
           </button>
-          <button class="btn-action-primary" @click="showCaseWizard = true">
+          <button class="ui-row btn-action-primary" style="gap:6px" @click="showCaseWizard = true">
             <el-icon :size="16"><Plus /></el-icon>
             <span>新建案件</span>
           </button>
         </template>
         <template v-else>
-          <button class="btn-edit-all-facts" @click="openEditOverviewModal">
+          <button class="ui-row btn-edit-all-facts" style="gap:6px" @click="openEditOverviewModal">
             <el-icon><Edit /></el-icon>
             <span>编辑全案要素</span>
           </button>
@@ -807,9 +830,9 @@ async function handleCreateCase(formData) {
       </section>
     </transition>
     <!-- ═══ 工作台主布局 (Master-Detail / Full Workspace) ═══ -->
-    <div class="cases-master-detail" :class="{ 'full-workspace-mode': isFullWorkspace }">
+    <div class="ui-grid cases-master-detail" :class="{ 'full-workspace-mode': isFullWorkspace }">
       <!-- ── 左侧 320px 案件列表 (进入完整工作区时隐藏) ── -->
-      <aside v-if="!isFullWorkspace" class="cases-sidebar-index">
+      <aside v-if="!isFullWorkspace" class="ui-col cases-sidebar-index" style="gap:12px">
         <div class="search-input-box">
           <el-icon class="search-ico" :size="15"><Search /></el-icon>
           <input
@@ -821,33 +844,46 @@ async function handleCreateCase(formData) {
           />
         </div>
         <!-- 仅在无数据时展示加载/空态；翻页期间保留当前列表，避免整列闪烁 -->
+        <div v-if="!casesStore.cases.length && casesStore.loading" class="ui-col" role="status" aria-live="polite" aria-label="正在加载案件数据" style="gap:8px;padding-top:20px">
+          <SkeletonCard v-for="row in 4" :key="row" :rows="2" avatar title />
+        </div>
         <StateFeedback
-          v-if="!casesStore.cases.length"
-          :state="casesStore.loading ? 'loading' : casesStore.listError ? 'error' : 'empty'"
+          v-else-if="!casesStore.cases.length && casesStore.listError"
+          state="error"
           :error-text="casesStore.listError" @retry="casesStore.loadCases()"
-          empty-text="暂无匹配案件"
+          style="padding-top: 20px"
+        />
+        <EmptyState
+          v-else-if="!casesStore.cases.length"
+          :type="casesStore.filter.search || casesStore.filter.track ? 'search' : 'custom'"
+          :title="casesStore.filter.search || casesStore.filter.track ? '没有找到结果' : '暂无匹配案件'"
+          :description="casesStore.filter.search || casesStore.filter.track ? '尝试调整搜索关键词或筛选条件' : ''"
+          :action-text="casesStore.filter.search || casesStore.filter.track ? '清除筛选' : ''"
+          :hide-action="!(casesStore.filter.search || casesStore.filter.track)"
+          @action="clearSidebarCaseFilters"
           style="padding-top: 20px"
         />
         <template v-else>
-          <div class="cases-scroll-list" role="listbox">
+          <div ref="caseListEl" class="ui-col cases-scroll-list" style="gap:6px" role="listbox" tabindex="0" @keydown="caseNav.onKeydown">
             <button
               v-for="item in casesStore.cases"
               :key="item.id"
               type="button"
-              class="case-index-card"
-              :class="{ active: selectedCase?.id === item.id }"
+              class="ui-col--tight case-index-card"
+              :class="{ active: selectedCase?.id === item.id, 'nav-cursor': caseNav.cursorId.value === item.id }"
+              :data-nav-id="item.id"
               @click="selectCase(item)" @contextmenu="showObjectMenu($event, item.caseName, [{ label: '查看案件概览', run: () => selectCase(item) }, { label: '进入完整工作区', run: () => { selectCase(item); enterFullWorkspace() } }])"
               @dblclick="enterFullWorkspace"
               title="单击查看概览 · 双击进入案件完整工作区"
             >
-              <div class="card-meta-line">
+              <div class="ui-row ui-row--between card-meta-line">
                 <span v-if="item.internalNo || item.caseNo" class="mono-case-code">{{ item.internalNo || item.caseNo }}</span>
                 <span :class="['case-status-badge', statusBadgeClass(item.caseStatus)]">
                   {{ item.caseStatus || '未填写' }}
                 </span>
               </div>
-              <strong class="case-card-title">{{ item.caseName }}</strong>
-              <span class="case-card-client" v-if="item.clientName">{{ item.clientName }}</span>
+              <strong class="ui-truncate case-card-title">{{ item.caseName }}</strong>
+              <span class="ui-truncate case-card-client" v-if="item.clientName">{{ item.clientName }}</span>
             </button>
           </div>
           <!-- 分页（审查 P1-3）：超过 perPage 的案件可通过翻页访问 -->
@@ -863,10 +899,10 @@ async function handleCreateCase(formData) {
         </template>
       </aside>
       <!-- ── 右侧工作台区域 (在 Full Workspace 模式下全宽展开) ── -->
-      <main v-if="selectedCase" class="cases-detail-area">
+      <main v-if="selectedCase" class="ui-col cases-detail-area" style="gap:16px">
         <!-- 1. Case Summary Header 卡片 -->
-        <div class="matter-summary-header-card">
-          <div class="summary-left-group">
+        <div class="ui-row ui-row--between matter-summary-header-card" style="gap:24px">
+          <div class="ui-row summary-left-group" style="gap:20px">
             <!-- 环形进度 -->
             <div class="summary-ring-wrapper">
               <svg class="summary-ring-svg" viewBox="0 0 36 36">
@@ -886,28 +922,28 @@ async function handleCreateCase(formData) {
               </div>
             </div>
             <!-- 案件名称与标识 -->
-            <div class="summary-matter-identity">
-              <div class="identity-badge-row">
+            <div class="ui-col--tight summary-matter-identity">
+              <div class="ui-row identity-badge-row">
                 <span v-if="selectedCase.internalNo" class="badge-matter-pill">MATTER {{ selectedCase.internalNo }}</span>
                 <span class="badge-pat-code" v-if="selectedCase.caseNo">{{ selectedCase.caseNo }}</span>
               </div>
-              <h2 class="matter-main-name">{{ selectedCase.caseName }}</h2>
+              <h2 class="ui-truncate matter-main-name">{{ selectedCase.caseName }}</h2>
               <p class="matter-meta-lead">
                 <span v-if="selectedCase.clientName">客户：{{ selectedCase.clientName }} · </span>{{ trackLabel(selectedCase.track) }}
               </p>
             </div>
           </div>
           <!-- 右侧 Next Actions 待办列表卡片 -->
-          <div class="summary-next-actions-card">
-            <div class="action-card-top">
+          <div class="ui-col summary-next-actions-card">
+            <div class="ui-row ui-row--between action-card-top">
               <span class="label-next-act">近期待办</span>
               <span class="mono-due-act">{{ caseUpcomingTasks.length }} 项待处理</span>
             </div>
-            <div class="upcoming-tasks-stream">
+            <div class="ui-col upcoming-tasks-stream" style="gap:5px">
               <div
                 v-for="task in caseUpcomingTasks"
                 :key="task.id"
-                class="upcoming-task-row"
+                class="ui-row upcoming-task-row" style="gap:6px"
                 @click="openTaskDrawer(task)"
               >
                 <button
@@ -923,13 +959,13 @@ async function handleCreateCase(formData) {
                 <span v-if="task.dueDate" class="task-row-due">截止 {{ task.dueDate.slice(5) }}</span>
               </div>
               <div v-if="!caseUpcomingTasks.length" class="empty-upcoming-box">
-                <span>暂无待处理事项 · 状态良好</span>
+                <EmptyState type="custom" compact hide-action title="暂无待处理事项 · 状态良好" />
               </div>
             </div>
           </div>
         </div>
         <!-- 2. 详情 Tabs 栏 (最左侧放置进入/退出完整工作区纯文字链接，随后是各标签) -->
-        <div class="matter-tools" aria-label="案件工作区快捷操作">
+        <div class="ui-row ui-row--wrap matter-tools" style="gap:4px 8px" aria-label="案件工作区快捷操作">
             <el-button text @click="router.push(`/whiteboard/${selectedCase.id}`)">事实白板</el-button>
             <el-button text @click="router.push({name: 'case-detail', params: {id: selectedCase.id}, query: {tab: 'hearings'}})">历次开庭 / 口审</el-button>
             <!-- 进入/退出完整案件工作区纯文字链接 (无框、无分割线) -->
@@ -951,8 +987,8 @@ async function handleCreateCase(formData) {
               <el-icon :size="13"><ArrowLeft /></el-icon>
             </button>
         </div>
-        <div class="matter-detail-tabs-bar">
-          <div class="tabs-group-left">
+        <div class="ui-row ui-row--between matter-detail-tabs-bar">
+          <div class="ui-row tabs-group-left" style="gap:6px">
             <button
               class="tab-btn"
               :class="{ active: selectedTab === 'overview' }"
@@ -994,59 +1030,59 @@ async function handleCreateCase(formData) {
         </div>
         <!-- 3. Tab 内容区 -->
         <!-- A. 案件要素全景 (Overview) -->
-        <div v-if="selectedTab === 'overview'" class="tab-pane-card">
+        <div v-if="selectedTab === 'overview'" class="ui-col tab-pane-card" style="gap:16px">
           <WhiteboardEntry :key="selectedCase.id" :case-id="selectedCase.id" />
-          <div class="overview-pane-header">
+          <div class="ui-row ui-row--top ui-row--between overview-pane-header">
             <div>
               <h3 class="pane-title">案件核心事实与要素全景</h3>
               <p class="pane-sub">涵盖程序审级、当事人身份、受诉法庭、标的权属及法定上诉救济期限事实。</p>
             </div>
-            <button class="btn-edit-facts" @click="openEditOverviewModal">
+            <button class="ui-row btn-edit-facts" style="gap:4px" @click="openEditOverviewModal">
               <el-icon><Edit /></el-icon>
               <span>编辑要素</span>
             </button>
           </div>
-          <div class="facts-sections-container">
+          <div class="ui-col facts-sections-container" style="gap:16px">
             <!-- 1. 审级与基本要素 -->
-            <div class="fact-section-block">
-              <div class="sec-headline">
+            <div class="ui-col fact-section-block" style="gap:10px">
+              <div class="ui-row sec-headline" style="gap:6px">
                 <el-icon class="sec-ico"><ScaleToOriginal /></el-icon>
                 <span>基本程序与审级事实</span>
               </div>
-              <div class="facts-grid-three">
-                <div class="fact-item-card">
+              <div class="ui-grid facts-grid-three" style="gap:10px">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">案由 (Cause of Action)</span>
                   <strong class="fact-val">{{ selectedCase.causeAction || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">程序分类 (Category)</span>
                   <strong class="fact-val">{{ trackLabel(selectedCase.track) }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">审级 / 阶段 (Level)</span>
                   <strong class="fact-val">{{ selectedCase.caseLevel || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">适用程序 (Procedure)</span>
                   <strong class="fact-val">{{ selectedCase.procedureType || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">案号 / 官方公文字号</span>
                   <strong class="fact-val mono">{{ selectedCase.caseNo || '未登记官方案号' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">我方代理律师 (Attorneys)</span>
                   <strong class="fact-val">{{ Array.isArray(selectedCase.attorneys) && selectedCase.attorneys.length ? selectedCase.attorneys.join('、') : '未填写' }}</strong>
                 </div>
               </div>
             </div>
             <!-- 2. 当事人与代理关系 -->
-            <div class="fact-section-block">
-              <div class="sec-headline">
+            <div class="ui-col fact-section-block" style="gap:10px">
+              <div class="ui-row sec-headline" style="gap:6px">
                 <el-icon class="sec-ico"><User /></el-icon>
                 <span>当事人与代理关系 (Parties)</span>
               </div>
-              <div class="facts-grid-two">
+              <div class="ui-grid facts-grid-two" style="gap:10px">
                 <div class="fact-item-card highlight-client">
                   <span class="fact-lbl">我方客户 (委托人)</span>
                   <strong class="fact-val text-primary">{{ selectedCase.clientName || '未填写' }}</strong>
@@ -1060,7 +1096,7 @@ async function handleCreateCase(formData) {
                     <span v-if="selectedCase.opponentFirm"> · 代理律所: {{ selectedCase.opponentFirm }}</span>
                   </small>
                 </div>
-                <div v-for="(party,index) in selectedThirdParties" :key="index" class="fact-item-card">
+                <div v-for="(party,index) in selectedThirdParties" :key="index" class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">第三人 {{ index + 1 }}</span>
                   <strong class="fact-val">{{ party.name }}</strong>
                   <small class="fact-sub-txt">{{ [party.role,party.agent,party.firm,party.contact].filter(Boolean).join(' · ') }}</small>
@@ -1068,63 +1104,63 @@ async function handleCreateCase(formData) {
               </div>
             </div>
             <!-- 3. 受诉机构与合议庭 -->
-            <div class="fact-section-block">
-              <div class="sec-headline">
+            <div class="ui-col fact-section-block" style="gap:10px">
+              <div class="ui-row sec-headline" style="gap:6px">
                 <el-icon class="sec-ico"><OfficeBuilding /></el-icon>
                 <span>受诉机构与审理合议庭 (Tribunal)</span>
               </div>
-              <div class="facts-grid-three">
-                <div class="fact-item-card">
+              <div class="ui-grid facts-grid-three" style="gap:10px">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">受理机构 / 法院</span>
                   <strong class="fact-val">{{ selectedCase.court || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">合议组 / 审判长</span>
                   <strong class="fact-val">{{ selectedCase.judgePanel || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">法官助理 / 书记员联系</span>
                   <strong class="fact-val">{{ selectedCase.clerk || '未填写' }}</strong>
                 </div>
               </div>
             </div>
             <!-- 4. 标的物与知识产权要素 -->
-            <div class="fact-section-block" v-if="selectedCase.patentName || selectedCase.patentAppNo || selectedCase.track === 'patent_invalidation'">
-              <div class="sec-headline">
+            <div class="ui-col fact-section-block" style="gap:10px" v-if="selectedCase.patentName || selectedCase.patentAppNo || selectedCase.track === 'patent_invalidation'">
+              <div class="ui-row sec-headline" style="gap:6px">
                 <el-icon class="sec-ico"><DocumentCopy /></el-icon>
                 <span>标的权属与知识产权要素 (IP Specifics)</span>
               </div>
-              <div class="facts-grid-two">
-                <div class="fact-item-card">
+              <div class="ui-grid facts-grid-two" style="gap:10px">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">涉案标的 / 专利名称</span>
                   <strong class="fact-val">{{ selectedCase.patentName || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">专利号 / 申请号</span>
                   <strong class="fact-val mono">{{ selectedCase.patentAppNo || '未填写' }}</strong>
                 </div>
               </div>
             </div>
             <!-- 5. 重要法定节点与期限 -->
-            <div class="fact-section-block">
-              <div class="sec-headline">
+            <div class="ui-col fact-section-block" style="gap:10px">
+              <div class="ui-row sec-headline" style="gap:6px">
                 <el-icon class="sec-ico"><Clock /></el-icon>
                 <span>重要法定时间节点 (Statutory Milestones)</span>
               </div>
-              <div class="facts-grid-four">
-                <div class="fact-item-card">
+              <div class="ui-grid facts-grid-four" style="gap:10px">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">立案 / 受理日期</span>
                   <strong class="fact-val mono">{{ selectedCase.filingDate || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">举证 / 答辩期限</span>
                   <strong class="fact-val mono" :class="{ 'text-risk': selectedCase.reliefDeadline }">{{ selectedCase.reliefDeadline || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">开庭 / 口审日期</span>
                   <strong class="fact-val mono">{{ selectedCase.trialDate || '未填写' }}</strong>
                 </div>
-                <div class="fact-item-card">
+                <div class="ui-col fact-item-card" style="gap:3px">
                   <span class="fact-lbl">裁判作出 / 结案日</span>
                   <strong class="fact-val mono">{{ selectedCase.verdictDate || '未填写' }}</strong>
                 </div>
@@ -1134,13 +1170,13 @@ async function handleCreateCase(formData) {
         </div>
         <!-- B. 🌟 本案全景时间轴 (Timeline · 任务/事件/发文/绝限/收文/备忘笔记按时间全景串联) -->
         <div v-else-if="selectedTab === 'timeline'" class="tab-pane-card timeline-pane-card">
-          <div class="timeline-toolbar-flex">
+          <div class="ui-row ui-row--top ui-row--between ui-row--wrap timeline-toolbar-flex" style="gap:16px">
             <div>
               <h3 class="pane-title">本案全景时序脉络 (Timeline)</h3>
               <p class="pane-sub">按时间顺序全量沉淀本案的客观事件、行动待办、收发文存卷、法定绝限与办案笔记。</p>
             </div>
             <!-- 分类过滤器 -->
-            <div class="timeline-filter-pills">
+            <div class="ui-row ui-row--wrap timeline-filter-pills" style="gap:2px">
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'all' }" @click="timelineFilter = 'all'">全部 ({{ fullTimelineItems.length }})</button>
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'task' }" @click="timelineFilter = 'task'">待办任务</button>
               <button class="t-filter-btn" :class="{ active: timelineFilter === 'event' }" @click="timelineFilter = 'event'">诉讼事件</button>
@@ -1150,11 +1186,11 @@ async function handleCreateCase(formData) {
             </div>
           </div>
           <!-- 纵向时间轴流 -->
-          <div class="chronological-stream">
+          <div class="ui-col chronological-stream" style="gap:0">
             <div
               v-for="item in filteredTimelineItems"
               :key="item.id"
-              class="timeline-event-card"
+              class="ui-row timeline-event-card" style="gap:16px"
               :class="item.type"
             >
               <!-- 时间与标记列 -->
@@ -1171,71 +1207,72 @@ async function handleCreateCase(formData) {
                 <div class="timeline-vertical-line" />
               </div>
               <!-- 事件内容卡片 -->
-              <div class="timeline-card-body">
-                <div class="t-card-header">
+              <div class="ui-col timeline-card-body" style="gap:6px">
+                <div class="ui-row t-card-header">
                   <span class="t-type-tag" :class="item.type">
                     {{ item.type === 'task' ? '行动待办' : item.type === 'event' ? '诉讼事件' : item.type === 'deadline' ? '期限记录' : item.type === 'doc' ? '收发文书' : '办案备忘' }}
                   </span>
                   <strong class="t-card-title">{{ item.title }}</strong>
                   <el-button v-if="item.sourceTable==='hearings'" text @click="router.push({name:'case-detail',params:{id:selectedCase.id},query:{tab:'hearings'}})">维护排期</el-button><el-button v-else-if="item.sourceTable==='procedure_events'" text @click="selectedTab='tracks'">核对原事件</el-button>
                   <!-- 任务专有打勾操作与编辑 -->
-                  <div v-if="item.type === 'task'" class="t-task-ops">
+                  <div v-if="item.type === 'task'" class="ui-row t-task-ops" style="gap:6px">
                     <button class="btn-check-sm" :class="{ checked: item.completed }" @click.stop="toggleCaseTask(item.raw)">
                       {{ item.completed ? '已完成' : '打勾完成' }}
                     </button>
-                    <button class="btn-edit-task-sm" @click.stop="openTaskDrawer(item.raw)">
+                    <button class="ui-row btn-edit-task-sm" style="gap:4px" @click.stop="openTaskDrawer(item.raw)">
                       <el-icon><Edit /></el-icon>
                       <span>详情</span>
                     </button>
                   </div>
                   <!-- 文书专有打开操作 -->
-                  <div v-if="item.type === 'doc'" class="t-task-ops">
-                    <button class="btn-open-doc-sm" @click.stop="openFile(item.raw)">打开文书</button>
+                  <div v-if="item.type === 'doc'" class="ui-row t-task-ops" style="gap:6px">
+                    <button class="ui-row btn-open-doc-sm" style="gap:4px" @click.stop="openFile(item.raw)">打开文书</button>
                   </div>
                 </div>
                 <p v-if="item.content" class="t-card-desc">{{ item.content }}</p>
                 <!-- 标签展示 -->
-                <div v-if="item.tags && item.tags.length" class="t-card-tags">
+                <div v-if="item.tags && item.tags.length" class="ui-row t-card-tags" style="gap:6px">
                   <span v-for="tag in item.tags" :key="tag" class="t-tag-pill">{{ tag }}</span>
                 </div>
               </div>
             </div>
-            <div v-if="!filteredTimelineItems.length" class="empty-timeline-box">
-              <el-icon :size="40" color="var(--slate-gray-light)"><Clock /></el-icon>
-              <p>暂无该分类时序记录，可点击上方「写记录与备忘」快速录入</p>
+            <div v-if="!filteredTimelineItems.length" class="ui-col empty-timeline-box" style="gap:8px">
+              <el-alert v-if="caseEventsError" :title="`案件日程与时间线读取失败：${caseEventsError}`" type="error" :closable="false"><el-button text @click="loadCaseEvents">重试</el-button></el-alert>
+              <EmptyState v-if="timelineFilter !== 'all'" type="search" action-text="清除筛选" @action="timelineFilter = 'all'" />
+              <EmptyState v-else type="custom" compact hide-action title="暂无该分类时序记录" description="可点击上方「写记录与备忘」快速录入" />
             </div>
           </div>
         </div>
         <!-- C. 🌟 写记录与备忘输入口 (Record · 备忘/任务/事件三合一智能录入) -->
         <div v-else-if="selectedTab === 'record'" class="tab-pane-card record-workbench-card">
-          <div class="record-pane-header">
+          <div class="ui-row ui-row--top ui-row--between ui-row--wrap record-pane-header" style="gap:16px">
             <div>
               <h3 class="pane-title">案件信息补充与日志记录</h3>
               <p class="pane-sub">一站式录入办案备忘纪要、派发待办任务或登记法庭客观事件，支持 NLP 智能识别。</p>
             </div>
             <!-- 录入类型切换 -->
-            <div class="record-type-selector">
-              <button class="rec-type-btn" :class="{ active: recordType === 'memo' }" @click="recordType = 'memo'">
+            <div class="ui-row record-type-selector" style="gap:3px">
+              <button class="ui-row rec-type-btn" style="gap:6px" :class="{ active: recordType === 'memo' }" @click="recordType = 'memo'">
                 <el-icon><ChatDotRound /></el-icon>
                 <span>记录备忘 / 纪要</span>
               </button>
-              <button class="rec-type-btn" :class="{ active: recordType === 'task' }" @click="recordType = 'task'">
+              <button class="ui-row rec-type-btn" style="gap:6px" :class="{ active: recordType === 'task' }" @click="recordType = 'task'">
                 <el-icon><Check /></el-icon>
                 <span>指派 / 记录待办</span>
               </button>
-              <button class="rec-type-btn" :class="{ active: recordType === 'event' }" @click="recordType = 'event'">
+              <button class="ui-row rec-type-btn" style="gap:6px" :class="{ active: recordType === 'event' }" @click="recordType = 'event'">
                 <el-icon><OfficeBuilding /></el-icon>
                 <span>登记客观法庭事件</span>
               </button>
             </div>
           </div>
           <!-- 1. 记录备忘表单 -->
-          <div v-if="recordType === 'memo'" class="record-form-block">
-            <div class="form-field-group">
+          <div v-if="recordType === 'memo'" class="ui-col record-form-block" style="gap:16px">
+            <div class="ui-col form-field-group" style="gap:6px">
               <label>备忘标题 (选填)</label>
               <input v-model="memoForm.title" placeholder="如：电话沟通纪要 / 争议焦点思路速记" class="rec-native-input" />
             </div>
-            <div class="form-field-group">
+            <div class="ui-col form-field-group" style="gap:6px">
               <label>备忘正文 (支持随手输入任何案情，可一键提取为待办或事件)</label>
               <textarea
                 v-model="memoForm.content"
@@ -1244,35 +1281,35 @@ async function handleCreateCase(formData) {
                 class="rec-native-textarea"
               ></textarea>
             </div>
-            <div class="record-form-footer">
-              <button class="btn-ai-extract" @click="extractFromMemo" title="自动分析文本中的开庭日期或截止期限">
+            <div class="ui-row record-form-footer" style="gap:12px">
+              <button class="ui-row btn-ai-extract" style="gap:6px" @click="extractFromMemo" title="自动分析文本中的开庭日期或截止期限">
                 <el-icon><MagicStick /></el-icon>
                 <span>智能提炼为事件 / 待办</span>
               </button>
-              <button class="btn-submit-rec" @click="submitMemo">
+              <button class="ui-row btn-submit-rec" style="gap:6px" @click="submitMemo">
                 <el-icon><DocumentCopy /></el-icon>
                 <span>存入本案备忘库</span>
               </button>
             </div>
           </div>
           <!-- 2. 记录任务表单 -->
-          <div v-else-if="recordType === 'task'" class="record-form-block">
-            <div class="form-field-group">
+          <div v-else-if="recordType === 'task'" class="ui-col record-form-block" style="gap:16px">
+            <div class="ui-col form-field-group" style="gap:6px">
               <label>待办任务名称</label>
               <input v-model="taskForm.taskName" placeholder="如：撰写专利无效宣告答辩意见第二部分" class="rec-native-input" />
             </div>
-            <div class="rec-grid-two">
-              <div class="form-field-group">
+            <div class="ui-grid rec-grid-two" style="gap:16px">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>截止日期 (Due Date)</label>
                 <input v-model="taskForm.dueDate" type="date" class="rec-native-input" />
               </div>
-              <div class="form-field-group">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>预估工时 (分钟)</label>
                 <input v-model="taskForm.estimatedMinutes" type="number" step="15" class="rec-native-input" />
               </div>
             </div>
-            <div class="rec-grid-two">
-              <div class="form-field-group">
+            <div class="ui-grid rec-grid-two" style="gap:16px">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>优先级</label>
                 <el-select v-model="taskForm.priority" style="width: 100%">
                   <el-option label="普通 (Medium)" value="medium" />
@@ -1280,30 +1317,30 @@ async function handleCreateCase(formData) {
                   <el-option label="重要且紧急 (Urgent)" value="urgent" />
                 </el-select>
               </div>
-              <div class="form-field-group">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>场景标签 (Context)</label>
                 <input v-model="taskForm.context" placeholder="如：@起草 / @开庭准备 / @取证" class="rec-native-input" />
               </div>
             </div>
-            <div class="record-form-footer">
-              <button class="btn-submit-rec" @click="submitTask">
+            <div class="ui-row record-form-footer" style="gap:12px">
+              <button class="ui-row btn-submit-rec" style="gap:6px" @click="submitTask">
                 <el-icon><Plus /></el-icon>
                 <span>创建并排期待办</span>
               </button>
             </div>
           </div>
           <!-- 3. 登记客观事件表单 -->
-          <div v-else-if="recordType === 'event'" class="record-form-block">
-            <div class="form-field-group">
+          <div v-else-if="recordType === 'event'" class="ui-col record-form-block" style="gap:16px">
+            <div class="ui-col form-field-group" style="gap:6px">
               <label>事件 / 节点名称</label>
               <input v-model="eventForm.title" placeholder="如：一审第二次开庭审理 / 国知局口头审理辩论" class="rec-native-input" />
             </div>
-            <div class="rec-grid-two">
-              <div class="form-field-group">
+            <div class="ui-grid rec-grid-two" style="gap:16px">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>事件发生 / 开庭日期</label>
                 <input v-model="eventForm.eventDate" type="date" class="rec-native-input" />
               </div>
-              <div class="form-field-group">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>事件类型</label>
                 <el-select v-model="eventForm.eventType" style="width: 100%">
                   <el-option label="法庭开庭 / 口审 (Court/Hearing)" value="court" />
@@ -1314,18 +1351,18 @@ async function handleCreateCase(formData) {
                 </el-select>
               </div>
             </div>
-            <div class="rec-grid-two">
-              <div class="form-field-group">
+            <div class="ui-grid rec-grid-two" style="gap:16px">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>审判庭 / 开庭地点</label>
                 <input v-model="eventForm.location" placeholder="如：北京知识产权法院第三法庭" class="rec-native-input" />
               </div>
-              <div class="form-field-group">
+              <div class="ui-col form-field-group" style="gap:6px">
                 <label>提前提醒日期 (可选)</label>
                 <input v-model="eventForm.reminderDate" type="date" class="rec-native-input" />
               </div>
             </div>
-            <div class="record-form-footer">
-              <button class="btn-submit-rec" @click="submitEvent">
+            <div class="ui-row record-form-footer" style="gap:12px">
+              <button class="ui-row btn-submit-rec" style="gap:6px" @click="submitEvent">
                 <el-icon><OfficeBuilding /></el-icon>
                 <span>记入本案时间轴与日历</span>
               </button>
@@ -1333,22 +1370,22 @@ async function handleCreateCase(formData) {
           </div>
         </div>
         <!-- D. 通用并行程序 (Parallel Proceedings) -->
-        <div v-else-if="selectedTab === 'tracks'" class="tab-pane-card">
+        <div v-else-if="selectedTab === 'tracks'" class="ui-col tab-pane-card" style="gap:16px">
           <WhiteboardEntry :key="selectedCase.id" :case-id="selectedCase.id" />
           <ProcedureBoard :key="selectedCase.id" :case-id="selectedCase.id" @changed="loadCaseEvents" @open-case="router.push({name: 'case-detail', params: {id: $event}, query: {tab: 'tracks'}})" />
         </div>
         <!-- E. 卷宗文件 (Files Tab · 唯一的二级入口指向卷宗工作台) -->
         <div v-else-if="selectedTab === 'files'" class="tab-pane-card files-workbench-card">
           <div class="files-workbench-layout">
-            <aside class="files-tree-sidebar">
-              <div class="tree-sidebar-header">
+            <aside class="ui-col files-tree-sidebar" style="gap:12px">
+              <div class="ui-row ui-row--between tree-sidebar-header">
                 <span class="tree-title">卷宗目录树</span>
                 <button class="btn-new-subdir" @click="createSubdir" title="新建子文件夹">
                   <el-icon><FolderAdd /></el-icon>
                 </button>
               </div>
               <div
-                class="dir-tree-node root-node"
+                class="ui-row dir-tree-node root-node"
                 :class="{ active: selectedDirRel === '' }"
                 @click="selectedDirRel = ''"
               >
@@ -1356,11 +1393,11 @@ async function handleCreateCase(formData) {
                 <span class="dir-name-text">{{ selectedCase.caseName || '全部卷宗根目录' }}</span>
                 <span class="dir-count-pill">{{ caseFiles.length }}</span>
               </div>
-              <div class="dirs-sub-stack">
+              <div class="ui-col dirs-sub-stack" style="gap:3px">
                 <div
                   v-for="d in caseDirs"
                   :key="d.relPath || d.name"
-                  class="dir-tree-node sub-node"
+                  class="ui-row dir-tree-node sub-node"
                   :class="{ active: selectedDirRel === (d.relPath || d.name) }"
                   @click="selectedDirRel = (d.relPath || d.name)"
                 >
@@ -1369,9 +1406,9 @@ async function handleCreateCase(formData) {
                   <span class="dir-count-pill" v-if="d.fileCount !== undefined">{{ d.fileCount }}</span>
                 </div>
               </div>
-              <div class="category-filter-section">
+              <div class="ui-col category-filter-section" style="gap:8px">
                 <span class="cat-filter-title">类型筛选</span>
-                <div class="cat-pills-stack">
+                <div class="ui-row ui-row--wrap cat-pills-stack" style="gap:4px">
                   <button
                     v-for="cat in fileCategories"
                     :key="cat.key"
@@ -1384,47 +1421,48 @@ async function handleCreateCase(formData) {
                 </div>
               </div>
             </aside>
-            <section class="files-content-main">
-              <div class="files-tab-toolbar">
-                <div class="files-toolbar-left">
-                  <div class="files-path-breadcrumb">
+            <section class="ui-col files-content-main" style="gap:14px">
+              <div class="ui-row ui-row--between ui-row--wrap files-tab-toolbar" style="gap:16px">
+                <div class="ui-row ui-row--wrap files-toolbar-left" style="gap:16px">
+                  <div class="ui-row files-path-breadcrumb" style="gap:6px">
                     <span class="crumb-link" @click="selectedDirRel = ''">案件卷宗</span>
                     <el-icon class="crumb-sep" :size="10"><ArrowRightBold /></el-icon>
                     <strong class="crumb-current">{{ selectedDirRel ? selectedDirRel : '全部穿透模式' }}</strong>
                     <span class="crumb-mode-tag">({{ selectedDirRel ? '仅当前目录' : '穿透全部子目录' }})</span>
                   </div>
-                  <div class="file-sort-pills">
+                  <div class="ui-row file-sort-pills" style="gap:2px">
                     <button class="sort-pill" :class="{ active: fileSortOrder === 'added' }" @click="fileSortOrder = 'added'">加入时间</button>
                     <button class="sort-pill" :class="{ active: fileSortOrder === 'recent' }" @click="fileSortOrder = 'recent'">最近使用</button>
                     <button class="sort-pill" :class="{ active: fileSortOrder === 'name' }" @click="fileSortOrder = 'name'">文件名</button>
                   </div>
                 </div>
-                <div class="files-toolbar-right">
+                <div class="ui-row files-toolbar-right" style="gap:10px">
                   <div class="file-search-mini">
                     <el-icon :size="13"><Search /></el-icon>
                     <input v-model="fileSearchQuery" placeholder="搜索卷宗文件..." class="file-search-input" />
                   </div>
-                  <button class="btn-jump-files-ws" @click="openSelectedFiles">
+                  <button class="ui-row btn-jump-files-ws" style="gap:6px" @click="openSelectedFiles">
                     <el-icon><FolderOpened /></el-icon>
                     <span>进入卷宗管理工作台 →</span>
                   </button>
                 </div>
               </div>
-              <div class="files-grid-container" v-loading="filesLoading">
+              <div class="ui-grid files-grid-container" style="gap:10px" v-loading="filesLoading">
+                <el-alert v-if="caseFilesError" :title="`案件文件读取失败：${caseFilesError}`" type="error" :closable="false"><el-button text @click="loadCaseFiles">重试</el-button></el-alert>
                 <div
                   v-for="file in sortedCaseFiles"
                   :key="file.id"
-                  class="case-file-item-card"
+                  class="ui-row ui-row--between case-file-item-card"
                   @dblclick="openFile(file)"
                   @contextmenu.prevent="onFileContextMenu($event, file)"
                   title="双击直接打开 · 右键呼出系统级操作菜单"
                 >
-                  <div class="file-card-main">
+                  <div class="ui-row file-card-main" style="gap:10px">
                     <div class="file-icon-box">
                       <span class="file-ext-tag">{{ getFileExt(file.fileName) }}</span>
                     </div>
-                    <div class="file-info-col">
-                      <strong class="file-name-txt">{{ file.fileName }}</strong>
+                    <div class="ui-col file-info-col" style="gap:2px">
+                      <strong class="ui-truncate file-name-txt">{{ file.fileName }}</strong>
                       <div class="file-meta-sub">
                         <span>{{ formatFileSize(file.fileSize) }}</span>
                         <span v-if="file.createdAt">· 加入: {{ file.createdAt.slice(0, 10) }}</span>
@@ -1459,39 +1497,39 @@ async function handleCreateCase(formData) {
                     </el-dropdown>
                   </div>
                 </div>
-                <div v-if="!sortedCaseFiles.length && !filesLoading" class="empty-files-hint">
-                  <el-icon :size="38" color="var(--slate-gray-light)"><Document /></el-icon>
-                  <p>当前目录/分类下暂无文件 · 可在卷宗管理工作台中导入本地文件</p>
+                <div v-if="!sortedCaseFiles.length && !filesLoading" class="ui-col empty-files-hint" style="gap:8px">
+                  <EmptyState v-if="activeCategory !== 'all' || fileSearchQuery" type="search" action-text="清除筛选" @action="activeCategory = 'all'; fileSearchQuery = ''" />
+                  <EmptyState v-else type="custom" compact hide-action title="当前目录/分类下暂无文件" description="可在卷宗管理工作台中导入本地文件" />
                 </div>
               </div>
             </section>
           </div>
         </div>
       </main>
-      <div v-else class="empty-selection-view">
+      <div v-else class="ui-col empty-selection-view" style="gap:12px">
         <el-icon :size="48" color="var(--slate-gray-light)"><Briefcase /></el-icon>
         <p>请在左侧选择一个案件</p>
       </div>
     </div>
     <!-- ═══ 任务详情编辑抽屉 (直连 SQLite 与任务系统) ═══ -->
     <el-drawer v-model="showTaskDrawer" title="待办详情编辑" size="420px">
-      <div v-if="editingTask" class="task-drawer-content">
-        <div class="form-field-group">
+      <div v-if="editingTask" class="ui-col task-drawer-content" style="gap:14px">
+        <div class="ui-col form-field-group" style="gap:6px">
           <label>任务名称</label>
           <input v-model="editingTask.taskName" class="rec-native-input" />
         </div>
-        <div class="rec-grid-two">
-          <div class="form-field-group">
+        <div class="ui-grid rec-grid-two" style="gap:16px">
+          <div class="ui-col form-field-group" style="gap:6px">
             <label>截止日期</label>
             <input v-model="editingTask.dueDate" type="date" class="rec-native-input" />
           </div>
-          <div class="form-field-group">
+          <div class="ui-col form-field-group" style="gap:6px">
             <label>截止时刻</label>
             <input v-model="editingTask.dueTime" type="time" class="rec-native-input" />
           </div>
         </div>
-        <div class="rec-grid-two">
-          <div class="form-field-group">
+        <div class="ui-grid rec-grid-two" style="gap:16px">
+          <div class="ui-col form-field-group" style="gap:6px">
             <label>优先级</label>
             <el-select v-model="editingTask.priority" style="width: 100%">
               <el-option label="普通 (Medium)" value="medium" />
@@ -1499,21 +1537,21 @@ async function handleCreateCase(formData) {
               <el-option label="重要且紧急 (Urgent)" value="urgent" />
             </el-select>
           </div>
-          <div class="form-field-group">
+          <div class="ui-col form-field-group" style="gap:6px">
             <label>预估工时 (分钟)</label>
             <input v-model="editingTask.estimatedMinutes" type="number" step="15" class="rec-native-input" />
           </div>
         </div>
-        <div class="form-field-group">
+        <div class="ui-col form-field-group" style="gap:6px">
           <label>场景标签 (Context)</label>
           <input v-model="editingTask.context" placeholder="如：@起草 / @开庭准备" class="rec-native-input" />
         </div>
-        <div class="form-field-group">
+        <div class="ui-col form-field-group" style="gap:6px">
           <label>任务详细备忘与交接说明</label>
           <textarea v-model="editingTask.description" rows="4" class="rec-native-textarea"></textarea>
         </div>
-        <div class="drawer-action-footer">
-          <button class="btn-drawer-delete" @click="deleteTaskFromDrawer">删除任务</button>
+        <div class="ui-row ui-row--between drawer-action-footer">
+          <button class="btn-drawer-delete btn-danger" @click="deleteTaskFromDrawer">删除任务</button>
           <button class="btn-drawer-save" @click="saveEditingTask">保存修改</button>
         </div>
       </div>
@@ -1537,29 +1575,12 @@ async function handleCreateCase(formData) {
   max-width: 1440px;
   margin: 0 auto;
   padding: 16px 24px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   color: var(--c-text);
   font-family: var(--font-family);
   min-height: calc(100vh - 80px);
 }
 /* ── 顶部 Action Bar ─────────────────────────────────────── */
-.cases-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.topbar-heading {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
 .btn-back-cases-list {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 7px 12px;
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
@@ -1576,11 +1597,6 @@ async function handleCreateCase(formData) {
   border-color: var(--c-primary);
   color: var(--c-primary);
 }
-.topbar-ws-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 .eyebrow-kicker {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -1596,15 +1612,7 @@ async function handleCreateCase(formData) {
   letter-spacing: -0.3px;
   margin: 0;
 }
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 .btn-action-filter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 14px;
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
@@ -1626,9 +1634,6 @@ async function handleCreateCase(formData) {
   color: var(--c-primary);
 }
 .btn-action-import {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 14px;
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
@@ -1646,9 +1651,6 @@ async function handleCreateCase(formData) {
   color: var(--c-primary);
 }
 .btn-action-primary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 16px;
   border-radius: var(--c-radius-lg);
   border: none;
@@ -1664,9 +1666,6 @@ async function handleCreateCase(formData) {
   filter: brightness(1.08);
 }
 .btn-edit-all-facts {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 16px;
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
@@ -1694,7 +1693,6 @@ async function handleCreateCase(formData) {
    主从分栏 (Master-Detail) 与 完整工作区模式
    ═══════════════════════════════════════════════════════════ */
 .cases-master-detail {
-  display: grid;
   grid-template-columns: 290px minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
@@ -1710,9 +1708,6 @@ async function handleCreateCase(formData) {
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-2xl);
   padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   height: calc(100dvh - 166px);
   box-shadow: var(--shadow-sm);
 }
@@ -1743,9 +1738,6 @@ async function handleCreateCase(formData) {
   background: var(--c-bg-card);
 }
 .cases-scroll-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   overflow-y: auto;
   flex: 1;
   padding-right: 2px;
@@ -1759,12 +1751,9 @@ async function handleCreateCase(formData) {
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
-  padding: 10px 12px;
+  padding: var(--density-row-pad-y) var(--density-row-pad-x);
   border-radius: var(--c-radius-lg);
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   transition: all var(--motion-fast);
   width: 100%;
 }
@@ -1774,11 +1763,6 @@ async function handleCreateCase(formData) {
 .case-index-card.active {
   background: var(--c-primary-light);
   border-color: color-mix(in srgb, var(--c-primary) 30%, transparent);
-}
-.card-meta-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 .mono-case-code {
   font-family: var(--font-mono);
@@ -1801,16 +1785,10 @@ async function handleCreateCase(formData) {
   font-size: 13px;
   font-weight: 700;
   color: var(--c-text-heading);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .case-card-client {
   font-size: 11px;
   color: var(--slate-gray-light);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .empty-case-hint {
   padding: 30px 0;
@@ -1820,9 +1798,6 @@ async function handleCreateCase(formData) {
 }
 /* ── 右侧上下文工作台 ─────────────────────────────────────── */
 .cases-detail-area {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   overflow-y: auto;
 }
 /* 1. Summary Header 卡片 */
@@ -1831,16 +1806,9 @@ async function handleCreateCase(formData) {
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-2xl);
   padding: 22px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
   box-shadow: var(--shadow-sm);
 }
 .summary-left-group {
-  display: flex;
-  align-items: center;
-  gap: 20px;
   flex: 1;
   min-width: 0;
 }
@@ -1888,15 +1856,7 @@ async function handleCreateCase(formData) {
   margin-top: 2px;
 }
 .summary-matter-identity {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   min-width: 0;
-}
-.identity-badge-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .badge-matter-pill {
   padding: 2px 7px;
@@ -1921,9 +1881,6 @@ async function handleCreateCase(formData) {
   color: var(--c-text-heading);
   letter-spacing: -0.3px;
   margin: 2px 0 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .matter-meta-lead {
   font-size: 12px;
@@ -1940,15 +1897,9 @@ async function handleCreateCase(formData) {
   border-left: 4.5px solid var(--status-risk);
   border-radius: var(--c-radius-xl);
   padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   box-shadow: var(--shadow-sm);
 }
 .action-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   border-bottom: 1px solid var(--c-border);
   padding-bottom: 6px;
 }
@@ -1964,16 +1915,10 @@ async function handleCreateCase(formData) {
   color: var(--slate-gray-light);
 }
 .upcoming-tasks-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
   max-height: 96px;
   overflow-y: auto;
 }
 .upcoming-task-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 3px 6px;
   border-radius: 4px;
   background: var(--c-bg-card);
@@ -2028,16 +1973,10 @@ async function handleCreateCase(formData) {
 }
 /* 2. Tabs 栏 */
 .matter-detail-tabs-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   border-bottom: 1px solid var(--c-border);
   padding-bottom: 2px;
 }
 .tabs-group-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -2097,21 +2036,12 @@ async function handleCreateCase(formData) {
   border-radius: var(--c-radius-2xl);
   padding: 20px 24px;
   box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 .overview-pane-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--c-border);
 }
 .btn-edit-facts {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   padding: 5px 12px;
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
@@ -2139,41 +2069,27 @@ async function handleCreateCase(formData) {
   margin: 4px 0 0;
 }
 /* A. 案件要素全景 (Overview) */
-.facts-sections-container {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 .fact-section-block {
   background: var(--c-bg-page);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-xl);
   padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 .sec-headline {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   font-size: 12.5px;
   font-weight: 700;
   color: var(--c-text-heading);
 }
 .sec-ico { color: var(--c-primary); }
 .facts-grid-two {
-  display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
 .facts-grid-three {
-  display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 .facts-grid-four {
-  display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
@@ -2182,9 +2098,6 @@ async function handleCreateCase(formData) {
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
 }
 .fact-item-card.highlight-client {
   border-left: 3.5px solid var(--c-primary);
@@ -2214,21 +2127,15 @@ async function handleCreateCase(formData) {
   padding: 20px 24px;
 }
 .timeline-toolbar-flex {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--c-border);
   flex-wrap: wrap;
 }
 .timeline-filter-pills {
-  display: flex;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
   padding: 3px;
-  gap: 2px;
   flex-wrap: wrap;
 }
 .t-filter-btn {
@@ -2249,14 +2156,9 @@ async function handleCreateCase(formData) {
   box-shadow: var(--shadow-sm);
 }
 .chronological-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
   padding: 10px 0;
 }
 .timeline-event-card {
-  display: flex;
-  gap: 16px;
   position: relative;
 }
 .timeline-left-col {
@@ -2315,19 +2217,11 @@ async function handleCreateCase(formData) {
   padding: 12px 16px;
   margin-bottom: 16px;
   margin-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   transition: all var(--motion-fast);
 }
 .timeline-card-body:hover {
   background: var(--c-bg-hover);
   border-color: var(--c-border-strong);
-}
-.t-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .t-type-tag {
   font-size: 10px;
@@ -2355,8 +2249,6 @@ async function handleCreateCase(formData) {
   white-space: pre-wrap;
 }
 .t-card-tags {
-  display: flex;
-  gap: 6px;
   margin-top: 4px;
 }
 .t-tag-pill {
@@ -2365,11 +2257,6 @@ async function handleCreateCase(formData) {
   border-radius: 4px;
   background: var(--c-bg-subtle);
   color: var(--slate-gray-light);
-}
-.t-task-ops {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 .btn-check-sm {
   padding: 3px 8px;
@@ -2386,9 +2273,6 @@ async function handleCreateCase(formData) {
   border-color: var(--c-primary);
 }
 .btn-edit-task-sm, .btn-open-doc-sm {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   padding: 3px 8px;
   font-size: 11px;
   border-radius: 4px;
@@ -2401,10 +2285,7 @@ async function handleCreateCase(formData) {
   padding: 40px 0;
   text-align: center;
   color: var(--slate-gray-light);
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
   font-size: 13px;
 }
 /* C. 🌟 写记录与备忘 (Record) 样式 */
@@ -2412,26 +2293,17 @@ async function handleCreateCase(formData) {
   padding: 24px;
 }
 .record-pane-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--c-border);
   flex-wrap: wrap;
 }
 .record-type-selector {
-  display: flex;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
   padding: 3px;
-  gap: 3px;
 }
 .rec-type-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 6px 14px;
   border-radius: 6px;
   border: none;
@@ -2449,15 +2321,7 @@ async function handleCreateCase(formData) {
   box-shadow: var(--shadow-sm);
 }
 .record-form-block {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   margin-top: 10px;
-}
-.form-field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 .form-field-group label {
   font-size: 12px;
@@ -2497,22 +2361,15 @@ async function handleCreateCase(formData) {
   background: var(--c-bg-card);
 }
 .rec-grid-two {
-  display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 .record-form-footer {
-  display: flex;
-  align-items: center;
   justify-content: flex-end;
-  gap: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--c-border);
 }
 .btn-ai-extract {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 14px;
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-primary);
@@ -2528,9 +2385,6 @@ async function handleCreateCase(formData) {
   color: var(--c-primary-contrast);
 }
 .btn-submit-rec {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 20px;
   border-radius: var(--c-radius-lg);
   border: none;
@@ -2673,14 +2527,8 @@ async function handleCreateCase(formData) {
   background: var(--c-bg-subtle);
   border-right: 1px solid var(--c-border);
   padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 .tree-sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding-bottom: 4px;
 }
 .tree-title {
@@ -2703,9 +2551,6 @@ async function handleCreateCase(formData) {
   color: var(--c-primary);
 }
 .dir-tree-node {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 8px 10px;
   border-radius: var(--c-radius-md);
   cursor: pointer;
@@ -2734,18 +2579,12 @@ async function handleCreateCase(formData) {
 .dir-name-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dir-count-pill { font-family: var(--font-mono); font-size: 10px; background: var(--c-bg-page); padding: 1px 6px; border-radius: 10px; color: var(--slate-gray-light); }
 .dirs-sub-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
   padding-left: 8px;
   border-left: 2px solid var(--c-border);
   margin-left: 6px;
 }
 .category-filter-section {
   margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--c-border);
 }
@@ -2753,11 +2592,6 @@ async function handleCreateCase(formData) {
   font-size: 11px;
   font-weight: 600;
   color: var(--slate-gray-light);
-}
-.cat-pills-stack {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
 }
 .cat-filter-pill {
   border: 1px solid var(--c-border);
@@ -2781,30 +2615,17 @@ async function handleCreateCase(formData) {
 }
 .files-content-main {
   padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
   overflow-y: auto;
 }
 .files-tab-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   flex-wrap: wrap;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--c-border);
 }
 .files-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
   flex-wrap: wrap;
 }
 .files-path-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   font-size: 12.5px;
 }
 .crumb-link { color: var(--c-primary); cursor: pointer; }
@@ -2812,18 +2633,11 @@ async function handleCreateCase(formData) {
 .crumb-sep { color: var(--slate-gray-light); }
 .crumb-current { color: var(--c-text-heading); }
 .crumb-mode-tag { font-size: 11px; color: var(--slate-gray-light); }
-.files-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .file-sort-pills {
-  display: flex;
   background: var(--c-bg-subtle);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
   padding: 2px;
-  gap: 2px;
 }
 .sort-pill {
   padding: 4px 10px;
@@ -2860,9 +2674,6 @@ async function handleCreateCase(formData) {
   color: var(--c-text);
 }
 .btn-jump-files-ws {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 6px 12px;
   border-radius: var(--c-radius-lg);
   border: none;
@@ -2874,7 +2685,6 @@ async function handleCreateCase(formData) {
   box-shadow: var(--shadow-sm);
 }
 .files-grid-container {
-  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
   min-height: 240px;
@@ -2884,9 +2694,6 @@ async function handleCreateCase(formData) {
   border-radius: var(--c-radius-lg);
   border: 1px solid var(--c-border);
   background: var(--c-bg-page);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   cursor: pointer;
   transition: all var(--motion-fast);
 }
@@ -2897,9 +2704,6 @@ async function handleCreateCase(formData) {
   box-shadow: var(--shadow-sm);
 }
 .file-card-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   flex: 1;
   min-width: 0;
 }
@@ -2919,17 +2723,11 @@ async function handleCreateCase(formData) {
   font-weight: 700;
 }
 .file-info-col {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   min-width: 0;
 }
 .file-name-txt {
   font-size: 12px;
   color: var(--c-text-heading);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .file-meta-sub {
   font-family: var(--font-mono);
@@ -2953,23 +2751,14 @@ async function handleCreateCase(formData) {
   padding: 40px 0;
   text-align: center;
   color: var(--slate-gray-light);
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
   font-size: 12.5px;
 }
 /* 抽屉样式 */
 .task-drawer-content {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
   padding: 10px 0;
 }
 .drawer-action-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid var(--c-border);
@@ -2995,13 +2784,10 @@ async function handleCreateCase(formData) {
   cursor: pointer;
 }
 .empty-selection-view {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 400px;
   color: var(--slate-gray-light);
-  gap: 12px;
 }
 /* 模态框 */
 .edit-facts-dialog-body {
@@ -3042,7 +2828,7 @@ async function handleCreateCase(formData) {
   .matter-summary-header-card { flex-direction: column; align-items: flex-start; }
   .summary-next-actions-card { width: 100%; }
 }
-@media (max-width: 1024px) {
+@media (max-width: 1100px){
   .cases-master-detail { grid-template-columns: 1fr; }
   .matter-summary-header-card { flex-direction: column; align-items: flex-start; }
   .summary-next-actions-card { width: 100%; }
@@ -3050,7 +2836,7 @@ async function handleCreateCase(formData) {
   .facts-grid-three, .facts-grid-four { grid-template-columns: 1fr; }
   .rec-grid-two { grid-template-columns: 1fr; }
 }
-.matter-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.matter-tools { flex-wrap: wrap; }
 .matter-tools .el-button { margin-left: 0; }
 .matter-tools .link-jump-workspace-head { margin-left: auto; }
 .overview-pane-header { gap: 16px; flex-wrap: wrap; }

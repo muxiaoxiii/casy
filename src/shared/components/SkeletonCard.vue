@@ -26,11 +26,11 @@ const contentRows = computed(() => {
 
 <template>
   <div class="skeleton-card">
-    <div v-if="avatar || title" class="skeleton-header">
+    <div v-if="avatar || title" class="skeleton-header ui-row">
       <div v-if="avatar" class="skeleton-avatar skeleton-bone"></div>
       <div v-if="title" class="skeleton-title skeleton-bone"></div>
     </div>
-    <div class="skeleton-body">
+    <div class="skeleton-body ui-col">
       <div
         v-for="(row, index) in contentRows"
         :key="index"
@@ -50,8 +50,7 @@ const contentRows = computed(() => {
 }
 
 .skeleton-header {
-  display: flex;
-  align-items: center;
+  /* 布局走共享 .ui-row；此处只保留本文件特有的 12px 间距与 14px 下间距 */
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -69,8 +68,7 @@ const contentRows = computed(() => {
 }
 
 .skeleton-body {
-  display: flex;
-  flex-direction: column;
+  /* 布局走共享 .ui-col；此处只保留本文件特有的 10px 间距 */
   gap: 10px;
 }
 

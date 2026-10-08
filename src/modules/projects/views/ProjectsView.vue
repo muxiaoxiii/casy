@@ -25,7 +25,7 @@
       <SkeletonCard v-if="loading && !personalProjects.length" :rows="3" />
       <!-- 非案件项目 -->
       <section class="proj-section">
-        <div class="section-head">
+        <div class="section-head ui-row">
           <span class="section-title">非案件项目</span>
           <el-button size="small" type="primary" text @click="startCreate">
             <el-icon><Plus /></el-icon> 新建
@@ -56,7 +56,7 @@
             <template v-else>
               <span class="proj-dot personal" />
               <UiTruncate class="proj-name" :text="p.name" />
-              <span v-if="p.description" class="proj-desc">{{ p.description }}</span>
+              <span v-if="p.description" class="proj-desc ui-text--caption ui-truncate">{{ p.description }}</span>
               <UiPill>{{ statusLabel(p.status) }}</UiPill>
               <div class="row-actions">
                 <el-button size="small" text :disabled="mutating" :aria-label="`编辑项目 ${p.name}`" @click="startEdit(p)"><el-icon><Edit /></el-icon></el-button>
@@ -210,9 +210,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 .toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 18px;
 }
 .toolbar-left h3 {
@@ -227,9 +224,8 @@ onMounted(() => {
 
 .proj-section { margin-bottom: 28px; }
 .section-head {
-  display: flex;
-  align-items: baseline;
   gap: 10px;
+  align-items: baseline;
   margin-bottom: 8px;
 }
 .section-title { font-size: 14px; font-weight: 600; color: var(--c-text); }
@@ -268,13 +264,6 @@ onMounted(() => {
 .proj-dot.personal { background: var(--c-success); }
 .proj-dot.legal { background: var(--c-info); }
 .proj-name { font-size: 14px; color: var(--c-text); }
-.proj-desc {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .row-actions {
   display: flex;
@@ -292,5 +281,5 @@ onMounted(() => {
   line-height: 1.7;
   background: var(--c-bg-subtle);
 }
-@media(max-width:899px){.toolbar{align-items:flex-start;flex-direction:column;gap:12px}.proj-row{flex-wrap:wrap}.proj-create{flex-wrap:wrap}.shortcut-hint{margin-left:0}.toolbar-right,.toolbar-right .el-input{width:100%!important}}
+@media(max-width: 900px){.toolbar{align-items:flex-start;flex-direction:column;gap:12px}.proj-row{flex-wrap:wrap}.proj-create{flex-wrap:wrap}.shortcut-hint{margin-left:0}.toolbar-right,.toolbar-right .el-input{width:100%!important}}
 </style>

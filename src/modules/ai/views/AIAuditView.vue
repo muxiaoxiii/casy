@@ -1,10 +1,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { casyContext } from '../../../core/plugin/context'
-import { ElMessage } from 'element-plus'
 import { Refresh, View, Filter } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const loading = ref(false)
+const loadError = ref('')
 const aiRuns = ref([])
 const selectedPurpose = ref('')
 const selectedStatus = ref('')
@@ -65,11 +66,13 @@ const stats = computed(() => ({
 
 async function loadRuns() {
   loading.value = true
+  loadError.value = ''
   const result = await casyContext.ai.runHistory(200)
   if (result.ok) {
     aiRuns.value = result.data || []
   } else {
-    ElMessage.error(result.error || '加载失败')
+    aiRuns.value = []
+    loadError.value = result.error || 'AI 调用记录加载失败'
   }
   loading.value = false
 }
@@ -107,9 +110,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="audit-view">
+  <div class="audit-view ui-col">
     <!-- 统计卡片 -->
-    <div class="stats-row">
+    <div class="stats-row ui-row">
       <el-card shadow="never" class="stat-card">
         <div class="stat-value">{{ stats.total }}</div>
         <div class="stat-label">总调用</div>
@@ -128,8 +131,9 @@ onMounted(() => {
       </el-card>
     </div>
 
+    <el-alert v-if="loadError" :title="`AI 调用记录读取失败：${loadError}`" type="error" :closable="false" style="margin-bottom: 12px"><el-button text @click="loadRuns">重试</el-button></el-alert>
     <!-- 筛选工具栏 -->
-    <div class="filter-bar">
+    <div class="filter-bar ui-row ui-row--between">
       <div class="filter-left">
         <el-icon><Filter /></el-icon>
         <el-select v-model="selectedPurpose" size="small" style="width: 140px;">
@@ -194,8 +198,8 @@ onMounted(() => {
     </el-table>
 
     <!-- 空状态 -->
-    <div v-if="!loading && filteredRuns.length === 0" class="empty-state">
-      <el-empty description="暂无 AI 调用记录" />
+    <div v-if="!loading && !loadError && filteredRuns.length === 0" class="empty-state">
+      <EmptyState type="custom" hide-action title="暂无 AI 调用记录" />
     </div>
 
     <!-- 详情对话框 -->
@@ -232,13 +236,10 @@ onMounted(() => {
 
 <style scoped>
 .audit-view {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
 .stats-row {
-  display: flex;
   gap: 12px;
 }
 
@@ -267,12 +268,6 @@ onMounted(() => {
 .stat-success .stat-value { color: #67C23A; }
 .stat-danger .stat-value { color: #F56C6C; }
 .stat-warning .stat-value { color: #E6A23C; }
-
-.filter-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 
 .filter-left {
   display: flex;

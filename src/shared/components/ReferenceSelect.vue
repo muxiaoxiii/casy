@@ -203,8 +203,8 @@ watch(options, (newOpts) => {
       :value="opt.value"
     >
       <div class="option-content">
-        <div class="option-main">
-          <span class="option-label">{{ opt.label }}</span>
+        <div class="option-main ui-row">
+          <span class="option-label ui-truncate">{{ opt.label }}</span>
           <el-tag
             v-if="opt.tag"
             :type="opt.tagType || 'info'"
@@ -215,7 +215,7 @@ watch(options, (newOpts) => {
             {{ opt.tag }}
           </el-tag>
         </div>
-        <span v-if="opt.sublabel" class="option-sublabel">{{ opt.sublabel }}</span>
+        <span v-if="opt.sublabel" class="option-sublabel ui-truncate">{{ opt.sublabel }}</span>
       </div>
     </el-option>
   </el-select>
@@ -229,18 +229,11 @@ watch(options, (newOpts) => {
   padding: 2px 0;
 }
 
-.option-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+/* .option-main 的布局（display/align-items/gap:8px）已由共享 .ui-row 提供，见模板 */
 
 .option-label {
   font-size: 13px;
   color: #303133;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .option-tag {
@@ -252,8 +245,5 @@ watch(options, (newOpts) => {
 .option-sublabel {
   font-size: 11px;
   color: var(--gray-400);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>

@@ -31,8 +31,8 @@ function add(form, group) { form[group.key].push({ ...Object.fromEntries(group.f
     <el-tab-pane v-for="group in groups" :key="group.key" :name="group.key" :label="group.label + (form[group.key].length ? ' (' + form[group.key].length + ')' : '')">
       <el-button :icon="Plus" @click="add(form, group)">添加{{ group.label }}</el-button>
       <div v-for="(row,index) in form[group.key]" :key="index" class="node-row">
-        <div class="node-heading"><strong>{{ group.label }} {{ index + 1 }}</strong><el-button :icon="Delete" :aria-label="'删除' + group.label" :title="'删除' + group.label" @click="form[group.key].splice(index,1)" /></div>
-        <div class="node-fields">
+        <div class="ui-row ui-row--between node-heading"><strong>{{ group.label }} {{ index + 1 }}</strong><el-button :icon="Delete" :aria-label="'删除' + group.label" :title="'删除' + group.label" @click="form[group.key].splice(index,1)" /></div>
+        <div class="ui-grid node-fields">
           <el-form-item v-for="[key,label,type,options] in group.fields" :key="key" :label="label" :required="options === true" :class="{ wide: type === 'textarea' }">
             <el-date-picker v-if="type === 'date' || type === 'datetime'" v-model="row[key]" :type="type" :value-format="type === 'date' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'" />
             <el-select v-else-if="type === 'select'" v-model="row[key]" clearable><el-option v-for="option in options" :key="Array.isArray(option) ? option[0] : option" :value="Array.isArray(option) ? option[0] : option" :label="Array.isArray(option) ? option[1] : option" /></el-select>
@@ -46,9 +46,10 @@ function add(form, group) { form[group.key].push({ ...Object.fromEntries(group.f
 </template>
 <style scoped>
 .node-row { padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--c-border); }
-.node-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.node-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 16px; }
+.node-heading { margin-bottom: 12px; }
+.node-fields { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 16px; }
 .wide { grid-column: 1 / -1; }
 :deep(.el-date-editor) { width: 100%; }
-@media(max-width: 480px) { .node-fields { grid-template-columns: minmax(0,1fr); } }
+
+
 </style>

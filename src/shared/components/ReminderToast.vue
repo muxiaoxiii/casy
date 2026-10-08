@@ -78,7 +78,7 @@ onUnmounted(() => { if (unlisten) unlisten() })
   <!-- 提醒触发面板：右上角浮层 -->
   <Transition name="reminder-pop">
     <div v-if="visible && current" class="reminder-toast">
-      <div class="rt-head">
+      <div class="rt-head ui-row ui-mb-8">
         <el-icon class="rt-icon"><Bell /></el-icon>
         <span class="rt-title">Casy 期限提醒</span>
         <span class="rt-time">{{ current.at || '' }}</span>
@@ -110,7 +110,6 @@ onUnmounted(() => { if (unlisten) unlisten() })
   z-index: 3000;
   padding: 14px 16px;
 }
-.rt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .rt-icon { color: var(--c-warning); font-size: 16px; }
 .rt-title { font-weight: 600; font-size: 13px; flex: 1; }
 .rt-time { font-size: 11px; color: var(--gray-400); }

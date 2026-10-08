@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Document, Download, FolderOpened, Search, Refresh } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 import { casyContext } from '../../../core/plugin/context'
 
 const emit = defineEmits(['imported', 'navigate'])
@@ -49,7 +50,9 @@ defineExpose({ reload: load })
         <div class="source-main"><strong>{{ source.fileName }}</strong><span><FolderOpened /> {{ source.caseName }}</span><small>{{ source.totalPages }} {{ source.searchablePdfPath ? '页' : '段' }} · {{ source.markdownPath ? 'Markdown 已就绪' : '正文已就绪' }}</small></div>
         <el-button size="small" :type="source.importedKnowledgeId ? 'success' : 'primary'" :plain="!!source.importedKnowledgeId" :loading="importingId === source.fileId" @click="importSource(source)">{{ source.importedKnowledgeId ? '打开' : '沉淀' }}</el-button>
       </div>
-      <div v-if="!loading && !loadError && !filtered.length" class="empty">暂无已处理的文档</div>
+      <EmptyState v-if="!loading && !loadError && !filtered.length" :type="query.trim() ? 'search' : 'custom'" compact
+        :title="query.trim() ? '' : '暂无已处理的文档'"
+        :action-text="query.trim() ? '清除筛选' : ''" :hide-action="!query.trim()" @action="query = ''" />
     </div>
   </div>
 </template>

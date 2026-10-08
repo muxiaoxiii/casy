@@ -22,6 +22,7 @@ import {
 } from '../utils/taskDisplay'
 
 import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
+import DeadlineChip from '../../../shared/ui/DeadlineChip.vue'
 
 export interface RowTask {
   planDefined?: boolean
@@ -83,6 +84,23 @@ const emit = defineEmits<{
 const done = computed(() => props.task.completed === 1)
 const dueText = computed(() => props.task.dueDate || props.task.deadline || '')
 const overdue = computed(() => { todayStr.value; return !done.value && isOverdue(dueText.value) })
+
+/** 期限通道分级（bunny 10 第 4 步）：已完成 R4，3 日内 R1，7 日内 R2，其余 R3 */
+const deadlineDaysLeft = computed(() => {
+  if (!dueText.value || done.value) return null
+  const due = new Date(`${dueText.value.slice(0, 10)}T00:00:00`)
+  const today = new Date(`${todayStr.value}T00:00:00`)
+  return Math.round((due.getTime() - today.getTime()) / 86400000)
+})
+const deadlineLevel = computed<'R1' | 'R2' | 'R3' | 'R4' | null>(() => {
+  if (!dueText.value) return null
+  if (done.value) return 'R4'
+  const days = deadlineDaysLeft.value
+  if (days === null) return null
+  if (days <= 3) return 'R1'
+  if (days <= 7) return 'R2'
+  return 'R3'
+})
 const waitingDays = computed(() =>
   (todayStr.value, props.task.taskType === 'waiting' ? getWaitingDays(props.task) : 0)
 )
@@ -105,7 +123,7 @@ function areaName(id: string | null | undefined): string {
 
 <template>
   <div
-    class="task-card"
+    class="task-card ui-row"
     :class="{
       overdue,
       'due-soon': task.dueSoon === 1,
@@ -138,7 +156,7 @@ function areaName(id: string | null | undefined): string {
 
     <!-- 任务内容 -->
     <div class="task-content" role="button" tabindex="0" :aria-label="'编辑任务：' + task.taskName" @keydown.enter.prevent="emit('open', task)" @keydown.space.prevent="emit('open', task)" @click="emit('open', task)">
-      <div class="task-title">
+      <div class="task-title ui-row">
         <span class="task-name-text" :class="{ struck: done }">{{ task.taskName }}</span>
         <el-tag
           v-if="task.taskType && task.taskType !== 'action'"
@@ -151,39 +169,40 @@ function areaName(id: string | null | undefined): string {
       </div>
 
       <div class="task-meta">
-        <span v-if="task.caseId" class="meta-item case">
+        <span v-if="task.caseId" class="meta-item case ui-row">
           <el-icon><Folder /></el-icon>
           {{ caseName(task.caseId) }}
         </span>
 
-        <span v-if="task.areaId" class="meta-item area">
+        <span v-if="task.areaId" class="meta-item area ui-row">
           <el-icon><Collection /></el-icon>
           {{ areaName(task.areaId) }}
         </span>
 
-        <span v-if="task.flagged === 1" class="meta-item flagged">
+        <span v-if="task.flagged === 1" class="meta-item flagged ui-row">
           <el-icon color="#F59E0B"><Star /></el-icon>
         </span>
 
         <span
           v-if="dueText"
-          class="meta-item deadline"
+          class="meta-item deadline ui-row"
           :class="{ overdue }"
         >
           <el-icon><Calendar /></el-icon>
           截止 {{ formatDate(dueText) }}{{ task.dueTime ? ' ' + task.dueTime : '' }}
+          <DeadlineChip :level="deadlineLevel" :days-left="deadlineDaysLeft" />
         </span>
 
-        <span v-if="task.planDefined" class="meta-item task-plan">{{ taskPlanLabel(task) }}</span>
+        <span v-if="task.planDefined" class="meta-item task-plan ui-row">{{ taskPlanLabel(task) }}</span>
 
-        <span v-if="task.estimatedMinutes" class="meta-item estimated">
+        <span v-if="task.estimatedMinutes" class="meta-item estimated ui-row">
           <el-icon><Timer /></el-icon>
           {{ task.estimatedMinutes }}分钟
         </span>
 
         <span
           v-if="task.taskType === 'waiting' && task.waitingFor"
-          class="meta-item waiting"
+          class="meta-item waiting ui-row"
           :class="{ 'waiting-warning': waitingDays > 3 }"
         >
           <el-icon><Clock /></el-icon>
@@ -201,14 +220,14 @@ function areaName(id: string | null | undefined): string {
           </el-button>
         </span>
 
-        <span v-if="task.context" class="meta-item context">@{{ task.context }}</span>
+        <span v-if="task.context" class="meta-item context ui-row">@{{ task.context }}</span>
 
-        <span v-if="task.blocked === 1" class="meta-item blocked">
+        <span v-if="task.blocked === 1" class="meta-item blocked ui-row">
           <el-icon><Lock /></el-icon>
           已锁定
         </span>
 
-        <span v-if="task.deferUntil" class="meta-item deferred" :class="{ active: deferActive }">
+        <span v-if="task.deferUntil" class="meta-item deferred ui-row" :class="{ active: deferActive }">
           <el-icon><AlarmClock /></el-icon>
           {{ deferActive ? `推迟至 ${formatDate(task.deferUntil)}` : `曾推迟至 ${formatDate(task.deferUntil)}` }}
         </span>
@@ -318,14 +337,11 @@ function areaName(id: string | null | undefined): string {
 
 /* ── 行容器 ── */
 .task-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-left: 3px solid var(--c-border-strong);
   border-radius: var(--c-radius-lg);
-  padding: 12px 16px;
+  padding: var(--density-row-pad-y) var(--density-row-pad-x);
   transition:
     box-shadow var(--motion-fast) var(--ease-out),
     border-color var(--motion-fast) var(--ease-out),
@@ -415,9 +431,6 @@ function areaName(id: string | null | undefined): string {
 .task-content { flex: 1; min-width: 0; cursor: pointer; }
 
 .task-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   font-size: 14px;
   font-weight: 500;
   color: var(--c-text);
@@ -447,7 +460,7 @@ function areaName(id: string | null | undefined): string {
   font-size: 12px;
   color: var(--c-text-secondary);
 }
-.meta-item { display: flex; align-items: center; gap: 3px; }
+.meta-item { gap: 3px; }
 .meta-item.case { color: var(--c-primary, #409EFF); }
 .meta-item.area { color: var(--c-success, #67C23A); }
 .meta-item.deadline.overdue { color: var(--c-danger, #F56C6C); }
@@ -486,14 +499,7 @@ function areaName(id: string | null | undefined): string {
 
 /* ── 操作区 ── */
 .task-actions { flex-shrink: 0; }
-@media (max-width: 600px) {
-  .task-card { flex-wrap: wrap; padding: 12px 8px; }
-  .task-content { min-width: 120px; }
-  .task-title { flex-wrap: wrap; }
-  .meta-item.waiting { flex-wrap: wrap; }
-  .task-actions { margin-left: auto; max-width: 100%; }
-  .review-info { white-space: normal; }
-}
+
 .review-info {
   font-size: 11px;
   color: var(--c-text-secondary, var(--c-text-secondary));

@@ -1,0 +1,45 @@
+/* 法务专属期限视觉通道（bunny 10 第 4 步）。
+   期限的紧急度是本品类最核心的语义：红=立即行动、黄=临近、青=等待、绿=完成、
+   三角+待核对=日期未经核实。与普通 tag 区分开，全应用只此一套通道。 */
+
+.dl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card, var(--c-bg-page));
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dl-chip__mark { font-size: 10px; line-height: 1; }
+
+/* R1：3 日内届满或已过 —— 立即行动 */
+.dl-chip--r1 {
+  color: var(--c-danger);
+  border-color: currentColor;
+  background: var(--c-danger-light);
+  font-weight: 600;
+}
+/* R2：临近 —— 提醒 */
+.dl-chip--r2 { color: var(--c-warning-dark, var(--c-warning)); border-color: currentColor; }
+/* R3：等待/跟踪 —— 青 */
+.dl-chip--r3 { color: var(--status-waiting, var(--c-primary)); border-color: currentColor; }
+/* R4：完成/信息 —— 绿 */
+.dl-chip--r4 { color: var(--c-success); border-color: currentColor; }
+/* 待核对：日期未经节假日日历或人工核实，任何级别都不得冒充确定期限 */
+.dl-chip--review {
+  color: var(--c-warning-dark, var(--c-warning));
+  border-color: currentColor;
+  background: var(--c-warning-light, transparent);
+}
+.dl-chip--review .dl-chip__mark { color: var(--c-warning-dark, var(--c-warning)); }
+
+/* 列表行级的期限强调（左侧色条），用于案件/任务/程序事项行 */
+.dl-row--r1 { border-left: 3px solid var(--c-danger); }
+.dl-row--r2 { border-left: 3px solid var(--c-warning-dark, var(--c-warning)); }
+.dl-row--review { border-left: 3px dashed var(--c-warning-dark, var(--c-warning)); }

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const props = defineProps({
   timeline: { type: Array, default: () => [] },
@@ -30,27 +31,25 @@ function formatMonthLabel(ym) {
 <template>
   <el-card>
     <template #header>
-      <div class="card-header-row">
+      <div class="ui-row ui-row--between card-header-row">
         <strong>时间线</strong>
         <el-button size="small" text @click="emit('addLog')">添加事件</el-button>
       </div>
     </template>
     <div v-if="loading" class="timeline-loading">加载中...</div>
     <div v-else-if="!timeline.length" class="timeline-empty">
-      <el-empty description="还没有事件记录" :image-size="60">
-        <el-button size="small" @click="emit('addLog')">添加第一条日志</el-button>
-      </el-empty>
+      <EmptyState type="custom" title="还没有事件记录" action-text="添加第一条日志" @action="emit('addLog')" />
     </div>
-    <div v-else class="timeline-list">
+    <div v-else class="ui-col timeline-list">
       <template v-for="group in groupedTimeline" :key="group.month">
-        <div class="timeline-month-header">
+        <div class="ui-row timeline-month-header">
           <span class="month-label">{{ formatMonthLabel(group.month) }}</span>
           <span class="month-divider" />
         </div>
         <div v-for="event in group.events" :key="event.id" class="timeline-item">
           <div class="timeline-marker" :style="{ color: event.color }">{{ event.icon }}</div>
           <div class="timeline-content">
-            <div class="timeline-header">
+            <div class="ui-row timeline-header">
               <span class="timeline-date">{{ event.eventDate }}</span>
               <span class="timeline-title">{{ event.title }}</span>
               <el-button v-if="event.sourceTable==='case_logs'" size="small" text type="danger" @click="emit('deleteLog', event.sourceId)">×</el-button>
@@ -64,12 +63,6 @@ function formatMonthLabel(ym) {
 </template>
 
 <style scoped>
-.card-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .timeline-empty {
   padding: 20px 0;
 }
@@ -81,8 +74,6 @@ function formatMonthLabel(ym) {
 }
 
 .timeline-list {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
@@ -110,12 +101,6 @@ function formatMonthLabel(ym) {
   min-width: 0;
 }
 
-.timeline-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .timeline-date {
   font-size: 12px;
   color: #999;
@@ -135,9 +120,6 @@ function formatMonthLabel(ym) {
 }
 
 .timeline-month-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 12px 0 6px;
 }
 

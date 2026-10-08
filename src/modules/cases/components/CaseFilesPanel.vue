@@ -190,7 +190,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="cfiles" :class="{ dragging }">
+  <div class="ui-col cfiles" :class="{ dragging }">
     <!-- 案卷状态条 -->
     <div class="file-status">
       <div class="fs-item">
@@ -207,7 +207,7 @@ onUnmounted(() => {
         <span class="v" :class="{ warn: unregistered.length > 0 }">{{ unregistered.length }}</span>
         <span class="k">未入库</span>
       </div>
-      <div class="fs-actions">
+      <div class="ui-row fs-actions">
         <el-button size="small" :icon="Plus" @click="createSubdir">新建文件夹</el-button>
         <el-button
           v-if="selectedRel"
@@ -224,22 +224,22 @@ onUnmounted(() => {
 
     <div class="files-layout">
       <!-- 左：目录树 -->
-      <div class="dir-tree">
+      <div class="ui-col dir-tree">
         <div class="dir-stage"><span class="st-dot" style="background: var(--green)" />{{ rootName }}</div>
         <div
           v-for="d in dirs"
           :key="d.relPath"
-          class="dir-item"
+          class="ui-row dir-item"
           :class="{ active: selectedRel === d.relPath }"
           @click="selectedRel = d.relPath"
         >
           <el-icon class="di-ico"><Folder /></el-icon>
-          <span class="di-name">{{ d.relPath }}</span>
+          <span class="ui-truncate di-name">{{ d.relPath }}</span>
           <span class="di-count">{{ d.fileCount }}</span>
           <span class="di-state" :class="d.state" />
         </div>
 
-        <div class="files-toolbar">
+        <div class="ui-row files-toolbar">
           <el-tooltip content="文件夹模板设置">
             <el-button size="small" text :icon="Setting" @click="$router.push('/settings?tab=folder-template')" />
           </el-tooltip>
@@ -263,7 +263,7 @@ onUnmounted(() => {
         />
       </div>
       <div v-else class="dir-files" @drop.prevent="onDropFiles" @dragover.prevent>
-        <div class="df-head">
+        <div class="ui-row df-head">
           <span class="df-title">{{ selectedRel || rootName }}</span>
           <span class="df-tag">{{ visibleFiles.length }} 项</span>
           <span v-if="unregisteredForSelected.length" class="df-tag warn">
@@ -272,13 +272,13 @@ onUnmounted(() => {
           </span>
         </div>
 
-        <div v-if="visibleFiles.length" class="fg-body">
-          <div v-for="f in visibleFiles" :key="f.id" class="file-card">
-            <div class="f-ico" :class="fileIconType(f.fileName, f.fileType)">
+        <div v-if="visibleFiles.length" class="ui-col--tight fg-body">
+          <div v-for="f in visibleFiles" :key="f.id" class="ui-row file-card" style="gap:12px">
+            <div class="ui-row f-ico" :class="fileIconType(f.fileName, f.fileType)">
               <el-icon><Document /></el-icon>
             </div>
             <div class="f-main" style="cursor: pointer" title="点击预览" @click.stop="previewFile = f; previewOpen = true">
-              <div class="fn">{{ f.fileName }}</div>
+              <div class="ui-truncate fn">{{ f.fileName }}</div>
               <div class="fm">
                 <span>{{ f.fileType || '—' }}</span>
                 <span>{{ (f.createdAt || '').slice(5, 10) }}</span>
@@ -312,25 +312,24 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.cfiles { display: flex; flex-direction: column; gap: 14px; }
+.cfiles { gap: 14px; }
 .file-status {
-  display: flex; align-items: center; gap: 22px;
   padding: 12px 16px;
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg);
   background: var(--c-surface);
 }
-.fs-item { display: flex; flex-direction: column; gap: 3px; }
+.fs-item { gap: 3px; }
 .fs-item .v { font-size: 17px; font-weight: 700; color: var(--c-text); line-height: 1.1; }
 .fs-item .v.warn { color: var(--c-warning); }
 .fs-item .v small { font-size: 10.5px; font-weight: 500; color: var(--c-text-secondary); margin-left: 2px; }
 .fs-item .k { font-size: 10.5px; color: var(--c-text-secondary); }
 .fs-sep { width: 1px; height: 34px; background: var(--c-border); }
-.fs-actions { margin-left: auto; display: flex; gap: 8px; }
+.fs-actions { margin-left: auto; }
 
 .files-layout { display: flex; gap: 14px; align-items: stretch; min-height: 320px; }
 .dir-tree {
-  width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px;
+  width: 300px; flex-shrink: 0; gap: 2px;
   overflow-y: auto; border: 1px solid var(--c-border);
   border-radius: var(--c-radius-lg); background: var(--c-surface); padding: 8px;
 }
@@ -340,7 +339,7 @@ onUnmounted(() => {
 }
 .st-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
 .dir-item {
-  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
+  height: 34px; padding: 0 10px;
   border-radius: var(--c-radius-btn); cursor: pointer; border: 1px solid transparent;
   transition: background var(--motion-fast) var(--ease-out);
 }
@@ -349,14 +348,12 @@ onUnmounted(() => {
 .di-ico { width: 15px; flex-shrink: 0; color: var(--c-warning); }
 .di-name {
   flex: 1; font-size: 12.5px; color: var(--c-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .di-count { font-size: 10.5px; color: var(--c-text-secondary); font-family: var(--font-mono); }
 .di-state { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .di-state.ok { background: var(--c-success); }
 .di-state.empty { background: #D8DBE0; }
 .files-toolbar {
-  display: flex; align-items: center; gap: 8px;
   padding: 8px 2px 0; margin-top: auto; border-top: 1px solid var(--c-border);
 }
 .ft-hint {
@@ -373,7 +370,7 @@ onUnmounted(() => {
   border-color: var(--c-primary);
   background: var(--c-primary-light);
 }
-.df-head { display: flex; align-items: center; gap: 8px; padding: 2px 2px 10px; }
+.df-head { padding: 2px 2px 10px; }
 .df-title { font-size: 13px; font-weight: 600; color: var(--c-text); }
 .df-tag {
   font-size: 10.5px; color: var(--c-text-secondary); font-family: var(--font-mono);
@@ -382,12 +379,10 @@ onUnmounted(() => {
 .df-tag.warn { background: var(--c-warning-light); color: var(--c-warning); }
 
 .fg-body {
-  display: flex; flex-direction: column; gap: 4px;
   border: 1px solid var(--c-border); border-radius: var(--c-radius-lg);
   padding: 6px; background: var(--c-surface);
 }
 .file-card {
-  display: flex; align-items: center; gap: 12px;
   padding: 8px 10px; border-radius: var(--c-radius-btn);
   border: 1px solid transparent;
   transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
@@ -395,7 +390,7 @@ onUnmounted(() => {
 .file-card:hover { background: var(--c-bg-hover); border-color: var(--c-border); }
 .f-ico {
   width: 32px; height: 32px; border-radius: var(--c-radius-btn);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  justify-content: center; flex-shrink: 0;
 }
 .f-ico.pdf { background: var(--c-danger-light); color: var(--c-danger); }
 .f-ico.doc { background: var(--c-primary-light); color: var(--c-primary); }
@@ -404,7 +399,6 @@ onUnmounted(() => {
 .f-main { flex: 1; min-width: 0; }
 .fn {
   font-size: 12.5px; font-weight: 500; color: var(--c-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .fm {
   font-size: 10.5px; color: var(--c-text-secondary); margin-top: 2px;

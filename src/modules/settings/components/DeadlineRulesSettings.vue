@@ -20,6 +20,7 @@ import {
   triggerFieldLabel,
   type DeadlineRuleDto,
 } from './deadlineRuleMeta'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 // ── 列表数据 ─────────────────────────────────────────────────
 const rules = ref<DeadlineRuleDto[]>([])
@@ -265,12 +266,12 @@ onMounted(loadRules)
 
 <template>
   <div class="deadline-rules-settings">
-    <div class="section-head">
+    <div class="section-head ui-row ui-row--top ui-row--between ui-mb-12">
       <div>
         <h4>法定期限规则</h4>
         <p class="desc">按案件轨道自定义法定期限的触发字段与偏移算法，变更自动留痕并重算受影响案件</p>
       </div>
-      <div class="head-actions">
+      <div class="head-actions ui-row">
         <el-button size="small" @click="loadRules">
           <el-icon><RefreshRight /></el-icon> 刷新
         </el-button>
@@ -281,10 +282,10 @@ onMounted(loadRules)
     </div>
 
     <div v-loading="loading">
-      <el-empty v-if="!loading && rules.length === 0" description="暂无期限规则" :image-size="80" />
+      <EmptyState v-if="!loading && rules.length === 0" type="custom" compact hide-action title="暂无期限规则" />
 
       <div v-for="group in trackGroups" :key="group.track" class="track-group">
-        <div class="track-head">
+        <div class="track-head ui-row">
           <el-tag :type="group.tagType" size="small" effect="light">{{ group.label }}</el-tag>
           <span class="track-code">{{ group.track }}</span>
           <span class="track-count">{{ group.rules.length }} 条规则</span>
@@ -293,8 +294,8 @@ onMounted(loadRules)
         <el-table :data="group.rules" size="small" style="width: 100%">
           <el-table-column label="规则" min-width="200">
             <template #default="{ row }">
-              <div class="rule-name">{{ row.ruleName }}</div>
-              <div class="rule-basis">{{ row.legalBasis }}</div>
+              <div class="rule-name ui-text">{{ row.ruleName }}</div>
+              <div class="rule-basis ui-text--caption">{{ row.legalBasis }}</div>
             </template>
           </el-table-column>
           <el-table-column label="触发字段" min-width="130">
@@ -421,12 +422,7 @@ onMounted(loadRules)
 </template>
 
 <style scoped>
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
+
 .section-head h4 {
   margin: 0 0 4px;
 }
@@ -435,17 +431,11 @@ onMounted(loadRules)
   color: var(--gray-400);
   margin: 0;
 }
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+
 .track-group {
   margin-bottom: 20px;
 }
 .track-head {
-  display: flex;
-  align-items: center;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -460,13 +450,9 @@ onMounted(loadRules)
   margin-left: auto;
 }
 .rule-name {
-  font-size: 13px;
-  color: var(--c-text);
   line-height: 1.5;
 }
 .rule-basis {
-  font-size: 12px;
-  color: var(--c-text-secondary);
   line-height: 1.4;
 }
 .offset-text {

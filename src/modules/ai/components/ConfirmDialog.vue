@@ -129,7 +129,7 @@ function handleReject() {
     width="560"
     :close-on-click-modal="false"
   >
-    <div v-if="recommendation" class="confirm-content">
+    <div v-if="recommendation" class="confirm-content ui-col">
       <!-- 确认等级提示 -->
       <div class="level-banner" :style="{ borderLeftColor: levelInfo.color }">
         <el-icon :size="16" :color="levelInfo.color">
@@ -174,7 +174,7 @@ function handleReject() {
       <!-- L2: 逐项确认 -->
       <div v-if="confirmLevel === 'L2' && recommendItems.length > 0" class="items-section">
         <h4>逐项确认</h4>
-        <div class="item-list">
+        <div class="item-list ui-col">
           <div
             v-for="(item, idx) in recommendItems"
             :key="idx"
@@ -233,8 +233,6 @@ function handleReject() {
 
 <style scoped>
 .confirm-content {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
@@ -297,8 +295,6 @@ function handleReject() {
 }
 
 .item-list {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
