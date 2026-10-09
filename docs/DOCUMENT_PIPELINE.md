@@ -91,3 +91,15 @@
 页数 5 倍增长，峰值 RSS 不增反降（差异在采样噪声内）——内存占用以 ONNX 模型与lopdf 文档为固定项，不随页数线性累积；线性增长的是磁盘产物（预期行为）。
 
 断点续算端到端实测：取 100 页完成产物，截断为“第 40 页后崩溃”状态（页 IR 保留前 40 页、无收尾 `]`、带 `.resume` 侧车标记、删除全部 finalize 产物），以 `resumeFrom=40` 重跑：退出码 0，引擎记录“沿用已落盘的 40 页，从第 41 页继续”，最终页 IR 恰好 100 页且序号连续，Markdown/可搜索 PDF/来源映射全部重建，侧车标记清理。页 IR 截断但无侧车标记时引擎直接报错，绝不静默产出坏 IR。
+
+## OCR 输入与识别增强（2026-10-09，参照 snow-apps/rapid-ocr-rs 的做法落地）
+
+**EXIF 方向**：图片输入统一应用 EXIF orientation（`read_raster` 出口，与 PIL `exif_transpose` 对齐的 8 种映射）。`image::open` 本身不做方向校正——手机拍照的证据/卷宗若不校正会被横竖颠倒识别。无 EXIF 的输入（PNG/BMP/扫描 PDF 渲染页）不受影响。
+
+**词级框**：识别默认开启词框（`return_word_box(true)`），落盘到页 IR 的 `regions[].wordBoxes`（父进程 `DocumentRegion.wordBoxes` 同步扩展，bindings 已重新生成）。实测（release 引擎 + PP-OCRv6 medium，10 页 ×3 轮）：warm 每页 2432.6 ms（关）vs 2437.6 ms（开）——吞吐无差异，峰值 RSS +140 MB。来源定位可从区域级细化到词级。
+
+**基准**：引擎新增 `bench` 子命令（`echo '<ProcessRequest JSON>' | casy-doc-engine bench`，`CASY_BENCH_RUNS` 控制轮数，默认 3）。输出 cold/warm 每轮耗时、每页耗时与进程峰值 RSS（getrusage），基准目录按 pid 隔离且每轮清空（避免撞上断点续算）。100 页实测：cold 2761 ms/页、warm 1998 ms/页、峰值 1068 MB。
+
+**文本行方向分类（180°）**：已按 `with_text_line_orientation_classification` 接线，但**默认关闭，仅 `CASY_TEXT_LINE_ORIENTATION_MODEL` 显式启用**。实证：PP-OCRv2 mobile cls（`ch_ppocr_mobile_v2.0_cls_infer.onnx`，RapidOCR 发行版）在 oar_ocr 0.9.2 适配器下预测接近随机——正常件从正确识别退化为乱码、颠倒件也修不好（非标签翻转，疑为输入规格不匹配）。需与 oar_ocr 预处理规格匹配的模型验证通过后再随包分发。
+
+**两项经实证确认不需要做**：① 竖排 crop 旋转 90°（snow 因其模型较旧需要）：现有 PP-OCRv6 medium 直接识别竖排日文，多语言真实模型回归通过；② det 前垂直 padding（宽幅图贴边行）：2400×320 极端宽幅下顶/底贴边行均正确识别，oar_ocr 内部已处理。

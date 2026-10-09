@@ -142,6 +142,7 @@ mod tests {
                 text: text.into(),
                 bbox,
                 confidence: Some(0.9),
+                word_boxes: None,
             }],
         };
         let mut pages = vec![

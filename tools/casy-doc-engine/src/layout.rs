@@ -184,6 +184,7 @@ mod tests {
             text: text.into(),
             bbox: [x, y, x + 100., y + 20.],
             confidence: Some(0.99),
+            word_boxes: None,
         };
         let mut regions = vec![
             line("left one", 10., 50.),
@@ -223,11 +224,13 @@ mod tests {
                 text: "continuation".into(),
                 bbox: [10., 40., 150., 60.],
                 confidence: None,
+                word_boxes: None,
             },
             Region {
                 text: "縦書き".into(),
                 bbox: [280., 180., 300., 350.],
                 confidence: None,
+                word_boxes: None,
             },
         ];
         order_regions(&mut regions, &blocks, 400., 600.);
@@ -256,6 +259,7 @@ mod tests {
                             y + line as f32 * 20. + 16.,
                         ],
                         confidence: None,
+                        word_boxes: None,
                     });
                 }
             }

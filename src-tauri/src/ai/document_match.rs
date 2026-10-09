@@ -174,6 +174,7 @@ mod tests {
                 text: text.into(),
                 bbox: [10.0, 20.0, 200.0, 40.0],
                 confidence: None,
+                word_boxes: None,
             }],
         }
     }
@@ -204,8 +205,8 @@ mod tests {
         let mut pages = vec![page(1,"赔偿"),page(2,"责任"),page(3,"承担")];
         for page in &mut pages {
             page.regions[0].bbox = [10.,100.,200.,140.];
-            page.regions.insert(0,DocumentRegion {text:format!("Evidence {}",page.number),bbox:[10.,5.,200.,20.],confidence:None});
-            page.regions.push(DocumentRegion {text:page.number.to_string(),bbox:[10.,575.,40.,595.],confidence:None});
+            page.regions.insert(0,DocumentRegion {text:format!("Evidence {}",page.number),bbox:[10.,5.,200.,20.],confidence:None,word_boxes:None});
+            page.regions.push(DocumentRegion {text:page.number.to_string(),bbox:[10.,575.,40.,595.],confidence:None,word_boxes:None});
         }
         let refs: Vec<_> = pages.iter().collect();
         let source=SourceText::continuous(&refs);

@@ -628,7 +628,7 @@ mod tests {
         let r = Region {
             text: "raw <0.001".into(),
             bbox: [20.0, 20.0, 60.0, 40.0],
-            confidence: Some(0.9),
+            confidence: Some(0.9), word_boxes: None,
         };
         assert_eq!(markdown(&[r.clone()], &mut [], 0), r.text);
         assert!(markdown(&[r], &mut [], 1).contains("表格结构待核对"));
@@ -639,7 +639,7 @@ mod tests {
         let r = |text: &str, bbox| Region {
             text: text.into(),
             bbox,
-            confidence: Some(0.99),
+            confidence: Some(0.99), word_boxes: None,
         };
         let regions = vec![
             r("sample B", [285.0, 105.0, 365.0, 125.0]),

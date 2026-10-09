@@ -311,3 +311,20 @@
 启动崩溃恢复路径此前零覆盖（每次启动都会改写任务状态），已补故障注入集成测试 `src-tauri/tests/job_recovery_test.rs`：产物写全的中断任务被恢复为 completed（页 IR 写入 document_pages、结果清单落库、卷宗状态翻转），无产物的中断任务保持 failed 交由重试/续算。
 
 **本机真实 OCR 实测（2026-10-08，release 引擎 + 完整模型）**：100 页峰值 RSS 1311 MB / 220.1s，500 页 1136 MB / 800.8s——页数 5 倍而峰值不增（模型与 lopdf 为固定项），磁盘产物线性增长（3→14 MB）。断点续算端到端：把 100 页产物截断为“第 40 页后崩溃”状态后以 `resumeFrom=40` 重跑，退出码 0、最终恰好 100 页且序号连续、finalize 产物齐全、引擎确认“沿用已落盘的 40 页”。期间发现并修复真实 bug：崩溃留下的半截页 IR（无收尾 `]`）会被按字节截断误删一个完整页——改为侧车标记（页数+字节偏移，先落页后写标记，崩溃至多落后一页）精确定位续写点。数据表见 [DOCUMENT_PIPELINE](DOCUMENT_PIPELINE.md#有界内存与断点续算实测2026-10-08本机真实-ocr)。
+
+---
+
+## 2026-10-09 snow-apps OCR 研究落地
+
+参照 `mg-chao/snow-apps` 的 `rapid-ocr-rs`（13k 行 Rust PaddleOCR 兼容实现）与 `snow-ocr-process`（共享内存 OCR 进程）完成 6 项落地/实证：
+
+| 项 | 结论 |
+| --- | --- |
+| EXIF 方向 | **已修复**：`read_raster` 出口统一应用（PIL exif_transpose 对齐的 8 映射）；此前 `image::open` 不应用方向，拍照件会横竖颠倒识别。2 个单测 |
+| 词级框 | **已启用**：`return_word_box(true)` + 页 IR `regions[].wordBoxes` + 父进程 `DocumentRegion`/bindings 同步。实测 10 页×3 轮：warm 2432.6 vs 2437.6 ms/页（无差异）、峰值 +140 MB。1 个往返单测 |
+| OCR 基准 | **已固化**：引擎 `bench` 子命令（cold/warm 每页耗时 + getrusage 峰值 RSS，pid 隔离目录）。100 页：cold 2761 / warm 1998 ms/页、峰值 1068 MB |
+| cls 180° | **接线但默认关**：实证 PP-OCRv2 mobile cls 在 oar_ocr 0.9.2 下预测接近随机（正常件退化为乱码、颠倒件修不好，非标签翻转）——仅 `CASY_TEXT_LINE_ORIENTATION_MODEL` 显式启用，待规格匹配的模型 |
+| 竖排 crop 旋转 | **实证不需要**：PP-OCRv6 medium 直接识别竖排日文（真实模型回归通过），snow 需要该启发式因其模型较旧 |
+| 宽幅垂直 padding | **实证不需要**：2400×320 极端宽幅顶/底贴边行均正确识别，oar_ocr 内部已处理 |
+
+新增依赖：`kamadak-exif`、`libc`（均为小体积纯 Rust；lockfile 增量 +33 行，无无关升级）。真实模型回归（中文扫描/韩文/多语言）在每项改动后重跑通过。门禁：Rust 403/0/6、引擎 27/5、前端 377/87、clippy 0 警告。

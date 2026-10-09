@@ -116,7 +116,7 @@ mod tests {
         let regions = vec![Region {
             text: "x < y & z".into(),
             bbox: [30.0, 30.0, 60.0, 50.0],
-            confidence: Some(0.8),
+            confidence: Some(0.8), word_boxes: None,
         }];
         let md = crate::table::markdown_with_visuals(&regions, &mut [], 0, &[visual]);
         assert!(md.contains("未转换为 LaTeX"));

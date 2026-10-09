@@ -163,7 +163,7 @@ export type DocumentPageView = { fileId: string; jobId: string; fileName: string
 
 export type DocumentPassage = { fileId: string; jobId: string; fileName: string; sourcePath: string; number: number; locationKind: string; content: string; citation: string; locations: SourceLocation[] }
 
-export type DocumentRegion = { text: string; bbox: number[]; confidence: number | null }
+export type DocumentRegion = { text: string; bbox: number[]; confidence: number | null; wordBoxes?: number[][] | null }
 
 /**
  * 草稿实体（docs 域）

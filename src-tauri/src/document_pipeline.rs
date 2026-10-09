@@ -33,6 +33,9 @@ pub struct DocumentRegion {
     pub text: String,
     pub bbox: [f32; 4],
     pub confidence: Option<f32>,
+    /// 词级框（引擎 PP-OCRv6 词框输出）：来源定位可细化到词；模型不支持时缺省。
+    #[serde(default)]
+    pub word_boxes: Option<Vec<[f32; 4]>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, specta::Type)]

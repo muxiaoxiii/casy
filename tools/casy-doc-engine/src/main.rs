@@ -31,7 +31,7 @@ struct EngineStatus {
     error: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProcessRequest {
     job_id: String,
@@ -53,6 +53,10 @@ struct Region {
     text: String,
     bbox: [f32; 4],
     confidence: Option<f32>,
+    /// 词级框（R-02 之后新增）：识别模型按字符分数切出的词/单字边界，
+    /// 供来源定位从“区域级”细化到“词级”。模型不支持时为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    word_boxes: Option<Vec<[f32; 4]>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +121,11 @@ struct ProcessResult {
     source_map_path: String,
     page_count: u32,
     elapsed_ms: u64,
+}
+
+/// 引擎诊断输出：stderr（stdout 保留给结果协议）。
+fn log_line(message: &str) {
+    eprintln!("[casy-doc-engine] {message}");
 }
 
 fn command_exists(name: &str) -> bool {
@@ -281,6 +290,29 @@ fn write_progress(
     Ok(())
 }
 
+/// 读取图片输入的 EXIF 方向（1..8；无 EXIF 或非 JPEG 返回 None）。
+fn exif_orientation(source: &Path) -> Option<u32> {
+    let mut file = std::io::BufReader::new(std::fs::File::open(source).ok()?);
+    let exif = exif::Reader::new().read_from_container(&mut file).ok()?;
+    let field = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
+    field.value.get_uint(0)
+}
+
+/// 应用 EXIF 方向（与 PIL exif_transpose 对齐）。
+/// image::open 不做方向校正——手机拍照的卷宗/证据若不校正会被横竖颠倒识别。
+fn apply_exif_orientation(img: image::DynamicImage, orientation: Option<u32>) -> image::DynamicImage {
+    match orientation.unwrap_or(1) {
+        2 => img.fliph(),
+        3 => img.rotate180(),
+        4 => img.flipv(),
+        5 => img.fliph().rotate90(),
+        6 => img.rotate90(),
+        7 => img.fliph().rotate270(),
+        8 => img.rotate270(),
+        _ => img,
+    }
+}
+
 fn read_raster(source: &Path) -> Result<image::DynamicImage> {
     use image::AnimationDecoder;
     let file = std::io::BufReader::new(std::fs::File::open(source)?);
@@ -313,7 +345,9 @@ fn read_raster(source: &Path) -> Result<image::DynamicImage> {
     limits.max_image_height = Some(16000);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
-    Ok(reader.decode()?)
+    // EXIF 方向在此统一应用：raster_pdf（图片→PDF）与 raster_ocr_image（直接识别）都走这里。
+    let decoded = reader.decode()?;
+    Ok(apply_exif_orientation(decoded, exif_orientation(source)))
 }
 
 fn raster_pdf(source: &Path, output: &Path) -> Result<()> {
@@ -416,14 +450,24 @@ fn recognize(
                 .with_inter_threads(1)
                 .with_spin_control(false)
                 .commit()?;
-            coordinate = Some(
-                OAROCRBuilder::new(&det, &rec, &dict)
-                    .character_dict_content(model_dictionary(coord_dir)?)
-                    .return_word_box(false)
-                    // Single-line inference avoids expensive padded medium-model CPU batches.
-                    .region_batch_size(1)
-                    .build()?,
-            );
+            // 文本行方向分类（180°）模型：仅 env 显式启用（默认关）。
+            // 实证：PP-OCRv2 mobile cls（ch_ppocr_mobile_v2.0_cls_infer.onnx）在
+            // oar_ocr 0.9.2 的适配器下预测接近随机——正常件从正确识别退化为乱码，
+            // 颠倒件也修不好（非标签翻转）。需与 oar_ocr 预处理规格匹配的模型
+            // 验证通过后再改为随包分发 + 目录自动发现。
+            let orientation_model = env_path("CASY_TEXT_LINE_ORIENTATION_MODEL");
+            let mut builder = OAROCRBuilder::new(&det, &rec, &dict)
+                .character_dict_content(model_dictionary(coord_dir)?)
+                // 词级框：实测对吞吐无影响（10 页 warm 2432.6 vs 2437.6 ms/页），
+                // 峰值 RSS +140MB——默认开启，来源定位细化到词级。
+                .return_word_box(true)
+                // Single-line inference avoids expensive padded medium-model CPU batches.
+                .region_batch_size(1);
+            if let Some(model) = &orientation_model {
+                builder = builder.with_text_line_orientation_classification(model.clone());
+                log_line(&format!("text-line orientation (180°) classification enabled: {}", model.display()));
+            }
+            coordinate = Some(builder.build()?);
             let korean_dir = env_path("CASY_KOREAN_MODEL_DIR").or_else(|| {
                 let candidate = coord_dir.parent()?.join("korean-ppocrv5-mobile");
                 candidate.is_dir().then_some(candidate)
@@ -484,10 +528,26 @@ fn recognize(
                 bbox[2] = bbox[2].clamp(bbox[0], image.width() as f32);
                 bbox[1] = bbox[1].clamp(0.0, image.height() as f32);
                 bbox[3] = bbox[3].clamp(bbox[1], image.height() as f32);
+                let word_boxes = region.word_boxes.as_ref().filter(|w| !w.is_empty()).map(|boxes| {
+                    boxes
+                        .iter()
+                        .map(|box_| {
+                            let xs: Vec<_> = box_.points.iter().map(|p| p.x).collect();
+                            let ys: Vec<_> = box_.points.iter().map(|p| p.y).collect();
+                            [
+                                xs.iter().copied().fold(f32::INFINITY, f32::min).clamp(0.0, image.width() as f32),
+                                ys.iter().copied().fold(f32::INFINITY, f32::min).clamp(0.0, image.height() as f32),
+                                xs.iter().copied().fold(f32::NEG_INFINITY, f32::max).clamp(0.0, image.width() as f32),
+                                ys.iter().copied().fold(f32::NEG_INFINITY, f32::max).clamp(0.0, image.height() as f32),
+                            ]
+                        })
+                        .collect()
+                });
                 regions.push(Region {
                     text: text.into(),
                     bbox,
                     confidence: Some(confidence),
+                    word_boxes,
                 });
                 recognition_boxes.push(region.bounding_box.clone());
             }
@@ -684,7 +744,7 @@ fn split_table_crossings(regions: &mut Vec<Region>, tables: &[table::Table], ima
                     for r in result.text_regions {
                         if let Some((text,confidence))=r.text_with_confidence() {
                             let b=&r.bounding_box;
-                            fragments.push(Region{text:text.into(),confidence:Some(confidence),bbox:[(b.x_min()+x0 as f32-12.0).clamp(0.0,image.width() as f32),(b.y_min()+y0 as f32-12.0).clamp(0.0,image.height() as f32),(b.x_max()+x0 as f32-12.0).clamp(0.0,image.width() as f32),(b.y_max()+y0 as f32-12.0).clamp(0.0,image.height() as f32)]});
+                            fragments.push(Region{text:text.into(),confidence:Some(confidence),word_boxes:None,bbox:[(b.x_min()+x0 as f32-12.0).clamp(0.0,image.width() as f32),(b.y_min()+y0 as f32-12.0).clamp(0.0,image.height() as f32),(b.x_max()+x0 as f32-12.0).clamp(0.0,image.width() as f32),(b.y_max()+y0 as f32-12.0).clamp(0.0,image.height() as f32)]});
                         }
                     }
                 }
@@ -1255,6 +1315,24 @@ fn write_result(value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
+/// 进程峰值 RSS（getrusage；macOS 为字节，Linux 为 KB——统一换算成字节）。
+fn peak_rss_bytes() -> u64 {
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    // SAFETY: getrusage 只写入我们拥有的 rusage 结构，RUSAGE_SELF 无需特殊权限。
+    let ok = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } == 0;
+    if !ok {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        usage.ru_maxrss as u64
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        usage.ru_maxrss as u64 * 1024
+    }
+}
+
 fn run() -> Result<()> {
     let command = std::env::args().nth(1).unwrap_or_default();
     match command.as_str() {
@@ -1277,7 +1355,50 @@ fn run() -> Result<()> {
             let mut revision: Revision = serde_json::from_slice(&input)?;
             write_result(&process_pages(&mut revision.request, Some(revision.pages))?)?;
         }
-        _ => return Err(anyhow!("usage: casy-doc-engine <probe|process>")),
+        "bench" => {
+            // 基准：冷启动（含模型加载）→ 重复 N 次热跑 → 每页耗时 + 进程峰值 RSS。
+            // 用法：echo '<ProcessRequest JSON>' | casy-doc-engine bench
+            // 环境变量：CASY_BENCH_RUNS（默认 3）。
+            let mut input = Vec::new();
+            std::io::stdin().read_to_end(&mut input)?;
+            let request: ProcessRequest = serde_json::from_slice(&input)?;
+            let runs = std::env::var("CASY_BENCH_RUNS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| (1..=20).contains(value))
+                .unwrap_or(3);
+            let mut timings: Vec<u64> = Vec::with_capacity(runs);
+            let mut page_count = 0u32;
+            // 每次调用的基准目录互相独立（含 pid），且每轮先清空，
+            // 否则会撞上断点续算路径，量到的就不是完整识别耗时。
+            let base = format!("{}/bench-{}", request.output_dir.trim_end_matches('/'), std::process::id());
+            for run in 0..runs {
+                let mut req = request.clone();
+                req.job_id = format!("{}-bench-{run}", request.job_id);
+                req.output_dir = format!("{base}/run-{run}");
+                let _ = std::fs::remove_dir_all(&req.output_dir);
+                let started = std::time::Instant::now();
+                let result = process(req)?;
+                timings.push(started.elapsed().as_millis() as u64);
+                page_count = result.page_count;
+            }
+            let peak_rss = peak_rss_bytes();
+            let per_page = |ms: u64| if page_count == 0 { 0.0 } else { ms as f64 / page_count as f64 };
+            println!(
+                "{}",
+                serde_json::json!({
+                    "runs": runs,
+                    "pageCount": page_count,
+                    "runMs": timings,
+                    "coldMs": timings.first().copied().unwrap_or(0),
+                    "warmAvgMs": if timings.len() > 1 { timings[1..].iter().sum::<u64>() / (timings.len() - 1) as u64 } else { 0 },
+                    "coldPerPageMs": (per_page(timings.first().copied().unwrap_or(0)) * 100.0).round() / 100.0,
+                    "warmPerPageMs": (per_page(if timings.len() > 1 { timings[1..].iter().sum::<u64>() / (timings.len() - 1) as u64 } else { 0 }) * 100.0).round() / 100.0,
+                    "peakRssMB": (peak_rss as f64 / 1048576.0 * 100.0).round() / 100.0,
+                })
+            );
+        }
+        _ => return Err(anyhow!("usage: casy-doc-engine <probe|process|revise|bench>")),
     }
     Ok(())
 }
@@ -1367,6 +1488,83 @@ mod page_ir_stream_tests {
 }
 
 #[cfg(test)]
+mod word_box_tests {
+    use super::*;
+
+    /// 词框在页 IR 里往返：有值时保留，缺省时反序列化兼容旧数据。
+    #[test]
+    fn word_boxes_round_trip_and_default_for_legacy() {
+        let page = Page {
+            page_number: 1,
+            width: Some(400.0),
+            height: Some(600.0),
+            plain_text: "证据金额".into(),
+            markdown: "证据金额".into(),
+            regions: vec![Region {
+                text: "证据金额".into(),
+                bbox: [10.0, 20.0, 200.0, 40.0],
+                confidence: Some(0.9),
+                word_boxes: Some(vec![[10.0, 20.0, 60.0, 40.0], [70.0, 20.0, 200.0, 40.0]]),
+            }],
+            confidence: Some(0.9),
+            layout: None,
+            timing: None,
+            native_text: false,
+        };
+        let json = serde_json::to_vec(&page).unwrap();
+        let text = String::from_utf8(json.clone()).unwrap();
+        assert!(text.contains("wordBoxes"), "词框应出现在页 IR 中");
+        let back: Page = serde_json::from_slice(&json).unwrap();
+        assert_eq!(back.regions[0].word_boxes.as_ref().map(|w| w.len()), Some(2));
+
+        // 旧页 IR（无 wordBoxes 字段）必须能解析：直接改结构体再序列化
+        let mut legacy_page = page.clone();
+        legacy_page.regions[0].word_boxes = None;
+        let legacy = serde_json::to_vec(&legacy_page).unwrap();
+        assert!(!String::from_utf8_lossy(&legacy).contains("wordBoxes"));
+        let back: Page = serde_json::from_slice(&legacy).unwrap();
+        assert_eq!(back.regions[0].word_boxes, None);
+    }
+}
+
+#[cfg(test)]
+mod exif_orientation_tests {
+    use super::*;
+
+    fn rgb(w: u32, h: u32) -> image::DynamicImage {
+        image::DynamicImage::ImageRgb8(image::RgbImage::new(w, h))
+    }
+
+    /// PIL exif_transpose 对齐：6=顺时针 90°，宽高互换；8=逆时针 90°。
+    #[test]
+    fn orientation_6_and_8_swap_dimensions() {
+        let rotated = apply_exif_orientation(rgb(40, 10), Some(6));
+        assert_eq!((rotated.width(), rotated.height()), (10, 40));
+        let rotated = apply_exif_orientation(rgb(40, 10), Some(8));
+        assert_eq!((rotated.width(), rotated.height()), (10, 40));
+        // 翻转类不改变尺寸
+        let flipped = apply_exif_orientation(rgb(40, 10), Some(2));
+        assert_eq!((flipped.width(), flipped.height()), (40, 10));
+        // 1 / None / 未知值不动
+        for orientation in [Some(1), None, Some(9)] {
+            let same = apply_exif_orientation(rgb(40, 10), orientation);
+            assert_eq!((same.width(), same.height()), (40, 10));
+        }
+    }
+
+    /// 无 EXIF 的输入不得改变尺寸（PNG/BMP 等绝大多数卷宗扫描件走这条）。
+    #[test]
+    fn plain_png_has_no_orientation() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("plain.png");
+        image::RgbImage::new(30, 20).save(&path).unwrap();
+        assert_eq!(exif_orientation(&path), None);
+        let decoded = read_raster(&path).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (30, 20));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1430,6 +1628,7 @@ mod tests {
                 text: "Actual amount 128000".into(),
                 bbox: [30.0, 84.0, 230.0, 100.0],
                 confidence: Some(0.99),
+                word_boxes: None,
             }],
             confidence: Some(0.99),
             layout: None,
@@ -1528,6 +1727,7 @@ mod tests {
             text: "圣斗引 外人 10-2019-0078013".into(),
             bbox: [30.0, 80.0, 350.0, 105.0],
             confidence: Some(0.65),
+            word_boxes: None,
         }];
 
         let enhanced = enhance_regions_with_native_stream(
@@ -1824,6 +2024,7 @@ mod tests {
                 text: "Searchable evidence".into(),
                 bbox: [10.0, 10.0, 150.0, 30.0],
                 confidence: Some(0.99),
+                word_boxes: None,
             }],
             confidence: Some(0.99),
             layout: None,

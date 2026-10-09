@@ -83,7 +83,21 @@ npm run release:validation
 
 甘特入口：在上述 URL 中使用 `mode=gantt`、`view=forecast&layout=gantt`。`TaskGantt` 通过 `CalendarService.taskPlans/saveTaskPlan` 调用原生 `list_task_plans/save_task_plan`，入库至 v42 `task_plans`；计划起止与任务 startDate/dueDate 分开，NULL 起止代表取消独立计划，修订号保留。类型由 `cd src-tauri && cargo test export_bindings` 生成，禁止手改 bindings.ts。
 
-定向验证：`npx vitest run tests/unit/taskPlanning.test.ts tests/unit/TaskGantt.test.ts tests/unit/calendarTimeline.test.ts tests/unit/calendarProjection.test.ts`；原生计划校验：`cd src-tauri && cargo test task_plans`，休息提醒：`cargo test rest_day_reminders`。全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。
+定向验证：`npx vitest run tests/unit/taskPlanning.test.ts tests/unit/TaskGantt.test.ts tests/unit/calendarTimeline.test.ts tests/unit/calendarProjection.test.ts`；原生计划校验：`cd src-tauri && cargo test task_plans`，休息提醒：`cargo test rest_day_reminders`。
+
+OCR 引擎验证（需本机 runtime 模型，路径用绝对路径）：
+
+```bash
+# 单元 + 算法测试（不需要模型）
+cargo test --manifest-path tools/casy-doc-engine/Cargo.toml --locked --features models
+# 真实模型回归（中文扫描 / 韩文 / 多语言含竖排，约 25s）
+CASY_OCR_QA_DIR=$(mktemp -d) CASY_PPOCR_MODEL_DIR=$PWD/src-tauri/runtime/models/ppocrv6-medium CASY_KOREAN_MODEL_DIR=$PWD/src-tauri/runtime/models/korean-ppocrv5-mobile CASY_OCR_FONT=$PWD/src-tauri/runtime/fonts/NotoSansCJK-Regular.ttf   cargo test --manifest-path tools/casy-doc-engine/Cargo.toml --locked --features models -- --ignored real_
+# 性能基准（cold/warm 每页耗时 + 峰值 RSS）
+cargo build --release --features models --manifest-path tools/casy-doc-engine/Cargo.toml
+echo '<ProcessRequest JSON>' | CASY_BENCH_RUNS=3 ./tools/casy-doc-engine/target/release/casy-doc-engine bench
+```
+
+文本行方向分类默认关闭；启用需 `CASY_TEXT_LINE_ORIENTATION_MODEL` 指向经验证的 cls ONNX（当前已知模型与 oar_ocr 不兼容，见 DOCUMENT_PIPELINE.md）。全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。
 
 时段 fixture：`mode=availability`、`date=2026-09-28&view=day`，预置 13:00–18:00 请假，支持表单内存保存与各视图切换。`tests/unit/personalAvailability.test.ts` 覆盖保存、失败草稿与时间范围；`task_plan_chain_test` 使用真正原生命令验证任务全链路及重复实例，`webdav_full_backup_test` 验证计划和休息时段随完整档案恢复。
 
