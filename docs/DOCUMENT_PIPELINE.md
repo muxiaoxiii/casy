@@ -92,6 +92,20 @@
 
 断点续算端到端实测：取 100 页完成产物，截断为“第 40 页后崩溃”状态（页 IR 保留前 40 页、无收尾 `]`、带 `.resume` 侧车标记、删除全部 finalize 产物），以 `resumeFrom=40` 重跑：退出码 0，引擎记录“沿用已落盘的 40 页，从第 41 页继续”，最终页 IR 恰好 100 页且序号连续，Markdown/可搜索 PDF/来源映射全部重建，侧车标记清理。页 IR 截断但无侧车标记时引擎直接报错，绝不静默产出坏 IR。
 
+## OCR 模型档位（2026-10-09）
+
+识别模型分三档，落盘于 `models/ocr/<tier>/{det.onnx,rec.onnx,dict.txt}`，由 `scripts/prepare-ocr-models.mjs` 从 ModelScope（与 Snow Shot 同一份 sha256 清单）下载，`runtime:prepare` 默认准备 small：
+
+| 档位 | 体积 | 字库 | 多语言 | 用途 |
+| --- | --- | --- | --- | --- |
+| **small（默认）** | 29.8MB | 18709 字符 | 与 medium 完全一致 | 日常卷宗；实测与 medium 在中文密集页、45° 倾斜页输出逐字节一致，且快约 40% |
+| medium（可选） | 132.4MB | 18709 字符 | 同上 | 疑难件；`--tier medium` 下载 |
+| tiny（可选） | 6.1MB | 6905 字符 | **缺全部 180 个日文假名与约 1 万生僻汉字**（法/德/韩/中/英在） | 仅纯中/英场景 |
+
+档位解析顺序（父进程与引擎一致）：`CASY_PPOCR_MODEL_DIR` 显式目录 → `CASY_OCR_TIER` / settings `ocr.tier` → 默认 small → 旧布局 `models/ppocrv6-medium` 兜底（老安装不停摆）。韩文识别独立模型不变。
+
+**向量模型**：默认 multilingual-e5-small-int8（384 维，约 135MB 含 tokenizer），替代 e5-base-int8（768 维，约 281MB）；同一 E5 家族，日/韩/法/德/中/英覆盖不变——实测跨语言相似度不差于 base（如中文↔日文 0.943 vs 0.912）。索引指纹已升版（`e5-small-…-v3`），旧索引自动全量重建；未安装 small 时回退 base。
+
 ## OCR 输入与识别增强（2026-10-09，参照 snow-apps/rapid-ocr-rs 的做法落地）
 
 **EXIF 方向**：图片输入统一应用 EXIF orientation（`read_raster` 出口，与 PIL `exif_transpose` 对齐的 8 种映射）。`image::open` 本身不做方向校正——手机拍照的证据/卷宗若不校正会被横竖颠倒识别。无 EXIF 的输入（PNG/BMP/扫描 PDF 渲染页）不受影响。

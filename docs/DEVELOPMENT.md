@@ -14,6 +14,9 @@
 npm ci
 node scripts/prepare-zvec.mjs
 node scripts/prepare-doc2x.mjs
+node scripts/prepare-ocr-models.mjs            # OCR 识别模型档位，默认 small（约 30MB）
+# 可选：node scripts/prepare-ocr-models.mjs --tier medium   # 132MB 高精度档
+#        node scripts/prepare-ocr-models.mjs --all
 npm run tauri -- dev
 ```
 

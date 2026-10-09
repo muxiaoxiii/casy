@@ -30,7 +30,9 @@ impl EmbeddingPlan {
             return Ok(Some(Self {
                 profile_id: settings.profile_id, mode: "local".into(), api_url: String::new(), model: settings.model,
                 chunk_chars: settings.chunk_chars as usize,
-                fingerprint: digest(format!("e5-base-1ec9243-mean-window512-heading-v2:{}", settings.chunk_chars).as_bytes()),
+                // 模型从 e5-base 换为 e5-small（384 维）——指纹升版，触发全量重建；
+                // 向量索引另有一层维度校验兜底。
+                fingerprint: digest(format!("e5-small-1ec9243-mean-window512-heading-v3:{}", settings.chunk_chars).as_bytes()),
             }));
         }
         let profile = config

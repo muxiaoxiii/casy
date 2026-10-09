@@ -145,15 +145,40 @@ fn command_exists(name: &str) -> bool {
         .map(|s| s.success())
         .unwrap_or(false)
 }
+/// 引擎根目录（可执行文件的上两级，与父进程 bundled_runtime 同规则）。
+fn engine_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.parent()?.parent().map(PathBuf::from)
+}
+
+/// OCR 识别模型档位目录：`models/ocr/<tier>/{det.onnx,rec.onnx,dict.txt}`。
+/// 顺序：`CASY_PPOCR_MODEL_DIR` → `CASY_OCR_TIER`（默认 small）→ 旧布局
+/// `models/ppocrv6-medium` 兜底。父进程通常会显式传入 coordinate_model_dir。
+fn ocr_model_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CASY_PPOCR_MODEL_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.join("det.onnx").is_file())
+    {
+        return Some(dir);
+    }
+    let root = engine_root()?;
+    let tier = std::env::var("CASY_OCR_TIER").unwrap_or_else(|_| "small".to_string());
+    let tier_dir = root.join("models/ocr").join(&tier);
+    if tier_dir.join("det.onnx").is_file() {
+        return Some(tier_dir);
+    }
+    let legacy = root.join("models/ppocrv6-medium");
+    legacy.join("det.onnx").is_file().then_some(legacy)
+}
+
 fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .map(PathBuf::from)
         .filter(|p| p.exists())
         .or_else(|| {
-            let exe = std::env::current_exe().ok()?;
-            let root = exe.parent()?.parent()?;
+            let root = engine_root()?;
             let relative = match name {
-                "CASY_PPOCR_MODEL_DIR" => "models/ppocrv6-medium",
+                "CASY_PPOCR_MODEL_DIR" => return ocr_model_dir(),
                 "CASY_KOREAN_MODEL_DIR" => "models/korean-ppocrv5-mobile",
                 "CASY_OCR_FONT" => "fonts/NotoSansCJK-Regular.ttf",
                 "CASY_LAYOUT_MODEL" => "models/layout/pp-doclayout_plus-l.onnx",
@@ -183,7 +208,7 @@ fn sha256_file(path: &Path) -> Result<String> {
 
 fn probe() -> EngineStatus {
     let renderer = command_exists("pdftoppm");
-    let coord = env_path("CASY_PPOCR_MODEL_DIR").is_some_and(|dir| {
+    let coord = ocr_model_dir().is_some_and(|dir| {
         ["det.onnx", "rec.onnx"]
             .iter()
             .all(|name| dir.join(name).is_file())
@@ -212,7 +237,8 @@ fn probe() -> EngineStatus {
         missing.push("pdftoppm".into())
     }
     if !coord {
-        missing.push("CASY_PPOCR_MODEL_DIR".into())
+        let tier = std::env::var("CASY_OCR_TIER").unwrap_or_else(|_| "small".to_string());
+        missing.push(format!("OCR 模型档位 {tier}（models/ocr/{tier}/ 或 CASY_PPOCR_MODEL_DIR）"))
     }
     if !korean {
         missing.push("CASY_KOREAN_MODEL_DIR".into())

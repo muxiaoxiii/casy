@@ -10,7 +10,9 @@ bunny 高危缺陷大部分已关闭（收件箱状态守卫与刷新、飞书 p
 
 bunny 10 UI/UX 升级第 1–4 步（组件层、断点收敛、四态、期限视觉通道/危险分级/键盘流）与 R-02（有界内存主线：引擎结果只回传路径与页数、父进程逐页流式）、R-06（`document_job_results` 结果持久化、`get_document_job_result` 查询、幂等重试、崩溃恢复）均已完成。完整处置记录见[全面代码审计](docs/CODE_AUDIT_2026-10-08.md)。
 
-**遗留（仅剩真实环境验收）**：真实外部服务联调、Windows 原生验收、远端 CI/Clippy/audit、公证。lopdf 可搜索 PDF 整份载入为行内性质残留。100/500 页真实 OCR 实测已完成：页数 5 倍增长峰值 RSS 不增（1311→1136 MB），断点续算端到端通过。
+**模型瘦身（2026-10-09）**：OCR 识别默认档从 PP-OCRv6 medium（132MB）换成 small（29.8MB，同字库、实测质量一致且更快）；向量模型从 e5-base（281MB）换成 multilingual-e5-small（135MB，多语言覆盖不变）；模型总量从 551MB 降到约 162MB。档位与模型均可用 `scripts/prepare-ocr-models.mjs` 显式切换，旧安装自动回退不中断。
+
+**遗留（仅剩真实环境验收）**：真实外部服务联调、Windows 原生验收、远端 CI/Clippy/audit、公证；layout 模型（124MB PP-DocLayout plus-L）的小型化替换待评估；OCR 剥离为 Myna 远端 provider 的方案已确认（接口匹配度高），按阶段实施中。lopdf 可搜索 PDF 整份载入为行内性质残留。100/500 页真实 OCR 实测已完成：页数 5 倍增长峰值 RSS 不增（1311→1136 MB），断点续算端到端通过。
 
 ## 历史状态（2026-09-23，0.1.3 生产验证版）
 

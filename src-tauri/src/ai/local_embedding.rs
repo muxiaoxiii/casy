@@ -6,8 +6,8 @@ use tokio::{
     sync::Mutex,
 };
 
-pub const PROFILE: &str = "builtin-e5-base";
-pub const MODEL: &str = "multilingual-e5-base-int8";
+pub const PROFILE: &str = "builtin-e5-small";
+pub const MODEL: &str = "multilingual-e5-small-int8";
 struct Worker {
     child: Child,
     input: ChildStdin,
@@ -20,12 +20,15 @@ pub async fn embed(inputs: &[String], query: bool) -> Result<Vec<Vec<f32>>> {
     if worker.is_none() {
         let executable =
             crate::document_pipeline::engine_executable().context("本地文档引擎未安装")?;
-        let model = crate::runtime_paths::runtime_asset(
-            "CASY_EMBEDDING_MODEL_DIR",
-            "models/embedding-e5-base",
-        )
-        .filter(|p| p.join("model_int8.onnx").is_file() && p.join("tokenizer.json").is_file())
-        .context("本地向量模型缺失，请安装完整 beta 包")?;
+        // 默认 multilingual-e5-small-int8（384 维，约 135MB，日/韩/法/德/中/英同家族覆盖）；
+        // 未安装时回退 e5-base（768 维，约 281MB）。维度变化由向量索引指纹触发重建。
+        let model = ["models/embedding-e5-small", "models/embedding-e5-base"]
+            .iter()
+            .find_map(|relative| {
+                crate::runtime_paths::runtime_asset("CASY_EMBEDDING_MODEL_DIR", relative)
+                    .filter(|p| p.join("model_int8.onnx").is_file() && p.join("tokenizer.json").is_file())
+            })
+            .context("本地向量模型缺失，请安装完整 beta 包")?;
         let mut child = tokio::process::Command::new(executable)
             .arg("embed")
             .env("CASY_EMBEDDING_MODEL_DIR", model)

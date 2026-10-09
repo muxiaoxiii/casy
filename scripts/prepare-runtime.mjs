@@ -17,6 +17,10 @@ const exists = async path => Boolean(await stat(path).catch(() => null))
 for (const folder of ['bin', 'lib', 'models', 'fonts', 'licenses']) await mkdir(join(runtime, folder), { recursive: true })
 run(process.execPath, ['scripts/prepare-zvec.mjs'], { stdio: 'inherit' })
 run(process.execPath, ['scripts/prepare-doc2x.mjs'], { stdio: 'inherit' })
+// OCR 识别模型档位（默认 small，约 30MB；medium/tiny 用 prepare-ocr-models.mjs --tier 显式准备）
+if (process.env.CASY_OCR_SKIP_MODELS !== '1') {
+  run(process.execPath, ['scripts/prepare-ocr-models.mjs'], { stdio: 'inherit' })
+}
 
 run('cargo', ['build', '--release', '--locked', '--features', 'models', '--manifest-path', 'tools/casy-doc-engine/Cargo.toml'], { stdio: 'inherit' })
 const exe = process.platform === 'win32' ? '.exe' : ''

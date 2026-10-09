@@ -306,11 +306,77 @@ pub async fn probe_engine() -> DocumentEngineStatus {
 
 fn env_path(name: &str) -> Option<String> {
     let relative = match name {
-        "CASY_PPOCR_MODEL_DIR" => "models/ppocrv6-medium",
+        "CASY_PPOCR_MODEL_DIR" => return ocr_model_dir().map(|p| p.to_string_lossy().into_owned()),
         "CASY_OCR_FONT" => "fonts/NotoSansCJK-Regular.ttf",
         _ => return None,
     };
     crate::runtime_paths::runtime_asset(name, relative).map(|p| p.to_string_lossy().into_owned())
+}
+
+/// OCR 识别模型档位：`models/ocr/<tier>/{det.onnx,rec.onnx,dict.txt}`。
+///
+/// 解析顺序：`CASY_PPOCR_MODEL_DIR`（显式目录）→ `CASY_OCR_TIER`（默认 small，
+/// small 约 30MB，tiny 约 6MB，medium 约 132MB 可选下载）→ 旧布局
+/// `models/ppocrv6-medium` 兜底（老安装不停摆）。目录缺 det.onnx 即视为不可用。
+pub fn ocr_model_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CASY_PPOCR_MODEL_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.join("det.onnx").is_file())
+    {
+        return Some(dir);
+    }
+    let root = crate::runtime_paths::bundled_runtime()?;
+    let tier = configured_ocr_tier();
+    let tier_dir = root.join("models/ocr").join(&tier);
+    if tier_dir.join("det.onnx").is_file() {
+        return Some(tier_dir);
+    }
+    // 旧安装布局兜底
+    let legacy = root.join("models/ppocrv6-medium");
+    legacy.join("det.onnx").is_file().then_some(legacy)
+}
+
+/// 当前配置的 OCR 档位：env `CASY_OCR_TIER` > settings `ocr.tier` > `small`。
+/// 只接受已安装的档位；配置了但未下载时回退 small 并记日志（调用方按需提示）。
+pub fn configured_ocr_tier() -> String {
+    if let Some(tier) = std::env::var("CASY_OCR_TIER").ok().filter(|value| !value.trim().is_empty()) {
+        return normalize_tier(&tier);
+    }
+    let from_settings = crate::db::open_db()
+        .ok()
+        .and_then(|conn| crate::db::get_setting(&conn, "ocr.tier").ok().flatten())
+        .filter(|value| !value.trim().is_empty());
+    match from_settings {
+        Some(tier) => normalize_tier(&tier),
+        None => "small".to_string(),
+    }
+}
+
+fn normalize_tier(tier: &str) -> String {
+    let tier = tier.trim().to_ascii_lowercase();
+    if matches!(tier.as_str(), "tiny" | "small" | "medium") {
+        tier
+    } else {
+        log::warn!("未知 OCR 档位 {tier}，回退 small");
+        "small".to_string()
+    }
+}
+
+/// 当前可用的 OCR 档位列表（供探活与设置界面展示）。
+pub fn available_ocr_tiers() -> Vec<String> {
+    let Some(root) = crate::runtime_paths::bundled_runtime() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(root.join("models/ocr")) else {
+        return Vec::new();
+    };
+    let mut tiers: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.path().join("det.onnx").is_file())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    tiers.sort();
+    tiers
 }
 
 /// 仅计算产物目录，不创建（回收扫描需要"先判定、再落盘"的纯路径版本）。

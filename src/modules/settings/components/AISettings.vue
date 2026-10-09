@@ -21,12 +21,12 @@ const embeddingResult = ref('')
 const embeddingFailed = ref(false)
 const embeddingEnabled = computed({
   get: () => !!store.config.embedding,
-  set: enabled => { store.config.embedding = enabled ? { profileId: 'builtin-e5-base', model: 'multilingual-e5-base-int8', chunkChars: 384 } : null; embeddingResult.value = '' },
+  set: enabled => { store.config.embedding = enabled ? { profileId: 'builtin-e5-small', model: 'multilingual-e5-small-int8', chunkChars: 384 } : null; embeddingResult.value = '' },
 })
 function changeEmbeddingProfile(id: string) {
   if (!store.config.embedding) return
-  store.config.embedding.model = id === 'builtin-e5-base' ? 'multilingual-e5-base-int8' : ''
-  store.config.embedding.chunkChars = id === 'builtin-e5-base' ? 384 : 1000
+  store.config.embedding.model = id === 'builtin-e5-small' ? 'multilingual-e5-small-int8' : ''
+  store.config.embedding.chunkChars = id === 'builtin-e5-small' ? 384 : 1000
 }
 watch(() => JSON.stringify(selected.value), () => { testResult.value = '' })
 const configDraft = useFormBaseline('AI 配置', () => store.config, () => store.loading, value => { store.config = value })
@@ -122,8 +122,8 @@ async function migrateLegacy() {
       <el-divider />
       <el-form-item label="知识库语义检索"><el-switch v-model="embeddingEnabled" /></el-form-item>
       <div v-if="store.config.embedding" class="fields ui-grid">
-        <el-form-item label="向量模型来源"><el-select v-model="store.config.embedding.profileId" @change="changeEmbeddingProfile"><el-option label="内置本地 E5-base（多语言）" value="builtin-e5-base" /><el-option v-for="p in store.config.profiles" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
-        <el-form-item v-if="store.config.embedding.profileId !== 'builtin-e5-base'" label="向量模型 ID"><el-input v-model="store.config.embedding.model" /></el-form-item>
+        <el-form-item label="向量模型来源"><el-select v-model="store.config.embedding.profileId" @change="changeEmbeddingProfile"><el-option label="内置本地 E5-small（多语言，384 维）" value="builtin-e5-small" /><el-option v-for="p in store.config.profiles" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
+        <el-form-item v-if="store.config.embedding.profileId !== 'builtin-e5-small'" label="向量模型 ID"><el-input v-model="store.config.embedding.model" /></el-form-item>
         <el-form-item label="每段字数"><el-input-number v-model="store.config.embedding.chunkChars" :min="128" :max="4000" :step="128" :precision="0" /></el-form-item>
         <el-form-item><el-button :icon="Connection" :loading="embeddingTesting" @click="testEmbedding">保存并测试向量模型</el-button></el-form-item>
       </div>
