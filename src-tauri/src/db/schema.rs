@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 45;
+pub const CURRENT_SCHEMA_VERSION: i64 = 46;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -722,6 +722,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("43", MIGRATION_V43_SQL),
     ("44", MIGRATION_V44_SQL),
     ("45", MIGRATION_V45_SQL),
+    ("46", MIGRATION_V46_SQL),
 ];
 
 
@@ -3617,6 +3618,15 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
     }
     tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_knowledge_law ON knowledge_items(law_name);")?;
 
+    // 条件补列：document_pages.orientation_degrees（v46 页面方向校正）
+    let page_columns: Vec<String> = tx
+        .prepare("PRAGMA table_info(document_pages)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !page_columns.iter().any(|col| col == "orientation_degrees") {
+        tx.execute_batch("ALTER TABLE document_pages ADD COLUMN orientation_degrees INTEGER;")?;
+    }
+
     // 条件补列：sync_map.attempts / last_attempt_at（v44 飞书推送退避）
     let sync_map_columns: Vec<String> = tx
         .prepare("PRAGMA table_info(sync_map)")?
@@ -4801,6 +4811,12 @@ CREATE TABLE IF NOT EXISTS document_job_results (
   created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_job_results_file ON document_job_results(file_id, source_sha256);
+"#;
+
+/// R-06：页面级方向校正角（当前仅 180）。幂等补列在 apply_conditional_segments。
+pub const MIGRATION_V46_SQL: &str = r#"
+-- document_pages.orientation_degrees 由 apply_conditional_segments 幂等补列
+SELECT 1;
 "#;
 
 /// 同步推送重试计数：失败记录按 attempts 指数退避，达上限才写 push_failed。

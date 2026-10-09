@@ -62,6 +62,10 @@ pub struct DocumentPage {
     pub layout: Option<serde_json::Value>,
     #[serde(default)]
     pub timing: Option<DocumentPageTiming>,
+    /// 页面级方向校正角（当前仅 180）：bbox/词框均在正置坐标系，
+    /// 渲染页面图像时需同步旋转后再叠加高亮。
+    #[serde(default)]
+    pub orientation_degrees: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -728,6 +732,7 @@ mod stream_count_tests {
                 confidence: None,
                 layout: None,
                 timing: None,
+                orientation_degrees: None,
             },
             DocumentPage {
                 page_number: 2,
@@ -739,6 +744,7 @@ mod stream_count_tests {
                 confidence: None,
                 layout: None,
                 timing: None,
+                orientation_degrees: None,
             },
         ];
         std::fs::write(&path, serde_json::to_vec(&pages).unwrap()).unwrap();
@@ -849,6 +855,7 @@ mod tests {
             confidence: None,
             layout: None,
             timing: None,
+            orientation_degrees: None,
         }];
         let mut result = ProcessResult {
             source_sha256: request.source_sha256.clone(),

@@ -292,6 +292,8 @@ pub struct DocumentPageView {
     pub regions: Vec<document_pipeline::DocumentRegion>,
     pub layout: Option<serde_json::Value>,
     pub timing: Option<document_pipeline::DocumentPageTiming>,
+    /// 页面方向校正角（180 时预览图已同步旋转，与 regions 坐标系一致）。
+    pub orientation_degrees: Option<u16>,
 }
 
 /// N3：把已验证产物搬到新校订目录。目标已存在且大小与 manifest 一致时跳过，
@@ -338,10 +340,10 @@ pub async fn correct_document_region(file_id: String, job_id: String, page_numbe
         let running:bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running'))",[&file_id],|r|r.get(0))?;
         anyhow::ensure!(!running, "此文档正在处理，请完成后校订");
         anyhow::ensure!(document_pipeline::sha256_file(std::path::Path::new(&source))? == hash,"SOURCE_CHANGED: 原文件已变化，请重新处理");
-        let mut stmt = tx.prepare("SELECT page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json FROM document_pages WHERE job_id=?1 ORDER BY page_number")?;
-        let raw = stmt.query_map([&job_id], |r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<f32>>(6)?,r.get::<_,Option<String>>(7)?,r.get::<_,Option<String>>(8)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut stmt = tx.prepare("SELECT page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json,orientation_degrees FROM document_pages WHERE job_id=?1 ORDER BY page_number")?;
+        let raw = stmt.query_map([&job_id], |r|Ok((r.get::<_,u32>(0)?,r.get::<_,Option<f32>>(1)?,r.get::<_,Option<f32>>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<f32>>(6)?,r.get::<_,Option<String>>(7)?,r.get::<_,Option<String>>(8)?,r.get::<_,Option<u16>>(9)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         drop(stmt);
-        let mut pages = raw.into_iter().map(|(page_number,width,height,plain_text,markdown,regions,confidence,layout,timing)| Ok(document_pipeline::DocumentPage {page_number,width,height,plain_text,markdown,regions:serde_json::from_str(&regions)?,confidence,layout:layout.map(|value|serde_json::from_str(&value)).transpose()?,timing:timing.map(|value|serde_json::from_str(&value)).transpose()?})).collect::<anyhow::Result<Vec<_>>>()?;
+        let mut pages = raw.into_iter().map(|(page_number,width,height,plain_text,markdown,regions,confidence,layout,timing,orientation)| Ok(document_pipeline::DocumentPage {page_number,width,height,plain_text,markdown,regions:serde_json::from_str(&regions)?,confidence,layout:layout.map(|value|serde_json::from_str(&value)).transpose()?,timing:timing.map(|value|serde_json::from_str(&value)).transpose()?,orientation_degrees:orientation})).collect::<anyhow::Result<Vec<_>>>()?;
         let old_markdown: String = tx.query_row("SELECT markdown_path FROM document_processing_jobs WHERE id=?1",[&job_id],|r|r.get(0))?;
         let old_root = std::path::Path::new(&old_markdown).parent().ok_or_else(||anyhow::anyhow!("文档目录无效"))?;
         let page = pages.iter_mut().find(|p|p.page_number==page_number).ok_or_else(||anyhow::anyhow!("页码不存在"))?;
@@ -441,10 +443,24 @@ pub async fn get_document_page(
             return Err("页面预览超过大小限制".into());
         }
         use base64::Engine;
+        // 页面被方向校正过（180°）时，预览图同步旋转，使 regions 的 bbox 与
+        // 用户看到的图像对齐（bbox 在正置坐标系）。
+        let png = if view.orientation_degrees == Some(180) {
+            let rotated = image::open(&path)
+                .map_err(|e| format!("无法读取页面预览: {e}"))?
+                .rotate180()
+                .to_rgb8();
+            let mut buffer = std::io::Cursor::new(Vec::new());
+            rotated
+                .write_to(&mut buffer, image::ImageFormat::Png)
+                .map_err(|e| format!("无法旋转页面预览: {e}"))?;
+            buffer.into_inner()
+        } else {
+            std::fs::read(path).map_err(|e| e.to_string())?
+        };
         view.image_data = Some(format!(
             "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD
-                .encode(std::fs::read(path).map_err(|e| e.to_string())?)
+            base64::engine::general_purpose::STANDARD.encode(png)
         ));
     }
     run_blocking(move || {
@@ -465,13 +481,14 @@ fn load_document_page(
 ) -> anyhow::Result<(DocumentPageView, String, String, Option<String>)> {
     let (view,source,hash,engine,searchable) = conn.query_row(r#"
         SELECT f.file_name,f.file_path,j.source_sha256,j.engine,j.searchable_pdf_path,j.total_pages,
-               p.markdown,p.width,p.height,p.regions_json,p.layout_json,p.timing_json
+               p.markdown,p.width,p.height,p.regions_json,p.layout_json,p.timing_json,p.orientation_degrees
         FROM case_files f JOIN document_processing_jobs j ON j.file_id=f.id
         JOIN document_pages p ON p.job_id=j.id AND p.file_id=f.id
         WHERE f.id=?1 AND j.id=?2 AND p.page_number=?3 AND j.status='completed' AND f.deleted_at IS NULL
     "#,rusqlite::params![file,job,number],|r|Ok((DocumentPageView {
         file_id:file.into(),job_id:job.into(),file_name:r.get(0)?,page_number:number,total_pages:r.get(5)?,
         markdown:r.get(6)?,width:r.get(7)?,height:r.get(8)?,regions:vec![],image_data:None,
+        orientation_degrees:r.get::<_,Option<i64>>(12)?.map(|value| value as u16),
         layout:r.get::<_,Option<String>>(10)?.map(|value|serde_json::from_str(&value)).transpose().map_err(|error|rusqlite::Error::FromSqlConversionFailure(10,rusqlite::types::Type::Text,Box::new(error)))?,
         timing:r.get::<_,Option<String>>(11)?.map(|value|serde_json::from_str(&value)).transpose().map_err(|error|rusqlite::Error::FromSqlConversionFailure(11,rusqlite::types::Type::Text,Box::new(error)))?
     },r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,

@@ -321,6 +321,7 @@ dependencies = [
  "image",
  "kamadak-exif",
  "libc",
+ "ndarray",
  "oar-ocr",
  "ort",
  "pdf-extract",

@@ -62,7 +62,7 @@ pub(crate) fn persist_success(
     let ir_path = std::path::PathBuf::from(&result.page_ir_path);
     let mut plain_text = String::new();
     crate::document_pipeline::stream_disk_pages(&ir_path, |index, page| {
-        tx.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",rusqlite::params![job.id,job.file_id,page.page_number,page.width,page.height,page.plain_text,page.markdown,serde_json::to_string(&page.regions)?,page.confidence,page.layout.as_ref().map(serde_json::to_string).transpose()?,page.timing.as_ref().map(serde_json::to_string).transpose()?])?;
+        tx.execute("INSERT INTO document_pages(job_id,file_id,page_number,width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json,orientation_degrees) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",rusqlite::params![job.id,job.file_id,page.page_number,page.width,page.height,page.plain_text,page.markdown,serde_json::to_string(&page.regions)?,page.confidence,page.layout.as_ref().map(serde_json::to_string).transpose()?,page.timing.as_ref().map(serde_json::to_string).transpose()?,page.orientation_degrees.map(i64::from)])?;
         if index > 0 { plain_text.push_str("\n\n"); }
         plain_text.push_str(&page.plain_text);
         Ok(())

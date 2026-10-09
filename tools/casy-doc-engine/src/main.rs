@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 mod source_map;
 mod assets;
 #[cfg(feature = "models")]
+mod orientation;
+#[cfg(feature = "models")]
 mod layout;
 #[cfg(feature = "models")]
 mod table;
@@ -42,8 +44,10 @@ struct ProcessRequest {
     cjk_font_path: Option<String>,
     #[serde(default)]
     markdown_only: bool,
-    /// R-06 断点续算：页 IR 已有页数，从第 N+1 页继续识别（None/0 = 从头）。
+    /// R-06 断点续算提示：页 IR 已有页数。盘上页 IR 的实际页数才是权威
+    /// （process_pages 以 open_append 的结果为准），本字段仅作协议提示保留。
     #[serde(default)]
+    #[allow(dead_code)]
     resume_from: Option<u32>,
 }
 
@@ -103,6 +107,10 @@ struct Page {
     layout: Option<PageLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     timing: Option<PageTiming>,
+    /// 页面级方向校正角（当前仅 180）：识别在旋转回正后的坐标系进行，
+    /// 所有 bbox/词框都是正置坐标系；消费方渲染页面时需同步旋转。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    orientation_degrees: Option<u16>,
     #[serde(default)]
     native_text: bool,
 }
@@ -418,6 +426,8 @@ fn recognize(
     let mut coordinate = None;
     let mut korean_recognizer = None;
     let mut layout_predictor = None;
+    #[cfg(feature = "models")]
+    let mut line_orientation: Option<orientation::LineOrientationClassifier> = None;
     let mut timings = Vec::new();
     // Keep only one rendered page and its model inputs alive at a time.
     for page_number in 1..=total {
@@ -450,12 +460,22 @@ fn recognize(
                 .with_inter_threads(1)
                 .with_spin_control(false)
                 .commit()?;
-            // 文本行方向分类（180°）模型：仅 env 显式启用（默认关）。
-            // 实证：PP-OCRv2 mobile cls（ch_ppocr_mobile_v2.0_cls_infer.onnx）在
-            // oar_ocr 0.9.2 的适配器下预测接近随机——正常件从正确识别退化为乱码，
-            // 颠倒件也修不好（非标签翻转）。需与 oar_ocr 预处理规格匹配的模型
-            // 验证通过后再改为随包分发 + 目录自动发现。
-            let orientation_model = env_path("CASY_TEXT_LINE_ORIENTATION_MODEL");
+            // 文本行方向分类（180°）模型：env 优先，其次 <model_root>/cls/。
+            // oar_ocr 自带适配器与本模型规格不匹配（预测接近随机），故用 orientation.rs
+            // 按 PaddleOCR 官方预处理（BGR、/255、(x-0.5)/0.5、3x48x192）自行实现。
+            let orientation_model = env_path("CASY_TEXT_LINE_ORIENTATION_MODEL").or_else(|| {
+                let candidate = coord_dir.parent()?.join("cls/ch_ppocr_mobile_v2.0_cls_infer.onnx");
+                candidate.is_file().then_some(candidate)
+            });
+            if let Some(model) = &orientation_model {
+                match orientation::LineOrientationClassifier::new(model) {
+                    Ok(classifier) => {
+                        log_line(&format!("line orientation (180) classifier enabled: {}", model.display()));
+                        line_orientation = Some(classifier);
+                    }
+                    Err(error) => log_line(&format!("line orientation classifier disabled: {error}")),
+                }
+            }
             let mut builder = OAROCRBuilder::new(&det, &rec, &dict)
                 .character_dict_content(model_dictionary(coord_dir)?)
                 // 词级框：实测对吞吐无影响（10 页 warm 2432.6 vs 2437.6 ms/页），
@@ -505,7 +525,12 @@ fn recognize(
         let render_ms = start.elapsed().as_millis();
         write_progress(request, "recognizing", page_number - 1, total, pipeline_started, None)?;
         let ocr_start = std::time::Instant::now();
-        let ocr = recognize_page_with_orientation_fallback(coordinate.as_ref().unwrap(), image.clone(), page_number)?;
+        let (ocr, orientation_degrees) = recognize_page_with_orientation_fallback(
+            coordinate.as_ref().unwrap(),
+            image.clone(),
+            page_number,
+            line_orientation.as_mut(),
+        )?;
         let mut regions = Vec::new();
         let mut recognition_boxes = Vec::new();
         for region in ocr.text_regions {
@@ -620,6 +645,7 @@ fn recognize(
         // R-02：识别一页即落盘一页，内存中不累积页面集合。
         ir.push(&Page {
             page_number,
+            orientation_degrees,
             width: Some(image.width() as f32),
             height: Some(image.height() as f32),
             markdown,
@@ -932,89 +958,77 @@ fn enhance_regions_with_native_stream(
     enhanced_any
 }
 
-/// 页面级 180° 自动校正（零模型成本）。
+/// 页面级方向校正。
 ///
-/// 面内倾斜由 DB 检测的旋转四边形 + 逐行透视裁剪天然覆盖（实测 0–45° 全部正确）；
-/// 但整页倒置（双面扫描的常见场景）没有可用的方向分类模型，识别结果是乱码。
-/// 启发式：首轮平均置信度低时，把整页旋转 180° 再识别一次，取置信度更高的一方，
-/// 并把坐标映射回原图坐标系。只在低置信度页触发，正常页零额外开销。
+/// 有方向分类模型（`LineOrientationClassifier`，官方预处理规格的自研实现）时用
+/// 行级多数票决；没有模型时退回置信度启发式（首轮置信度低则翻转重识别比较）。
+/// 两条路径都只做 180°——90° 侧置需要文档级方向模型（4 类），不在本函数范围。
 #[cfg(feature = "models")]
 fn recognize_page_with_orientation_fallback(
     coordinate: &oar_ocr::oarocr::OAROCR,
     image: image::RgbImage,
     page_number: u32,
-) -> Result<oar_ocr::oarocr::OAROCRResult> {
-    const LOW_CONFIDENCE: f32 = 0.55;
-    const IMPROVEMENT_MARGIN: f32 = 0.15;
+    line_orientation: Option<&mut orientation::LineOrientationClassifier>,
+) -> Result<(oar_ocr::oarocr::OAROCRResult, Option<u16>)> {
     let mut result = coordinate
         .predict(vec![image.clone()])?
         .pop()
         .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页"))?;
-    let base = mean_confidence(&result);
-    if base.is_none_or(|value| value >= LOW_CONFIDENCE) {
-        return Ok(result);
-    }
-    let flipped = image::imageops::rotate180(&image);
-    let rotated = coordinate
-        .predict(vec![flipped])?
-        .pop()
-        .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页翻转重识别"))?;
-    let flipped_score = mean_confidence(&rotated);
-    if !flipped_score.is_some_and(|value| value > base.unwrap_or(0.0) + IMPROVEMENT_MARGIN) {
-        return Ok(result);
-    }
-    log_line(&format!(
-        "page {page_number}: orientation confidence {:.2} too low, using 180-corrected result ({:.2})",
-        base.unwrap_or(0.0),
-        flipped_score.unwrap_or(0.0)
-    ));
-    // 坐标映射回原图：180 度旋转下 (x,y) -> (W-x, H-y)。四边形与词框都重算为
-    // 轴对齐盒，保证来源定位仍在原图坐标系。
-    let (w, h) = (image.width() as f32, image.height() as f32);
-    let remap = |x0: f32, y0: f32, x1: f32, y1: f32| -> [f32; 4] {
-        [
-            (w - x1).clamp(0.0, w),
-            (h - y1).clamp(0.0, h),
-            (w - x0).clamp(0.0, w),
-            (h - y0).clamp(0.0, h),
-        ]
-    };
-    let axis_box = |points: &[oar_ocr::processors::Point]| -> Option<[f32; 4]> {
-        let xs: Vec<_> = points.iter().map(|p| p.x).collect();
-        let ys: Vec<_> = points.iter().map(|p| p.y).collect();
-        if xs.is_empty() || ys.is_empty() {
-            return None;
-        }
-        Some([
-            xs.iter().copied().fold(f32::INFINITY, f32::min),
-            ys.iter().copied().fold(f32::INFINITY, f32::min),
-            xs.iter().copied().fold(f32::NEG_INFINITY, f32::max),
-            ys.iter().copied().fold(f32::NEG_INFINITY, f32::max),
-        ])
-    };
-    let set_axis_box = |points: &mut Vec<oar_ocr::processors::Point>, bbox: [f32; 4]| {
-        *points = vec![
-            oar_ocr::processors::Point::new(bbox[0], bbox[1]),
-            oar_ocr::processors::Point::new(bbox[2], bbox[1]),
-            oar_ocr::processors::Point::new(bbox[2], bbox[3]),
-            oar_ocr::processors::Point::new(bbox[0], bbox[3]),
-        ];
-    };
-    for region in &mut result.text_regions {
-        if let Some(bbox) = axis_box(&region.bounding_box.points) {
-            let mapped = remap(bbox[0], bbox[1], bbox[2], bbox[3]);
-            set_axis_box(&mut region.bounding_box.points, mapped);
-        }
-        if let Some(word_boxes) = region.word_boxes.as_mut() {
-            for word in word_boxes.iter_mut() {
-                if let Some(bbox) = axis_box(&word.points) {
-                    let mapped = remap(bbox[0], bbox[1], bbox[2], bbox[3]);
-                    set_axis_box(&mut word.points, mapped);
+
+    let flipped = match line_orientation {
+        Some(classifier) => {
+            // cls 路径：行级 0/180 分类，多数票决。分类器自身失败不当翻转。
+            let boxes: Vec<_> = result
+                .text_regions
+                .iter()
+                .map(|region| region.bounding_box.clone())
+                .collect();
+            match classifier.page_is_flipped(&image, &boxes) {
+                Ok(flipped) => flipped,
+                Err(error) => {
+                    log_line(&format!("page {page_number}: orientation classifier failed: {error}"));
+                    false
                 }
             }
         }
+        None => {
+            // 启发式路径（无模型）：首轮平均置信度低时翻转重识别，高出 margin 才采用。
+            const LOW_CONFIDENCE: f32 = 0.55;
+            const IMPROVEMENT_MARGIN: f32 = 0.15;
+            let base = mean_confidence(&result);
+            if base.is_none_or(|value| value >= LOW_CONFIDENCE) {
+                false
+            } else {
+                let rotated = coordinate
+                    .predict(vec![image::imageops::rotate180(&image)])?
+                    .pop()
+                    .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页翻转重识别"))?;
+                let improved = mean_confidence(&rotated)
+                    .is_some_and(|value| value > base.unwrap_or(0.0) + IMPROVEMENT_MARGIN);
+                if improved {
+                    log_line(&format!(
+                        "page {page_number}: orientation confidence {:.2} too low, using 180-corrected result",
+                        base.unwrap_or(0.0)
+                    ));
+                }
+                improved
+            }
+        }
+    };
+    if !flipped {
+        return Ok((result, None));
     }
-    Ok(rotated)
+
+    log_line(&format!("page {page_number}: detected 180-degree page, re-recognizing rotated"));
+    let rotated = coordinate
+        .predict(vec![image::imageops::rotate180(&image)])?
+        .pop()
+        .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页翻转重识别"))?;
+    // 坐标保持在正置坐标系（不映射回原图系）：阅读序、版面排序、来源高亮
+    // 全部以正置页为准；页面旋转角记录在 Page.orientation_degrees，由渲染方
+    // 旋转页面图像后叠加。倒置页若映射回原图系，正文行序会颠倒。
+    let _ = &mut result;
+    Ok((rotated, Some(180)))
 }
 
 /// 页面的平均识别置信度（无有效区域时 None）。
@@ -1513,6 +1527,7 @@ mod page_ir_stream_tests {
             confidence: Some(0.9),
             layout: None,
             timing: None,
+            orientation_degrees: None,
             native_text: false,
         }
     }
@@ -1598,6 +1613,7 @@ mod word_box_tests {
             confidence: Some(0.9),
             layout: None,
             timing: None,
+            orientation_degrees: None,
             native_text: false,
         };
         let json = serde_json::to_vec(&page).unwrap();
@@ -1722,6 +1738,7 @@ mod tests {
             confidence: Some(0.99),
             layout: None,
             timing: None,
+            orientation_degrees: None,
             native_text: false,
         };
         let ir = temp.path().join("pages.json");
@@ -2118,6 +2135,7 @@ mod tests {
             confidence: Some(0.99),
             layout: None,
             timing: None,
+            orientation_degrees: None,
             native_text: false,
         }];
         let ir = temp.path().join("pages.json");

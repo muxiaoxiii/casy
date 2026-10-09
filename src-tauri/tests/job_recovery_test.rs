@@ -46,6 +46,7 @@ fn interrupted_job_with_complete_artifacts_recovers_without_reocr() {
             confidence: None,
             layout: None,
             timing: None,
+            orientation_degrees: None,
         },
         document_pipeline::DocumentPage {
             page_number: 2,
@@ -57,6 +58,7 @@ fn interrupted_job_with_complete_artifacts_recovers_without_reocr() {
             confidence: None,
             layout: None,
             timing: None,
+            orientation_degrees: None,
         },
     ];
     std::fs::write(dir.join("source.document.json"), serde_json::to_vec(&pages).unwrap()).unwrap();

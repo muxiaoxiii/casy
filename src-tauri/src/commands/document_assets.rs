@@ -109,13 +109,13 @@ fn validate_pages(
     for page in &pages {
         assets::validate_references(&page.markdown, root, &manifest)?;
         let stored = conn.query_row(
-            "SELECT width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json
+            "SELECT width,height,plain_text,markdown,regions_json,confidence,layout_json,timing_json,orientation_degrees
              FROM document_pages WHERE job_id=?1 AND file_id=?2 AND page_number=?3",
             rusqlite::params![job_id, file_id, page.page_number],
             |r| Ok((r.get::<_, Option<f32>>(0)?, r.get::<_, Option<f32>>(1)?,
                 r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?,
                 r.get::<_, Option<f32>>(5)?, r.get::<_, Option<String>>(6)?,
-                r.get::<_, Option<String>>(7)?)),
+                r.get::<_, Option<String>>(7)?, r.get::<_, Option<u16>>(8)?)),
         )?;
         let stored = DocumentPage {
             page_number: page.page_number,
@@ -133,6 +133,7 @@ fn validate_pages(
                 .7
                 .map(|value| serde_json::from_str(&value))
                 .transpose()?,
+            orientation_degrees: stored.8,
         };
         anyhow::ensure!(*page == stored, "数据库页面与产物不一致");
     }

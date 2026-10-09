@@ -126,6 +126,7 @@ fn segment(index: usize, markdown: &str) -> DocumentPage {
         confidence: None,
         layout: None,
         timing: None,
+        orientation_degrees: None,
     }
 }
 

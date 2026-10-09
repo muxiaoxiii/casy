@@ -159,7 +159,7 @@ export type DocumentJobDto = { id: string; fileId: string; sourceSha256: string;
 
 export type DocumentPageTiming = { renderMs: number; ocrMs: number; layoutMs: number; totalMs: number }
 
-export type DocumentPageView = { fileId: string; jobId: string; fileName: string; pageNumber: number; totalPages: number; markdown: string; imageData: string | null; width: number | null; height: number | null; regions: DocumentRegion[]; layout: any | null; timing: DocumentPageTiming | null }
+export type DocumentPageView = { fileId: string; jobId: string; fileName: string; pageNumber: number; totalPages: number; markdown: string; imageData: string | null; width: number | null; height: number | null; regions: DocumentRegion[]; layout: any | null; timing: DocumentPageTiming | null; orientationDegrees: number | null }
 
 export type DocumentPassage = { fileId: string; jobId: string; fileName: string; sourcePath: string; number: number; locationKind: string; content: string; citation: string; locations: SourceLocation[] }
 
