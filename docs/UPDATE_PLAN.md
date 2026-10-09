@@ -7,7 +7,8 @@
 **仍开放（需真实环境）**：
 - 真实服务联调（飞书 / WebDAV / CalDAV / IMAP / SMTP / 远程 AI）、Windows 原生验收、远端 CI/Clippy/audit、公证。
 - 100/500 页真实 OCR 实测已完成（峰值 RSS 不随页数增长；断点续算端到端通过），见 DOCUMENT_PIPELINE.md 实测表。
-- OCR 质量项进展（2026-10-09）：EXIF 方向、词级框、性能基准已完成；180° 方向分类待与 oar_ocr 规格匹配的 cls 模型（当前已知模型不兼容，详见 DOCUMENT_PIPELINE.md）；竖排与宽幅贴边经实证现有模型已覆盖，无需额外启发式。
+- OCR 质量项进展（2026-10-09）：EXIF 方向、词级框、性能基准、180° 方向分类（自研预处理）已完成；竖排与宽幅贴边经实证现有模型已覆盖，无需额外启发式。
+- 模型瘦身（2026-10-09）：OCR 识别默认档 medium→small（29.8MB，同字库、实测一致）、向量 e5-base→e5-small（135MB，多语言不变）。剩余项：layout 模型小型化（124MB plus-L）；OCR 剥离为 Myna 远端 provider（方案已确认：档位/provider 设置界面、真实卷宗 A/B、图片资产经 Myna 扩展接口 + bbox 自裁兜底）。
 
 | 优先级 | 下一步 | 验收要求 |
 | --- | --- | --- |
