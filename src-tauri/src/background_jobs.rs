@@ -394,7 +394,8 @@ fn try_recover_interrupted_job(conn: &rusqlite::Connection, job_id: &str, file_i
 }
 
 /// 启动时对中断任务尝试崩溃恢复（有界：每次启动最多 20 个）。
-fn recover_interrupted_jobs() {
+/// 公开以便集成测试做故障注入验证（真实启动路径由 start_background_worker 调用）。
+pub fn recover_interrupted_jobs() {
     let Ok(conn) = crate::db::open_db() else { return };
     let Ok(mut stmt) = conn.prepare(
         "SELECT j.id,j.file_id,j.source_sha256,f.file_path FROM document_processing_jobs j
