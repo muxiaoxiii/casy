@@ -505,10 +505,7 @@ fn recognize(
         let render_ms = start.elapsed().as_millis();
         write_progress(request, "recognizing", page_number - 1, total, pipeline_started, None)?;
         let ocr_start = std::time::Instant::now();
-        let mut coordinate_results = coordinate.as_ref().unwrap().predict(vec![image.clone()])?;
-        let ocr = coordinate_results
-            .pop()
-            .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页"))?;
+        let ocr = recognize_page_with_orientation_fallback(coordinate.as_ref().unwrap(), image.clone(), page_number)?;
         let mut regions = Vec::new();
         let mut recognition_boxes = Vec::new();
         for region in ocr.text_regions {
@@ -933,6 +930,98 @@ fn enhance_regions_with_native_stream(
     }
 
     enhanced_any
+}
+
+/// 页面级 180° 自动校正（零模型成本）。
+///
+/// 面内倾斜由 DB 检测的旋转四边形 + 逐行透视裁剪天然覆盖（实测 0–45° 全部正确）；
+/// 但整页倒置（双面扫描的常见场景）没有可用的方向分类模型，识别结果是乱码。
+/// 启发式：首轮平均置信度低时，把整页旋转 180° 再识别一次，取置信度更高的一方，
+/// 并把坐标映射回原图坐标系。只在低置信度页触发，正常页零额外开销。
+#[cfg(feature = "models")]
+fn recognize_page_with_orientation_fallback(
+    coordinate: &oar_ocr::oarocr::OAROCR,
+    image: image::RgbImage,
+    page_number: u32,
+) -> Result<oar_ocr::oarocr::OAROCRResult> {
+    const LOW_CONFIDENCE: f32 = 0.55;
+    const IMPROVEMENT_MARGIN: f32 = 0.15;
+    let mut result = coordinate
+        .predict(vec![image.clone()])?
+        .pop()
+        .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页"))?;
+    let base = mean_confidence(&result);
+    if base.is_none_or(|value| value >= LOW_CONFIDENCE) {
+        return Ok(result);
+    }
+    let flipped = image::imageops::rotate180(&image);
+    let rotated = coordinate
+        .predict(vec![flipped])?
+        .pop()
+        .ok_or_else(|| anyhow!("EMPTY_OCR_RESULT: 第 {page_number} 页翻转重识别"))?;
+    let flipped_score = mean_confidence(&rotated);
+    if !flipped_score.is_some_and(|value| value > base.unwrap_or(0.0) + IMPROVEMENT_MARGIN) {
+        return Ok(result);
+    }
+    log_line(&format!(
+        "page {page_number}: orientation confidence {:.2} too low, using 180-corrected result ({:.2})",
+        base.unwrap_or(0.0),
+        flipped_score.unwrap_or(0.0)
+    ));
+    // 坐标映射回原图：180 度旋转下 (x,y) -> (W-x, H-y)。四边形与词框都重算为
+    // 轴对齐盒，保证来源定位仍在原图坐标系。
+    let (w, h) = (image.width() as f32, image.height() as f32);
+    let remap = |x0: f32, y0: f32, x1: f32, y1: f32| -> [f32; 4] {
+        [
+            (w - x1).clamp(0.0, w),
+            (h - y1).clamp(0.0, h),
+            (w - x0).clamp(0.0, w),
+            (h - y0).clamp(0.0, h),
+        ]
+    };
+    let axis_box = |points: &[oar_ocr::processors::Point]| -> Option<[f32; 4]> {
+        let xs: Vec<_> = points.iter().map(|p| p.x).collect();
+        let ys: Vec<_> = points.iter().map(|p| p.y).collect();
+        if xs.is_empty() || ys.is_empty() {
+            return None;
+        }
+        Some([
+            xs.iter().copied().fold(f32::INFINITY, f32::min),
+            ys.iter().copied().fold(f32::INFINITY, f32::min),
+            xs.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+            ys.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+        ])
+    };
+    let set_axis_box = |points: &mut Vec<oar_ocr::processors::Point>, bbox: [f32; 4]| {
+        *points = vec![
+            oar_ocr::processors::Point::new(bbox[0], bbox[1]),
+            oar_ocr::processors::Point::new(bbox[2], bbox[1]),
+            oar_ocr::processors::Point::new(bbox[2], bbox[3]),
+            oar_ocr::processors::Point::new(bbox[0], bbox[3]),
+        ];
+    };
+    for region in &mut result.text_regions {
+        if let Some(bbox) = axis_box(&region.bounding_box.points) {
+            let mapped = remap(bbox[0], bbox[1], bbox[2], bbox[3]);
+            set_axis_box(&mut region.bounding_box.points, mapped);
+        }
+        if let Some(word_boxes) = region.word_boxes.as_mut() {
+            for word in word_boxes.iter_mut() {
+                if let Some(bbox) = axis_box(&word.points) {
+                    let mapped = remap(bbox[0], bbox[1], bbox[2], bbox[3]);
+                    set_axis_box(&mut word.points, mapped);
+                }
+            }
+        }
+    }
+    Ok(rotated)
+}
+
+/// 页面的平均识别置信度（无有效区域时 None）。
+#[cfg(feature = "models")]
+fn mean_confidence(result: &oar_ocr::oarocr::OAROCRResult) -> Option<f32> {
+    let scores: Vec<f32> = result.text_regions.iter().filter_map(|r| r.confidence).collect();
+    (!scores.is_empty()).then(|| scores.iter().sum::<f32>() / scores.len() as f32)
 }
 
 #[cfg(not(feature = "models"))]
