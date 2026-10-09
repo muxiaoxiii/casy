@@ -979,7 +979,8 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
     let map_path = output_dir.join("source.map.json");
 
     // R-02/R-06：页 IR 是唯一事实源——识别一页落盘一页；已有部分页 IR 时从断点续算。
-    let resume_from = request.resume_from.unwrap_or(0).min(total);
+    // 续算起点以盘上页 IR 的实际页数为准（请求里的 resume_from 只作提示），
+    // 避免“请求说 0、盘上已有 300 页”时追加出重复页。
     let (mut ir_writer, resumed_pages) = match PageIrWriter::open_append(&ir)? {
         Some((writer, existing)) => {
             anyhow::ensure!(existing <= total as u32, "INVALID_PAGE_IR: 续写页数超过文档页数");
@@ -987,6 +988,7 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
         }
         None => (PageIrWriter::create(&ir)?, 0),
     };
+    let resume_from = resumed_pages;
     let page_count = if let Some(pages) = corrected {
         anyhow::ensure!(pages.len() == total as usize && pages.iter().enumerate().all(|(i,p)|p.page_number as usize == i+1), "CORRECTION_PAGES_INVALID");
         anyhow::ensure!(resumed_pages == 0, "CORRECTION_RESUME_UNSUPPORTED: 校订任务不从断点续算");
@@ -1089,11 +1091,39 @@ fn process_pages(request: &mut ProcessRequest, corrected: Option<Vec<Page>>) -> 
     })
 }
 
-/// 流式页 IR 写入器（R-02/R-06）：识别一页即落盘一页，内存中不累积页面集合；
-/// 支持去掉收尾 ']' 后续写，支撑崩溃恢复与断点续算。
+/// 流式页 IR 写入器（R-02/R-06）：识别一页即落盘一页，内存中不累积页面集合。
+/// 侧车标记 `<ir>.resume` 记录“页数 已写字节数”，且总在页落盘之后才写——
+/// 崩溃时标记至多落后一页，截断到标记位置必然是完整的元素边界。
 struct PageIrWriter {
     file: std::fs::File,
     count: u32,
+    bytes: u64,
+    sidecar: std::path::PathBuf,
+}
+
+fn sidecar_path(ir: &Path) -> std::path::PathBuf {
+    let mut name = ir.as_os_str().to_os_string();
+    name.push(".resume");
+    std::path::PathBuf::from(name)
+}
+
+fn read_resume_marker(sidecar: &Path) -> Option<(u32, u64)> {
+    let text = std::fs::read_to_string(sidecar).ok()?;
+    let mut parts = text.split_whitespace();
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+}
+
+fn ends_with_byte(path: &Path, byte: u8) -> Result<bool> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(false);
+    }
+    let mut buf = [0u8; 1];
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(len - 1))?;
+    file.read_exact(&mut buf)?;
+    Ok(buf[0] == byte)
 }
 
 impl PageIrWriter {
@@ -1101,43 +1131,64 @@ impl PageIrWriter {
         let mut file = std::fs::File::create(path)?;
         file.write_all(b"[")?;
         file.sync_all()?;
-        Ok(Self { file, count: 0 })
+        let sidecar = sidecar_path(path);
+        std::fs::write(&sidecar, "0 1")?;
+        Ok(Self { file, count: 0, bytes: 1, sidecar })
     }
 
-    /// 打开既有部分页 IR：完整流式解析一遍取得页数，再去掉收尾 ']' 定位到续写位置。
-    /// 文件不存在或页数为 0 时返回 None（调用方改用 create）。
+    /// 打开既有页 IR 续写。返回 (写入器, 已有页数)：
+    /// - 有侧车标记：截断到标记字节偏移（必然是完整元素边界）；
+    /// - 无标记但数组正常收束：按完整 IR 续写（用于“识别完成但 finalize 前崩溃”）；
+    /// - 无标记且未收束：报错，调用方改为从头识别（绝不静默产生坏 IR）。
     fn open_append(path: &Path) -> Result<Option<(Self, u32)>> {
         if !path.is_file() {
             return Ok(None);
         }
-        let count = count_disk_pages(path)?;
+        let sidecar = sidecar_path(path);
+        let (count, offset) = match read_resume_marker(&sidecar) {
+            Some(marker) => marker,
+            None => {
+                if count_disk_pages(path)? == 0 {
+                    return Ok(None);
+                }
+                anyhow::ensure!(
+                    ends_with_byte(path, b']')?,
+                    "INVALID_PAGE_IR: 页 IR 未正常收束且无续写标记，无法续算"
+                );
+                (count_disk_pages(path)?, std::fs::metadata(path)?.len() - 1)
+            }
+        };
         if count == 0 {
             return Ok(None);
         }
-        let len = std::fs::metadata(path)?.len();
-        anyhow::ensure!(len > 0, "INVALID_PAGE_IR: 页 IR 为空");
         let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
-        file.set_len(len - 1)?; // 去掉收尾 ']'
-        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(len - 1))?;
-        // 逗号由 push 按 count 自动补写，这里不再手动写。
-        let writer = Self { file, count };
-        Ok(Some((writer, count)))
+        file.set_len(offset)?;
+        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(offset))?;
+        Ok(Some((Self { file, count, bytes: offset, sidecar }, count)))
     }
 
     fn push(&mut self, page: &Page) -> Result<()> {
+        let mut written = 0u64;
         if self.count > 0 {
             self.file.write_all(b",")?;
+            written += 1;
         }
-        serde_json::to_writer(&mut self.file, page)?;
+        let buf = serde_json::to_vec(page)?;
+        self.file.write_all(&buf)?;
         self.file.flush()?;
+        written += buf.len() as u64;
         self.count += 1;
+        self.bytes += written;
+        // 先落页、后写标记：崩溃时标记至多落后一页，截断点仍是完整边界。
+        std::fs::write(&self.sidecar, format!("{} {}", self.count, self.bytes))?;
         Ok(())
     }
 
-    /// 收束数组并落盘，返回总页数。
+    /// 收束数组并落盘，返回总页数；完成态不带续写标记。
     fn finish(mut self) -> Result<u32> {
         self.file.write_all(b"]")?;
         self.file.sync_all()?;
+        let _ = std::fs::remove_file(&self.sidecar);
         Ok(self.count)
     }
 }
@@ -1276,7 +1327,7 @@ mod page_ir_stream_tests {
         .unwrap();
         assert_eq!(seen, vec![(1, "Prüfung 日本語".to_string()), (2, "跨页证据".to_string())]);
 
-        // 续写：去掉收尾 ']' 后追加，最终仍是合法数组
+        // 完成态（无侧车、数组收束）续写：追加后仍是合法数组
         let (mut writer, existing) = PageIrWriter::open_append(&path).unwrap().unwrap();
         assert_eq!(existing, 2);
         writer.push(&page(3, "第三页")).unwrap();
@@ -1289,10 +1340,29 @@ mod page_ir_stream_tests {
         assert!(PageIrWriter::open_append(&empty).unwrap().is_none());
         assert!(PageIrWriter::open_append(&root.path().join("nope.json")).unwrap().is_none());
 
-        // 截断的 JSON 必须报错而不是静默 0 页
+        // 半截状态（有侧车标记、无收尾 ']'，模拟崩溃）：截断到标记边界后精确续写
+        let partial = root.path().join("partial.json");
+        let mut writer = PageIrWriter::create(&partial).unwrap();
+        writer.push(&page(1, "一")).unwrap();
+        writer.push(&page(2, "二")).unwrap();
+        drop(writer); // 不 finish：留下 `[p1,p2` 与侧车 "2 <offset>"
+        assert!(!ends_with_byte(&partial, b']').unwrap());
+        let (mut writer, existing) = PageIrWriter::open_append(&partial).unwrap().unwrap();
+        assert_eq!(existing, 2);
+        writer.push(&page(3, "三")).unwrap();
+        assert_eq!(writer.finish().unwrap(), 3);
+        let mut seen = Vec::new();
+        stream_disk_pages(&partial, |p| {
+            seen.push(p.page_number);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, vec![1, 2, 3]);
+
+        // 无标记且未收束：必须报错，绝不静默产出坏 IR
         let broken = root.path().join("broken.json");
         std::fs::write(&broken, b"[{\"pageNumber\":1,").unwrap();
-        assert!(count_disk_pages(&broken).is_err());
+        assert!(PageIrWriter::open_append(&broken).is_err());
     }
 }
 

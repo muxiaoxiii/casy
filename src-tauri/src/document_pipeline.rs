@@ -127,6 +127,19 @@ pub fn stream_disk_pages(
     Ok(())
 }
 
+/// R-06：页 IR 的续算起点页数。侧车标记（页数 字节偏移）优先——崩溃至多落后一页；
+/// 无侧车时按完整数组计数（识别完成但 finalize 前崩溃的情形）；坏文件返回 0（从头识别）。
+pub fn resume_page_count(ir_path: &Path) -> u32 {
+    let mut sidecar = ir_path.as_os_str().to_os_string();
+    sidecar.push(".resume");
+    if let Ok(text) = std::fs::read_to_string(std::path::PathBuf::from(sidecar)) {
+        if let Some(count) = text.split_whitespace().next().and_then(|v| v.parse::<u32>().ok()) {
+            return count;
+        }
+    }
+    count_disk_pages(ir_path)
+}
+
 /// 流式统计落盘页 IR 的页数（R-06 断点续算）；文件不存在返回 0。
 pub fn count_disk_pages(path: &Path) -> u32 {
     let mut count = 0u32;

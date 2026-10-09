@@ -306,4 +306,6 @@
 
 **断点续算（R-06 残留消除）**：`ProcessRequest` 新增 `resume_from`；worker claim 时若同一任务产物目录已有部分页 IR（`count_disk_pages`），从第 N+1 页继续识别（跳过已落盘页，不重跑 OCR）；`retry_job` 把失败任务未完成的部分产物目录移交给新任务 id 作为续算起点；引擎侧 `PageIrWriter::open_append` 去掉收尾 `]` 后续写，页数不一致或 JSON 截断直接报错。崩溃恢复（产物写全即完成）与断点续算（产物写了一半就续算）由此形成完整分层。
 
-新增守护测试：引擎侧流式页 IR 往返（create/push/finish/count/stream/append/坏文件报错——首轮即抓到缺分隔符逗号的真实 bug）、父进程 count 与 stream 一致性。
+新增守护测试：引擎侧流式页 IR 往返（create/push/finish/count/stream/侧车半截续写/无标记未收束报错——首轮即抓到缺分隔符逗号的真实 bug）、父进程 count 与 stream 一致性。
+
+**本机真实 OCR 实测（2026-10-08，release 引擎 + 完整模型）**：100 页峰值 RSS 1311 MB / 220.1s，500 页 1136 MB / 800.8s——页数 5 倍而峰值不增（模型与 lopdf 为固定项），磁盘产物线性增长（3→14 MB）。断点续算端到端：把 100 页产物截断为“第 40 页后崩溃”状态后以 `resumeFrom=40` 重跑，退出码 0、最终恰好 100 页且序号连续、finalize 产物齐全、引擎确认“沿用已落盘的 40 页”。期间发现并修复真实 bug：崩溃留下的半截页 IR（无收尾 `]`）会被按字节截断误删一个完整页——改为侧车标记（页数+字节偏移，先落页后写标记，崩溃至多落后一页）精确定位续写点。数据表见 [DOCUMENT_PIPELINE](DOCUMENT_PIPELINE.md#有界内存与断点续算实测2026-10-08本机真实-ocr)。
