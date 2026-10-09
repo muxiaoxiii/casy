@@ -434,6 +434,37 @@ async fn process_one(job: ClaimedJob) {
         persist_failure(&job, &anyhow::anyhow!("SOURCE_CHANGED: 排队后源文件已变化"));
         return;
     }
+    // OCR provider：myna 时走远端服务（产物布局与内置引擎一致），否则内置引擎。
+    if crate::ocr_provider::configured_provider() == crate::ocr_provider::OcrProvider::Myna {
+        match crate::ocr_provider::recognize_via_myna(&job).await {
+            Ok(()) => {
+                if let Err(error) = crate::commands::smart_rules::apply_rules_inner(&job.file_id) {
+                    log::warn!("OCR smart rules failed for {}: {}", job.file_id, error);
+                }
+                match crate::ai::page_index::build_page_index_tree(&job.file_id, &job.source_path).await {
+                    Ok(()) => {
+                        if let Ok(conn) = crate::db::open_db() {
+                            let _ = conn.execute("UPDATE document_processing_jobs SET index_status='completed',updated_at=datetime('now','localtime') WHERE id=?1", [&job.id]);
+                            let _ = conn.execute("UPDATE case_files SET index_status='completed' WHERE id=?1", [&job.file_id]);
+                        }
+                    }
+                    Err(message) => {
+                        error!("PageIndex build failed {}: {}", job.id, message);
+                        if let Ok(conn) = crate::db::open_db() {
+                            let _ = conn.execute("UPDATE document_processing_jobs SET index_status='failed',index_error=?2,updated_at=datetime('now','localtime') WHERE id=?1", rusqlite::params![job.id,message]);
+                            let _ = conn.execute("UPDATE case_files SET index_status='failed',ocr_error=?1 WHERE id=?2", rusqlite::params![format!("PAGE_INDEX_FAILED: {message}"),job.file_id]);
+                        }
+                    }
+                }
+                info!("document processing completed via myna: {}", job.id);
+            }
+            Err(error) => {
+                error!("document processing failed via myna {}: {}", job.id, error);
+                persist_failure(&job, &error);
+            }
+        }
+        return;
+    }
     let output_dir = match crate::document_pipeline::artifact_dir(&job.id, &job.source_sha256) {
         Ok(path) => path,
         Err(error) => {

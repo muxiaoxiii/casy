@@ -106,6 +106,24 @@
 
 **向量模型**：默认 multilingual-e5-small-int8（384 维，约 135MB 含 tokenizer），替代 e5-base-int8（768 维，约 281MB）；同一 E5 家族，日/韩/法/德/中/英覆盖不变——实测跨语言相似度不差于 base（如中文↔日文 0.943 vs 0.912）。索引指纹已升版（`e5-small-…-v3`），旧索引自动全量重建；未安装 small 时回退 base。
 
+## OCR Provider：内置引擎 / Myna 远端（2026-10-09）
+
+`ocr_provider` 模块把 OCR 后端抽象为两档，settings `ocr.provider`（或 env `CASY_OCR_PROVIDER`）切换：
+
+- **builtin（默认）**：现有 casy-doc-engine 子进程管线，行为不变。
+- **myna**：远端 Myna（MinerU 4.0，`CASY_MYNA_URL`，默认 127.0.0.1:18600）。调用前先探活 `/api/healthz`，**连不上明确报错，不静默回退**。
+
+远端路径把 Myna 返回翻译成与内置引擎完全一致的落盘产物——页 IR、`source.md`、`source.map.json`、`source.searchable.pdf`——因此流式校验、数据库落库、区域校订、知识索引、来源高亮全部零改动：
+
+- 几何：Myna 给 0–1 归一化 quad，按页面像素尺寸（PDF MediaBox / 图片文件头，预览尺度 1600）缩放为像素 bbox；
+- 图片：`include_images=true` 取回字节，按内容哈希落 `casy-images/<sha>.<ext>`，markdown 里的 base64 data URI 与 `images/...` 引用一并改写（与独立转换的图片外置同一命名规则）；
+- 可搜索 PDF：`POST /api/ocr/pdf` 异步任务 → 轮询进度 → 下载落盘；
+- 结果经统一的 `persist_success` 落库（含 R-06 结果清单）。
+
+端到端验证：`CASY_OCR_PROVIDER=myna cargo test --test myna_provider_test -- --ignored`（需本机 Myna 在线），断言四件套齐备、坐标非归一化、markdown 无 base64、结果清单落库、探活失败报错。
+
+**Myna 侧修复**（联调中发现）： MinerU 4.0 的 block `content` 为嵌套 list，`_page_regions`/`_page_text_from_blocks` 只展平一层，导致**任何含表格的文档 409**（`sequence item 1: expected str instance, list found`）。已在 Myna 增加递归 `_flatten_text` 修复；另为 worker 异常补了完整 traceback 日志。
+
 ## OCR 输入与识别增强（2026-10-09，参照 snow-apps/rapid-ocr-rs 的做法落地）
 
 **EXIF 方向**：图片输入统一应用 EXIF orientation（`read_raster` 出口，与 PIL `exif_transpose` 对齐的 8 种映射）。`image::open` 本身不做方向校正——手机拍照的证据/卷宗若不校正会被横竖颠倒识别。无 EXIF 的输入（PNG/BMP/扫描 PDF 渲染页）不受影响。

@@ -82,6 +82,9 @@ pub struct ProcessRequest {
     /// R-06 断点续算：页 IR 已有页数，从第 N+1 页继续识别（None/0 = 从头）。
     #[serde(default)]
     pub resume_from: Option<u32>,
+    /// 版面检测模型路径（显式传入引擎，避免其依赖自身位置推断而静默丢失）。
+    #[serde(default)]
+    pub layout_model_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,6 +311,7 @@ fn env_path(name: &str) -> Option<String> {
     let relative = match name {
         "CASY_PPOCR_MODEL_DIR" => return ocr_model_dir().map(|p| p.to_string_lossy().into_owned()),
         "CASY_OCR_FONT" => "fonts/NotoSansCJK-Regular.ttf",
+        "CASY_LAYOUT_MODEL" => "models/layout/pp-doclayout_plus-l.onnx",
         _ => return None,
     };
     crate::runtime_paths::runtime_asset(name, relative).map(|p| p.to_string_lossy().into_owned())
@@ -775,6 +779,8 @@ pub fn process_request(
         cjk_font_path: env_path("CASY_OCR_FONT"),
         markdown_only: false,
         resume_from: None,
+        // 版面模型显式传入：引擎不再依赖自身位置推断（曾导致静默丢失版面能力）
+        layout_model_path: env_path("CASY_LAYOUT_MODEL"),
     }
 }
 

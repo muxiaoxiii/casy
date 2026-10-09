@@ -13,6 +13,7 @@ mod error_code;
 mod files;
 mod formula;
 mod mcp;
+pub mod ocr_provider;
 mod parse;
 mod runtime_paths;
 pub mod sync;

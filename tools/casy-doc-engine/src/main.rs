@@ -49,6 +49,10 @@ struct ProcessRequest {
     #[serde(default)]
     #[allow(dead_code)]
     resume_from: Option<u32>,
+    /// 版面检测模型路径（父进程显式传入）。缺失时引擎按 env/自身位置兜底，
+    /// 并在 stderr 记日志——版面能力曾因隐式位置解析而静默丢失。
+    #[serde(default)]
+    pub layout_model_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -533,14 +537,23 @@ fn recognize(
                     .dict_path(&korean_dict)
                     .build(&korean_model)?,
             );
-            let layout_path = env_path("CASY_LAYOUT_MODEL").or_else(|| {
-                let candidate = coord_dir.parent()?.join("layout/pp-doclayout_plus-l.onnx");
-                candidate.is_file().then_some(candidate)
-            });
+            // 版面模型：请求显式路径 > env > 引擎自身位置推断。
+            let layout_path = request
+                .layout_model_path
+                .as_ref()
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.is_file())
+                .or_else(|| env_path("CASY_LAYOUT_MODEL"))
+                .or_else(|| {
+                    let candidate = engine_root()?.join("models/layout/pp-doclayout_plus-l.onnx");
+                    candidate.is_file().then_some(candidate)
+                });
             if let Some(path) = layout_path {
                 layout_predictor = Some(oar_ocr::predictors::LayoutDetectionPredictor::builder()
                     .model_name("pp_doclayout_plus_l")
                     .build(path)?);
+            } else {
+                log_line("layout model not found; reading order, table structure and seal/formula routing are disabled");
             }
         }
         write_progress(request, "rendering", page_number - 1, total, pipeline_started, None)?;
@@ -2028,6 +2041,7 @@ mod tests {
             cjk_font_path: Some(font_path),
             markdown_only: false,
             resume_from: None,
+            layout_model_path: None,
         })
         .unwrap();
         std::fs::write(
@@ -2112,6 +2126,7 @@ mod tests {
             cjk_font_path: Some(font_path),
             markdown_only: true,
             resume_from: None,
+            layout_model_path: None,
         }).unwrap();
         std::fs::write(
             root.join("result.json"),
@@ -2269,6 +2284,7 @@ mod tests {
             cjk_font_path: Some(font_path),
             markdown_only: false,
             resume_from: None,
+            layout_model_path: None,
         })
         .unwrap();
         std::fs::write(

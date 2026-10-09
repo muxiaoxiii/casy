@@ -12,7 +12,9 @@ bunny 10 UI/UX 升级第 1–4 步（组件层、断点收敛、四态、期限�
 
 **模型瘦身（2026-10-09）**：OCR 识别默认档从 PP-OCRv6 medium（132MB）换成 small（29.8MB，同字库、实测质量一致且更快）；向量模型从 e5-base（281MB）换成 multilingual-e5-small（135MB，多语言覆盖不变）；模型总量从 551MB 降到约 162MB。档位与模型均可用 `scripts/prepare-ocr-models.mjs` 显式切换，旧安装自动回退不中断。
 
-**遗留（仅剩真实环境验收）**：真实外部服务联调、Windows 原生验收、远端 CI/Clippy/audit、公证；layout 模型（124MB PP-DocLayout plus-L）的小型化替换待评估；OCR 剥离为 Myna 远端 provider 的方案已确认（接口匹配度高），按阶段实施中。lopdf 可搜索 PDF 整份载入为行内性质残留。100/500 页真实 OCR 实测已完成：页数 5 倍增长峰值 RSS 不增（1311→1136 MB），断点续算端到端通过。
+**OCR 可剥离（2026-10-09）**：`ocr.provider` 支持 builtin / myna 两档；myna 模式把 MinerU 4.0 的结果翻译为与内置引擎一致的产物（页 IR/Markdown/来源映射/可搜索 PDF），下游零改动，端到端测试通过。Myna 侧联调修复：嵌套 content 导致表格文档 409。
+
+**遗留（仅剩真实环境验收）**：真实外部服务联调、Windows 原生验收、远端 CI/Clippy/audit、公证；layout 模型按质量优先保留 plus-L（124MB 是该架构地板价）；myna 模式的设置界面、取消语义与真实卷宗 A/B。lopdf 可搜索 PDF 整份载入为行内性质残留。100/500 页真实 OCR 实测已完成：页数 5 倍增长峰值 RSS 不增（1311→1136 MB），断点续算端到端通过。
 
 **模型瘦身（2026-10-09）**：OCR 识别默认档从 PP-OCRv6 medium（132MB）换为 small（29.8MB，同一 18709 字符字库，实测与 medium 输出逐字节一致且快约 40%）；向量模型从 e5-base（281MB）换为 multilingual-e5-small（135MB，多语言覆盖不变、跨语言相似度不差于 base）。识别模型 269MB → 167MB（small 29.8 + layout 124 + 韩文 13 + cls 0.6）；含向量模型的总量 551MB → 302MB——剩余大头是 layout（124MB PP-DocLayout plus-L），其小型化单独评估。档位切换：`node scripts/prepare-ocr-models.mjs --tier medium|tiny`，旧安装自动回退不中断。
 

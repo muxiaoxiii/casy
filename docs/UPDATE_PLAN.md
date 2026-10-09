@@ -8,7 +8,9 @@
 - 真实服务联调（飞书 / WebDAV / CalDAV / IMAP / SMTP / 远程 AI）、Windows 原生验收、远端 CI/Clippy/audit、公证。
 - 100/500 页真实 OCR 实测已完成（峰值 RSS 不随页数增长；断点续算端到端通过），见 DOCUMENT_PIPELINE.md 实测表。
 - OCR 质量项进展（2026-10-09）：EXIF 方向、词级框、性能基准、180° 方向分类（自研预处理）已完成；竖排与宽幅贴边经实证现有模型已覆盖，无需额外启发式。
-- 模型瘦身（2026-10-09）：OCR 识别默认档 medium→small（29.8MB，同字库、实测一致）、向量 e5-base→e5-small（135MB，多语言不变）。剩余项：layout 模型小型化（124MB plus-L）；OCR 剥离为 Myna 远端 provider（方案已确认：档位/provider 设置界面、真实卷宗 A/B、图片资产经 Myna 扩展接口 + bbox 自裁兜底）。
+- 模型瘦身（2026-10-09）：OCR 识别默认档 medium→small（29.8MB，同字库、实测一致）、向量 e5-base→e5-small（135MB，多语言不变）。
+- layout 模型（2026-10-09 调研结论）：PP-DocLayout_plus-L 的 124MB 是 RT-DETR-L 架构的地板价（旧款 L 同为 123.76MB）；更小档位换架构且质量有实测差距（S 4.8MB 有漏检、M 75.2% mAP vs L 90.4%）。按质量优先保留 plus-L；实测其正确识别表格/印章并产出阅读顺序分块（无它时 blocks=0）。
+- OCR 剥离为 Myna 远端 provider（2026-10-09 已实现）：`ocr.provider` 设置切换；Myna 侧已按 a 方案返回图片（元数据常给 + include_images 取字节 + image_id 绑几何），并修复了嵌套 content 导致表格文档 409 的 bug。剩余：设置界面、取消语义（recognize 无 cancel 端点）、真实卷宗 A/B、bbox 自裁兜底（b 方案）。
 
 | 优先级 | 下一步 | 验收要求 |
 | --- | --- | --- |
