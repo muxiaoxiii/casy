@@ -97,7 +97,9 @@ cargo build --release --features models --manifest-path tools/casy-doc-engine/Ca
 echo '<ProcessRequest JSON>' | CASY_BENCH_RUNS=3 ./tools/casy-doc-engine/target/release/casy-doc-engine bench
 ```
 
-文本行方向分类默认关闭；启用需 `CASY_TEXT_LINE_ORIENTATION_MODEL` 指向经验证的 cls ONNX（当前已知模型与 oar_ocr 不兼容，见 DOCUMENT_PIPELINE.md）。全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。
+文本行方向分类模型 `models/cls/ch_ppocr_mobile_v2.0_cls_infer.onnx`（约 570 KB，PP-OCRv2 mobile cls）随 runtime 分发后被自动发现并启用，也可用 `CASY_TEXT_LINE_ORIENTATION_MODEL` 指定；缺失时退回置信度启发式。完整包分发时需把该模型加入 runtime manifest（prepare 脚本）。
+
+全量 Rust 测试含 MCP/WebDAV 回环监听，沙箱阻止绑定端口时应在获准的本机测试环境运行，不能把该错误归为业务通过。
 
 时段 fixture：`mode=availability`、`date=2026-09-28&view=day`，预置 13:00–18:00 请假，支持表单内存保存与各视图切换。`tests/unit/personalAvailability.test.ts` 覆盖保存、失败草稿与时间范围；`task_plan_chain_test` 使用真正原生命令验证任务全链路及重复实例，`webdav_full_backup_test` 验证计划和休息时段随完整档案恢复。
 
