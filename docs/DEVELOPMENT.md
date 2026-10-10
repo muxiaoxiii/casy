@@ -15,10 +15,14 @@ npm ci
 node scripts/prepare-zvec.mjs
 node scripts/prepare-doc2x.mjs
 node scripts/prepare-ocr-models.mjs            # OCR 识别模型档位，默认 small（约 30MB）
+node scripts/prepare-embed-models.mjs          # 向量模型，默认 e5-small（约 135MB）
 # 可选：node scripts/prepare-ocr-models.mjs --tier medium   # 132MB 高精度档
 #        node scripts/prepare-ocr-models.mjs --all
+#        node scripts/prepare-embed-models.mjs --tier base # 281MB e5-base
 npm run tauri -- dev
 ```
+
+模型目录（`src-tauri/runtime/models/`）不入库，由上述脚本按 sha256 校验下载；CI 的 beta 打包作业同样显式准备模型（否则包内无 OCR/向量模型，冒烟验证必失败）。档位布局：`models/ocr/<tier>/{det,rec,dict}.onnx`、`models/embedding-e5-<tier>/`。
 
 `npm run dev` 只是浏览器前端，部分操作走 mock，不会证明桌面命令、数据库或 OCR 可用。
 
