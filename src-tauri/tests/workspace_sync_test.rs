@@ -149,7 +149,12 @@ async fn local_folder_lifecycle_preserves_originals_ids_notes_and_opt_in() {
         } else { None }
     }).expect("renamed note must retain a valid Markdown link");
     let linked_path = reqwest::Url::parse(&destination).unwrap().to_file_path().unwrap();
-    assert_eq!(linked_path, std::path::PathBuf::from(&renamed));
+    // Windows 上 DB 存的是 canonicalize 后的 `\\?\` 前缀形式，链接里是普通路径，
+    // 比较前统一去掉前缀（fs 操作两种形式都接受）。
+    let strip_prefix = |p: &std::path::Path| -> std::path::PathBuf {
+        std::path::PathBuf::from(p.to_string_lossy().trim_start_matches(r"\\?\"))
+    };
+    assert_eq!(strip_prefix(&linked_path), strip_prefix(std::path::Path::new(&renamed)));
     assert_eq!(std::fs::read_to_string(linked_path).unwrap(), changed);
     assert!(!link.contains("renamed.md"));
     std::fs::write(&renamed, "# Another Revision\n\nUpdated evidence.").unwrap();

@@ -996,11 +996,22 @@ fn relocate_knowledge_reference_batch(conn: &rusqlite::Connection, mappings: &[(
     Ok(())
 }
 
+/// Windows 上 fs/DB 路径常带 `canonicalize` 产生的 `\\?\` 前缀，而知识正文里
+/// 保存的是用户可见的普通路径。LIKE 定位必须用去前缀的原生形式，否则整行都匹配不到。
+fn native_display(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let trimmed = text
+        .strip_prefix(r"\\?\")
+        .or_else(|| text.strip_prefix("//?/"))
+        .unwrap_or(&text);
+    trimmed.to_owned()
+}
+
 /// 知识正文引用卷宗文件的两种形态：原生绝对路径，以及含空格/括号等字符时被
 /// `portable_backup` 改写成的 `file://` URL。两者都要参与定位，
 /// 否则对已 URL 化的引用二次改名会漏改。
 fn reference_patterns(source: &Path) -> Vec<String> {
-    let plain = source.to_string_lossy().into_owned();
+    let plain = native_display(source);
     let mut patterns = vec![format!("%{plain}%")];
     if let Ok(mut url) = reqwest::Url::parse("file:///") {
         url.set_path(&plain);
