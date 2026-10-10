@@ -157,30 +157,67 @@ fn markdown_references(value: &str) -> Vec<(std::ops::Range<usize>, String)> {
     references
 }
 
+/// 链接目标在原始文本中的精确范围。
+///
+/// Markdown 解析会把目标里的 `\.` 之类转义还原（点号是合法转义符），因此**不能**
+/// 用解析后的目标串回查原始文本——Windows 路径含 `\.`（如 `.tmpXXXX` 临时目录）时
+/// 回查必然落空，替换被静默跳过。这里直接按原始语法定位：尖括号形式取 `<` 到 `>`，
+/// 裸目标取到空白（标题分隔）或区间结束。
+fn raw_destination_span(
+    value: &str,
+    range: std::ops::Range<usize>,
+    destination: &str,
+) -> Option<std::ops::Range<usize>> {
+    let raw = value.get(range.clone())?;
+    // 1) 文本查找优先：区间可能覆盖整个链接或整个引用定义（`[ref]: /path`），
+    //    此时目标文本原样出现在区间内，直接定位最稳妥。
+    if let Some(offset) = raw.find(destination) {
+        return Some(range.start + offset..range.start + offset + destination.len());
+    }
+    // 2) 语法定位兜底：Windows 路径里的 `\.` 被 Markdown 转义吃掉反斜杠，
+    //    解析值与原文对不上，此时按原始语法取目标范围。
+    if let Some(rest) = raw.strip_prefix('<') {
+        let end = rest.find('>')?;
+        return Some(range.start + 1..range.start + 1 + end);
+    }
+    // 裸目标：到空白（标题分隔）为止；区间末尾若带 ')' 是链接收尾符而非目标内容
+    // （目标内的成对括号由 markdown_destination 百分号编码，不会以裸形式出现）。
+    let mut end = raw.find(char::is_whitespace).unwrap_or(raw.len());
+    if end == raw.len() && raw.ends_with(')') {
+        end -= 1;
+    }
+    Some(range.start..range.start + end)
+}
+
 pub(crate) fn relocate_markdown(value: &str, mappings: &[(PathBuf, PathBuf)]) -> String {
     let mut replacements = Vec::new();
     for (range, destination) in markdown_references(value) {
-        let Some(path) = reference_source(&destination) else {
+        let Some(span) = raw_destination_span(value, range, &destination) else {
             continue;
         };
-        let relocated = relocate_string(&path, mappings);
-        if relocated == path {
-            continue;
-        }
-        let replacement = if destination.starts_with("file:")
-            || relocated.contains(['\\', ' ', '(', ')', '#', '%'])
-        {
-            markdown_destination(&relocated)
-        } else {
-            Some(relocated)
-        };
-        if let (Some(replacement), Some(offset)) =
-            (replacement, value[range.clone()].find(&destination))
-        {
-            replacements.push((
-                range.start + offset..range.start + offset + destination.len(),
-                replacement,
-            ));
+        let raw = value[span.clone()].to_string();
+        // 两种形式都试：Markdown 转义会吃掉 Windows 路径里的 `\.`（如 `.tmpXXXX`
+        // 临时目录），解析后的目标因此匹配不上真实根路径；而带空格的转义目标
+        // （`a\ b.pdf`）只有解析后才是合法路径。谁命中映射根就用谁。
+        let replacement = [Some(destination.as_str()), Some(raw.as_str())]
+            .into_iter()
+            .flatten()
+            .filter_map(reference_source)
+            .find_map(|path| {
+                let relocated = relocate_string(&path, mappings);
+                if relocated == path {
+                    return None;
+                }
+                Some(if path.starts_with("file:")
+                    || relocated.contains(['\\', ' ', '(', ')', '#', '%'])
+                {
+                    markdown_destination(&relocated)?
+                } else {
+                    relocated
+                })
+            });
+        if let Some(replacement) = replacement {
+            replacements.push((span, replacement));
         }
     }
     replacements.sort_by_key(|a| std::cmp::Reverse(a.0.start));
@@ -893,6 +930,31 @@ mod tests {
     }
 
     #[test]
+    fn windows_angle_bracket_note_with_escaped_dot_relocates() {
+        // Windows 恢复回归：知识条目里的 `<C:\...\.tmpXXXX\...\evidence.md>` 目标。
+        // Markdown 解析会把 `\.` 当转义吃掉反斜杠，用解析值回查原始文本必然落空，
+        // 链接曾静默保留归档路径（macOS 无反斜杠所以不暴露）。
+        let temp = tempfile::tempdir().unwrap();
+        let original = r"C:\Users\RUNNER~1\AppData\Local\Temp\.tmp9h6p00\documents";
+        let mappings = vec![(PathBuf::from(original), temp.path().to_path_buf())];
+        let note = format!(r#"[证据原件](<{original}\591bac49\evidence.md>)"#);
+        let moved = relocate_markdown(&note, &mappings);
+        let expected = temp.path().join("591bac49").join("evidence.md");
+        assert!(
+            moved.contains(&expected.to_string_lossy().to_string()),
+            "链接未改写: {moved}"
+        );
+        // 改写后仍是合法 Markdown 链接
+        let references = markdown_references(&moved);
+        assert_eq!(references.len(), 1);
+        assert_eq!(
+            local_reference(&references[0].1).unwrap(),
+            expected,
+            "改写后的链接应解析到新路径"
+        );
+    }
+
+    #[test]
     fn relocation_respects_path_boundaries() {
         let mappings = vec![(PathBuf::from("/old/case"), PathBuf::from("/new/case"))];
         assert_eq!(
@@ -916,6 +978,7 @@ mod tests {
         let moved = relocate_markdown(original, &mappings);
         let destinations: Vec<_> = markdown_references(&moved).into_iter()
             .map(|(_, destination)| reference_source(&destination).unwrap()).collect();
+        println!("DESTS: {:?}", destinations);
         assert!(destinations.iter().any(|path| portable_path(path) == "/new/case/evidence.pdf"));
         assert!(moved.contains("file:///new/case/scan%20one.png"));
         assert!(destinations.iter().any(|path| portable_path(path) == "/new/case/citation.pdf"));
