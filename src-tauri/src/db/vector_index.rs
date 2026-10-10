@@ -67,9 +67,10 @@ fn normalized(bytes: &[u8], dimension: usize) -> Result<Vec<f32>> {
         bytes[4..].iter().map(|&v| v as i8 as f32).collect()
     } else {
         ensure!(bytes.len() == dimension * 4, "向量数据维数无效，请重建索引");
-        bytes
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        let (chunks, _) = bytes.as_chunks::<4>();
+        chunks
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect()
     };
     let norm = values

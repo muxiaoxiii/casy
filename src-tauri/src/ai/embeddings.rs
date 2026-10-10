@@ -252,7 +252,11 @@ pub fn stored_cosine(query: &[f32], bytes: &[u8]) -> f64 {
         return dot / (qq * vv).sqrt();
     }
     if bytes.len() != query.len() * 4 { return 0.0; }
-    let vector: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0],b[1],b[2],b[3]])).collect();
+    let (chunks, _) = bytes.as_chunks::<4>();
+    let vector: Vec<f32> = chunks
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
     cosine(query, &vector)
 }
 
