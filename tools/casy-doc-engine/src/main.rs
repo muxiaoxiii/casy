@@ -1458,6 +1458,8 @@ fn write_result(value: &impl Serialize) -> Result<()> {
 }
 
 /// 进程峰值 RSS（getrusage；macOS 为字节，Linux 为 KB——统一换算成字节）。
+/// Windows 没有 getrusage：该遥测项记为 0（仅诊断用途，不影响功能）。
+#[cfg(unix)]
 fn peak_rss_bytes() -> u64 {
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
     // SAFETY: getrusage 只写入我们拥有的 rusage 结构，RUSAGE_SELF 无需特殊权限。
@@ -1473,6 +1475,11 @@ fn peak_rss_bytes() -> u64 {
     {
         usage.ru_maxrss as u64 * 1024
     }
+}
+
+#[cfg(not(unix))]
+fn peak_rss_bytes() -> u64 {
+    0
 }
 
 fn run() -> Result<()> {
