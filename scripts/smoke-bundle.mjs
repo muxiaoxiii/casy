@@ -16,7 +16,8 @@ const request = { jobId: 'package-smoke', sourcePath: source, sourceSha256: befo
 const result = JSON.parse(execFileSync(join(app, process.platform === 'win32' ? 'runtime/bin/casy-doc-engine.exe' : 'Contents/Resources/runtime/bin/casy-doc-engine'), ['process'], {
   input: JSON.stringify(request), env, encoding: 'utf8', timeout: 600000, maxBuffer: 16 * 1024 * 1024,
 }))
-assert.equal(result.pages.length, 1)
+// R-02 起引擎结果只回传页数（页面集合唯一事实源是落盘页 IR）
+assert.equal(result.pageCount, 1)
 const markdown = readFileSync(result.markdownPath, 'utf8')
 assert.match(markdown, /Quarterly\s+Sales/i)
 assert.match(markdown, /263/)
