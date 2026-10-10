@@ -2153,6 +2153,8 @@ mod tests {
         .map(Path::new)
         .find(|path| path.is_file());
         let Some(font) = font else { return };
+        // 无渲染器（如 CI 未安装 poppler）时跳过：add_search_layer 需要 pdftoppm
+        if !command_exists("pdftoppm") { return; }
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source.pdf");
         let output = temp.path().join("source.searchable.pdf");
