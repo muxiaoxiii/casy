@@ -940,18 +940,17 @@ mod tests {
         let note = format!(r#"[证据原件](<{original}\591bac49\evidence.md>)"#);
         let moved = relocate_markdown(&note, &mappings);
         let expected = temp.path().join("591bac49").join("evidence.md");
-        assert!(
-            moved.contains(&expected.to_string_lossy().to_string()),
-            "链接未改写: {moved}"
-        );
-        // 改写后仍是合法 Markdown 链接
+        // 改写后仍是合法 Markdown 链接，且解析到恢复后的路径。
+        // 注意：Windows 上改写结果为 file:/// URL 形式（路径含反斜杠时
+        // markdown_destination 自动转 URL），所以断言必须走解析而非原始字符串包含。
         let references = markdown_references(&moved);
-        assert_eq!(references.len(), 1);
+        assert_eq!(references.len(), 1, "改写后应仍是合法链接: {moved}");
         assert_eq!(
             local_reference(&references[0].1).unwrap(),
             expected,
-            "改写后的链接应解析到新路径"
+            "改写后的链接应解析到恢复后的路径: {moved}"
         );
+        assert!(!moved.contains(".tmp9h6p00"), "归档路径不应残留: {moved}");
     }
 
     #[test]
