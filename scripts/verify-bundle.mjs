@@ -26,7 +26,9 @@ for(const file of manifest.files){
     const installedHash=createHash('sha256').update(await readFile(join(app,file.path.slice(5)))).digest('hex')
     assert.equal(installedHash,file.sha256,`Loader copy: ${file.path}`)
   }
-  if(/\.(dll|exe|dylib)$/.test(file.path)||['bin/pdftoppm','bin/casy-doc-engine'].includes(file.path)) await assertBinaryTarget(absolute,manifest.platform,manifest.arch)
+  // licenses/ 下是依赖许可证与配方脚本（如 PDF 渲染器 recipes 附带的
+  // tls12-download-arm64.exe 辅助工具），属于溯源产物而非运行时二进制，不参与架构校验。
+  if(!file.path.startsWith('licenses/')&&(/\.(dll|exe|dylib)$/.test(file.path)||['bin/pdftoppm','bin/casy-doc-engine'].includes(file.path))) await assertBinaryTarget(absolute,manifest.platform,manifest.arch)
   if(file.path.endsWith('.dylib')||file.path==='bin/pdftoppm'){
     const libraries=execFileSync('otool',['-L',absolute],{encoding:'utf8'}).split('\n').slice(file.path.endsWith('.dylib')?2:1).map(line=>line.trim().split(' (')[0]).filter(Boolean)
     assert(libraries.every(library=>library.startsWith('/usr/lib/')||library.startsWith('/System/')||library.startsWith('@loader_path/')),`External library dependency: ${file.path}`)
