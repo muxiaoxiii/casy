@@ -64,7 +64,9 @@ const probe=JSON.parse(execFileSync(engine,['probe'],{env,encoding:'utf8'}))
 assert(probe.available,JSON.stringify(probe))
 const embeddings=JSON.parse(execFileSync(engine,['embed'],{env:{...env,CASY_EMBEDDING_MODEL_DIR:join(runtime,'models/embedding-e5-small')},input:JSON.stringify({inputs:['专利侵权赔偿','Prüfung français 日本語'],query:true})+'\n',encoding:'utf8',timeout:30000}))
 assert.equal(embeddings.embeddings?.length,2,JSON.stringify(embeddings))
-assert(embeddings.embeddings.every(vector=>vector.length===768&&vector.every(Number.isFinite)))
+// 默认向量模型 multilingual-e5-small 为 384 维（e5-base 可选档为 768）
+const EMBEDDING_DIMENSIONS=384
+assert(embeddings.embeddings.every(vector=>vector.length===EMBEDDING_DIMENSIONS&&vector.every(Number.isFinite)))
 const vectors=JSON.parse(execFileSync(executable,['--verify-vector-index'],{env,encoding:'utf8',timeout:30000}))
 assert(vectors.available && vectors.engine==='zvec',JSON.stringify(vectors))
-console.log(JSON.stringify({app,platform:manifest.platform,architecture:manifest.arch,nativeArchitecturesVerified:true,files:manifest.files.length,runtimeBytes:manifest.files.reduce((sum,file)=>sum+file.bytes,0),signature:windows?'unsigned':'ad-hoc verified',probe,embeddingDimensions:768,vectors}))
+console.log(JSON.stringify({app,platform:manifest.platform,architecture:manifest.arch,nativeArchitecturesVerified:true,files:manifest.files.length,runtimeBytes:manifest.files.reduce((sum,file)=>sum+file.bytes,0),signature:windows?'unsigned':'ad-hoc verified',probe,embeddingDimensions:EMBEDDING_DIMENSIONS,vectors}))
