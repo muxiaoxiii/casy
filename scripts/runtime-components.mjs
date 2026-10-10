@@ -1,7 +1,10 @@
 // Component boundaries are metadata only: every component remains bundled.
 export const runtimeComponent = path => {
+  // 档位布局：models/ocr/<tier>/{det,rec,dict}.onnx（tiny/small/medium）
+  const ocrTier = path.match(/^models\/ocr\/([^/]+)\//)
+  if (ocrTier) return `ocr-${ocrTier[1]}`
+  if (path.startsWith('models/embedding-e5-small/')) return 'embedding-e5-small'
   if (path.startsWith('models/embedding-e5-base/')) return 'embedding-e5-base'
-  if (path.startsWith('models/ppocrv6-medium/')) return 'ocr-ppocrv6-medium'
   if (path.startsWith('models/korean-ppocrv5-mobile/')) return 'ocr-korean-ppocrv5-mobile'
   if (path.startsWith('models/layout/')) return 'layout'
   if (path.startsWith('licenses/')) return 'compliance'

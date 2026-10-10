@@ -21,6 +21,10 @@ run(process.execPath, ['scripts/prepare-doc2x.mjs'], { stdio: 'inherit' })
 if (process.env.CASY_OCR_SKIP_MODELS !== '1') {
   run(process.execPath, ['scripts/prepare-ocr-models.mjs'], { stdio: 'inherit' })
 }
+// 向量模型（默认 e5-small，约 135MB；base 用 prepare-embed-models.mjs --tier base）
+if (process.env.CASY_EMBED_SKIP_MODELS !== '1') {
+  run(process.execPath, ['scripts/prepare-embed-models.mjs'], { stdio: 'inherit' })
+}
 
 run('cargo', ['build', '--release', '--locked', '--features', 'models', '--manifest-path', 'tools/casy-doc-engine/Cargo.toml'], { stdio: 'inherit' })
 const exe = process.platform === 'win32' ? '.exe' : ''

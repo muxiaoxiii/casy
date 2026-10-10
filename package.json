@@ -12,6 +12,7 @@
     "tauri": "tauri",
     "runtime:prepare": "node scripts/prepare-runtime.mjs",
     "prepare:ocr-models": "node scripts/prepare-ocr-models.mjs",
+    "prepare:embed-models": "node scripts/prepare-embed-models.mjs",
     "build:desktop": "tauri build --config src-tauri/tauri.full.conf.json",
     "test:unit": "vitest run",
     "test:e2e": "node --test tests/e2e/*.mjs",

@@ -41,7 +41,8 @@ for (const component of manifest.components) {
   assert.equal(component.delivery, 'bundled')
   assert.equal(component.bytes, manifest.files.filter(file => component.files.includes(file.path)).reduce((sum, file) => sum + file.bytes, 0))
 }
-for (const id of ['embedding-e5-base','ocr-ppocrv6-medium','ocr-korean-ppocrv5-mobile','layout']) assert(manifest.components.some(component => component.id === id && component.bytes > 0))
+// 默认档位：OCR small（models/ocr/small）+ 向量 e5-small；medium/base 为可选下载档
+for (const id of ['embedding-e5-small','ocr-small','ocr-korean-ppocrv5-mobile','layout']) assert(manifest.components.some(component => component.id === id && component.bytes > 0), `缺少运行时组件: ${id}`)
 assert(!manifest.files.some(file => /^zvec\/sdk-.*\.tar\.gz$/.test(file.path)))
 const licenseRoot=join(runtime,'licenses/packages')
 const dependencies=JSON.parse(await readFile(join(licenseRoot,'index.json'),'utf8'))
@@ -61,7 +62,7 @@ const env={...process.env,PATH:windows?`${process.env.SystemRoot}\\System32;${pr
 for(const key of Object.keys(env))if(key.startsWith('CASY_'))delete env[key]
 const probe=JSON.parse(execFileSync(engine,['probe'],{env,encoding:'utf8'}))
 assert(probe.available,JSON.stringify(probe))
-const embeddings=JSON.parse(execFileSync(engine,['embed'],{env:{...env,CASY_EMBEDDING_MODEL_DIR:join(runtime,'models/embedding-e5-base')},input:JSON.stringify({inputs:['专利侵权赔偿','Prüfung français 日本語'],query:true})+'\n',encoding:'utf8',timeout:30000}))
+const embeddings=JSON.parse(execFileSync(engine,['embed'],{env:{...env,CASY_EMBEDDING_MODEL_DIR:join(runtime,'models/embedding-e5-small')},input:JSON.stringify({inputs:['专利侵权赔偿','Prüfung français 日本語'],query:true})+'\n',encoding:'utf8',timeout:30000}))
 assert.equal(embeddings.embeddings?.length,2,JSON.stringify(embeddings))
 assert(embeddings.embeddings.every(vector=>vector.length===768&&vector.every(Number.isFinite)))
 const vectors=JSON.parse(execFileSync(executable,['--verify-vector-index'],{env,encoding:'utf8',timeout:30000}))

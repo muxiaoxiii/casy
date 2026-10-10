@@ -81,6 +81,10 @@ jobs:
           Add-Content $env:GITHUB_ENV "CASY_RENDERER_DISTRIBUTION=$env:RUNNER_TEMP/casy-renderer"
       - run: node scripts/prepare-zvec.mjs
       - run: node scripts/prepare-fonts.mjs
+      # OCR 识别模型（默认 small 档）与向量模型（默认 e5-small）：CI 工作区没有
+      # gitignored 的 runtime/models，必须显式下载，否则打包与冒烟验证无模型可用
+      - run: node scripts/prepare-ocr-models.mjs
+      - run: node scripts/prepare-embed-models.mjs
       - if: runner.os == 'Windows'
         name: Make Zvec available to test binaries
         shell: pwsh
