@@ -33,7 +33,7 @@ regex = "1"
 dirs = "5"
 uuid = { version = "1", features = ["v4"] }
 rust_xlsxwriter = "0.80"
-calamine = "0.26"
+calamine = "0.36"
 zip = "0.6"
 age = { version = "0.11", default-features = false }
 base64 = "0.22"
@@ -77,7 +77,7 @@ screenshots = "0.6"
 arboard = "3"
 specta = { version = "1.0.5", features = ["export"] }
 pdf-extract = "0.12.0"
-lopdf = "0.36.0"
+lopdf = "0.42"
 ttf-parser = "0.25.1"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 docx-rs = "0.4.22"

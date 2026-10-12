@@ -131,7 +131,11 @@ jobs:
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo install cargo-audit --locked || true
-          cargo audit
+          # 余下 3 项来自 typst 0.15.1（当前最新版）的传递链：citationberg 0.7.0 锁
+          # quick-xml ^0.38（RUSTSEC-2026-0194/0195）、mitex 0.2.4 锁 rkyv ^0.7
+          # （RUSTSEC-2026-0235），上游在兼容区间内没有修复版本。两者输入均为可信
+          # 数据（内置 CSL 样式文件、不反序列化外部 rkyv 存档），等 typst 0.16 发布后移除。
+          cargo audit --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195 --ignore RUSTSEC-2026-0235
       # bindings 漂移校验（D-3）：生成物过期 = 失败
       - if: runner.os == 'Linux'
         run: |
