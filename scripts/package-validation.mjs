@@ -29,7 +29,20 @@ const staging = mkdtempSync(join(tmpdir(), 'casy-package-'))
 try {
   run('ditto', [app, join(staging, 'Casy.app')])
   symlinkSync('/Applications', join(staging, 'Applications'))
-  run('hdiutil', ['create', '-volname', `Casy ${version}`, '-srcfolder', staging, '-format', 'UDZO', dmg])
+  // hdiutil 在 CI 上偶发 `create failed - Resource busy`（残留同名卷被挂载、
+  // 或 Spotlight 正在索引暂存目录）。先卸掉同名旧卷，再带间隔重试。
+  const volume = `/Volumes/Casy ${version}`
+  for (const attempt of [1, 2, 3]) {
+    try { execFileSync('hdiutil', ['detach', volume], { stdio: 'pipe' }) } catch {}
+    try {
+      run('hdiutil', ['create', '-volname', `Casy ${version}`, '-srcfolder', staging, '-format', 'UDZO', dmg])
+      break
+    } catch (error) {
+      if (attempt === 3) throw error
+      process.stderr.write(`hdiutil create 第 ${attempt} 次失败（${error.message.trim()}），10s 后重试\n`)
+      execFileSync('sleep', ['10'])
+    }
+  }
   run('hdiutil', ['verify', dmg])
 } finally { rmSync(staging, { recursive: true, force: true }) }
 const hash = createHash('sha256')

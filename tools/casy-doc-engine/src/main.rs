@@ -1552,9 +1552,21 @@ fn run() -> Result<()> {
     Ok(())
 }
 fn main() {
-    if let Err(error) = run() {
-        eprintln!("{error:#}");
-        std::process::exit(1)
+    // Windows 主线程默认栈只有 1MB（macOS/Linux 8MB），而 OCR/ONNX Runtime 的
+    // 调用链深度会超出它：Windows 上 `process` 以 0xC00000FD（stack overflow）
+    // 终止，且 stdout 为空（还没走到写结果）。在显式大栈的工作线程里运行，
+    // 让引擎行为与平台默认栈大小解耦。
+    let worker = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(run)
+        .expect("failed to spawn engine worker thread");
+    match worker.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            eprintln!("{error:#}");
+            std::process::exit(1)
+        }
+        Err(_) => std::process::exit(101),
     }
 }
 
