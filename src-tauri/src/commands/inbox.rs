@@ -1289,6 +1289,301 @@ fn detect_service_delivery(text: &str) -> Option<ServiceDeliveryInfo> {
     })
 }
 
+/// 送达凭证：zxfw 短信链接 `#` 之后的三个查询参数。
+///
+/// 真实链接形如
+/// `https://zxfw.court.gov.cn/zxfw/#/pagesAjkj/app/wssd/index?qdbh=..&sdbh=..&sdsin=..`，
+/// `#` 之后是前端路由，HTTP 请求永远不会把它发到服务器——所以直接 GET 这个链接只会拿到
+/// 单页应用外壳（text/html）。这三个参数才是调用「一张网」送达 API 的凭证。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServiceDeliveryToken {
+    /// 送达编号
+    sdbh: String,
+    /// 渠道编号
+    qdbh: String,
+    /// 短信校验值
+    sdsin: String,
+}
+
+/// 一张网送达 API 网关（与 SPA 同源，但走 `/yzw/yzw-zxfw-sdfw` 前缀）。
+const SERVICE_API_BASE: &str = "https://zxfw.court.gov.cn/yzw/yzw-zxfw-sdfw/api/v1/sdfw";
+
+/// 单份送达文书。
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ServiceDocument {
+    #[serde(rename = "c_wsmc", default)]
+    name: String,
+    #[serde(rename = "c_wjgs", default)]
+    extension: String,
+    #[serde(rename = "c_fymc", default)]
+    court: String,
+    /// 文件地址（阿里云 OSS 预签名链接）
+    #[serde(rename = "wjlj", default)]
+    url: String,
+}
+
+/// 从链接中提取送达凭证。优先取查询串，其次取 fragment 里的查询串。
+fn extract_service_token(service_url: &str) -> Option<ServiceDeliveryToken> {
+    let parsed = reqwest::Url::parse(service_url).ok()?;
+    let host = parsed.host_str()?;
+    if host != "court.gov.cn" && !host.ends_with(".court.gov.cn") {
+        return None;
+    }
+    // `#/pagesAjkj/app/wssd/index?qdbh=..&sdbh=..&sdsin=..`：参数在 fragment 里，
+    // 借一个一次性 URL 复用同一套 query_pairs 解析，避免手写 split。
+    let query = match parsed.query() {
+        Some(query) => query.to_string(),
+        None => parsed.fragment()?.split('?').nth(1)?.to_string(),
+    };
+    let pairs_url = reqwest::Url::parse(&format!("http://casy.invalid/?{query}")).ok()?;
+    let pairs = pairs_url.query_pairs();
+    let pick = |key: &str| -> Option<String> {
+        pairs
+            .clone()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.into_owned())
+            .filter(|value| !value.is_empty())
+    };
+    Some(ServiceDeliveryToken {
+        sdbh: pick("sdbh")?,
+        qdbh: pick("qdbh")?,
+        sdsin: pick("sdsin")?,
+    })
+}
+
+/// 送达 API 用的浏览器同款请求头（`Origin`/`Referer` 缺失时网关会拒绝）。
+fn service_api_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(reqwest::header::ACCEPT, "*/*".parse().expect("静态头"));
+    headers.insert(reqwest::header::CONTENT_TYPE, "application/json".parse().expect("静态头"));
+    headers.insert(reqwest::header::ORIGIN, "https://zxfw.court.gov.cn".parse().expect("静态头"));
+    headers.insert(
+        reqwest::header::REFERER,
+        "https://zxfw.court.gov.cn/zxfw/".parse().expect("静态头"),
+    );
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+            .parse()
+            .expect("静态头"),
+    );
+    headers
+}
+
+/// 向法院端发送签收确认，确保产生查收记录。
+///
+/// 失败不阻塞下载（列表接口本身不依赖它），只记录日志：下载动作本身就是收件意图，
+/// 而查收记录缺席会导致法院侧认为受送达人未查收。
+async fn confirm_service_receipt(token: &ServiceDeliveryToken) {
+    let payload = serde_json::json!({
+        "sdbh": token.sdbh,
+        "qdbh": token.qdbh,
+        "sdsin": token.sdsin,
+    });
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            log::warn!("法院送达签收确认初始化失败: {error}");
+            return;
+        }
+    };
+    let response = client
+        .post(format!("{SERVICE_API_BASE}/updateSdxxBySdzt"))
+        .headers(service_api_headers())
+        .json(&payload)
+        .send()
+        .await;
+    match response {
+        Ok(response) if response.status().is_success() => {
+            log::info!("法院送达签收确认已发送");
+        }
+        Ok(response) => {
+            log::warn!(
+                "法院送达签收确认被拒绝（HTTP {}），已继续下载",
+                response.status()
+            );
+        }
+        Err(error) => {
+            log::warn!("法院送达签收确认发送失败: {error}，已继续下载");
+        }
+    }
+}
+
+/// 拉取该次送达名下的文书列表。
+async fn fetch_service_documents(
+    token: &ServiceDeliveryToken,
+) -> Result<Vec<ServiceDocument>, String> {
+    let payload = serde_json::json!({
+        "sdbh": token.sdbh,
+        "qdbh": token.qdbh,
+        "sdsin": token.sdsin,
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("无法初始化送达查询器: {e}"))?;
+    let response = client
+        .post(format!("{SERVICE_API_BASE}/getWsListBySdbhNew"))
+        .headers(service_api_headers())
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("法院送达接口访问失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("法院送达接口返回错误: {e}"))?;
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        code: i64,
+        #[serde(default)]
+        msg: String,
+        #[serde(default)]
+        data: Vec<ServiceDocument>,
+    }
+    let envelope: Envelope = response
+        .json()
+        .await
+        .map_err(|e| format!("法院送达接口响应解析失败: {e}"))?;
+    if envelope.code != 200 {
+        return Err(format!(
+            "法院送达接口未返回文书（code={} {}）。链接可能已过期，请重新获取短信或人工下载",
+            envelope.code, envelope.msg
+        ));
+    }
+    Ok(envelope.data)
+}
+
+/// 清洗文书文件名：去掉 Windows 非法字符与首尾点/空格。
+fn sanitize_service_filename(name: &str, extension: &str, index: usize) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            other => other,
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
+    let stem = if cleaned.is_empty() {
+        format!("法院送达文书{}", index + 1)
+    } else {
+        cleaned
+    };
+    let extension = extension.trim().trim_start_matches('.').to_string();
+    if extension.is_empty() {
+        stem
+    } else {
+        format!("{stem}.{extension}")
+    }
+}
+
+/// 下载单份文书。
+///
+/// 注意：OSS 预签名链接对请求头敏感——带上 `Origin`/`Referer`/`Sec-Fetch-*` 会签名不匹配
+/// （403 SignatureDoesNotMatch），所以这里用不带任何自定义头的客户端。
+async fn download_service_document(url: &str) -> Result<Vec<u8>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("无法初始化文书下载器: {e}"))?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("文书下载失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("文书下载返回错误: {e}"))?;
+    if response
+        .content_length()
+        .is_some_and(|size| size > 50 * 1024 * 1024)
+    {
+        return Err("送达文件超过 50MB 安全限制".to_string());
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取文书内容失败: {e}"))?;
+    if bytes.len() > 50 * 1024 * 1024 {
+        return Err("送达文件超过 50MB 安全限制".to_string());
+    }
+    if bytes.is_empty() {
+        return Err("文书下载内容为空".to_string());
+    }
+    Ok(bytes.to_vec())
+}
+
+/// 走「一张网」送达 API：签收确认 → 拉列表 → 逐份下载（可能有多份文书）。
+async fn download_service_delivery_via_api(
+    inbox_item_id: &str,
+    token: &ServiceDeliveryToken,
+) -> Result<String, String> {
+    confirm_service_receipt(token).await;
+    let documents = fetch_service_documents(token).await?;
+    if documents.is_empty() {
+        return Err("该送达链接名下没有可下载的文书".to_string());
+    }
+
+    let directory = crate::runtime_paths::documents_root().join("inbox");
+    std::fs::create_dir_all(&directory).map_err(|e| format!("无法创建收件目录: {e}"))?;
+
+    let mut saved: Vec<(String, String)> = Vec::new();
+    for (index, document) in documents.iter().enumerate() {
+        if document.url.trim().is_empty() {
+            log::warn!(
+                "第 {} 份文书缺少下载地址（{}），已跳过",
+                index + 1,
+                document.name
+            );
+            continue;
+        }
+        let bytes = download_service_document(&document.url).await?;
+        let filename = sanitize_service_filename(&document.name, &document.extension, index);
+        let path = directory.join(&filename);
+        std::fs::write(&path, &bytes).map_err(|e| format!("无法保存送达文件 {filename}: {e}"))?;
+        let stored = path.to_string_lossy().to_string();
+        log::info!(
+            "已下载送达文书 {}/{}：{}（{} 字节）",
+            index + 1,
+            documents.len(),
+            filename,
+            bytes.len()
+        );
+        saved.push((filename, stored));
+    }
+    if saved.is_empty() {
+        return Err("所有文书都缺少下载地址，未能保存任何文件".to_string());
+    }
+
+    let (first_name, first_path) = saved[0].clone();
+    let returned_path = first_path.clone();
+    let manifest = saved
+        .iter()
+        .enumerate()
+        .map(|(index, (filename, _))| format!("{}. {filename}", index + 1))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let note = format!("\n\n—— 已从法院送达链接下载 {} 份文书 ——\n{manifest}\n", saved.len());
+    let court = documents
+        .iter()
+        .map(|document| document.court.trim())
+        .find(|court| !court.is_empty())
+        .unwrap_or("法院")
+        .to_string();
+    let update_id = inbox_item_id.to_string();
+    let title = format!("{court}送达 · {first_name}");
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        conn.execute(
+            "UPDATE inbox_items SET source_type='file', source_path=?1, title=?2, quick_category=NULL, quick_confidence=NULL, content_text=COALESCE(content_text,'')||?3 WHERE id=?4",
+            rusqlite::params![first_path, title, note, update_id],
+        )?;
+        Ok(())
+    })
+    .await?;
+    Ok(returned_path)
+}
+
 /// 尝试下载法院送达链接中的直接文书响应。登录页、验证码页和其他 HTML 页面不会伪装成成功。
 async fn download_service_delivery_url(
     inbox_item_id: &str,
@@ -1299,6 +1594,11 @@ async fn download_service_delivery_url(
     let host = parsed.host_str().unwrap_or_default();
     if host != "court.gov.cn" && !host.ends_with(".court.gov.cn") {
         return Err("仅允许下载 court.gov.cn 官方域名的送达链接".to_string());
+    }
+    // zxfw 短信链接是单页应用路由，`#` 之后的 sdbh/qdbh/sdsin 是调用送达 API 的凭证；
+    // 直接 GET 只会拿到 HTML 外壳，必须先走 API。
+    if let Some(token) = extract_service_token(service_url) {
+        return download_service_delivery_via_api(inbox_item_id, &token).await;
     }
 
     let client = reqwest::Client::builder()
@@ -2534,10 +2834,11 @@ mod tests {
         );
     }
     use super::{
-        detect_service_delivery, extract_date_hint, extract_date_hint_at, ignored_status_for_schema,
-        normalize_case_file_category, parse_holiday_dates, quick_judge_text,
-        register_inbox_case_file, truncate_text,
+        detect_service_delivery, extract_date_hint, extract_date_hint_at, extract_service_token,
+        ignored_status_for_schema, normalize_case_file_category, parse_holiday_dates,
+        quick_judge_text, register_inbox_case_file, sanitize_service_filename, truncate_text,
     };
+    use super::{download_service_document, fetch_service_documents};
 
     #[test]
     fn detects_official_court_delivery_link_and_fields() {
@@ -2552,6 +2853,85 @@ mod tests {
     fn rejects_non_court_link() {
         let text = "请访问 https://example.com/zxfw.court.gov.cn/fake 下载文书";
         assert!(detect_service_delivery(text).is_none());
+    }
+
+    #[test]
+    fn extracts_service_token_from_fragment_route() {
+        // 真实短信形态：`#` 之后是前端路由，参数在 fragment 的查询串里
+        let url = "https://zxfw.court.gov.cn/zxfw/#/pagesAjkj/app/wssd/index?qdbh=f48871b446f84703bf2632b61de0b921&sdbh=a85a82d7597043c0ab4ad5dabf92a813&sdsin=5a20492ef6d8234d06ed549288a59dcb";
+        let token = extract_service_token(url).expect("应从 fragment 提取送达凭证");
+        assert_eq!(token.sdbh, "a85a82d7597043c0ab4ad5dabf92a813");
+        assert_eq!(token.qdbh, "f48871b446f84703bf2632b61de0b921");
+        assert_eq!(token.sdsin, "5a20492ef6d8234d06ed549288a59dcb");
+    }
+
+    #[test]
+    fn extracts_service_token_from_query_string() {
+        let url = "https://zxfw.court.gov.cn/sd?qdbh=q1&sdbh=s1&sdsin=x1";
+        let token = extract_service_token(url).expect("应从查询串提取送达凭证");
+        assert_eq!(token.sdbh, "s1");
+        assert_eq!(token.qdbh, "q1");
+        assert_eq!(token.sdsin, "x1");
+    }
+
+    #[test]
+    fn service_token_requires_all_three_params_and_official_host() {
+        // 缺一个参数就不是可用的送达凭证
+        assert!(extract_service_token("https://zxfw.court.gov.cn/zxfw/#/page?qdbh=q&sdbh=s").is_none());
+        assert!(extract_service_token("https://zxfw.court.gov.cn/zxfw/#/page").is_none());
+        // 非官方域名一律拒绝
+        assert!(extract_service_token("https://evil.com/#/page?qdbh=q&sdbh=s&sdsin=x").is_none());
+    }
+
+    #[test]
+    fn sanitizes_service_document_filenames() {
+        assert_eq!(
+            sanitize_service_filename("传票（山东双轮股份有限公司）（2026年10月26日）", "pdf", 0),
+            "传票（山东双轮股份有限公司）（2026年10月26日）.pdf"
+        );
+        assert_eq!(
+            sanitize_service_filename("a/b:c*d?e", "PDF", 0),
+            "a_b_c_d_e.PDF"
+        );
+        // 空名退化为序号名；扩展名为空时不加点点
+        assert_eq!(sanitize_service_filename("   ", "", 2), "法院送达文书3");
+        assert_eq!(sanitize_service_filename("文书", " ", 0), "文书");
+        // Windows 不接受以点结尾的文件名
+        assert_eq!(sanitize_service_filename("尾点.", "pdf", 0), "尾点.pdf");
+    }
+
+    /// 真机联调：法院送达 API 与 OSS 下载链路（只读，不发送签收确认）。
+    ///
+    /// 需要网络。签收确认是有法律效力的状态变更，不在测试里触发；
+    /// 列表接口本身不依赖它（已实测）。
+    /// 运行：`cargo test --lib service_delivery_live_api -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "requires network access to zxfw.court.gov.cn"]
+    async fn service_delivery_live_api_downloads_pdf() {
+        let url = "https://zxfw.court.gov.cn/zxfw/#/pagesAjkj/app/wssd/index?qdbh=f48871b446f84703bf2632b61de0b921&sdbh=a85a82d7597043c0ab4ad5dabf92a813&sdsin=5a20492ef6d8234d06ed549288a59dcb";
+        let token = extract_service_token(url).expect("应提取送达凭证");
+        let documents = fetch_service_documents(&token).await.expect("应拉到文书列表");
+        assert!(!documents.is_empty(), "该送达名下应有文书");
+        let document = &documents[0];
+        assert!(!document.name.is_empty(), "文书应有名称");
+        assert!(
+            document.url.starts_with("https://"),
+            "文书应有下载地址: {:?}",
+            document.url
+        );
+        let bytes = download_service_document(&document.url)
+            .await
+            .expect("裸客户端应能下载 OSS 预签名链接");
+        assert!(bytes.len() > 1024, "下载内容过小: {} 字节", bytes.len());
+        assert!(
+            bytes.starts_with(b"%PDF"),
+            "送达文书应是 PDF，实际头 {:?}",
+            &bytes[..8.min(bytes.len())]
+        );
+        println!(
+            "法院={} 名称={} 字节={}",
+            document.court, document.name, bytes.len()
+        );
     }
 
     #[test]

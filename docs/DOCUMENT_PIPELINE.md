@@ -16,6 +16,20 @@
 
 文字或混合批次只允许 Markdown，后端也在产出文件前验证格式能力。文字排版 PDF 请用文书编辑器导出。多帧图片需先转换 PDF，避免仅取一帧。
 
+## 法院送达短信取文（zxfw.court.gov.cn，2026-10-13 打通）
+
+短信里的链接形如 `https://zxfw.court.gov.cn/zxfw/#/pagesAjkj/app/wssd/index?qdbh=…&sdbh=…&sdsin=…`。**它不是文件直链**：`#` 之后是前端路由，HTTP 请求永远不会把片段发到服务器，直接 GET 只会拿到 801 字节的单页应用外壳（`text/html`），旧实现于是报"需要登录或验证码"。那三个参数是调用「一张网」送达 API 的凭证。
+
+实现（`src-tauri/src/commands/inbox.rs`）：
+
+1. **提取凭证**：`extract_service_token` 从查询串取，其次从 fragment 的查询串取 `sdbh`（送达编号）/`qdbh`（渠道编号）/`sdsin`（短信校验值）。三者缺一即判定为不可用，且只接受 `court.gov.cn` 及其子域。
+2. **签收确认**：`POST https://zxfw.court.gov.cn/yzw/yzw-zxfw-sdfw/api/v1/sdfw/updateSdxxBySdzt`，让法院端产生查收记录。失败不阻塞下载（列表接口不依赖它），只记日志。
+3. **拉取文书列表**：`POST …/getWsListBySdbhNew`，同一 JSON 载荷，返回 `data[]`，每份含 `c_wsmc`（文书名）、`c_wjgs`（格式）、`c_fymc`（法院）、`wjlj`（OSS 预签名地址）。一次送达可能有多份。
+4. **下载**：对 `wjlj` 发**裸 GET**。这里有个坑：预签名链接对请求头敏感，带上 API 那套 `Origin`/`Referer`/`Sec-Fetch-*` 会被 OSS 拒签（403 `SignatureDoesNotMatch`），所以下载用不带任何自定义头的独立客户端。文件名取真实文书名并清洗 Windows 非法字符。
+5. **入库**：全部落盘到 `Documents/…/inbox/`，收件箱项 `source_path` 指向第一份、`content_text` 追加文书清单，随后照常 `file_inbox_item` 归卷。
+
+域名白名单、50MB 上限与"HTML 不算成功"的拒绝语义都保留；带凭证走 API，不带凭证才回落到原来的直链下载。真机联调用 `cargo test --lib service_delivery_live_api -- --ignored`（只读，不触发签收确认）。
+
 ## OCR 管线与产物
 
 入口：[conversion.rs](../src-tauri/src/commands/conversion.rs)、[document_pipeline.rs](../src-tauri/src/document_pipeline.rs)、[引擎 main.rs](../tools/casy-doc-engine/src/main.rs)。
