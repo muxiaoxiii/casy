@@ -271,7 +271,25 @@ AI 部分不新增能力面，只把**现有 harness** 做到**可见、可观�
 
 ---
 
-## 4. 批次建议
+## 4. 实施进度
+
+**第 1 批已完成（2026-10-13，6 个提交）**：
+
+| 提交 | 内容 |
+|---|---|
+| `b96155d` | 大口袋：I1 推荐卡置信度/强度 + I2「以上都不对」手动出口（含 create_project 不再被过滤）+ I4 已处理项"去了哪里"（`InboxItemDto` 增 filedTo/filedAs/knowledgeMark，bindings 重生）+ I6 归卷前归属告警 |
+| `50716ad` | 案件与开庭：C1 索引卡期限提示与下次开庭（`list_cases` 增 nextDeadlineDate/nextHearingDate）+ C3 开庭全状态可建且延期/取消强制依据 + C4 改期后明示原提醒作废 + H1 开庭筛选/折叠 + H2 阶段可自由输入 |
+| `6af5708` | 日历与期限：H4 日程编辑补 color/allDay/时长快选 + H5 拖拽改期 8 秒可撤销 + H8 DeadlineChip 真实 daysLeft 与分级 + H9 今日页"期限预警"入口 |
+| `ff2db8e` | R3 早报改结构化取数（不再正则解析提醒日志文本）+ S2 全局搜索分组计数与最近 10 次搜索 + S3 语义不可用给"去配置向量接口"按钮 + O2 识别/索引双徽章（`list_case_ocr_states` 增 index_status） |
+| `5865da7` | A1 开庭变更链可见：新增 `list_entity_audit_events`，开庭行内展示 before→after 日期/状态/地点/依据（触发器早就写了 audit_events，此前无读取入口） |
+| `d3ed1fd` | A2 推荐卡"不采用"接入 `inbox_feedback`（后端与 service 齐全但 UI 从不调用，学习信号此前是死的） |
+| `98bcf6b` | AI 可观测：真实 degraded 状态（usage 记录今日失败与连续失败，连续 2 次转 amber 并说明已回退规则版）+ DocumentEngineStatus 显示当前 OCR provider 与 Myna 地址 |
+
+门禁：Rust 409 passed / 0 failed / 8 ignored，clippy 两 crate 0 警告，typecheck 0 错，vitest 377 passed，脚本门禁 9 passed。过程中 `scripts/read-integrity.test.mjs` 抓到新代码里的 `rows.flatten()`（静默丢弃 SQL 解码错误），已改为上抛而非放宽 lint。
+
+**剩余**：第 2 批（I3 I5、C2 C5 C7、H3 H6 H7、T1 T3 T4、O1 O3 O4 O7、K2 K3、S1、R1 R2 R4、X1 X2 X3 X4 X5）与第 3 批（C8、O5 O6、K1、X6 X7、操作记录视图）。其中 §3 的 A1（文档引擎设置区）尚未做——provider 已可见，但 `DocumentEngineStatus` 的 9 个字段仍未在设置中集中展示。
+
+## 5. 批次建议（原始规划）
 
 **第 1 批（先让"每天都要用"的地方变顺手）**：I1 I2 I4 I6、C1 C3 C4、H1 H2 H4 H5 H8、T2 T5、O2、S2 S3、R3、A1 A2、X3 X4
 （全部 S 级 + 少量 M；特点是改动局部、用户当天就能感觉到）
