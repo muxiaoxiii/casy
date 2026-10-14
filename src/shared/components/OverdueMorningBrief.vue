@@ -25,45 +25,37 @@ const brief = ref({
 async function loadBrief() {
   loading.value = true
   briefError.value = false
+  const empty = { overdueDeadlines: 0, overdueTasks: 0, dueTodayTasks: 0, todayHearings: 0 }
   try {
-    // 获取提醒日志并统计
-    const res = await tauriCallSafe('get_reminder_log', { limit: 200 })
-    if (res.ok && res.data) {
-      let overdueDeadlines = 0
-      let overdueTasks = 0
-      let dueTodayTasks = 0
-      let todayHearings = 0
-
-      for (const entry of res.data) {
-        const msg = entry.message || ''
-        const daysMatch = msg.match(/剩余:\s*(-?\d+)/)
-        const days = daysMatch ? parseInt(daysMatch[1]) : null
-
-        if (msg.includes('期限:') || msg.includes('deadline')) {
-          if (days !== null && days < 0) overdueDeadlines++
-          if (days === 0) dueTodayTasks++
-        }
-        if (msg.includes('任务:') || msg.includes('task')) {
-          if (days !== null && days < 0) overdueTasks++
-          if (days === 0) dueTodayTasks++
-        }
-        if (msg.includes('庭审:') || msg.includes('hearing')) {
-          if (days !== null && days <= 0) todayHearings++
-        }
-      }
-
-      brief.value = { overdueDeadlines, overdueTasks, dueTodayTasks, todayHearings }
-    } else {
-      // 不伪造业务数字：命令失败即进入明确错误态，绝不向律师展示虚构的逾期数量。
+    // 结构化取数：期限用带分级的预警，开庭用临近开庭，任务用任务列表按到期日过滤。
+    // 旧实现靠正则解析 get_reminder_log 的 message 文本（"剩余: -N"），口径随文案漂移，
+    // 且统计的其实是"已发送的提醒"而不是"真实逾期的事项"。
+    const [deadlines, hearings, tasks] = await Promise.all([
+      tauriCallSafe('get_deadline_warnings_with_levels', {}),
+      tauriCallSafe('get_upcoming_hearings', { days: 1 }),
+      tauriCallSafe('list_tasks', {}),
+    ])
+    if (!deadlines.ok || !hearings.ok || !tasks.ok) {
       briefError.value = true
-      brief.value = { overdueDeadlines: 0, overdueTasks: 0, dueTodayTasks: 0, todayHearings: 0 }
+      brief.value = empty
+      return
+    }
+    const today = todayLocalISO()
+    const warningList = deadlines.data || []
+    const taskList = (tasks.data || []).filter(task => !task.completed)
+    brief.value = {
+      overdueDeadlines: warningList.filter(w => Number(w.daysLeft ?? 0) < 0).length,
+      dueTodayTasks: taskList.filter(task => task.dueDate && task.dueDate <= today).length,
+      overdueTasks: taskList.filter(task => task.dueDate && task.dueDate < today).length,
+      todayHearings: (hearings.data || []).filter(h => Number(h.daysLeft ?? 99) <= 0).length,
     }
   } catch (e) {
     console.warn('[Casy] 早报数据加载失败:', e)
     briefError.value = true
-    brief.value = { overdueDeadlines: 0, overdueTasks: 0, dueTodayTasks: 0, todayHearings: 0 }
+    brief.value = empty
+  } finally {
+    loading.value = false
   }
-  loading.value = false
 }
 
 // ============================================================

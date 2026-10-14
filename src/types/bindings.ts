@@ -220,7 +220,7 @@ export type FieldGroup = { id: string; name: string; description: string | null;
  */
 export type FieldGroupItem = { id: string; columnName: string; label: string; fieldType: string; options: any; required: boolean; sortOrder: number }
 
-export type FileOcrStateDto = { fileId: string; ocrStatus: string; hasText: boolean }
+export type FileOcrStateDto = { fileId: string; ocrStatus: string; indexStatus: string; hasText: boolean }
 
 /**
  * 文件夹命名设置（三项均可选，缺省项跳过不写库——与原 Value 版语义一致）

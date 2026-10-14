@@ -110,6 +110,24 @@ function documentPhase(phase) {
   return ({ preparing:'准备文件',rendering:'渲染页面',recognizing:'识别文字',analyzing_layout:'分析复杂版面',finalizing:'整理结果' })[phase] || '处理中'
 }
 
+const INDEX_BADGES = {
+  pending: { label: '待索引', cls: 'pending', tip: '等待建立全文索引' },
+  processing: { label: '索引中', cls: 'processing', tip: '正在建立全文索引' },
+  completed: { label: '已索引', cls: 'completed', tip: '已可被全局检索命中' },
+  failed: { label: '索引失败', cls: 'failed', tip: '全文索引失败，可重新处理' },
+}
+
+/** 索引徽章：识别完成但索引失败时单独可见（O2） */
+function indexBadge(file) {
+  const state = ocrStates.value[file.id]
+  const status = state?.indexStatus || 'pending'
+  if (status === 'completed') return null
+  if (!isOcrCandidateFile(file)) return null
+  // 识别都没做时不显示索引态，避免一枚文件两颗"待处理"
+  if ((state?.status || 'pending') === 'pending') return null
+  return INDEX_BADGES[status] || INDEX_BADGES.pending
+}
+
 function ocrBadge(file) {
   if (!isOcrCandidateFile(file)) return null
   const job = documentJobs.value[file.id]
@@ -610,6 +628,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
                   :class="['ocr-badge', ocrBadge(file).cls]"
                   :title="ocrBadge(file).tip"
                 >{{ ocrBadge(file).label }}</span>
+                <span
+                  v-if="!showRemoved && indexBadge(file)"
+                  :class="['ocr-badge', 'ocr-badge--index', indexBadge(file).cls]"
+                  :title="indexBadge(file).tip"
+                >{{ indexBadge(file).label }}</span>
               </strong>
               <small>{{ categoryLabel(file.category) }} · {{ formatDate(file.createdAt) }}</small>
             </span>
@@ -885,6 +908,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
   border-radius: 4px; font-size: 9px; font-weight: 600; line-height: 1.5;
   color: var(--c-text-secondary); background: var(--c-bg-muted); vertical-align: 1px;
 }
+.ocr-badge--index { margin-left: 4px; border: 1px solid currentColor; background: transparent !important; font-weight: 400; }
 .ocr-badge.pending { border-color: var(--c-border); color: var(--c-text-secondary); }
 .ocr-badge.processing {
   border-color: var(--c-warning-lighter); background: var(--c-warning-light); color: var(--c-warning);

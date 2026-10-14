@@ -46,6 +46,8 @@ const listRef = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
 const semanticLoading = ref(false)
 const semanticWarning = ref('')
+/** 语义检索状态：not_configured / not_indexed / ok（S3 用于给出对应行动） */
+const semanticStatus = ref('')
 // 检索失败不得伪装成「没有匹配结果」（四态纪律）：至少一个来源失败即显示可重试的错误行
 const searchError = ref('')
 const mode = ref(localStorage.getItem('casy_global_search_mode') || 'keyword')
@@ -63,6 +65,29 @@ const results = shallowRef<ResultItem[]>([])
 const activeIndex = ref(0)
 
 const flatResults = computed(() => results.value)
+
+/** 每组结果条数（S2：让用户知道还有多少没列出来） */
+const groupCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {}
+  for (const item of flatResults.value) counts[item.group] = (counts[item.group] || 0) + 1
+  return counts
+})
+
+/** 最近搜索（S2：本地记住，避免重复输入） */
+const RECENT_KEY = 'casy_global_search_recent'
+const recentSearches = ref<string[]>([])
+try { recentSearches.value = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').filter((v: unknown) => typeof v === 'string').slice(0, 10) } catch { recentSearches.value = [] }
+function rememberSearch(text: string) {
+  const query = text.trim()
+  if (!query) return
+  const next = [query, ...recentSearches.value.filter(item => item !== query)].slice(0, 10)
+  recentSearches.value = next
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch {}
+}
+function clearRecentSearches() {
+  recentSearches.value = []
+  try { localStorage.removeItem(RECENT_KEY) } catch {}
+}
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let semanticTimer: ReturnType<typeof setTimeout> | null = null
@@ -162,8 +187,10 @@ async function runSearch(q: string, request: number) {
       semanticLoading.value = false
       if (!response.ok || !response.data) {
         semanticWarning.value = response.error || '语义检索不可用，已保留关键词结果'
+        semanticStatus.value = ''
         return
       }
+      semanticStatus.value = response.data.semanticStatus || ''
       semanticWarning.value = response.data.warning || ({not_configured:'语义检索尚未启用',not_indexed:'尚无当前模型的索引'}[response.data.semanticStatus] || '')
       const knowledge: ResultItem[] = response.data.results.map(k => ({
         key:'kn-'+k.id,group:'知识',icon:Reading,title:k.title,
@@ -182,12 +209,15 @@ function scheduleSearch() {
   loading.value = false
   semanticLoading.value = false
   semanticWarning.value = ''
+  semanticStatus.value = ''
   results.value = []
   if (query.value.trim()) {
     loading.value = true
     debounceTimer = setTimeout(() => void runSearch(query.value, request), 200)
   }
 }
+watch(query, value => { if (!value.trim()) rememberSearch(previousQuery.value); previousQuery.value = value })
+const previousQuery = ref('')
 watch(query, scheduleSearch)
 watch(mode, value => { localStorage.setItem('casy_global_search_mode', value); scheduleSearch() })
 
@@ -198,6 +228,7 @@ watch(visible, v => {
   loading.value = false
   semanticLoading.value = false
   semanticWarning.value = ''
+  semanticStatus.value = ''
   if (v) {
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     query.value = ''
@@ -209,6 +240,11 @@ watch(visible, v => {
   }
 })
 onBeforeUnmount(() => { ++sequence; if (debounceTimer) clearTimeout(debounceTimer); if (semanticTimer) clearTimeout(semanticTimer) })
+
+function openSemanticSettings() {
+  visible.value = false
+  router.push({ path: '/settings', query: { tab: 'ai' } })
+}
 
 function move(delta: number) {
   const n = flatResults.value.length
@@ -276,9 +312,18 @@ function onKeydown(e: KeyboardEvent) {
             </el-radio-group>
             <span v-if="semanticLoading" role="status">语义检索中</span>
           </div>
-          <div v-if="semanticWarning" class="cmdk-warning" role="status">{{ semanticWarning }}</div>
+          <div v-if="semanticWarning" class="cmdk-warning" role="status">
+            <span>{{ semanticWarning }}</span>
+            <el-button v-if="semanticStatus === 'not_configured' || semanticStatus === 'not_indexed'" text type="primary" size="small" @click="openSemanticSettings">去配置向量接口</el-button>
+          </div>
           <div v-if="searchError" class="cmdk-warning cmdk-error" role="alert">检索失败：{{ searchError }}<el-button text @click="runSearch(query, ++sequence)">重试</el-button></div>
 
+          <div v-if="!query.trim() && recentSearches.length" class="cmdk-recent">
+            <div class="cmdk-group-label"><span>最近搜索</span><el-button text size="small" @click="clearRecentSearches">清除</el-button></div>
+            <div class="cmdk-recent-row">
+              <button v-for="item in recentSearches" :key="item" type="button" class="cmdk-chip" @click="query = item">{{ item }}</button>
+            </div>
+          </div>
           <div ref="listRef" class="cmdk-list">
             <template v-if="flatResults.length">
               <template
@@ -289,7 +334,8 @@ function onKeydown(e: KeyboardEvent) {
                   v-if="flatResults.some(r => r.group === group)"
                   class="cmdk-group-label"
                 >
-                  {{ ['项目', '任务', '案件', '案卷', '知识'][gi] }}
+                  <span>{{ ['项目', '任务', '案件', '案卷', '知识'][gi] }}</span>
+                  <span class="cmdk-group-count">{{ groupCounts[group] || 0 }} 项</span>
                 </div>
                 <template v-for="r in flatResults.filter(x => x.group === group)" :key="r.key">
                   <button
@@ -394,6 +440,13 @@ function onKeydown(e: KeyboardEvent) {
   padding: 8px 10px 4px;
   font-weight: 600;
 }
+.cmdk-group-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cmdk-group-count { font-weight: 400; color: var(--c-text-secondary); }
+.cmdk-recent { padding: 4px 0 8px; border-bottom: 1px solid var(--c-border-light); }
+.cmdk-recent-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 10px 8px; }
+.cmdk-chip { padding: 3px 10px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 12px; background: var(--c-bg-card); color: var(--c-text-regular); cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdk-chip:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.cmdk-warning { display: flex; align-items: center; gap: 8px; }
 .cmdk-item {
   width: 100%;
   border: 0;

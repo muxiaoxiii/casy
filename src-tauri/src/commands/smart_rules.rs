@@ -391,6 +391,8 @@ pub async fn ocr_all_pending() -> Result<i64, String> {
 pub struct FileOcrStateDto {
     pub file_id: String,
     pub ocr_status: String,
+    /// 全文索引状态：pending / processing / completed / failed（识别完成≠索引完成）
+    pub index_status: String,
     pub has_text: bool,
 }
 
@@ -400,7 +402,7 @@ pub async fn list_case_ocr_states(case_id: String) -> Result<Vec<FileOcrStateDto
     run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare(
-            "SELECT id, ocr_status, (ocr_text IS NOT NULL AND LENGTH(ocr_text) > 0)
+            "SELECT id, ocr_status, COALESCE(index_status,'pending'), (ocr_text IS NOT NULL AND LENGTH(ocr_text) > 0)
              FROM case_files WHERE case_id = ?1 AND deleted_at IS NULL",
         )?;
         let rows = stmt.query_map(params![case_id], |r| {
@@ -409,7 +411,10 @@ pub async fn list_case_ocr_states(case_id: String) -> Result<Vec<FileOcrStateDto
                 ocr_status: r
                     .get::<_, Option<String>>(1)?
                     .unwrap_or_else(|| "pending".to_string()),
-                has_text: r.get::<_, i32>(2)? != 0,
+                index_status: r
+                    .get::<_, Option<String>>(2)?
+                    .unwrap_or_else(|| "pending".to_string()),
+                has_text: r.get::<_, i32>(3)? != 0,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
