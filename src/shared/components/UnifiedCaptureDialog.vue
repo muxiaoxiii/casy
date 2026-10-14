@@ -69,20 +69,41 @@ const savedInputs = new Map<string, string>()
 const actionResult = ref<IpcJsonObject | null>(null)
 const recommendations = ref<Recommendation[]>([])
 const selectedRecommendation = ref<Recommendation | null>(null)
+/** 快捷判断的强度/置信度：后端一直返回，前端此前整块丢弃 */
+const judgeInfo = ref<{ strength: string; confidence: number; aiAnalyzed: boolean; aiAvailable: boolean } | null>(null)
+/** "以上都不对"时用户手选的动作 */
+const manualAction = ref<Exclude<CaptureAction, 'auto'> | ''>('')
+/** 选中的是"以上都不对"这一项 */
+const noneSelected = computed(() => selectedRecommendation.value === null && recommendations.value.length > 0)
+/** 当前生效的动作（推荐或手选） */
+const effectiveAction = computed(() => selectedRecommendation.value?.action || (noneSelected.value ? manualAction.value : ''))
 const selectedRecommendationIndex = computed({
-  get: () => selectedRecommendation.value ? recommendations.value.indexOf(selectedRecommendation.value) : -1,
-  set: (index: number) => { selectedRecommendation.value = recommendations.value[index] || null },
+  get: () => selectedRecommendation.value ? recommendations.value.indexOf(selectedRecommendation.value) : recommendations.value.length,
+  set: (index: number) => {
+    if (index >= recommendations.value.length) {
+      selectedRecommendation.value = null
+      manualAction.value = ''
+      return
+    }
+    selectedRecommendation.value = recommendations.value[index] || null
+    if (selectedRecommendation.value) manualAction.value = ''
+  },
 })
+const strengthLabel = (value: string) => ({ strong: '强推荐', candidate: '候选', fallback: '兜底' } as Record<string, string>)[value] || '建议'
 
 const actionOptions = [
   { value: 'auto', label: '自动判断', icon: MagicStick },
   { value: 'create_task', label: '任务', icon: Finished },
   { value: 'create_event', label: '日程', icon: Calendar },
   { value: 'create_case', label: '案件', icon: Briefcase },
+  { value: 'create_project', label: '非案件项目', icon: Folder },
   { value: 'save_knowledge', label: '知识', icon: Collection },
   { value: 'update_holidays', label: '节假日', icon: Calendar },
   { value: 'service_delivery', label: '法院送达', icon: DocumentAdd },
 ] as const
+
+/** 手动可选动作（不含"自动判断"） */
+const manualActionOptions = actionOptions.filter((item) => item.value !== 'auto')
 
 const canSubmit = computed(() => Boolean(text.value.trim() || filePaths.value.length))
 
@@ -103,6 +124,8 @@ function reset() {
   caseWizardOpen.value = false
   recommendations.value = []
   selectedRecommendation.value = null
+  judgeInfo.value = null
+  manualAction.value = ''
 }
 
 interface CaseItem {
@@ -287,15 +310,28 @@ async function capture() {
     if (action.value === 'auto') {
       const judged = await casyContext.inbox.quickJudge(ids[0])
       if (!judged.ok) throw new Error(judged.error || '原文已保存，暂时无法生成处理建议，请重试')
-      const data = judged.ok ? judged.data as { recommendations?: Recommendation[] } : null
-      recommendations.value = (data?.recommendations || []).filter(item => item.action !== 'create_project')
+      const data = judged.ok ? judged.data as { recommendations?: Recommendation[] } & Partial<{ strength: string; confidence: number; aiAnalyzed: boolean; aiAvailable: boolean }> : null
+      recommendations.value = data?.recommendations || []
+      judgeInfo.value = {
+        strength: String(data?.strength || 'fallback'),
+        confidence: Number(data?.confidence || 0),
+        aiAnalyzed: Boolean(data?.aiAnalyzed),
+        aiAvailable: data?.aiAvailable !== false,
+      }
     } else if (action.value === 'update_holidays' || action.value === 'service_delivery') {
       const judged = await casyContext.inbox.quickJudge(ids[0])
-      const data = judged.ok ? judged.data as { recommendations?: Recommendation[] } : null
+      const data = judged.ok ? judged.data as { recommendations?: Recommendation[] } & Partial<{ strength: string; confidence: number; aiAnalyzed: boolean; aiAvailable: boolean }> : null
       const matched = data?.recommendations?.find(item => item.action === action.value)
       recommendations.value = [matched || explicitRecommendation(action.value)]
+      judgeInfo.value = {
+        strength: String(data?.strength || 'fallback'),
+        confidence: Number(data?.confidence || 0),
+        aiAnalyzed: Boolean(data?.aiAnalyzed),
+        aiAvailable: data?.aiAvailable !== false,
+      }
     } else {
       recommendations.value = [explicitRecommendation(action.value)]
+      judgeInfo.value = null
     }
 
     selectedRecommendation.value = recommendations.value[0] || null
@@ -313,7 +349,9 @@ async function capture() {
 }
 
 async function confirmRecommendation() {
+  // "以上都不对"时按用户手选的动作走显式推荐路径
   const recommendation = selectedRecommendation.value
+    ?? (noneSelected.value && manualAction.value ? explicitRecommendation(manualAction.value) : null)
   const inboxItemId = capturedIds.value[0]
   if (!recommendation || !inboxItemId || saving.value || holidayBusy.value) return
   if (recommendation.action === 'update_holidays' && !holidayDraft.value) { ElMessage.error('请先核对有效的节假日日期预览'); return }
@@ -437,20 +475,32 @@ function actionLabel(value: string) {
     </div>
     <div v-else-if="stage === 'review'" class="review-stage">
       <div class="saved-status"><el-icon><Check /></el-icon>原始内容已存入收件箱</div>
+      <div v-if="judgeInfo" class="judge-summary">
+        <el-tag size="small" :type="judgeInfo.strength === 'strong' ? 'success' : judgeInfo.strength === 'candidate' ? 'warning' : 'info'">{{ strengthLabel(judgeInfo.strength) }}</el-tag>
+        <span class="judge-meta">置信度 {{ Math.round(judgeInfo.confidence * 100) }}% · {{ judgeInfo.aiAnalyzed ? 'AI 分析' : judgeInfo.aiAvailable ? '规则判断' : 'AI 未开启 · 规则判断' }}</span>
+        <span v-if="judgeInfo.strength !== 'strong'" class="judge-hint">建议不确定，可改选其他处理方式，或手动指定</span>
+      </div>
       <el-radio-group v-model="selectedRecommendationIndex" class="recommendations-list" aria-label="处理建议">
         <el-radio v-for="(recommendation, index) in recommendations" :key="index" :value="index" :disabled="saving">{{ actionLabel(recommendation.action) }}</el-radio>
+        <el-radio :value="recommendations.length" :disabled="saving">以上都不对，手动选择</el-radio>
       </el-radio-group>
+      <div v-if="noneSelected" class="manual-action">
+        <span>处理方式</span>
+        <el-select v-model="manualAction" placeholder="请选择处理方式" :disabled="saving">
+          <el-option v-for="item in manualActionOptions" :key="item.value" :value="item.value" :label="item.label" />
+        </el-select>
+      </div>
       <p v-if="selectedRecommendation?.reason" class="recommendation-reason">{{ selectedRecommendation.reason }}</p>
-      <HolidayImportReview v-if="selectedRecommendation?.action === 'update_holidays'" :content="text" :disabled="saving" @change="holidayDraft = $event" @busy="holidayBusy = $event" />
+      <HolidayImportReview v-if="effectiveAction === 'update_holidays'" :content="text" :disabled="saving" @change="holidayDraft = $event" @busy="holidayBusy = $event" />
       <el-form label-position="top" class="review-form">
-        <el-form-item v-if="['create_task', 'create_event', 'create_case', 'save_knowledge'].includes(selectedRecommendation?.action || '')" label="标题">
+        <el-form-item v-if="['create_task', 'create_event', 'create_case', 'save_knowledge', 'create_project'].includes(effectiveAction)" label="标题">
           <el-input v-model="reviewTitle" aria-label="标题" :disabled="saving" />
         </el-form-item>
-        <div v-if="['create_task', 'create_event'].includes(selectedRecommendation?.action || '')" class="review-time">
-          <el-form-item :label="selectedRecommendation?.action === 'create_event' ? '日程日期' : '截止日期'"><el-date-picker v-model="reviewDate" aria-label="日期" type="date" value-format="YYYY-MM-DD" placeholder="未设置" :disabled="saving" /></el-form-item>
+        <div v-if="['create_task', 'create_event'].includes(effectiveAction)" class="review-time">
+          <el-form-item :label="effectiveAction === 'create_event' ? '日程日期' : '截止日期'"><el-date-picker v-model="reviewDate" aria-label="日期" type="date" value-format="YYYY-MM-DD" placeholder="未设置" :disabled="saving" /></el-form-item>
           <el-form-item label="时间"><el-time-picker v-model="reviewTime" aria-label="时间" format="HH:mm" value-format="HH:mm" clearable placeholder="未设置" :disabled="saving" /></el-form-item>
         </div>
-        <el-form-item v-if="!['update_holidays', 'create_case'].includes(selectedRecommendation?.action || '')" label="关联案件">
+        <el-form-item v-if="!['update_holidays', 'create_case'].includes(effectiveAction)" label="关联案件">
           <el-select v-model="targetCaseId" filterable remote :remote-method="loadCases" :loading="caseLoading" clearable placeholder="未关联案件" :disabled="saving" @change="onCaseChange">
             <el-option v-for="c in caseList" :key="c.id" :value="c.id" :label="c.caseNo ? c.caseName + ' · ' + c.caseNo : c.caseName" />
           </el-select>
@@ -460,7 +510,7 @@ function actionLabel(value: string) {
     <div v-else class="done-stage">
       <el-icon :size="32"><Check /></el-icon><h3>{{ confirmed ? '处理完成' : '已存入收件箱' }}</h3>
       <p v-if="confirmed && capturedIds.length > 1 && !targetCaseId && !actionResult?.case">{{ capturedIds.length - 1 }} 个附件待整理</p>
-      <el-button v-if="confirmed && ['create_task','create_event','create_case','save_knowledge'].includes(selectedRecommendation?.action || '')" type="primary" @click="openCreated">查看{{ actionLabel(selectedRecommendation?.action || '') }}</el-button>
+      <el-button v-if="confirmed && ['create_task','create_event','create_case','save_knowledge','create_project'].includes(effectiveAction)" type="primary" @click="openCreated">查看{{ actionLabel(effectiveAction) }}</el-button>
       <template v-if="confirmed && actionResult?.action === 'holidays_updated'">
         <p>已写入日历：放假 {{ actionResult.holidaysCount }} 天，补班 {{ actionResult.workdaysCount }} 天。<span v-if="actionResult.changedDates === 0">这些日期与现有日历一致，无新增变动。</span><span v-else-if="actionResult.changedDates != null">实际更新 {{ actionResult.changedDates }} 个日期。</span></p>
         <el-button type="primary" @click="close(); router.push({ path: '/calendar', query: { view: 'year', date: `${actionResult.year}-01-01` } })">查看导入后的日历</el-button>
@@ -471,7 +521,7 @@ function actionLabel(value: string) {
       <div class="capture-footer">
         <el-button :disabled="saving" @click="close">{{ stage === 'compose' ? '取消' : stage === 'review' ? '稍后处理' : '关闭' }}</el-button>
         <el-button v-if="stage === 'compose'" type="primary" :disabled="!canSubmit" :loading="saving" @click="capture">{{ action === 'auto' ? '存入收件箱' : '继续' }}</el-button>
-        <el-button v-else-if="stage === 'review'" type="primary" :disabled="!selectedRecommendation || holidayBusy || (selectedRecommendation.action === 'update_holidays' && !holidayDraft)" :loading="saving" @click="confirmRecommendation">{{ selectedRecommendation?.action === 'create_case' ? '完善案件信息' : '确认处理' }}</el-button>
+        <el-button v-else-if="stage === 'review'" type="primary" :disabled="!effectiveAction || holidayBusy || (effectiveAction === 'update_holidays' && !holidayDraft)" :loading="saving" @click="confirmRecommendation">{{ effectiveAction === 'create_case' ? '完善案件信息' : '确认处理' }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -494,6 +544,12 @@ function actionLabel(value: string) {
 .capture-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .capture-fields label > span { font-size: 12px; color: var(--c-text-secondary); }
 .saved-status { display: flex; align-items: center; gap: 8px; color: var(--c-success); font-size: 13px; padding: 0 0 16px; border-bottom: 1px solid var(--c-border); }
+.judge-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 0 0; }
+.judge-meta { font-size: 12px; color: var(--c-text-secondary); }
+.judge-hint { font-size: 12px; color: var(--c-warning); }
+.manual-action { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.manual-action > span { font-size: 12px; color: var(--c-text-secondary); }
+.manual-action .el-select { width: 200px; }
 .recommendations-list { margin-top: 12px; }
 .recommendation-reason { color: var(--c-text-secondary); font-size: 12px; line-height: 1.6; margin: 0 0 16px; }
 .review-time { margin: 0; }

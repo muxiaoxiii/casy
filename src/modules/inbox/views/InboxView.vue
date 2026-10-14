@@ -11,7 +11,7 @@ import { todayLocalISO } from '../../../shared/utils/date'
 import { useVoiceNote } from '../composables/useVoiceNote'
 import { useCapture } from '../composables/useCapture'
 import { isTauriRuntime } from '../../../core/mockData'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Folder,
   Finished,
@@ -168,6 +168,20 @@ function onClarifyCaseChange(caseId) {
   clarifyMatter.value = matched?.displayName || matched?.caseName || ''
 }
 
+/** 已处理项的"去了哪里"：归卷去向 + 处理时间 */
+const filedDestination = computed(() => {
+  const item = selectedItem.value
+  if (!item || item.status === 'pending') return null
+  const processedAt = item.processedAt ? String(item.processedAt).replace('T', ' ').slice(0, 16) : ''
+  if (item.filedTo) {
+    const matched = casesList.value.find((c) => c.id === item.filedTo)
+    return { kind: 'case', caseId: item.filedTo, label: matched?.displayName || matched?.caseName || '查看案件', category: item.filedAs || '', processedAt }
+  }
+  if (item.knowledgeMark) return { kind: 'knowledge', label: '已沉淀知识库', processedAt }
+  return null
+})
+const categoryLabel = (value) => ({ summons: '传票通知书', evidence: '证据材料', submitted: '提交文件', received: '接收文件', internal: '内部文件', correspondence: '往来函件', other: '其他' }[value] || value)
+
 // ============================================================
 // 数据加载
 // ============================================================
@@ -216,9 +230,17 @@ async function fileCurrentItem(action) {
   const item=selectedItem.value
   if(!item || processing.value)return
   if(action==='file_to_case' && !clarifyCaseId.value)return ElMessage.warning('请先选择归属案件')
+  // 归属告警前置（借鉴 OA"未设置合同目录将存根目录，是否确认上传"）：
+  // 内容里识别不出材料类型时会归入「其他」，先问一句，别静默兜底。
+  const category = String(item.aiCategory || '').trim()
+  if(action==='file_to_case' && !category){
+    try{
+      await ElMessageBox.confirm('未能从内容中识别这份材料的类型，将归入案件卷宗的「其他」目录。是否继续？','归属确认',{type:'warning',confirmButtonText:'继续归入其他',cancelButtonText:'取消',confirmButtonClass:'el-button--warning'})
+    }catch{return}
+  }
   processing.value=true
   try {
-    const result=await casyContext.inbox.confirmAction({inboxItemId:item.id,action,targetCaseId:clarifyCaseId.value || null,intent:{title:clarifyTitle.value || item.title,content:clarifyNotes.value || item.contentText || ''}})
+    const result=await casyContext.inbox.confirmAction({inboxItemId:item.id,action,targetCaseId:clarifyCaseId.value || null,targetCategory:category||'other',intent:{title:clarifyTitle.value || item.title,content:clarifyNotes.value || item.contentText || ''}})
     if(!result.ok)throw new Error(result.error || '处理失败')
     ElMessage.success(action==='file_to_case'?'已归卷至案件':'已保存到知识库')
     await loadItems()
@@ -458,7 +480,19 @@ async function dismissItem(item) {
               <el-form-item label="备注"><el-input v-model="clarifyNotes" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" aria-label="备注" /></el-form-item>
             </el-form>
           </template>
-          <template v-else><div v-if="receipt?.action === 'holidays_updated'" class="holiday-receipt"><strong>日历写入回执</strong><p>{{ receipt.year }} 年 · 放假 {{ receipt.holidaysCount }} 天 · 补班 {{ receipt.workdaysCount }} 天</p><p v-if="receipt.changedDates === 0">导入日期与已有日历一致，无新增变动。</p><p v-else-if="receipt.changedDates != null">实际更新 {{ receipt.changedDates }} 个日期。</p><p v-if="receipt.holidays?.length">放假：{{ receipt.holidays.join('、') }}</p><p v-if="receipt.workdays?.length">补班：{{ receipt.workdays.join('、') }}</p><el-button @click="router.push({ path: '/calendar', query: { view: 'year', date: `${receipt.year}-01-01` } })">查看日历</el-button></div><h2>{{ selectedItem.title }}</h2><p class="original-content">{{ selectedItem.contentText || selectedItem.sourcePath || selectedItem.filePath }}</p></template>
+          <template v-else><div v-if="receipt?.action === 'holidays_updated'" class="holiday-receipt"><strong>日历写入回执</strong><p>{{ receipt.year }} 年 · 放假 {{ receipt.holidaysCount }} 天 · 补班 {{ receipt.workdaysCount }} 天</p><p v-if="receipt.changedDates === 0">导入日期与已有日历一致，无新增变动。</p><p v-else-if="receipt.changedDates != null">实际更新 {{ receipt.changedDates }} 个日期。</p><p v-if="receipt.holidays?.length">放假：{{ receipt.holidays.join('、') }}</p><p v-if="receipt.workdays?.length">补班：{{ receipt.workdays.join('、') }}</p><el-button @click="router.push({ path: '/calendar', query: { view: 'year', date: `${receipt.year}-01-01` } })">查看日历</el-button></div>
+            <div v-if="filedDestination" class="filed-destination">
+              <template v-if="filedDestination.kind === 'case'">
+                <span class="destination-label">已归卷至案件</span>
+                <el-button text type="primary" @click="router.push({ name: 'case-detail', params: { id: filedDestination.caseId } })">{{ filedDestination.label }}</el-button>
+                <span class="destination-meta">类别：{{ categoryLabel(filedDestination.category) }}<span v-if="filedDestination.processedAt"> · {{ filedDestination.processedAt }}</span></span>
+              </template>
+              <template v-else>
+                <span class="destination-label">{{ filedDestination.label }}</span>
+                <span class="destination-meta" v-if="filedDestination.processedAt">{{ filedDestination.processedAt }}</span>
+              </template>
+            </div>
+            <h2>{{ selectedItem.title }}</h2><p class="original-content">{{ selectedItem.contentText || selectedItem.sourcePath || selectedItem.filePath }}</p></template>
         </div>
         <footer v-if="selectedItem.status === 'pending'" class="clarify-footer ui-row ui-row--between">
           <span>{{ sourceLabel(selectedItem.sourceType) }}</span>

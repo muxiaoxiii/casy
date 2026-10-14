@@ -262,6 +262,10 @@ export interface InboxItem {
   aiSuggestedCaseId: string | null
   status: InboxStatus
   linkedCaseId: string | null
+  /** 归卷去向：已归档到哪个案件、以什么类别（用于"去了哪里"） */
+  filedTo: string | null
+  filedAs: string | null
+  knowledgeMark: number
   userCategory: string
   createdAt: string
   processedAt: string | null

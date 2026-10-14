@@ -89,6 +89,7 @@ const emptyInboxItem: InboxItemDto = {
   id: '', title: '', contentText: '', sourceType: 'note', sourcePath: '', sourceUrl: null,
   sourceTime: null, aiCategory: '', aiConfidence: 0, aiExtracted: null,
   aiSuggestedCaseId: null, status: 'pending', userCategory: '', linkedCaseId: null,
+  filedTo: null, filedAs: null, knowledgeMark: 0,
   createdAt: '', processedAt: null,
 }
 const mockInbox: InboxItemDto[] = [

@@ -25,6 +25,11 @@ pub struct InboxItemDto {
     pub status: String,
     pub user_category: String,
     pub linked_case_id: Option<String>,
+    /// 归卷去向：案件 id 与归档类别（filed）
+    pub filed_to: Option<String>,
+    pub filed_as: Option<String>,
+    /// 是否已沉淀知识库（0/1/2）
+    pub knowledge_mark: i64,
     pub created_at: String,
     pub processed_at: Option<String>,
 }
@@ -243,6 +248,7 @@ pub async fn list_inbox_items(
              COALESCE(content_text,'') AS content_text, COALESCE(ai_category,'') AS ai_category, \
              COALESCE(ai_confidence,0) AS ai_confidence, ai_extracted, ai_suggested_case_id, \
              status, COALESCE(user_category,'') AS user_category, linked_case_id, \
+             filed_to, filed_as, COALESCE(knowledge_mark,0) AS knowledge_mark, \
              COALESCE(created_at,'') AS created_at, processed_at \
              FROM inbox_items WHERE 1=1",
         );
@@ -294,6 +300,9 @@ pub async fn list_inbox_items(
                     status: row.get::<_, String>("status")?,
                     user_category: row.get::<_, String>("user_category")?,
                     linked_case_id: row.get::<_, Option<String>>("linked_case_id")?,
+                    filed_to: row.get::<_, Option<String>>("filed_to")?,
+                    filed_as: row.get::<_, Option<String>>("filed_as")?,
+                    knowledge_mark: row.get::<_, i64>("knowledge_mark")?,
                     created_at: row.get::<_, String>("created_at")?,
                     processed_at: row.get::<_, Option<String>>("processed_at")?,
                 })

@@ -278,7 +278,7 @@ export type ImportResult = { total: number; created: number; updated: number; sk
  * 在 SQL 层 COALESCE 归一为 '' / 0（前端手写契约按非空建模；null 与 ''
  * 在展示层真值判断等价），其余可空字段保持 Option。
  */
-export type InboxItemDto = { id: string; sourceType: string; sourcePath: string; sourceUrl: string | null; sourceTime: string | null; title: string; contentText: string; aiCategory: string; aiConfidence: number; aiExtracted: any | null; aiSuggestedCaseId: string | null; status: string; userCategory: string; linkedCaseId: string | null; createdAt: string; processedAt: string | null }
+export type InboxItemDto = { id: string; sourceType: string; sourcePath: string; sourceUrl: string | null; sourceTime: string | null; title: string; contentText: string; aiCategory: string; aiConfidence: number; aiExtracted: any | null; aiSuggestedCaseId: string | null; status: string; userCategory: string; linkedCaseId: string | null; filedTo: string | null; filedAs: string | null; knowledgeMark: number; createdAt: string; processedAt: string | null }
 
 /**
  * 批处理进度
