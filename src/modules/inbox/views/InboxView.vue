@@ -12,6 +12,7 @@ import { useVoiceNote } from '../composables/useVoiceNote'
 import { useCapture } from '../composables/useCapture'
 import { isTauriRuntime } from '../../../core/mockData'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import CaseWizard from '../components/CaseWizard.vue'
 import {
   Folder,
   Finished,
@@ -72,6 +73,15 @@ const processing = ref(false)
 const structuring = ref(false)
 const selectedItemId = ref('')
 const sourceFilter = ref('all')
+// I3：搜索 / 排序 / 分页 / 多选批量
+const inboxQuery = ref('')
+const inboxSort = ref('newest') // newest | oldest | source
+const listLimit = ref(100)
+const MAX_LIMIT = 500
+const checkedIds = ref([])
+const batchBusy = ref(false)
+const showCaseWizard = ref(false)
+const casePrefill = ref(null)
 const quickCaptureInputText = ref('')
 const casesList = ref([])
 const loadError = ref('')
@@ -107,6 +117,7 @@ const sourceFilters = computed(() => {
   }, {})
   return [
     { value: 'all', label: '全部', count: currentItems.length, icon: Collection },
+    { value: 'unassigned', label: '待定归属', count: unassignedItems.value.length, icon: QuestionFilled },
     { value: 'email', label: '邮件', count: counts.email || 0, icon: Message },
     { value: 'wechat', label: '微信', count: counts.wechat || 0, icon: ChatDotRound },
     { value: 'note', label: '速记', count: counts.note || 0, icon: Phone },
@@ -115,10 +126,43 @@ const sourceFilters = computed(() => {
 })
 
 const filteredPendingItems = computed(() => {
-  const list = statusFilter.value === 'pending' ? pendingItems.value : filedItems.value
-  if (sourceFilter.value === 'all') return list
-  return list.filter((item) => (item.sourceType || 'note') === sourceFilter.value)
+  let list = statusFilter.value === 'pending' ? pendingItems.value : filedItems.value
+  if (sourceFilter.value === 'unassigned') list = unassignedItems.value
+  else if (sourceFilter.value !== 'all') list = list.filter((item) => (item.sourceType || 'note') === sourceFilter.value)
+  const keyword = inboxQuery.value.trim().toLowerCase()
+  if (keyword) {
+    list = list.filter((item) => {
+      const haystack = [item.title, item.contentText, item.sourcePath, item.filePath, item.caseName]
+        .filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(keyword)
+    })
+  }
+  const sorted = list.slice()
+  if (inboxSort.value === 'oldest') sorted.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+  else if (inboxSort.value === 'source') sorted.sort((a, b) => String(a.sourceType).localeCompare(String(b.sourceType)) || String(b.createdAt).localeCompare(String(a.createdAt)))
+  else sorted.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+  return sorted
 })
+
+/**
+ * 待定归属（I5，单用户语义）：内容里能看出案号、但既没有匹配到案件也没人工指定。
+ * 不是"认领池"——没有多主体认领，只有"归属待定，等用户指定"。
+ */
+const CASE_NO_PATTERN = /[（(]\s*(?:20|19)\d{2}\s*[）)][^\s，。；,;]{2,40}?号/
+function detectedCaseNo(item) {
+  if (item?.linkedCaseId || item?.aiSuggestedCaseId) return ''
+  const text = [item?.title, item?.contentText].filter(Boolean).join(' ')
+  const match = text.match(CASE_NO_PATTERN)
+  return match ? match[0] : ''
+}
+const unassignedItems = computed(() =>
+  pendingItems.value.filter((item) => detectedCaseNo(item)),
+)
+
+/** 首屏上限（X4：长列表不一次全渲染，但导出/导出式操作不受限） */
+const visibleItems = computed(() => filteredPendingItems.value.slice(0, listLimit.value))
+const hasMore = computed(() => filteredPendingItems.value.length > visibleItems.value.length)
+const allVisibleChecked = computed(() => visibleItems.value.length > 0 && visibleItems.value.every((item) => checkedIds.value.includes(item.id)))
 
 const selectedItem = computed(() => {
   const list = filteredPendingItems.value
@@ -386,6 +430,64 @@ async function importFile() {
   }
 }
 
+/** 按检测到的案号预填新建案件（I5：归属待定时给一条明确出路） */
+/** CaseWizard 提交：创建后把新案件设为归卷目标 */
+async function submitNewCase(payload) {
+  const result = await casyContext.cases.create(payload)
+  if (!result.ok) return result
+  const id = result.data?.id
+  if (id) {
+    await loadCases()
+    clarifyCaseId.value = id
+    onClarifyCaseChange(id)
+  }
+  return result
+}
+
+function createCaseFromDetected() {
+  const caseNo = detectedCaseNo(selectedItem.value)
+  if (!caseNo) return
+  casePrefill.value = { caseNo, caseName: selectedItem.value?.title || caseNo }
+  showCaseWizard.value = true
+}
+
+function toggleCheck(item) {
+  checkedIds.value = checkedIds.value.includes(item.id)
+    ? checkedIds.value.filter((id) => id !== item.id)
+    : [...checkedIds.value, item.id]
+}
+function toggleCheckAll() {
+  const ids = visibleItems.value.map((item) => item.id)
+  checkedIds.value = allVisibleChecked.value ? [] : ids
+}
+
+/** 批量忽略（X3：逐项成败明细） */
+async function batchDismiss() {
+  if (!checkedIds.value.length || batchBusy.value) return
+  batchBusy.value = true
+  const succeeded = []
+  const failed = []
+  for (const id of checkedIds.value) {
+    const res = await casyContext.inbox.dismiss(id)
+    if (res.ok) succeeded.push(id)
+    else failed.push({ id, error: res.error || '忽略失败' })
+  }
+  batchBusy.value = false
+  checkedIds.value = []
+  await loadItems()
+  reportBatch('忽略', succeeded.length, failed)
+}
+
+/** 批量结果明细（X3）：不弹一次就算了，逐项列成败 */
+function reportBatch(label, okCount, failed) {
+  if (!failed.length) { ElMessage.success(`已${label} ${okCount} 项`); return }
+  ElMessageBox.alert(
+    `已${label} ${okCount} 项，${failed.length} 项失败：\n${failed.map((item) => `· ${item.id.slice(0, 8)}… ${item.error}`).join('\n')}`,
+    '批量操作结果',
+    { confirmButtonText: '知道了', type: 'warning', customClass: 'batch-result-dialog' },
+  )
+}
+
 async function dismissItem(item) {
   if (item.id) {
     const res = await casyContext.inbox.dismiss(item.id)
@@ -419,21 +521,35 @@ async function dismissItem(item) {
             <el-radio-button value="pending">待处理 {{ pendingItems.length }}</el-radio-button>
             <el-radio-button value="filed">已处理 {{ filedItems.length }}</el-radio-button>
           </el-radio-group>
+          <div class="list-tools">
+            <el-input v-model="inboxQuery" size="small" clearable placeholder="搜索标题/正文/案件" style="width: 200px" aria-label="搜索收件箱" />
+            <el-select v-model="inboxSort" size="small" style="width: 118px" aria-label="排序方式">
+              <el-option value="newest" label="最新优先" />
+              <el-option value="oldest" label="最早优先" />
+              <el-option value="source" label="按来源" />
+            </el-select>
+            <el-checkbox v-model="allVisibleChecked" :label="`全选本页 (${visibleItems.length})`" size="small" @change="toggleCheckAll" />
+            <el-button v-if="checkedIds.length" size="small" type="danger" plain :loading="batchBusy" @click="batchDismiss">忽略所选 {{ checkedIds.length }} 项</el-button>
+          </div>
           <nav class="source-filters" aria-label="收件来源">
             <button v-for="source in sourceFilters" :key="source.value" type="button" :class="{ active: sourceFilter === source.value }" :aria-pressed="sourceFilter === source.value" @click="selectSource(source.value)">{{ source.label }}<span>{{ source.count }}</span></button>
           </nav>
         </div>
         <div class="item-list">
-          <UiDataState :loading="loading" :error="loadError" :count="filteredPendingItems.length" :filtered="sourceFilter !== 'all'"
+          <UiDataState :loading="loading" :error="loadError" :count="visibleItems.length" :filtered="sourceFilter !== 'all'"
             :empty-title="statusFilter === 'pending' ? '暂无待处理事项' : '暂无已处理事项'"
             empty-description="新增收件会在这里显示，可从上方输入或添加文件。" @retry="loadItems" @clear="selectSource('all')">
-          <button v-for="item in filteredPendingItems" :key="item.id" class="inbox-item" :class="{ selected: selectedItem?.id === item.id }" :aria-pressed="selectedItem?.id === item.id" @click="selectItem(item)">
+          <button v-for="item in visibleItems" :key="item.id" class="inbox-item" :class="{ selected: selectedItem?.id === item.id }" :aria-pressed="selectedItem?.id === item.id" @click="selectItem(item)">
+            <span class="item-check" @click.stop="toggleCheck(item)"><el-checkbox :model-value="checkedIds.includes(item.id)" @click.stop="" /></span>
             <span class="item-meta"><span>{{ sourceLabel(item.sourceType) }}</span><span v-if="capturedAt(item)">{{ capturedAt(item) }}</span></span>
             <strong>{{ item.title || '未命名收件项' }}</strong>
             <span class="item-snippet">{{ item.contentText || item.sourcePath || item.filePath || '附件' }}</span>
             <span v-if="item.caseName" class="item-case"><el-icon><Briefcase /></el-icon>{{ item.caseName }}</span>
           </button>
           </UiDataState>
+          <div v-if="hasMore" class="list-more">
+            <el-button size="small" :loading="loading" @click="listLimit = Math.min(MAX_LIMIT, listLimit + 100)">加载更多（还有 {{ filteredPendingItems.length - visibleItems.length }} 项）</el-button>
+          </div>
         </div>
       </section>
       <section v-if="selectedItem" class="clarify-panel">
@@ -455,6 +571,12 @@ async function dismissItem(item) {
                   <el-radio-button value="action">行动</el-radio-button><el-radio-button value="delegate">委派</el-radio-button><el-radio-button value="wait">等待</el-radio-button><el-radio-button value="someday">将来也许</el-radio-button>
                 </el-radio-group>
               </el-form-item>
+              <el-alert v-if="detectedCaseNo(selectedItem)" class="unassigned-hint" type="warning" :closable="false">
+                <template #title>
+                  <span>检测到案号 <strong class="mono">{{ detectedCaseNo(selectedItem) }}</strong>，但收件箱里没有对应案件。指定归卷案件，或先按该案号新建案件。</span>
+                </template>
+                <el-button size="small" type="primary" plain @click="createCaseFromDetected">按此案号新建案件</el-button>
+              </el-alert>
               <el-form-item label="关联案件">
                 <el-select v-model="clarifyCaseId" filterable clearable placeholder="未关联案件" aria-label="关联案件" @change="onClarifyCaseChange">
                   <el-option v-for="item in casesList" :key="item.id" :value="item.id" :label="item.caseNo ? item.caseName + ' · ' + item.caseNo : item.caseName" />
@@ -503,6 +625,7 @@ async function dismissItem(item) {
       </section>
       <section v-else class="clarify-empty"><EmptyState type="custom" compact hide-action title="暂无待整理的内容" /></section>
     </div>
+    <CaseWizard v-if="showCaseWizard" v-model="showCaseWizard" :initial-case="casePrefill || {}" title="按案号新建案件" :submit="submitNewCase" />
   </div>
 </template>
 
@@ -520,6 +643,12 @@ async function dismissItem(item) {
 .inbox-layout { display: grid; grid-template-columns: minmax(250px, .85fr) minmax(340px, 1.15fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; border-top: 1px solid var(--c-border); }
 .inbox-list { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--c-border); }
 .list-controls { padding: 20px 20px 0 0; }
+.list-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.item-check { display: inline-flex; align-items: center; margin-right: 2px; }
+.list-more { display: flex; justify-content: center; padding: 12px 0 4px; }
+.unassigned-hint { margin-bottom: 12px; }
+.unassigned-hint .mono { font-family: var(--font-mono, monospace); }
+:deep(.batch-result-dialog) { white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
 .source-filters { display: flex; gap: 14px; overflow-x: auto; margin-top: 16px; }
 .source-filters button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 6px 0 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--c-text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .source-filters button.active { color: var(--c-primary); border-bottom-color: var(--c-primary); }
