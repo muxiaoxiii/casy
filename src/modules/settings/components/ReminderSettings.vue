@@ -12,7 +12,9 @@ const logs = ref([])
 const engineRunning = ref(false)
 const dialogVisible = ref(false)
 const editingRule = ref(null)
-const form = ref({ name: '', triggerType: 'deadline_before', triggerValue: 7, channels: ['local'], enabled: true })
+const form = ref({ name: '', triggerType: 'deadline_before', triggerValue: 7, channels: ['local'], messageTemplate: '', caseTypes: [], enabled: true })
+// R1：适用案件类型（后端 case_types 一直是 JSON 列，此前无入口，规则只能全局生效）
+const CASE_TYPE_OPTIONS = ['专利无效', '行政诉讼', '民事侵权']
 
 const initialForm = ref('')
 const formDirty = computed(() => dialogVisible.value && JSON.stringify(form.value) !== initialForm.value)
@@ -21,6 +23,10 @@ async function closeEditor(done) {
   if (!(await canLeave())) return
   if (typeof done === 'function') done()
   else dialogVisible.value = false
+}
+function parseCaseTypes(value) {
+  try { const result = JSON.parse(value || '[]'); return Array.isArray(result) ? result.filter(item => typeof item === 'string') : [] }
+  catch { return [] }
 }
 function parseChannels(value) {
   try { const result = JSON.parse(value || '[]'); return Array.isArray(result) ? result.filter(item => typeof item === 'string') : [] }
@@ -54,7 +60,7 @@ async function checkEngine() {
 }
 function openCreate() {
   editingRule.value = null
-  form.value = { name: '', triggerType: 'deadline_before', triggerValue: 7, channels: ['local'], enabled: true }
+  form.value = { name: '', triggerType: 'deadline_before', triggerValue: 7, channels: ['local'], messageTemplate: '', caseTypes: [], enabled: true }
   initialForm.value = JSON.stringify(form.value)
   dialogVisible.value = true
 }
@@ -65,6 +71,8 @@ function openEdit(rule) {
     triggerType: rule.triggerType,
     triggerValue: rule.triggerValue ?? 7,
     channels: parseChannels(rule.channels),
+    messageTemplate: rule.messageTemplate || '',
+    caseTypes: parseCaseTypes(rule.caseTypes),
     enabled: rule.enabled,
   }
   initialForm.value = JSON.stringify(form.value)
@@ -76,7 +84,7 @@ async function saveRule() {
   if (!form.value.channels.length) return ElMessage.warning('请至少选择一个提醒通道')
   saving.value = true
   try {
-    const payload = { ...form.value, name: form.value.name.trim(), channels: JSON.stringify(form.value.channels) }
+    const payload = { ...form.value, name: form.value.name.trim(), channels: JSON.stringify(form.value.channels), caseTypes: form.value.caseTypes.length ? JSON.stringify(form.value.caseTypes) : null }
     const res = editingRule.value
       ? await casyContext.reminder.updateRule(editingRule.value.id, payload)
       : await casyContext.reminder.createRule(payload)
@@ -157,6 +165,8 @@ onMounted(() => {
       </el-table-column>
       <el-table-column label="状态" width="80">
         <template #default="{ row }">
+          <el-tag v-if="parseCaseTypes(row.caseTypes).length" type="info" size="small">{{ parseCaseTypes(row.caseTypes).join(' / ') }}</el-tag>
+          <el-tag v-else type="info" size="small">全部案件</el-tag>
           <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '启用' : '停用' }}</el-tag>
         </template>
       </el-table-column>
@@ -210,6 +220,15 @@ onMounted(() => {
             <el-checkbox value="feishu_task">飞书任务</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
+        <el-form-item label="消息模板">
+          <el-input v-model="form.messageTemplate" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="留空使用默认文案。可用变量：{案件名} {期限名} {到期日} {剩余天数}" />
+        </el-form-item>
+        <el-form-item label="适用案件">
+          <el-checkbox-group v-model="form.caseTypes">
+            <el-checkbox v-for="type in CASE_TYPE_OPTIONS" :key="type" :value="type">{{ type }}</el-checkbox>
+          </el-checkbox-group>
+          <span class="form-hint">不选 = 对所有案件生效</span>
+        </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
         </el-form-item>
@@ -239,4 +258,5 @@ onMounted(() => {
 }
 .engine-badge.running { background: #f0f9eb; color: #67c23a; }
 .chan-tag { margin-right: 4px; }
+.form-hint { display: block; font-size: 11px; color: var(--c-text-secondary); line-height: 1.6; }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { sessionOperations, retrySessionOperation } from '../../stores/sessionOperations'
 import { formatTimestamp } from '../utils/date'
 import { Monitor } from '../icons'
@@ -13,6 +13,25 @@ const emit = defineEmits<{ conversion: [] }>()
 const router = useRouter()
 const open = ref(false), filter = ref('all'), page = ref(1), error = ref(''), loading = ref(false)
 const state = ref<ProcessingCenter>({ jobs: [], services: [], total: 0, active: 0, failed: 0 })
+/** K3：知识索引状态（此前只在知识库检索面板内可见，失败/未配置在别处无提示） */
+const knowledgeIndex = ref<{ configured: boolean; total: number; indexed: number; queued: number; running: number; failed: number } | null>(null)
+async function loadKnowledgeIndex() {
+  const result = await tauriCallSafe('get_knowledge_index_status', {})
+  if (result.ok && result.data) {
+    knowledgeIndex.value = {
+      configured: result.data.configured,
+      total: result.data.total,
+      indexed: result.data.indexed,
+      queued: result.data.queued,
+      running: result.data.running,
+      failed: result.data.failed,
+    }
+  }
+}
+function goKnowledgeIndex() {
+  open.value = false
+  router.push({ path: '/knowledge', query: { panel: 'search' } })
+}
 const localActive = computed(() => sessionOperations.filter(job => job.status === 'running').length)
 const localFailed = computed(() => sessionOperations.filter(job => job.status === 'failed').length)
 const localJobs = computed(() => sessionOperations.filter(job => filter.value === 'all' || (filter.value === 'active' ? job.status === 'running' : filter.value === 'failed' ? job.status === 'failed' : filter.value === 'completed' ? ['completed','cancelled'].includes(job.status) : false)))
@@ -98,6 +117,8 @@ async function reveal(job: ProcessingJob) {
   } catch(e) { ElMessage.error(String(e)) }
 }
 onMounted(() => { void refresh() })
+// K3：抽屉打开时才拉知识索引状态，避免挂载即多发一次请求
+watch(open, visible => { if (visible) void loadKnowledgeIndex() })
 onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
 </script>
 <template>
@@ -110,6 +131,17 @@ onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
     <div class="processing-head">
       <p>全部案件与文件 · {{ state.active + localActive }} 项正在处理或排队 · {{ state.failed + localFailed }} 项失败或需重建</p>
       <el-button :loading="loading" @click="refresh">刷新</el-button>
+    </div>
+    <div v-if="knowledgeIndex" class="knowledge-index-summary" :class="{ warn: knowledgeIndex.failed > 0 || knowledgeIndex.queued > 0 }">
+      <span>知识索引：已索引 {{ knowledgeIndex.indexed }} / {{ knowledgeIndex.total }}</span>
+      <template v-if="knowledgeIndex.failed > 0">
+        <span class="ki-failed">{{ knowledgeIndex.failed }} 项失败</span>
+        <el-button size="small" type="warning" plain @click="goKnowledgeIndex">去处理</el-button>
+      </template>
+      <template v-else-if="knowledgeIndex.queued > 0 || knowledgeIndex.running > 0">
+        <span>{{ knowledgeIndex.running }} 项进行中 · {{ knowledgeIndex.queued }} 项排队</span>
+      </template>
+      <span v-else-if="!knowledgeIndex.configured" class="ki-hint">语义检索未配置向量接口，当前仅关键词检索</span>
     </div>
     <p class="processing-note">添加文件不等于已开始 OCR。请在文件详情点击“开始识别并生成可搜索 PDF”，或在设置中启用目录自动识别。识别保留原件。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" description="暂时无法更新，以下可能是上一次读取的状态。" />
@@ -165,4 +197,8 @@ onUnmounted(() => { disposed=true; revision++; clearTimeout(timer) })
 .processing-trigger:hover{background:var(--c-bg-hover);border-color:var(--c-border-strong)}
 @media(max-width:1100px){.processing-label{display:none}.processing-trigger{padding:0 10px}}
 .processing-dot{width:7px;height:7px;border-radius:50%;background:var(--c-text-tertiary,#999)}.processing-dot.problem{background:var(--el-color-warning)}.processing-dot.active{background:var(--el-color-primary)}.processing-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.processing-head p{margin:0}.processing-note,.processing-empty{font-size:12px;color:var(--c-text-secondary);line-height:1.7}.processing-filters{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0}.processing-filters .el-button,.job-actions .el-button{margin:0}.processing-jobs{list-style:none;padding:0;margin:0}.processing-job{border-bottom:1px solid var(--c-border);padding:14px 0;overflow-wrap:anywhere}.job-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.job-heading strong{font-size:14px}.job-status{white-space:nowrap;font-size:12px;color:var(--c-text-secondary)}.job-status.running{color:var(--el-color-primary)}.job-status.failed,.job-status.stale,.job-error{color:var(--el-color-danger)}.processing-job p{font-size:12px;margin:7px 0}.job-time{color:var(--c-text-secondary)}.job-actions{display:flex;gap:8px;margin-top:10px}.processing-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:20px 0;font-size:12px}.processing-services{border-top:1px solid var(--c-border);padding-top:16px}.processing-services summary{cursor:pointer;font-size:14px;font-weight:600}
+.knowledge-index-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--c-bg-subtle); font-size: 12px; color: var(--c-text-regular); }
+.knowledge-index-summary.warn { background: var(--c-warning-light); color: var(--c-warning); }
+.knowledge-index-summary .ki-failed { font-weight: 600; }
+.knowledge-index-summary .ki-hint { color: var(--c-text-secondary); }
 </style>

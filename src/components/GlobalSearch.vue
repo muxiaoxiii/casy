@@ -12,7 +12,7 @@ import { tauriCallSafe } from '../core/tauriBridge'
 import { ref, shallowRef, watch, nextTick, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Finished, Folder, Reading } from '../shared/icons'
+import { Search, Finished, Folder, Reading, Calendar, AlarmClock } from '../shared/icons'
 import EmptyState from '../shared/components/EmptyState.vue'
 import { casyContext } from '../core/plugin/context'
 
@@ -54,7 +54,7 @@ const mode = ref(localStorage.getItem('casy_global_search_mode') || 'keyword')
 
 interface ResultItem {
   key: string
-  group: '任务' | '案件' | '知识' | '项目' | '案卷'
+  group: '任务' | '案件' | '开庭' | '期限' | '知识' | '项目' | '案卷'
   icon: typeof Finished
   title: string
   meta: string
@@ -92,7 +92,7 @@ function clearRecentSearches() {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let semanticTimer: ReturnType<typeof setTimeout> | null = null
 let sequence = 0
-const groupOrder = ['项目', '任务', '案件', '案卷', '知识']
+const groupOrder = ['项目', '任务', '案件', '开庭', '期限', '案卷', '知识']
 
 function publish(items: ResultItem[]) {
   const activeKey = flatResults.value[activeIndex.value]?.key
@@ -160,6 +160,9 @@ async function runSearch(q: string, request: number) {
 
   if(filesRes.ok && filesRes.data) {
     for(const file of filesRes.data.filter(item=>item.itemType==='file'))out.push({key:'file-'+file.id,group:'案卷',icon:Folder,title:file.title,meta:(file.snippet || '').replace(/<[^>]+>/g,''),route:'/files/'+encodeURIComponent(file.caseId || '')+'?select='+encodeURIComponent(file.id)})
+    // S1：开庭与期限（案件富字段由 cases.search 覆盖，这里不重复）
+    for(const hearing of filesRes.data.filter(item=>item.itemType==='hearing'))out.push({key:'hearing-'+hearing.id,group:'开庭',icon:Calendar,title:hearing.title,meta:[hearing.category,(hearing.snippet || '').replace(/<[^>]+>/g,'')].filter(Boolean).join(' · '),route:'/cases/'+encodeURIComponent(hearing.caseId || '')+'?tab=hearings'})
+    for(const deadline of filesRes.data.filter(item=>item.itemType==='deadline'))out.push({key:'deadline-'+deadline.id,group:'期限',icon:AlarmClock,title:deadline.title,meta:[deadline.category,(deadline.snippet || '').replace(/<[^>]+>/g,'')].filter(Boolean).join(' · '),route:'/cases/'+encodeURIComponent(deadline.caseId || '')+'?tab=tracks'})
   }
   if (projRes.ok && Array.isArray(projRes.data)) {
     for (const p of projRes.data as Array<{ id: string; name: string; kind: string; description: string | null }>) {
@@ -327,7 +330,7 @@ function onKeydown(e: KeyboardEvent) {
           <div ref="listRef" class="cmdk-list">
             <template v-if="flatResults.length">
               <template
-                v-for="(group, gi) in ['项目', '任务', '案件', '案卷', '知识']"
+                v-for="(group, gi) in ['项目', '任务', '案件', '开庭', '期限', '案卷', '知识']"
                 :key="group"
               >
                 <div

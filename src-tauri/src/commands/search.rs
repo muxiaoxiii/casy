@@ -18,7 +18,35 @@ fn global_search_inner(
     query: &str,
 ) -> anyhow::Result<Vec<GlobalSearchResult>> {
     let fts_query = to_safe_fts_phrase(query);
+    // S1：开庭、期限、案件（含富字段）此前完全搜不到——cases_fts 建了却没进 global_search
     let sql = r#"
+        SELECT 'case' as item_type, c.id, COALESCE(NULLIF(c.display_name,''), c.case_name) as title,
+               COALESCE(c.case_no,'') as category, substr(COALESCE(c.notes,''), max(1, instr(lower(COALESCE(c.notes,'')), lower(?2))-30), 180) as snippet,
+               90 as rank, c.id as case_id
+        FROM cases c
+        WHERE c.case_no IS NOT NULL AND instr(lower(COALESCE(c.case_no,'')), lower(?2))>0
+        UNION ALL
+        SELECT 'case', c.id, COALESCE(NULLIF(c.display_name,''), c.case_name), COALESCE(c.case_no,''), '', 90, c.id
+        FROM cases_fts f JOIN cases c ON c.rowid = f.rowid
+        WHERE cases_fts MATCH ?1
+        UNION ALL
+        SELECT 'hearing' as item_type, h.id,
+               COALESCE(NULLIF(h.hearing_name,''), h.hearing_record) as title,
+               substr(h.hearing_date,1,10) as category,
+               substr(COALESCE(h.venue,'') || ' ' || COALESCE(h.judges,''), 1, 180) as snippet,
+               80 as rank, h.case_id
+        FROM hearings h
+        WHERE instr(lower(COALESCE(h.hearing_name,'') || ' ' || COALESCE(h.hearing_record,'') || ' ' || COALESCE(h.venue,'') || ' ' || COALESCE(h.judges,'') || ' ' || COALESCE(h.change_reason,'')), lower(?2))>0
+        UNION ALL
+        SELECT 'deadline' as item_type, d.id, d.deadline_name as title,
+               substr(d.due_date,1,10) as category,
+               substr(COALESCE(d.legal_basis,''), 1, 180) as snippet,
+               80 as rank, d.case_id
+        FROM case_deadlines d
+        WHERE d.completed = 0 AND instr(lower(COALESCE(d.deadline_name,'') || ' ' || COALESCE(d.legal_basis,'')), lower(?2))>0
+
+        UNION ALL
+
         SELECT 'knowledge' as item_type, ki.id, ki.title, ki.category, snippet(knowledge_fts, -1, '<b>', '</b>', '...', 64) as snippet, f.rank, NULL as case_id
         FROM knowledge_fts f
         JOIN knowledge_items ki ON ki.rowid = f.rowid
