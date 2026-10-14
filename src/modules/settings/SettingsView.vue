@@ -11,6 +11,7 @@ import ImapSettings from './components/ImapSettings.vue'
 import GeneralSettings from './components/GeneralSettings.vue'
 import FolderTemplateSettings from './components/FolderTemplateSettings.vue'
 import ReminderSettings from './components/ReminderSettings.vue'
+import DocumentEngineSettings from './components/DocumentEngineSettings.vue'
 import DeadlineRulesSettings from './components/DeadlineRulesSettings.vue'
 import SmartRulesSettings from './components/SmartRulesSettings.vue'
 import SmtpMcpSettings from './components/SmtpMcpSettings.vue'
@@ -22,7 +23,7 @@ import { casyContext } from '../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   User, Setting, Cpu, MagicStick, Folder, Bell,
-  Cloudy, Link, Message, Connection, Briefcase, InfoFilled, AlarmClock, SetUp
+  Cloudy, Link, Message, Connection, Briefcase, InfoFilled, AlarmClock, SetUp, Document
 } from '../../shared/icons'
 
 const settingsStore = useSettingsStore()
@@ -140,6 +141,10 @@ onMounted(async () => {
           <el-icon><SetUp /></el-icon>
           <span>智能规则</span>
         </button>
+        <button type="button" class="nav-item" :class="{ active: activeTab === 'doc-engine' }" @click="activeTab = 'doc-engine'">
+          <el-icon><Document /></el-icon>
+          <span>文档引擎</span>
+        </button>
       </div>
 
       <div class="nav-group ui-col">
@@ -200,6 +205,7 @@ onMounted(async () => {
       <div v-if="visitedTabs.has('reminder')" v-show="activeTab === 'reminder'"><ReminderSettings /></div>
       <div v-if="visitedTabs.has('deadline-rules')" v-show="activeTab === 'deadline-rules'"><DeadlineRulesSettings /></div>
       <div v-if="visitedTabs.has('smart-rules')" v-show="activeTab === 'smart-rules'"><SmartRulesSettings /></div>
+      <div v-if="visitedTabs.has('doc-engine')" v-show="activeTab === 'doc-engine'"><DocumentEngineSettings /></div>
       <div v-if="visitedTabs.has('webdav')" v-show="activeTab === 'webdav'"><WebDAVSettings /></div>
       <div v-if="visitedTabs.has('feishu')" v-show="activeTab === 'feishu'"><FeishuSettings /></div>
       <div v-if="visitedTabs.has('imap')" v-show="activeTab === 'imap'"><ImapSettings /></div>

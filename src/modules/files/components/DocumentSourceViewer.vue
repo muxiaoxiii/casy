@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Refresh, EditPen, Check, Close } from '../../../shared/icons'
 import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
@@ -20,6 +20,21 @@ watch(()=>[props.modelValue,props.fileId,props.jobId,props.initialPage],()=>{
   if(props.modelValue) {page.value=props.initialPage||1; void load()}
 },{immediate:true})
 onUnmounted(()=>revision++)
+
+/** O4：键盘操作（←/→ 翻页、+/- 缩放、Esc 关闭） */
+function onKeydown(event: KeyboardEvent) {
+  if (!props.modelValue) return
+  const target = event.target as HTMLElement | null
+  // 输入框内不劫持按键
+  if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+  if (event.key === 'Escape') { emit('update:modelValue', false); return }
+  if (event.key === 'ArrowLeft' && page.value > 1) { event.preventDefault(); go(page.value - 1); return }
+  if (event.key === 'ArrowRight' && view.value && page.value < view.value.totalPages) { event.preventDefault(); go(page.value + 1); return }
+  if (event.key === '+' || event.key === '=') { event.preventDefault(); zoom.value = Math.min(250, zoom.value + 25); return }
+  if (event.key === '-') { event.preventDefault(); zoom.value = Math.max(50, zoom.value - 25); return }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 async function load() {
   const current=++revision
   busy.value=true; error.value=''; view.value=null; selected.value=null
@@ -70,6 +85,7 @@ function focusRegion(index:number){
       <div class="source-zoom">
       <el-button :icon="ZoomOut" aria-label="缩小" title="缩小" :disabled="zoom<=50" @click="zoom-=25" />
       <span class="zoom-value">{{ zoom }}%</span>
+      <span class="zoom-hint">← → 翻页 · + − 缩放 · Esc 关闭</span>
       <el-button :icon="ZoomIn" aria-label="放大" title="放大" :disabled="zoom>=250" @click="zoom+=25" />
       </div>
       <div v-if="hitPages.length>1" class="hit-pages"><el-button v-for="number in hitPages" :key="number" link :type="number===page?'primary':undefined" :disabled="busy" @click="go(number)">第 {{ number }} 页</el-button></div>
@@ -105,6 +121,7 @@ function focusRegion(index:number){
 <style scoped>
 .source-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}.source-toolbar .el-button+.el-button{margin-left:0}.source-toolbar .el-input-number{width:64px}.zoom-value{width:42px;text-align:center}.hit-pages{display:flex;gap:8px;margin-left:auto}
 .source-navigation,.source-zoom{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.zoom-hint{font-size:11px;color:var(--c-text-secondary);white-space:nowrap}
 .source-correction{margin:12px 0}.source-correction .el-textarea{margin-bottom:8px}
 .source-panes{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);height:72vh;min-height:0;border-top:1px solid var(--c-border)}.source-panes.text-only{grid-template-columns:1fr}.source-image-pane{overflow:auto;background:#e5e7eb;padding:16px}.source-page-image{position:relative;margin:0 auto;min-width:50%;line-height:0}.source-page-image img{width:100%;height:auto;display:block}.source-region{position:absolute;border:1px solid transparent;background:transparent;cursor:pointer;padding:0}.source-region:hover,.source-region:focus-visible{border-color:#0284c7;background:#0ea5e922}.source-region.marked{background:#eab30844;border-color:#ca8a04}.source-region.selected{background:#0ea5e944;border:2px solid #0284c7}
 .source-text-pane{overflow:auto;padding:16px;min-width:0}.source-text-lines{display:flex;flex-direction:column;gap:4px;margin-top:14px}.source-text-lines button{text-align:left;padding:6px 8px;background:transparent;border:0;border-left:3px solid transparent;color:var(--c-text);font:inherit;line-height:1.65;overflow-wrap:anywhere;cursor:pointer}.source-text-lines button.marked{background:#eab30822;border-left-color:#ca8a04}.source-text-lines button.selected{background:#0ea5e922;border-left-color:#0284c7}.source-text-pane pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.7}.source-loading{height:72vh;display:grid;place-items:center;color:var(--c-text-secondary)}

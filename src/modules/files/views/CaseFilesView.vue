@@ -9,7 +9,7 @@ import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Folder, Message, Paperclip, Upload, Download, Document,
-  ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close, EditPen, FolderAdd, RefreshLeft
+  ChatLineRound, Files, Refresh, Search, FolderOpened, MagicStick, Close, EditPen, FolderAdd, RefreshLeft, Reading
 } from '../../../shared/icons'
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
 import DocumentSourceViewer from '../components/DocumentSourceViewer.vue'
@@ -45,6 +45,7 @@ const files = ref([])
 const filesLoading = ref(false)
 const uploading = ref(false)
 const mutating = ref(false)
+const batchOcrBusy = ref(false)
 const loadError = ref('')
 const caseError = ref('')
 const directories = ref([])
@@ -174,6 +175,40 @@ async function ocrNow(file) {
   } finally {
     ocrBusy.value = { ...ocrBusy.value, [file.id]: false }
   }
+}
+
+/** 批量入队 OCR（O3 + X3：逐项成败明细，不用一次 toast 糊过去） */
+async function batchOcr() {
+  const ids = selectedIds.value
+  if (!ids.length || batchOcrBusy.value) return
+  batchOcrBusy.value = true
+  const succeeded = []
+  const failed = []
+  for (const id of ids) {
+    const file = filteredFiles.value.find((item) => item.id === id)
+    // 只对可识别类型入队；文本类与已删除的直接记为跳过原因
+    if (!file || !isOcrCandidateFile(file)) {
+      failed.push({ name: file?.fileName || id.slice(0, 8), error: '不是可识别类型' })
+      continue
+    }
+    const result = await tauriCallSafe('queue_document_processing', { fileId: id })
+    if (result.ok) succeeded.push(file.fileName)
+    else failed.push({ name: file.fileName, error: result.error || '入队失败' })
+  }
+  batchOcrBusy.value = false
+  await loadDocumentJobs()
+  await loadOcrStates()
+  if (!failed.length) {
+    ElMessage.success(`已加入识别队列 ${succeeded.length} 项`)
+    selectedIds.value = []
+    return
+  }
+  ElMessageBox.alert(
+    `成功 ${succeeded.length} 项，失败 ${failed.length} 项：\n${failed.map((item) => `· ${item.name}：${item.error}`).join('\n')}`,
+    '批量识别结果',
+    { confirmButtonText: '知道了', type: 'warning', customClass: 'batch-result-dialog' },
+  )
+  selectedIds.value = []
 }
 
 async function openSearchablePdf(file) {
@@ -604,6 +639,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
           <el-checkbox :model-value="filteredFiles.every(file => selectedIds.includes(file.id))" :indeterminate="selectedIds.length > 0 && !filteredFiles.every(file => selectedIds.includes(file.id))" aria-label="选择全部文件" @change="checked => selectedIds = checked ? filteredFiles.map(file => file.id) : []" />
           <span>{{ selectedIds.length ? `已选择 ${selectedIds.length} 项` : `${filteredFiles.length} 项` }}</span>
           <el-button v-if="selectedIds.length" :icon="FolderOpened" size="small" :disabled="mutating" @click="openMove(selectedIds)">移动</el-button>
+          <el-button v-if="selectedIds.length" :icon="Reading" size="small" type="primary" plain :loading="batchOcrBusy" @click="batchOcr">批量识别 {{ selectedIds.length }}</el-button>
         </div>
 
         <div v-if="filteredFiles.length" class="file-list" v-loading="filesLoading">
