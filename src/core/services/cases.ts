@@ -1,7 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import { normalizeCase, normalizeCaseList, normalizeCaseInput } from '../caseNormalize'
-import type { Case, CaseListResponse, CaseStats as BusinessCaseStats, EntityAuditEvent } from '../../types'
+import type { Case, CaseListResponse, CaseStats as BusinessCaseStats, EntityAuditEvent, HearingReminderJob } from '../../types'
 import type { CasePatchInput, CreateCasePayload } from '../../types/ipc'
 // list_cases 后端返回 { items,total,page,perPage }，业务类型已补 page/perPage（见 src/types/index.ts
 // CaseListResponse）。filter 沿用 bindings.CaseFilter（含 page/perPage，供前端分页透传）。
@@ -311,6 +311,11 @@ export class CasesService extends Service {
       this.ctx.emit('case:imported', result.data)
     }
     return result
+  }
+
+  /** 某案件全部开庭的提醒作业（H3：T-N 已发/已取消） */
+  async hearingReminderJobs(caseId: string): Promise<{ ok: boolean; data?: HearingReminderJob[]; error?: string }> {
+    return tauriCallSafe('list_hearing_reminder_jobs', { caseId })
   }
 
   /** 案件变更留痕（开庭改期链 / 白板事实 / AI 工具执行，倒序） */

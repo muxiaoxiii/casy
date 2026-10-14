@@ -263,6 +263,11 @@ export type GraphNodeDto = { id: string; name: string; type: string; category: s
 export type HearingDto = { lifecycleStatus: string; changeReason: string; id: string; caseId: string; hearingRecord: string; hearingName: string | null; hearingDate: string; venue: string | null; attendees: string | null; judges: string | null; court: string | null; caseLevel: string | null; contactInfo: string | null; actualStatus: string | null; createdAt: string | null }
 
 /**
+ * 某次开庭的一条提醒作业（H3：让用户看到"T-7 已发 / T-1 已发 / 已取消"）
+ */
+export type HearingReminderJobDto = { id: string; hearingId: string; channel: string; scheduledAt: string; offsetSnapshot: string | null; status: string; lastError: string | null; supersedesId: string | null }
+
+/**
  * 节假日解析结果（B1 类型化）
  */
 export type HolidayNotice = { year: number; holidays: string[]; workdays: string[] }

@@ -117,6 +117,43 @@ const activeDaySummary = ref(null)
 
 // 事项编辑详情弹窗
 const showEditDialog = ref(false)
+/** H7 期限预警面板 */
+const showDeadlinePanel = ref(false)
+const deadlinePanelLoading = ref(false)
+const deadlinePanelError = ref('')
+const deadlinePanelItems = ref([])
+const deadlineLevelFilter = ref('')
+
+const LEVEL_ORDER = ['R1', 'R2', 'R3', 'R4', 'review']
+const LEVEL_LABELS = { R1: '立即行动', R2: '临近', R3: '等待', R4: '完成', review: '待核对' }
+
+async function loadDeadlinePanel() {
+  deadlinePanelLoading.value = true
+  deadlinePanelError.value = ''
+  const result = await casyContext.calendar.deadlineWarningsWithLevels()
+  deadlinePanelLoading.value = false
+  if (result.ok && Array.isArray(result.data)) {
+    deadlinePanelItems.value = result.data
+  } else {
+    deadlinePanelItems.value = []
+    deadlinePanelError.value = result.error || '期限预警读取失败'
+  }
+}
+
+const deadlineGroups = computed(() => {
+  const groups = {}
+  for (const item of deadlinePanelItems.value) {
+    const level = deadlineLevelFilter.value || item.level || 'R3'
+    if (deadlineLevelFilter.value && item.level !== deadlineLevelFilter.value) continue
+    ;(groups[level] ||= []).push(item)
+  }
+  return LEVEL_ORDER.filter((level) => groups[level]?.length).map((level) => ({ level, label: LEVEL_LABELS[level] || level, items: groups[level] }))
+})
+const deadlineLevelCounts = computed(() => {
+  const counts = {}
+  for (const item of deadlinePanelItems.value) counts[item.level || 'R3'] = (counts[item.level || 'R3'] || 0) + 1
+  return counts
+})
 const editingItem = ref({
   id: '',
   type: 'task', // 'task' | 'event'
@@ -349,6 +386,12 @@ function openEditDetail(item, type = 'task') {
     }
   }
   showEditDialog.value = true
+}
+
+/** 期限面板跳转到对应案件 */
+function openDeadlineCase(item) {
+  showDeadlinePanel.value = false
+  if (item?.caseId) router.push({ name: 'case-detail', params: { id: item.caseId }, query: { tab: 'tracks' } })
 }
 
 /** 时长快选：从开始时间推算结束时间（无开始时间时按 09:00 起算） */
@@ -1064,6 +1107,10 @@ async function scheduleTaskBlock(event, date, hour) {
       </div>
 
       <div class="header-right-actions ui-row">
+        <el-button size="small" :type="deadlineLevelCounts.R1 ? 'danger' : 'default'" @click="showDeadlinePanel = true; void loadDeadlinePanel()">
+          <el-icon><AlarmClock /></el-icon>
+          期限预警<span v-if="deadlineLevelCounts.R1"> · {{ deadlineLevelCounts.R1 }}</span>
+        </el-button>
         <!-- 快速输入条 -->
         <CalendarComposer :date="formatDate(currentDate)" :cases="cases" @created="onCalendarCreated" />
 
@@ -1673,6 +1720,38 @@ async function scheduleTaskBlock(event, date, hour) {
         <el-button text type="primary" size="small" @click="runUndo">撤销</el-button>
       </div>
     </transition>
+
+    <el-drawer v-model="showDeadlinePanel" title="期限预警" size="420px" :with-header="true">
+      <div class="deadline-panel ui-col">
+        <div v-if="deadlinePanelError" class="panel-error">
+          <el-alert :title="deadlinePanelError" type="error" :closable="false" />
+          <el-button size="small" @click="loadDeadlinePanel">重试</el-button>
+        </div>
+        <div v-else-if="deadlinePanelLoading" class="panel-loading">加载中…</div>
+        <template v-else>
+          <div class="level-filter ui-row ui-row--wrap">
+            <button v-for="level in LEVEL_ORDER" :key="level" type="button" class="level-chip" :class="{ active: deadlineLevelFilter === level, [`is-${level.toLowerCase()}`]: true }" @click="deadlineLevelFilter = deadlineLevelFilter === level ? '' : level">
+              {{ LEVEL_LABELS[level] }}<span>{{ deadlineLevelCounts[level] || 0 }}</span>
+            </button>
+          </div>
+          <p v-if="!deadlinePanelItems.length" class="panel-empty">当前没有进行中的期限预警。</p>
+          <section v-for="group in deadlineGroups" :key="group.level" class="deadline-group">
+            <header class="group-head"><span class="group-level" :class="`is-${group.level.toLowerCase()}`">{{ group.level }} · {{ group.label }}</span><span>{{ group.items.length }} 项</span></header>
+            <button v-for="item in group.items" :key="item.deadlineId" type="button" class="deadline-row" @click="openDeadlineCase(item)">
+              <span class="deadline-name">{{ item.deadlineName }}</span>
+              <span class="deadline-case">{{ item.caseName }}</span>
+              <span class="deadline-meta">
+                <span class="deadline-due">{{ String(item.dueDate).slice(0, 10) }}</span>
+                <span class="deadline-days" :class="Number(item.daysLeft) < 0 ? 'overdue' : Number(item.daysLeft) <= 3 ? 'urgent' : ''">
+                  {{ Number(item.daysLeft) < 0 ? `已逾期 ${-Number(item.daysLeft)} 天` : Number(item.daysLeft) === 0 ? '今日届满' : `${item.daysLeft} 天` }}
+                </span>
+              </span>
+              <span v-if="item.message" class="deadline-message">{{ item.message }}</span>
+            </button>
+          </section>
+        </template>
+      </div>
+    </el-drawer>
 
     <el-dialog
       v-model="showEditDialog"
@@ -3144,6 +3223,29 @@ async function scheduleTaskBlock(event, date, hour) {
 .btn-chip { padding: 2px 8px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg-card); color: var(--c-text-regular); cursor: pointer; }
 .btn-chip:hover { border-color: var(--c-primary); color: var(--c-primary); }
 .undo-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 3000; display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-radius: 6px; background: var(--c-bg-card); border: 1px solid var(--c-border-strong); box-shadow: 0 4px 16px rgba(0,0,0,.12); font-size: 13px; color: var(--c-text); }
+.deadline-panel { gap: 12px; }
+.level-filter { gap: 6px; }
+.level-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 12px; background: var(--c-bg-card); color: var(--c-text-regular); cursor: pointer; }
+.level-chip.active { border-color: var(--c-primary); color: var(--c-primary); }
+.level-chip.is-r1 { color: var(--c-danger); }
+.level-chip.is-r2 { color: var(--c-warning); }
+.level-chip.is-review { color: var(--c-primary); }
+.deadline-group { border: 1px solid var(--c-border-light); border-radius: 6px; overflow: hidden; }
+.group-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-size: 12px; background: var(--c-bg-subtle); color: var(--c-text-secondary); }
+.group-level { font-weight: 700; }
+.group-level.is-r1 { color: var(--c-danger); }
+.group-level.is-r2 { color: var(--c-warning); }
+.deadline-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-top: 1px solid var(--c-border-light); background: transparent; text-align: left; cursor: pointer; }
+.deadline-row:hover { background: var(--c-bg-subtle); }
+.deadline-name { font-size: 13px; color: var(--c-text); font-weight: 600; }
+.deadline-case { font-size: 12px; color: var(--c-text-secondary); }
+.deadline-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.deadline-due { font-variant-numeric: tabular-nums; color: var(--c-text-regular); }
+.deadline-days.overdue { color: var(--c-danger); font-weight: 600; }
+.deadline-days.urgent { color: var(--c-warning); font-weight: 600; }
+.deadline-message { font-size: 11px; color: var(--c-text-secondary); }
+.panel-loading, .panel-empty { padding: 24px 0; text-align: center; font-size: 12px; color: var(--c-text-secondary); }
+.panel-error { display: flex; flex-direction: column; gap: 8px; }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--motion-fast), transform var(--motion-fast); }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 

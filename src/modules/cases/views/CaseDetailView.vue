@@ -282,6 +282,16 @@ async function loadCase() {
 const hearingAudits = ref([])
 const expandedAuditId = ref('')
 
+/** 开庭提醒作业（H3） */
+const hearingReminderJobs = ref([])
+
+async function loadHearingReminderJobs() {
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.hearingReminderJobs(id)
+  if (id !== caseId.value || request !== detailLoad) return
+  if (result.ok) hearingReminderJobs.value = result.data || []
+}
+
 async function loadHearingAudits() {
   const id = caseId.value; const request = detailLoad
   const result = await casyContext.cases.entityAuditEvents(id, 'hearing_updated')
@@ -305,6 +315,7 @@ async function loadHearings() {
     hearings.value = result.data || []
   } else noteSectionError(result.error || '开庭排期读取失败')
   await loadHearingAudits()
+  await loadHearingReminderJobs()
 }
 
 async function loadTasks() {
@@ -440,6 +451,38 @@ const filteredHearings = computed(() => {
     return true
   })
 })
+
+/** 开庭 T-N 倒计时（H3） */
+function hearingCountdown(hearingDate) {
+  if (!hearingDate) return ''
+  const target = new Date(String(hearingDate).replace(' ', 'T'))
+  if (Number.isNaN(target.getTime())) return ''
+  const days = Math.ceil((target.getTime() - Date.now()) / 86400000)
+  if (days < 0) return `已过去 ${-days} 天`
+  if (days === 0) return '今天'
+  return `还有 ${days} 天`
+}
+
+const REMINDER_STATUS_LABELS = {
+  pending: '待发送', synced: '已同步', sent: '已发送', delivered: '已送达',
+  read: '已读', sync_failed: '同步失败', delivery_unknown: '送达状态未知',
+  cancelled: '已取消', dead_lettered: '已搁置',
+}
+
+/** 某开庭的提醒回执摘要（H3：改期后原提醒被取消，这里要看得见） */
+function reminderSummaryOf(hearingId) {
+  const jobs = hearingReminderJobs.value.filter((job) => job.hearingId === hearingId)
+  if (!jobs.length) return null
+  const sent = jobs.filter((job) => ['sent', 'delivered', 'read', 'synced'].includes(job.status))
+  const cancelled = jobs.filter((job) => job.status === 'cancelled')
+  const pending = jobs.filter((job) => job.status === 'pending')
+  const failed = jobs.filter((job) => ['sync_failed', 'dead_lettered'].includes(job.status))
+  const detail = jobs
+    .slice()
+    .sort((a, b) => String(a.scheduledAt).localeCompare(String(b.scheduledAt)))
+    .map((job) => `${job.offsetSnapshot || job.scheduledAt.slice(0, 10)} · ${REMINDER_STATUS_LABELS[job.status] || job.status}${job.channel ? `（${job.channel}）` : ''}`)
+  return { total: jobs.length, sent: sent.length, cancelled: cancelled.length, pending: pending.length, failed: failed.length, detail }
+}
 
 /** 开庭阶段候选项（OA 2.1.3 起阶段允许自由输入，这里给常用值 + 允许手输） */
 const hearingStageOptions = ['一审', '二审', '再审', '发回重审', '执行', '证据交换', '庭前会议', '口头审理']
@@ -1041,6 +1084,21 @@ onUnmounted(() => {
                 </td>
                 <td>
                   <div class="font-mono text-primary font-semibold">{{ h.hearingDate }}</div>
+                  <small v-if="hearingCountdown(h.hearingDate)" class="hearing-countdown">{{ hearingCountdown(h.hearingDate) }}</small>
+                  <div v-if="reminderSummaryOf(h.id)" class="hearing-reminders">
+                    <span class="reminder-line">
+                      提醒：已发 {{ reminderSummaryOf(h.id).sent }} / {{ reminderSummaryOf(h.id).total }}
+                      <template v-if="reminderSummaryOf(h.id).pending"> · 待发 {{ reminderSummaryOf(h.id).pending }}</template>
+                      <template v-if="reminderSummaryOf(h.id).cancelled"> · 已取消 {{ reminderSummaryOf(h.id).cancelled }}</template>
+                      <template v-if="reminderSummaryOf(h.id).failed"> · 失败 {{ reminderSummaryOf(h.id).failed }}</template>
+                    </span>
+                    <el-popover v-if="reminderSummaryOf(h.id).detail.length" placement="right" :width="280" trigger="hover">
+                      <template #reference><el-button text size="small">明细</el-button></template>
+                      <ol class="reminder-detail">
+                        <li v-for="(line, index) in reminderSummaryOf(h.id).detail" :key="index">{{ line }}</li>
+                      </ol>
+                    </el-popover>
+                  </div>
                 </td>
                 <td>{{ h.court || caseData?.court || '—' }}</td>
                 <td>{{ h.judges || caseData?.judgePanel || '—' }}</td>
@@ -1801,6 +1859,9 @@ onUnmounted(() => {
 .hearing-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
 .form-warning { margin: 0 0 8px; font-size: 12px; color: var(--c-warning); line-height: 1.6; }
 .hearing-audit { margin-top: 4px; }
+.hearing-countdown { display: block; color: var(--c-warning); font-size: 11px; }
+.hearing-reminders { margin-top: 2px; font-size: 11px; color: var(--c-text-secondary); }
+.reminder-detail { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.8; }
 .hearing-audit-list { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--c-text-regular); line-height: 1.8; }
 .hearing-audit-list .audit-time { color: var(--c-text-secondary); margin-right: 8px; font-variant-numeric: tabular-nums; }
 .hearing-audit-list .audit-change { font-weight: 600; }

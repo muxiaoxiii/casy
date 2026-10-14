@@ -14,6 +14,7 @@ import type {
   ContextRef,
   DeadlineRuleAuditDto,
   EntityAuditEventDto,
+  HearingReminderJobDto,
   DeadlineRuleDto,
   FactNodeDto,
   FactHistoryDto,
@@ -563,6 +564,8 @@ export type CommandMap = {
   list_deadline_rule_audit: Cmd<{ ruleId?: string | null }, DeadlineRuleAuditDto[]>
   /** 案件变更留痕（开庭改期链 / 白板事实 / AI 工具执行） */
   list_entity_audit_events: Cmd<{ caseId: string; eventType?: string | null; limit?: number | null }, EntityAuditEventDto[]>
+  /** 某案件全部开庭的提醒作业（T-N 已发/已取消） */
+  list_hearing_reminder_jobs: Cmd<{ caseId: string }, HearingReminderJobDto[]>
   recalculate_deadlines_for_track: Cmd<{ track: string }, number>
   // W4 跨模块双链（Hookmark/Obsidian 式）
   create_link: Cmd<{ sourceType: string; sourceId: string; targetType: string; targetId: string; anchor?: string | null; label?: string | null }, LinkDto>

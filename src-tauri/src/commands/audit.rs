@@ -5,6 +5,7 @@
 
 use super::run_blocking;
 use crate::db;
+use rusqlite::params;
 
 /// 单条变更记录
 #[derive(Debug, serde::Serialize, specta::Type)]
@@ -123,4 +124,55 @@ mod tests {
         assert_eq!(payload["after"]["date"], "2026-11-05 14:00:00");
         assert!(payload["reason"].as_str().unwrap().contains("改期"));
     }
+}
+
+/// 某次开庭的一条提醒作业（H3：让用户看到"T-7 已发 / T-1 已发 / 已取消"）
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HearingReminderJobDto {
+    pub id: String,
+    pub hearing_id: String,
+    /// local / system / calendar / email_ics / feishu_message / feishu_task
+    pub channel: String,
+    /// 计划触发时间
+    pub scheduled_at: String,
+    /// 触发时的偏移快照（如 "开庭前 7 天"）
+    pub offset_snapshot: Option<String>,
+    /// pending / synced / sent / delivered / read / sync_failed /
+    /// delivery_unknown / cancelled / dead_lettered
+    pub status: String,
+    pub last_error: Option<String>,
+    /// 改期后被新作业取代时指向新作业
+    pub supersedes_id: Option<String>,
+}
+
+/// 读取某案件全部开庭的提醒作业（倒序）。
+#[tauri::command]
+pub async fn list_hearing_reminder_jobs(case_id: String) -> Result<Vec<HearingReminderJobDto>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT j.id, j.entity_id, j.channel, j.scheduled_at, j.offset_snapshot, j.status, j.last_error, j.supersedes_id
+             FROM reminder_jobs j
+             JOIN hearings h ON h.id = j.entity_id
+             WHERE j.entity_type = 'hearing' AND h.case_id = ?1
+             ORDER BY j.scheduled_at DESC LIMIT 200",
+        )?;
+        let rows = stmt
+            .query_map(params![case_id], |row| {
+                Ok(HearingReminderJobDto {
+                    id: row.get(0)?,
+                    hearing_id: row.get(1)?,
+                    channel: row.get(2)?,
+                    scheduled_at: row.get(3)?,
+                    offset_snapshot: row.get(4)?,
+                    status: row.get(5)?,
+                    last_error: row.get(6)?,
+                    supersedes_id: row.get(7)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    })
+    .await
 }

@@ -286,6 +286,18 @@ export interface EntityAuditEvent {
   createdAt: string
 }
 
+/** 开庭提醒作业（H3：让"T-7 已发 / T-1 已发 / 已取消"可见） */
+export interface HearingReminderJob {
+  id: string
+  hearingId: string
+  channel: string
+  scheduledAt: string
+  offsetSnapshot: string | null
+  status: string
+  lastError: string | null
+  supersedesId: string | null
+}
+
 // ==================== 任务 ====================
 
 // 与 schema CHECK 严格一致（DB 不含 high/low，历史手写为幻影成员）
