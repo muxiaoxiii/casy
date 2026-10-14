@@ -153,7 +153,7 @@ export type DiffLineDto = { type: string; line: number; text: string }
  */
 export type DocsyTemplate = { id: string; name: string; path: string; category: string; field_count: number; fields: TemplateField[]; description: string }
 
-export type DocumentEngineStatus = { available: boolean; executable: string | null; version: string | null; rendererAvailable: boolean; coordinateModelAvailable: boolean; koreanModelAvailable?: boolean; layoutModelAvailable: boolean; ovisModelAvailable: boolean; searchablePdfAvailable: boolean; missing: string[]; error: string | null }
+export type DocumentEngineStatus = { provider?: string; providerEndpoint?: string | null; available: boolean; executable: string | null; version: string | null; rendererAvailable: boolean; coordinateModelAvailable: boolean; koreanModelAvailable?: boolean; layoutModelAvailable: boolean; ovisModelAvailable: boolean; searchablePdfAvailable: boolean; missing: string[]; error: string | null }
 
 export type DocumentJobDto = { id: string; fileId: string; sourceSha256: string; status: string; engine: string; modelVersion: string | null; currentPage: number; totalPages: number; progress: number; phase: string; elapsedSeconds: number; remainingSeconds: number | null; pageTiming: DocumentPageTiming | null; searchablePdfPath: string | null; pageIrPath: string | null; markdownPath: string | null; errorCode: string | null; errorMessage: string | null; createdAt: string; updatedAt: string }
 

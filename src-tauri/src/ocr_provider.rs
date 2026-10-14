@@ -42,7 +42,7 @@ pub fn configured_provider() -> OcrProvider {
     }
 }
 
-fn myna_base_url() -> String {
+pub fn myna_base_url() -> String {
     std::env::var("CASY_MYNA_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())

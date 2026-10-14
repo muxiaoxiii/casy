@@ -13,6 +13,12 @@ pub(crate) mod assets;
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineStatus {
+    /// 当前 OCR provider：builtin（内置引擎）或 myna（远端）
+    #[serde(default)]
+    pub provider: String,
+    /// Myna 远端地址（仅 provider=myna 时有值）
+    #[serde(default)]
+    pub provider_endpoint: Option<String>,
     pub available: bool,
     pub executable: Option<String>,
     pub version: Option<String>,
@@ -235,6 +241,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
         Some(path) => path,
         None => {
             return DocumentEngineStatus {
+                provider: provider_label(),
+                provider_endpoint: provider_endpoint(),
                 available: false,
                 executable: None,
                 version: None,
@@ -266,6 +274,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
     match output {
         Ok(output) if output.status.success() => serde_json::from_slice(&output.stdout)
             .unwrap_or_else(|error| DocumentEngineStatus {
+                provider: provider_label(),
+                provider_endpoint: provider_endpoint(),
                 available: false,
                 executable: Some(executable.display().to_string()),
                 version: None,
@@ -279,6 +289,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
                 error: Some(format!("文档引擎返回了无效 JSON: {error}")),
             }),
         Ok(output) => DocumentEngineStatus {
+            provider: provider_label(),
+            provider_endpoint: provider_endpoint(),
             available: false,
             executable: Some(executable.display().to_string()),
             version: None,
@@ -292,6 +304,8 @@ pub async fn probe_engine() -> DocumentEngineStatus {
             error: Some(String::from_utf8_lossy(&output.stderr).trim().to_string()),
         },
         Err(error) => DocumentEngineStatus {
+            provider: provider_label(),
+            provider_endpoint: provider_endpoint(),
             available: false,
             executable: Some(executable.display().to_string()),
             version: None,
@@ -304,6 +318,22 @@ pub async fn probe_engine() -> DocumentEngineStatus {
             missing: vec![],
             error: Some(error.to_string()),
         },
+    }
+}
+
+/// 当前 OCR provider 的展示名（A3：让用户知道用的是内置引擎还是远端 Myna）
+fn provider_label() -> String {
+    match crate::ocr_provider::configured_provider() {
+        crate::ocr_provider::OcrProvider::Myna => "myna".to_string(),
+        crate::ocr_provider::OcrProvider::Builtin => "builtin".to_string(),
+    }
+}
+
+/// Myna 远端地址（仅 myna 模式有值）
+fn provider_endpoint() -> Option<String> {
+    match crate::ocr_provider::configured_provider() {
+        crate::ocr_provider::OcrProvider::Myna => Some(crate::ocr_provider::myna_base_url()),
+        crate::ocr_provider::OcrProvider::Builtin => None,
     }
 }
 

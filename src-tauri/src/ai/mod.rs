@@ -1067,10 +1067,13 @@ pub async fn get_ai_config() -> Result<AiConfig, String> {
 #[tauri::command]
 pub async fn get_ai_usage() -> Result<serde_json::Value, String> {
     let (used, limit) = usage::current().await.map_err(|e| e.to_string())?;
+    let (failed_today, consecutive_failed) = usage::failures().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "usedToday": used,
         "dailyLimit": limit,
         "remaining": if limit == 0 { u64::MAX } else { limit.saturating_sub(used) },
+        "failedToday": failed_today,
+        "consecutiveFailed": consecutive_failed,
     }))
 }
 

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAiSettingsStore } from '../../stores/aiSettings'
 import { Cpu, ArrowRight } from '../icons'
@@ -8,9 +8,18 @@ import { tauriCallSafe } from '../../core/tauriBridge'
 const router = useRouter()
 const settingsStore = useAiSettingsStore()
 
-// AI 状态：available / disabled / degraded
+// 今日调用次数/配额
+const todayUsed = ref(null)
+const usageError = ref('')
+const dailyLimit = ref(0)
+const failedToday = ref(0)
+const consecutiveFailed = ref(0)
+
+// AI 状态：available / disabled / degraded。
+// degraded = 已配置但连续失败（此前这个分支永不返回，AI 挂了用户完全看不出区别）。
 const aiStatus = computed(() => {
-  return settingsStore.config.activeId ? 'available' : 'disabled'
+  if (!settingsStore.config.activeId) return 'disabled'
+  return consecutiveFailed.value >= 2 ? 'degraded' : 'available'
 })
 
 const statusLabel = computed(() => {
@@ -31,11 +40,7 @@ const dotClass = computed(() => {
   }
 })
 
-// 今日调用次数/配额
-const todayUsed = ref(null)
-const usageError = ref('')
-const dailyLimit = ref(0)
-const remaining = computed(() => Math.max(0, dailyLimit.value - todayUsed.value))
+const remaining = computed(() => Math.max(0, dailyLimit.value - (todayUsed.value || 0)))
 
 // Popover 可见性
 const popoverVisible = ref(false)
@@ -52,6 +57,8 @@ async function loadUsage() {
     if (result.ok && result.data) {
       todayUsed.value = result.data.usedToday
       dailyLimit.value = result.data.dailyLimit
+      failedToday.value = Number(result.data.failedToday || 0)
+      consecutiveFailed.value = Number(result.data.consecutiveFailed || 0)
     } else {
       todayUsed.value = null
       usageError.value = result.error || '调用次数暂不可用'
@@ -63,6 +70,10 @@ async function loadUsage() {
 }
 onMounted(loadUsage)
 watch(popoverVisible, visible => { if (visible) void loadUsage() })
+// 每分钟刷新一次：连续失败/恢复都要及时反映在徽章上
+let usageTimer = 0
+onMounted(() => { usageTimer = window.setInterval(() => void loadUsage(), 60000) })
+onUnmounted(() => window.clearInterval(usageTimer))
 </script>
 
 <template>
@@ -95,6 +106,14 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
         </el-icon>
       </div>
 
+      <p v-if="aiStatus === 'degraded'" class="popover-degraded">
+        AI 接口连续失败，已自动回退到规则版处理（分类、意图判断仍可用，只是不含 AI 增强）。
+        <el-button text type="primary" size="small" @click="goToAISettings">检查 AI 设置</el-button>
+      </p>
+      <div class="quota-row">
+        <span class="quota-label">今日失败</span>
+        <span class="quota-value" :class="{ 'quota-low': failedToday > 0 }">{{ failedToday }}</span>
+      </div>
       <div v-if="aiStatus === 'available'" class="popover-quota">
         <div class="quota-row">
           <span class="quota-label" title="已发出的请求次数，包含失败请求">今日请求</span>
@@ -186,6 +205,7 @@ watch(popoverVisible, visible => { if (visible) void loadUsage() })
 
 /* Popover 内容：布局走共享 .ui-col，此处只保留 12px 间距 */
 .ai-popover { gap: 12px; }
+.popover-degraded { margin: 0 0 8px; padding: 8px; border-radius: 6px; background: var(--c-warning-light); color: var(--c-warning); font-size: 12px; line-height: 1.6; }
 
 .popover-header {
   display: flex;

@@ -683,6 +683,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
             <p v-if="!isTextDocument(selectedFile) && documentEngine && !documentEngine.available" class="ocr-engine-warning">
               引擎未就绪：{{ documentEngine.missing?.join('、') || documentEngine.error }}
             </p>
+            <p v-if="documentEngine?.provider" class="ocr-provider-line">
+              识别方式：
+              <strong>{{ documentEngine.provider === 'myna' ? `远端 Myna（${documentEngine.providerEndpoint || '未配置地址'}）` : '内置引擎（本地）' }}</strong>
+              <span v-if="documentEngine.provider === 'myna' && !documentEngine.available" class="ocr-provider-fallback"> · 远端不可用，请确认 Myna 服务已启动</span>
+            </p>
             <p v-if="documentJobs[selectedFile.id]?.status === 'running'" class="ocr-processing-detail">
               {{ documentPhase(documentJobs[selectedFile.id].phase) }}
               <template v-if="documentJobs[selectedFile.id].totalPages"> · {{ documentJobs[selectedFile.id].currentPage }} / {{ documentJobs[selectedFile.id].totalPages }} 页</template>
@@ -924,6 +929,9 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
 .ocr-has-text { color: var(--c-text-secondary); font-size: 10.5px; }
 .ocr-engine-warning, .ocr-engine-error { margin: 8px 0 0; font-size: 11px; line-height: 1.45; }
 .ocr-engine-warning { color: var(--c-warning); }
+.ocr-provider-line { margin: 4px 0 0; font-size: 12px; color: var(--c-text-secondary); }
+.ocr-provider-line strong { color: var(--c-text-regular); font-weight: 600; }
+.ocr-provider-fallback { color: var(--c-warning); }
 .ocr-engine-error { color: var(--c-danger); }
 .ocr-text-view {
   max-height: 420px; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--c-border);

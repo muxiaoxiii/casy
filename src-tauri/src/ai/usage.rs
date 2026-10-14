@@ -8,6 +8,12 @@ const USAGE_KEY: &str = "ai_usage_v1";
 struct Counter {
     date: String,
     used: u64,
+    /// 今日失败次数（连接失败/超时；请求已发出即计入成本，故失败也计数）
+    #[serde(default)]
+    failed: u64,
+    /// 连续失败次数：成功后归零，用于判断"AI 是否已降级"
+    #[serde(default)]
+    consecutive_failed: u64,
 }
 
 fn read(conn: &Connection, date: &str) -> Result<Counter> {
@@ -17,7 +23,11 @@ fn read(conn: &Connection, date: &str) -> Result<Counter> {
         .transpose()
         .context("AI 调用计数损坏，无法确认剩余额度")?
         .unwrap_or_default();
-    Ok(if counter.date == date { counter } else { Counter { date: date.into(), used: 0 } })
+    Ok(if counter.date == date {
+        counter
+    } else {
+        Counter { date: date.into(), used: 0, failed: 0, consecutive_failed: 0 }
+    })
 }
 
 fn reserve(conn: &mut Connection, date: &str) -> Result<()> {
@@ -40,12 +50,66 @@ pub async fn current() -> Result<(u64, u64)> {
     }).await?
 }
 
+/// 今日失败次数与连续失败次数（供"AI 降级"状态判断）
+pub async fn failures() -> Result<(u64, u64)> {
+    tokio::task::spawn_blocking(|| {
+        let conn = crate::db::open_db()?;
+        let counter = read(&conn, &crate::db::today())?;
+        Ok((counter.failed, counter.consecutive_failed))
+    }).await?
+}
+
+fn write(conn: &Connection, counter: &Counter) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings(key,value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [USAGE_KEY, &serde_json::to_string(counter)?],
+    )?;
+    Ok(())
+}
+
+/// 记录一次失败（连接失败/超时）
+pub async fn record_failure() {
+    let _ = tokio::task::spawn_blocking(|| -> Result<()> {
+        let conn = crate::db::open_db()?;
+        let date = crate::db::today();
+        let mut counter = read(&conn, &date)?;
+        counter.failed = counter.failed.saturating_add(1);
+        counter.consecutive_failed = counter.consecutive_failed.saturating_add(1);
+        write(&conn, &counter)
+    })
+    .await;
+}
+
+/// 记录一次成功：连续失败归零（降级状态解除）
+pub async fn record_success() {
+    let _ = tokio::task::spawn_blocking(|| -> Result<()> {
+        let conn = crate::db::open_db()?;
+        let date = crate::db::today();
+        let mut counter = read(&conn, &date)?;
+        if counter.consecutive_failed != 0 {
+            counter.consecutive_failed = 0;
+            write(&conn, &counter)?;
+        }
+        Ok(())
+    })
+    .await;
+}
+
 // Count dispatched attempts, including failures: a lost response may still have incurred cost.
 pub async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
     let (client, request) = request.build_split();
     let request = request.context("AI 请求参数无效")?;
     tokio::task::spawn_blocking(|| reserve(&mut *crate::db::open_db()?, &crate::db::today())).await??;
-    client.execute(request).await.map_err(|_| anyhow::anyhow!("AI 接口连接失败或超时"))
+    match client.execute(request).await {
+        Ok(response) => {
+            record_success().await;
+            Ok(response)
+        }
+        Err(_) => {
+            record_failure().await;
+            Err(anyhow::anyhow!("AI 接口连接失败或超时"))
+        }
+    }
 }
 
 #[cfg(test)]
