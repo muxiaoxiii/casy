@@ -59,6 +59,7 @@ import {
   Reading,
   Close,
   Upload,
+  AlarmClock,
 } from '../../../shared/icons'
 import CaseFilterBar from '../components/CaseFilterBar.vue'
 import CaseWizard from '../components/CaseWizard.vue'
@@ -344,6 +345,24 @@ const sortedCaseFiles = computed(() => filterAndSortFiles(caseFiles.value, {
 function trackLabel(track) {
   return trackOptions.find((option) => option.value === track)?.label || '其他事项'
 }
+/** 期限紧急度 → 样式类 */
+function urgencyClass(item) {
+  return 'is-' + (item?.deadlineUrgency || 'green')
+}
+
+/** 案件索引卡的期限提示：把 nextDeadlineDate 换算成"几天后到期" */
+function deadlineHint(item) {
+  const date = item?.nextDeadlineDate
+  if (!date) return ''
+  const today = new Date()
+  const due = new Date(String(date).slice(0, 10) + 'T00:00:00')
+  if (Number.isNaN(due.getTime())) return String(date).slice(0, 10)
+  const days = Math.round((due.getTime() - new Date(today.toDateString()).getTime()) / 86400000)
+  if (days < 0) return `期限已逾期 ${-days} 天`
+  if (days === 0) return '期限今天到期'
+  return `期限 ${days} 天后到期`
+}
+
 function statusBadgeClass(status) {
   if (!status) return 'badge-active'
   if (status.includes('庭') || status.includes('Trial')) return 'badge-risk'
@@ -884,6 +903,12 @@ async function handleCreateCase(formData) {
               </div>
               <strong class="ui-truncate case-card-title">{{ item.caseName }}</strong>
               <span class="ui-truncate case-card-client" v-if="item.clientName">{{ item.clientName }}</span>
+              <span v-if="deadlineHint(item)" :class="['case-card-hint', urgencyClass(item)]">
+                <el-icon><AlarmClock /></el-icon>{{ deadlineHint(item) }}
+              </span>
+              <span v-else-if="item.nextHearingDate" class="case-card-hint is-hearing">
+                <el-icon /><span class="mono-date">{{ String(item.nextHearingDate).slice(0, 10) }}</span> 开庭
+              </span>
             </button>
           </div>
           <!-- 分页（审查 P1-3）：超过 perPage 的案件可通过翻页访问 -->
@@ -1790,6 +1815,22 @@ async function handleCreateCase(formData) {
   font-size: 11px;
   color: var(--slate-gray-light);
 }
+.case-card-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.case-card-hint .el-icon { font-size: 12px; }
+.case-card-hint.is-red { color: var(--c-danger); background: var(--c-danger-light); }
+.case-card-hint.is-yellow { color: var(--c-warning); background: var(--c-warning-light); }
+.case-card-hint.is-green { color: var(--c-text-secondary); background: var(--c-bg-subtle); }
+.case-card-hint.is-hearing { color: var(--c-primary); background: var(--c-primary-light); }
+.case-card-hint .mono-date { font-variant-numeric: tabular-nums; }
 .empty-case-hint {
   padding: 30px 0;
   text-align: center;

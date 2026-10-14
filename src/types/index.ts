@@ -180,6 +180,10 @@ export interface Case {
 
   // 期限紧急度（仅列表查询时填充）：red=3天内, yellow=14天内, 其他=绿色
   deadlineUrgency?: string | null
+  /** 最近未完成期限的到期日（列表卡展示"几天后到期"） */
+  nextDeadlineDate?: string | null
+  /** 下一次未开庭的开庭日期 */
+  nextHearingDate?: string | null
 }
 
 /** 创建案件的输入（必填字段） */

@@ -1,7 +1,7 @@
 <script setup>
 import { useReturnOrigin } from '../../../composables/useReturnOrigin'
 import { taskPlanLabel } from '../../../shared/utils/taskSchedule'
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { casyContext } from '../../../core/plugin/context'
 import { todayLocalISO } from '../../../shared/utils/date'
@@ -12,7 +12,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Edit, Calendar, Finished, Document,
   Folder, Collection, Clock, Warning, Check,
-  Plus, CaretRight, Connection, Timer, Lock, CircleCheck
+  Plus, CaretRight, Connection, Timer, Lock, CircleCheck, Fold, Expand
 } from '../../../shared/icons'
 import {
   CIVIL_STATUS_LABELS,
@@ -69,6 +69,8 @@ const hearingForm = ref({
   lifecycleStatus: 'scheduled',
   changeReason: '',
 })
+/** 编辑中的开庭原值快照：用于判断本次保存是否构成改期/状态迁移 */
+const editingHearingSnapshot = ref(null)
 
 // 关联案件弹窗
 const showAddRelationDialog = ref(false)
@@ -361,6 +363,7 @@ async function saveGoal() {
 
 // 庭审 CRUD 操作
 function openAddHearing() {
+  editingHearingSnapshot.value = null
   hearingForm.value = {
     id: '',
     hearingName: '第' + (hearings.value.length + 1) + '次开庭 / 口审',
@@ -378,6 +381,7 @@ function openAddHearing() {
 }
 
 function openEditHearing(h) {
+  editingHearingSnapshot.value = { hearingDate: h.hearingDate, lifecycleStatus: h.lifecycleStatus || (h.actualStatus==='已开'?'held':'scheduled') }
   hearingForm.value = {
     id: h.id,
     hearingName: h.hearingName || h.hearingRecord || '开庭/口审',
@@ -395,6 +399,31 @@ function openEditHearing(h) {
 }
 
 const hearingSaving = ref(false)
+/** 开庭列表筛选（H1：OA 开庭信息页按案件/法庭/阶段筛选 + 折叠） */
+const hearingFilter = reactive({ status: '', stage: '', keyword: '', upcomingOnly: false })
+const hearingCollapsed = ref(false)
+const hearingStageChoices = computed(() => {
+  const set = new Set()
+  for (const h of hearings.value) if (h.caseLevel) set.add(h.caseLevel)
+  return [...set]
+})
+const filteredHearings = computed(() => {
+  const kw = hearingFilter.keyword.trim().toLowerCase()
+  return hearings.value.filter((h) => {
+    if (hearingFilter.status && (h.lifecycleStatus || (h.actualStatus === '已开' ? 'held' : 'scheduled')) !== hearingFilter.status) return false
+    if (hearingFilter.stage && h.caseLevel !== hearingFilter.stage) return false
+    if (hearingFilter.upcomingOnly && h.actualStatus === '已开') return false
+    if (kw) {
+      const haystack = [h.hearingName, h.hearingRecord, h.court, h.venue, h.judges, h.caseLevel, h.changeReason].filter(Boolean).join(' ').toLowerCase()
+      if (!haystack.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+/** 开庭阶段候选项（OA 2.1.3 起阶段允许自由输入，这里给常用值 + 允许手输） */
+const hearingStageOptions = ['一审', '二审', '再审', '发回重审', '执行', '证据交换', '庭前会议', '口头审理']
+
 async function saveHearing() {
   if(hearingSaving.value)return
   const idCase=caseId.value
@@ -403,6 +432,14 @@ async function saveHearing() {
     ElMessage.warning('请选择开庭/口审时间')
     return
   }
+  // 延期/取消是有法律效力的状态迁移：必须有依据，不能凭印象勾选
+  if (['postponed','cancelled'].includes(form.lifecycleStatus) && !form.changeReason?.trim()) {
+    ElMessage.warning('标记延期或取消需要填写通知/决定依据')
+    return
+  }
+  const scheduleChanged = form.id
+    ? (form.hearingDate !== editingHearingSnapshot.value?.hearingDate || form.lifecycleStatus !== editingHearingSnapshot.value?.lifecycleStatus)
+    : form.lifecycleStatus !== 'scheduled'
   hearingSaving.value=true
   try {
   if (form.id) {
@@ -421,6 +458,9 @@ async function saveHearing() {
     if(idCase!==caseId.value)return
     if (res.ok) {
       ElMessage.success('庭审排期已更新')
+      if (scheduleChanged) {
+        ElMessage.info('原日期的待发送提醒已作废，系统会按新排期重建提醒')
+      }
       showHearingDialog.value = false
       await loadHearings()
       await loadCase()
@@ -912,16 +952,36 @@ onUnmounted(() => {
         <div class="ui-row ui-row--between ch">
           <div>
             <span class="t">开庭与口审排期记录</span>
-            <span class="s">历次出庭/口审信息沉淀 (共 {{ hearings.length }} 次)</span>
+            <span class="s">历次出庭/口审信息沉淀 (共 {{ hearings.length }} 次<template v-if="filteredHearings.length !== hearings.length">，筛选出 {{ filteredHearings.length }} 次</template>)</span>
           </div>
-          <button class="btn-sm primary" @click="openAddHearing">
-            <el-icon><Plus /></el-icon>
-            <span>添加开庭/口审</span>
-          </button>
+          <div class="ui-row" style="gap:8px">
+            <button class="btn-sm" @click="hearingCollapsed = !hearingCollapsed">
+              <el-icon><Fold v-if="!hearingCollapsed" /><Expand v-else /></el-icon>
+              <span>{{ hearingCollapsed ? '展开列表' : '折叠列表' }}</span>
+            </button>
+            <button class="btn-sm primary" @click="openAddHearing">
+              <el-icon><Plus /></el-icon>
+              <span>添加开庭/口审</span>
+            </button>
+          </div>
         </div>
         <div class="sep"></div>
 
-        <div v-if="hearings.length" class="hearings-table-wrap">
+        <div v-if="hearings.length && !hearingCollapsed" class="hearing-filters">
+          <el-input v-model="hearingFilter.keyword" size="small" clearable placeholder="搜索轮次/法庭/法官/依据" style="width: 220px" />
+          <el-select v-model="hearingFilter.status" size="small" clearable placeholder="状态" style="width: 130px">
+            <el-option value="scheduled" label="已排期" />
+            <el-option value="held" label="已开庭" />
+            <el-option value="postponed" label="延期待定" />
+            <el-option value="cancelled" label="已取消" />
+          </el-select>
+          <el-select v-model="hearingFilter.stage" size="small" clearable placeholder="阶段" style="width: 130px">
+            <el-option v-for="stage in hearingStageChoices" :key="stage" :value="stage" :label="stage" />
+          </el-select>
+          <el-checkbox v-model="hearingFilter.upcomingOnly" size="small">仅看未开</el-checkbox>
+        </div>
+
+        <div v-if="filteredHearings.length" class="hearings-table-wrap">
           <table class="data-table">
             <thead>
               <tr>
@@ -935,7 +995,7 @@ onUnmounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="h in hearings" :key="h.id">
+              <tr v-for="h in filteredHearings" :key="h.id">
                 <td>
                   <strong>{{ h.hearingName || h.hearingRecord || '开庭/口审' }}</strong>
                   <div v-if="h.caseLevel" class="text-xs text-text-muted">{{ h.caseLevel }}</div>
@@ -1099,15 +1159,20 @@ onUnmounted(() => {
           <el-input v-model="hearingForm.judges" placeholder="法官姓名" />
         </el-form-item>
         <el-form-item label="案件阶段/审级">
-          <el-input v-model="hearingForm.caseLevel" placeholder="例如: 一审 / 二审 / 阶段" />
+          <el-select v-model="hearingForm.caseLevel" filterable allow-create default-first-option clearable placeholder="可选择或直接输入，例如: 一审 / 二审 / 发回重审" style="width: 100%">
+            <el-option v-for="stage in hearingStageOptions" :key="stage" :value="stage" :label="stage" />
+          </el-select>
         </el-form-item>
         <el-form-item label="书记员/联系方式">
           <el-input v-model="hearingForm.contactInfo" placeholder="联系电话或书记员姓名" />
         </el-form-item>
 <el-form-item label="改期 / 延期 / 取消的通知或决定依据"><el-input v-model="hearingForm.changeReason" type="textarea" placeholder="申请延期不等于获准；仅有申请时保留原排期。多次开庭分别新建记录。" /></el-form-item>
         <el-form-item label="出庭状态">
-          <el-select v-model="hearingForm.lifecycleStatus"><el-option value="scheduled" label="已排期"/><el-option value="held" label="已开庭"/><el-option v-if="hearingForm.id" value="postponed" label="延期待定（已获准，等待新排期）"/><el-option v-if="hearingForm.id" value="cancelled" label="已取消（有正式依据）"/></el-select>
+          <el-select v-model="hearingForm.lifecycleStatus"><el-option value="scheduled" label="已排期"/><el-option value="held" label="已开庭"/><el-option value="postponed" label="延期待定（已获准，等待新排期）"/><el-option value="cancelled" label="已取消（有正式依据）"/></el-select>
         </el-form-item>
+        <p v-if="['postponed','cancelled'].includes(hearingForm.lifecycleStatus) && !hearingForm.changeReason?.trim()" class="form-warning">
+          标记延期或取消必须填写依据（通知/决定文号）；申请延期不等于获准，仅有申请时请保留"已排期"。
+        </p>
       </el-form>
       <template #footer>
         <el-button size="small" @click="showHearingDialog = false">取消</el-button>

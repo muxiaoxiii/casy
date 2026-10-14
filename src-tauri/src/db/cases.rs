@@ -83,6 +83,10 @@ pub struct Case {
     /// 期限紧急度（仅列表查询时填充）：red=3天内, yellow=14天内, green=其他
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deadline_urgency: Option<String>,
+    /// 最近未完成期限的到期日（list_cases 时填充，供列表卡展示"几天后到期"）
+    pub next_deadline_date: Option<String>,
+    /// 下一次未开庭的开庭日期（list_cases 时填充）
+    pub next_hearing_date: Option<String>,
 }
 
 /// 列表查询过滤条件
@@ -278,12 +282,18 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
         .query_map(param_refs.as_slice(), row_to_case)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    // 计算每个案件的期限紧急度
-    let urgency_map = compute_deadline_urgency(conn, &cases)?;
+    // 计算每个案件的期限紧急度、最近到期日与下次开庭日期
+    let hints = compute_deadline_hints(conn, &cases)?;
 
     let mut items = cases;
+    // 开庭日期按整批查一次，避免在遍历中反复借用 items
+    let hearing_dates = next_hearing_dates(conn, &items);
     for case in &mut items {
-        case.deadline_urgency = urgency_map.get(case.id.as_str()).cloned();
+        if let Some((urgency, due)) = hints.get(case.id.as_str()) {
+            case.deadline_urgency = Some(urgency.clone());
+            case.next_deadline_date = Some(due.clone());
+        }
+        case.next_hearing_date = hearing_dates.get(case.id.as_str()).cloned();
     }
 
     Ok(CaseListResult {
@@ -617,11 +627,12 @@ pub fn case_counts_by_track(conn: &Connection) -> Result<Vec<(String, i64)>> {
     Ok(rows)
 }
 
-/// 计算案件期限紧急度：red=3天内到期, yellow=14天内到期
-fn compute_deadline_urgency(
+/// 计算案件期限提示：紧急度（red=3天内到期 / yellow=14天内 / green）+ 最近到期日。
+/// 同时合并程序项（procedure）算出的紧急度，取更紧急的一档。
+fn compute_deadline_hints(
     conn: &Connection,
     cases: &[Case],
-) -> Result<std::collections::HashMap<String, String>> {
+) -> Result<std::collections::HashMap<String, (String, String)>> {
     let mut map = std::collections::HashMap::new();
     let case_ids: Vec<&str> = cases.iter().map(|c| c.id.as_str()).collect();
     if case_ids.is_empty() {
@@ -678,7 +689,7 @@ fn compute_deadline_urgency(
                     } else {
                         "green".to_string()
                     };
-                    map.insert(case_id, urgency);
+                    map.insert(case_id, (urgency, nearest_due));
                 }
             }
         }
@@ -690,13 +701,61 @@ fn compute_deadline_urgency(
                 if let Some(days)=items.iter().filter(|i|i.status=="open").filter_map(|i|i.days_left).min() {
                     let urgency=if days<=3 {"red"}else if days<=14 {"yellow"}else{"green"};
                     let rank=|s:&str|match s {"red"=>0,"yellow"=>1,_=>2};
-                    if map.get(&case.id).is_none_or(|old|rank(urgency)<rank(old)) {map.insert(case.id.clone(),urgency.to_string());}
+                    if map.get(&case.id).is_none_or(|(old,_)|rank(urgency)<rank(old)) {
+                        let due=(chrono::Local::now().naive_local().date()+chrono::Duration::days(days)).format("%Y-%m-%d").to_string();
+                        map.insert(case.id.clone(),(urgency.to_string(),due));
+                    }
                 }
             }
         }
     }
 
     Ok(map)
+}
+
+/// 每个案件下一次未开庭的开庭日期（含经 case_hearing_links 关联的开庭）。
+fn next_hearing_dates(
+    conn: &Connection,
+    cases: &[Case],
+) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let case_ids: Vec<&str> = cases.iter().map(|c| c.id.as_str()).collect();
+    if case_ids.is_empty() {
+        return map;
+    }
+    let today = chrono::Local::now().naive_local().date().format("%Y-%m-%d").to_string();
+    let placeholders: String = case_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
+    // 与 v_case_unified 同一口径：hearings 直挂案件，或经 case_hearing_links 关联
+    let sql = format!(
+        "SELECT c.id, MIN(h.hearing_date) FROM cases c
+         JOIN hearings h ON h.case_id = c.id OR EXISTS(
+             SELECT 1 FROM case_hearing_links l WHERE l.hearing_id = h.id AND l.case_id = c.id)
+         WHERE c.id IN ({placeholders}) AND h.lifecycle_status = 'scheduled'
+           AND COALESCE(h.actual_status, '未开') != '已开'
+           AND substr(h.hearing_date, 1, 10) >= ?
+         GROUP BY c.id",
+    );
+    let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    for id in &case_ids {
+        params_vec.push(Box::new(id.to_string()));
+    }
+    params_vec.push(Box::new(today));
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        if let Ok(rows) = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                map.insert(row.0, row.1);
+            }
+        }
+    }
+    map
 }
 
 /// 行转结构体
@@ -772,6 +831,8 @@ fn row_to_case(row: &rusqlite::Row) -> rusqlite::Result<Case> {
         created_at: row_get_string(row, "created_at")?,
         updated_at: row_get_string(row, "updated_at")?,
         deadline_urgency: None,
+        next_deadline_date: None,
+        next_hearing_date: None,
     })
 }
 
