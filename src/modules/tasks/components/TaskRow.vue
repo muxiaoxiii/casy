@@ -12,10 +12,7 @@
  */
 import { computed } from 'vue'
 import { useLocalDay } from '../../../shared/useLocalDay'
-import {
-  Check, Folder, Collection, Star, Calendar, Timer, Clock,
-  Lock, More, Edit, ArrowRight, Delete, AlarmClock, RefreshLeft,
-} from '../../../shared/icons'
+import { AlarmClock, ArrowRight, Calendar, Check, Clock, Collection, Delete, Edit, Folder, Hide, Lock, More, Refresh, RefreshLeft, Star, Timer } from '../../../shared/icons'
 import {
   isOverdue, formatDate, getWaitingDays,
   getTaskTypeLabel, getTaskTypeColor,
@@ -77,6 +74,8 @@ const emit = defineEmits<{
   (e: 'toggle-focus', task: RowTask): void
   /** W2：推迟到某日（父级弹出日期选择） */
   (e: 'defer', task: RowTask): void
+  /** 计划到指定日期（与"稍后"预设同一机制：snooze custom） */
+  (e: 'snooze-custom', task: RowTask): void
   /** W2：提前结束推迟 */
   (e: 'undefer', task: RowTask): void
 }>()
@@ -106,6 +105,20 @@ const waitingDays = computed(() =>
 )
 
 const focused = computed(() => props.task.isFocus === 1)
+
+/** T3：重复规则的可读标签（与编辑表单的选项一致） */
+const recurrenceLabel = computed(() => {
+  const rule = String(props.task?.recurrenceRule || '')
+  if (!rule) return ''
+  if (rule === 'daily') return '每天'
+  if (rule === 'weekdays') return '每工作日'
+  if (rule.startsWith('weekly:')) {
+    const day = Number(rule.split(':')[1])
+    return ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][day - 1] ? `每${['周一', '周二', '周三', '周四', '周五', '周六', '周日'][day - 1]}` : '每周'
+  }
+  if (rule.startsWith('monthly:')) return `每月 ${rule.split(':')[1]} 日`
+  return rule
+})
 
 /** W2：推迟中（deferUntil 晚于今天，本地日期字符串比较即可） */
 const todayStr = useLocalDay()
@@ -177,6 +190,12 @@ function areaName(id: string | null | undefined): string {
         <span v-if="task.areaId" class="meta-item area ui-row">
           <el-icon><Collection /></el-icon>
           {{ areaName(task.areaId) }}
+        </span>
+
+        <!-- T3：重复序列可见（此前只能看到下一实例，看不出这是重复任务） -->
+        <span v-if="recurrenceLabel" class="meta-item recurrence ui-row" :title="`重复规则：${recurrenceLabel}`">
+          <el-icon><Refresh /></el-icon>
+          {{ recurrenceLabel }}
         </span>
 
         <span v-if="task.flagged === 1" class="meta-item flagged ui-row">
@@ -288,8 +307,11 @@ function areaName(id: string | null | undefined): string {
             >
               稍后：{{ s.label }}
             </el-dropdown-item>
-            <el-dropdown-item :icon="Calendar" divided @click="emit('defer', task)">
-              推迟到…
+            <el-dropdown-item :icon="Calendar" divided @click="emit('snooze-custom', task)">
+              计划到指定日期…
+            </el-dropdown-item>
+            <el-dropdown-item :icon="Hide" @click="emit('defer', task)">
+              隐藏到某日再出现…
             </el-dropdown-item>
             <el-dropdown-item
               v-if="task.deferUntil"

@@ -12,13 +12,7 @@ import { casyContext } from '../../../core/plugin/context'
 import { deleteTaskOptimistic, completeTaskOptimistic, restoreTaskOptimistic, snoozeTaskWithUndo, canUndo, undoLast } from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
-import {
-  Plus, Clock, Calendar, Star, Folder,
-  ArrowRight, Delete, Edit, More, RefreshRight,
-  Box, List, Timer, Files, Check, Search,
-  Menu, Grid, Collection, Select, Close, Location,
-  Opportunity, Warning, TrendCharts, CircleCheck, AlarmClock, RefreshLeft
-} from '../../../shared/icons'
+import { AlarmClock, ArrowRight, Box, Calendar, Check, CircleCheck, Clock, Close, Collection, Delete, Edit, Files, Folder, Grid, List, Location, Menu, More, Opportunity, Plus, RefreshLeft, RefreshRight, Search, Select, Sort, Star, Timer, TrendCharts, Warning } from '../../shared/icons'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskQuickEditor from '../components/TaskQuickEditor.vue'
@@ -103,6 +97,10 @@ const editingPerspective = ref(null)
 // W2 推迟到…对话框
 const showDeferDialog = ref(false)
 const deferTargetTask = ref(null)
+const planTargetTask = ref(null)
+const planDate = ref('')
+const showPlanDateDialog = ref(false)
+const planSaving = ref(false)
 const deferDate = ref('')
 const deferSaving = ref(false)
 
@@ -220,9 +218,38 @@ const filteredTasks = computed(() => applyTaskCardFilters(
 
 // Preserve independently actionable children when their parent is outside this perspective/filter.
 const taskListEl = ref<HTMLElement | null>(null)
+// T1：列表排序（此前列表序即后端序，无法按期限/优先级重排）
+const taskSort = ref('smart')
+const SORT_LABELS = { smart: '智能排序', due: '按截止日', priority: '按优先级', case: '按案件', created: '按创建时间' }
+const PRIORITY_RANK = { urgent_important: 0, important: 1, urgent: 2, normal: 3 }
+function sortTasks(list) {
+  const sorted = list.slice()
+  if (taskSort.value === 'due') {
+    sorted.sort((a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999')))
+  } else if (taskSort.value === 'priority') {
+    sorted.sort((a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9))
+  } else if (taskSort.value === 'case') {
+    sorted.sort((a, b) => String(getCaseName(a) || '').localeCompare(String(getCaseName(b) || '')))
+  } else if (taskSort.value === 'created') {
+    sorted.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+  } else {
+    // 智能：逾期 → 今日 → 优先级 → 截止日
+    const rank = (t) => {
+      if (t.dueDate && t.dueDate < todayStr.value) return 0
+      if (t.dueDate === todayStr.value) return 1
+      if (PRIORITY_RANK[t.priority] === 0) return 2
+      return 3
+    }
+    sorted.sort((a, b) => rank(a) - rank(b)
+      || (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9)
+      || String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999')))
+  }
+  return sorted
+}
+
 const gtdTasks = computed(() => {
   if(activePerspective.value==='bycase')return filteredTasks.value
-  return topLevelPerspectiveTasks(filteredTasks.value)
+  return sortTasks(topLevelPerspectiveTasks(filteredTasks.value))
 })
 // 列表键盘流（j/k/Enter/Esc）：GTD 清单视图（bunny 10 第 4 步）
 const taskNav = useListNavigation(gtdTasks, {
@@ -578,6 +605,34 @@ function openDeferDialog(task) {
   showDeferDialog.value = true
 }
 
+/** 计划到指定日期（T2：与"稍后"预设同一机制，避免两套语义重叠） */
+function openPlanDateDialog(task) {
+  planTargetTask.value = task
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  const p = (n) => String(n).padStart(2, '0')
+  planDate.value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  showPlanDateDialog.value = true
+}
+
+async function confirmPlanDate() {
+  if (!planTargetTask.value || !planDate.value || planSaving.value) return
+  planSaving.value = true
+  const task = planTargetTask.value
+  const result = await casyContext.tasks.snooze(task.id, 'custom', planDate.value)
+  planSaving.value = false
+  if (!result.ok) { ElMessage.error(result.error || '计划失败'); return }
+  ElMessage.success(`已计划到 ${planDate.value}`)
+  showPlanDateDialog.value = false
+  planTargetTask.value = null
+  await loadTasks()
+}
+
+/** T4：跳转到日历的横向甘特图（任务的独立计划在那里调整） */
+function openScheduleGantt() {
+  router.push({ path: '/calendar', query: { view: 'forecast', layout: 'gantt' } })
+}
+
 function disablePastDates(date) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -723,6 +778,20 @@ function getCustomPerspectiveCount(perspectiveId) {
           <span>领域</span>
         </button>
 
+        <!-- T1：排序 -->
+        <div class="task-sort-box">
+          <el-icon :size="14"><Sort /></el-icon>
+          <select v-model="taskSort" class="sort-select" aria-label="任务排序方式">
+            <option v-for="(label, key) in SORT_LABELS" :key="key" :value="key">{{ label }}</option>
+          </select>
+        </div>
+
+        <!-- T4：排期甘特入口（此前只藏在 日历 → 预测 → 横向甘特图） -->
+        <button class="btn-action-ghost ui-row" @click="openScheduleGantt">
+          <el-icon :size="14"><TrendCharts /></el-icon>
+          <span>排期</span>
+        </button>
+
         <button class="btn-action-primary ui-row" @click="openNewTask">
           <el-icon :size="14"><Plus /></el-icon>
           <span>新建任务</span>
@@ -836,6 +905,8 @@ function getCustomPerspectiveCount(perspectiveId) {
             @snooze="snoozeTask"
             @toggle-expand="toggleExpand"
             @defer="openDeferDialog"
+            @snooze-custom="openPlanDateDialog"
+            @snooze-custom="openPlanDateDialog"
             @undefer="undeferTask"
             @reviewed="markReviewed"
             @follow-up="openDrawer"
@@ -885,6 +956,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             @snooze="snoozeTask"
             @toggle-expand="toggleExpand"
             @defer="openDeferDialog"
+            @snooze-custom="openPlanDateDialog"
             @undefer="undeferTask"
             @reviewed="markReviewed"
             @follow-up="openDrawer"
@@ -1059,6 +1131,36 @@ function getCustomPerspectiveCount(perspectiveId) {
       </template>
     </el-drawer>
 
+    <!-- T2 计划到指定日期（与"稍后"预设同一机制） -->
+    <el-dialog
+      v-model="showPlanDateDialog"
+      title="计划到指定日期"
+      width="360px"
+      destroy-on-close
+    >
+      <div class="defer-dialog-body ui-col">
+        <p class="defer-dialog-desc">
+          将「{{ planTargetTask?.taskName }}」计划到所选日期，与"稍后：今晚/明天/周末/下周"使用同一机制。
+        </p>
+        <el-date-picker
+          v-model="planDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          placeholder="选择计划日期"
+          :disabled-date="disablePastDates"
+          style="width: 100%"
+        />
+      </div>
+      <template #footer>
+        <div class="drawer-right-btns ui-row">
+          <button class="btn-cancel" @click="showPlanDateDialog = false">取消</button>
+          <button class="btn-primary" :disabled="!planDate || planSaving" @click="confirmPlanDate">
+            {{ planSaving ? '计划中…' : '确定计划' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- W2 推迟到…对话框 -->
     <el-dialog
       v-model="showDeferDialog"
@@ -1137,6 +1239,8 @@ function getCustomPerspectiveCount(perspectiveId) {
   position: relative;
   width: 260px;
 }
+.task-sort-box { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 32px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-bg-card); color: var(--c-text-secondary); }
+.sort-select { border: 0; outline: 0; background: transparent; color: var(--c-text-regular); font-size: 12px; }
 
 .search-icon {
   position: absolute;
