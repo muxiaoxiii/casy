@@ -287,7 +287,7 @@ pub fn list_cases(conn: &Connection, filter: &CaseFilter) -> Result<CaseListResu
 
     let mut items = cases;
     // 开庭日期按整批查一次，避免在遍历中反复借用 items
-    let hearing_dates = next_hearing_dates(conn, &items);
+    let hearing_dates = next_hearing_dates(conn, &items)?;
     for case in &mut items {
         if let Some((urgency, due)) = hints.get(case.id.as_str()) {
             case.deadline_urgency = Some(urgency.clone());
@@ -717,11 +717,11 @@ fn compute_deadline_hints(
 fn next_hearing_dates(
     conn: &Connection,
     cases: &[Case],
-) -> std::collections::HashMap<String, String> {
+) -> Result<std::collections::HashMap<String, String>> {
     let mut map = std::collections::HashMap::new();
     let case_ids: Vec<&str> = cases.iter().map(|c| c.id.as_str()).collect();
     if case_ids.is_empty() {
-        return map;
+        return Ok(map);
     }
     let today = chrono::Local::now().naive_local().date().format("%Y-%m-%d").to_string();
     let placeholders: String = case_ids
@@ -746,16 +746,16 @@ fn next_hearing_dates(
     }
     params_vec.push(Box::new(today));
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
-    if let Ok(mut stmt) = conn.prepare(&sql) {
-        if let Ok(rows) = stmt.query_map(param_refs.as_slice(), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }) {
-            for row in rows.flatten() {
-                map.insert(row.0, row.1);
-            }
-        }
+    // 行解码错误必须上抛：静默丢弃会让列表里的"下次开庭"无缘无故缺失
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(param_refs.as_slice(), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (case_id, date) = row?;
+        map.insert(case_id, date);
     }
-    map
+    Ok(map)
 }
 
 /// 行转结构体

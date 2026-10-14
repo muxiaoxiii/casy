@@ -9,6 +9,7 @@ import {
   Document,
   ArrowRight,
   Waiting,
+  AlarmClock,
   Warning,
   Finished,
   Refresh,
@@ -147,6 +148,7 @@ onMounted(async () => {
     inboxStore.loadItems(),
     calendarStore.loadEvents(new Date().getFullYear(), new Date().getMonth() + 1),
     loadBrief(),
+    loadDeadlineWarnings(),
   ])
 })
 
@@ -166,6 +168,18 @@ function extractBriefContent(data) {
 
 const briefContent = computed(() => extractBriefContent(brief.value))
 const briefTime = computed(() => brief.value?.createdAt || brief.value?.date || '')
+
+/** 期限预警（H9）：R1/R2 计数供今日页入口，明细在日历预测视图 */
+const deadlineWarnings = ref([])
+const deadlineWarningError = ref('')
+async function loadDeadlineWarnings() {
+  const result = await casyContext.calendar.deadlineWarningsWithLevels()
+  if (result.ok && Array.isArray(result.data)) {
+    deadlineWarnings.value = result.data
+    deadlineWarningError.value = ''
+  } else deadlineWarningError.value = result.error || ''
+}
+const urgentDeadlineCount = computed(() => deadlineWarnings.value.filter(w => w.level === 'R1' || w.level === 'R2').length)
 
 async function loadBrief() {
   briefLoading.value = true
@@ -524,6 +538,12 @@ onUnmounted(observeChanges(casyContext, ['task', 'case', 'calendar', 'inbox'], a
         <span class="summary-icon"><el-icon><Waiting /></el-icon></span>
         <span class="summary-copy"><span class="summary-label">等待跟进</span><span class="summary-hint">核实回复与进展</span></span>
         <strong class="summary-value">{{ waitingCount }}</strong>
+        <el-icon class="summary-arrow"><ArrowRight /></el-icon>
+      </button>
+      <button class="summary-item ui-row" :class="{ 'has-urgent': urgentDeadlineCount > 0 }" @click="router.push({ path: '/calendar', query: { view: 'forecast' } })">
+        <span class="summary-icon"><el-icon><AlarmClock /></el-icon></span>
+        <span class="summary-copy"><span class="summary-label">期限预警</span><span class="summary-hint">R1/R2 法定期限</span></span>
+        <strong class="summary-value">{{ urgentDeadlineCount }}</strong>
         <el-icon class="summary-arrow"><ArrowRight /></el-icon>
       </button>
     </nav>

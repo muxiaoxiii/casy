@@ -27,7 +27,7 @@ export function fixtureServices(mode = 'mixed') {
       taskPlans: () => ok(plans.map(p=>({...p}))),
       saveTaskPlan: data => { const old=plans.find(p=>p.taskId===data.taskId); if((old?.revision||0)!==data.expectedRevision)return Promise.resolve({ok:false,error:'PLAN_CONFLICT'}); const plan={taskId:data.taskId,startDate:data.startDate,endDate:data.endDate,revision:data.expectedRevision+1}; const index=plans.findIndex(p=>p.taskId===data.taskId); if(index>=0)plans[index]=plan;else plans.push(plan);return ok({...plan}) },
       events: () => ok(work ? events : []), listEvents: () => ok(work ? events.filter(e => e.type === 'event') : []),
-      deadlineWarnings: () => ok([]), holidays: year => ok({ year, entries: mode === 'empty' ? [] : [...holidays.filter(e=>e.source!=='personal'),...personal.map(e=>({...e,source:'personal'}))].filter(e=>e.date.startsWith(`${year}-`)) }),
+      deadlineWarnings: () => ok([]), deadlineWarningsWithLevels: () => ok([]), holidays: year => ok({ year, entries: mode === 'empty' ? [] : [...holidays.filter(e=>e.source!=='personal'),...personal.map(e=>({...e,source:'personal'}))].filter(e=>e.date.startsWith(`${year}-`)) }),
     },
     tasks: { list: () => ok(work ? tasks : []) },
     cases: { list: () => ok({ items: [{ id: 'case1', caseName }, { id: 'case2', caseName: '另一案件' }], total: 2 }) },

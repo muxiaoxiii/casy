@@ -208,6 +208,31 @@ function getDaySpan(startStr, dueStr) {
   return Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1)
 }
 
+/**
+ * 带撤销的操作反馈：拖拽改期/移动后 8 秒内可一键还原（OA 的"不可逆操作前置告知"，
+ * 但本地单机用撤销而不是把用户锁死）。
+ */
+const undoState = ref(null)
+let undoTimer = 0
+function offerUndo(message, undo) {
+  undoState.value = { message, undo }
+  window.clearTimeout(undoTimer)
+  undoTimer = window.setTimeout(() => { undoState.value = null }, 8000)
+}
+async function runUndo() {
+  const current = undoState.value
+  if (!current?.undo) return
+  try {
+    await current.undo()
+    ElMessage.success('已撤销')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error))
+  } finally {
+    undoState.value = null
+    window.clearTimeout(undoTimer)
+  }
+}
+
 // Month/agenda drag changes the intended start date. Explicit extend remains a duration edit.
 async function onDropOnDay(e, targetDate) {
   e.preventDefault()
@@ -216,9 +241,16 @@ async function onDropOnDay(e, targetDate) {
   if(task?.type==='event') {
     const event=events.value.find(e=>e.id===task.id && e.type==='event')
     if(!event)return
+    const previous={ eventDate: event.eventDate || event.date, startTime: event.startTime || null }
     const result=await casyContext.calendar.moveEvent(event.id,formatDate(targetDate),event.startTime || null)
     if(!result.ok)return ElMessage.error(result.error || '日程移动失败')
-    await loadEvents();onDragEnd();ElMessage.success('已移动日程');return
+    await loadEvents();onDragEnd()
+    offerUndo(`已移动日程「${event.title}」到 ${formatDate(targetDate)}`, async () => {
+      const back=await casyContext.calendar.moveEvent(event.id,previous.eventDate,previous.startTime)
+      if(!back.ok)throw new Error(back.error || '撤销失败')
+      await loadEvents()
+    })
+    return
   }
   if (!task?.id || !tasks.value.some(t => t.id === task.id)) return
   if (hasIndependentPlan(task)) { onDragEnd(); activeView.value = 'forecast'; forecastMode.value = 'gantt'; return ElMessage.info('此任务已有独立计划，请在甘特图中调整并确认日期') }
@@ -226,11 +258,16 @@ async function onDropOnDay(e, targetDate) {
   const patch = dragAction.value === 'extend'
     ? { id: task.id, startDate: task.startDate || date, dueDate: date }
     : { id: task.id, startDate: date, startBucket: isToday(targetDate) ? 'today' : 'anytime' }
+  const previous={ startDate: task.startDate || null, startBucket: task.startBucket || null }
   const result = await casyContext.tasks.update(patch)
   if (!result.ok) return ElMessage.error(result.error || '排期失败')
-  ElMessage.success(dragAction.value === 'extend' ? '已更新任务日期范围' : '已更新任务开始日期')
   await loadTasks()
   onDragEnd()
+  offerUndo(dragAction.value === 'extend' ? `已更新「${task.taskName}」日期范围` : `已更新「${task.taskName}」开始日期`, async () => {
+    const back=await casyContext.tasks.update({ id: task.id, ...previous })
+    if(!back.ok)throw new Error(back.error || '撤销失败')
+    await loadTasks()
+  })
 }
 
 // 放置到 Holding Tank (取消排期)
@@ -307,9 +344,25 @@ function openEditDetail(item, type = 'task') {
       taskId: item.taskId || null,
       description: item.notes || '',
       completed: 0,
+      allDay: Boolean(item.allDay),
+      color: item.color || '',
     }
   }
   showEditDialog.value = true
+}
+
+/** 时长快选：从开始时间推算结束时间（无开始时间时按 09:00 起算） */
+function applyDuration(minutes) {
+  const item = editingItem.value
+  if (!item) return
+  const base = item.startTime || '09:00'
+  const [h, m] = base.split(':').map(Number)
+  const total = (h || 0) * 60 + (m || 0) + minutes
+  const endH = String(Math.floor(total / 60) % 24).padStart(2, '0')
+  const endM = String(total % 60).padStart(2, '0')
+  item.startTime = base
+  item.endTime = `${endH}:${endM}`
+  item.allDay = false
 }
 
 // 保存编辑 (真实写入数据库)
@@ -349,16 +402,20 @@ async function saveEditingItem() {
       ? await casyContext.calendar.updateEvent(item.id, {
           title: item.title,
           eventDate: item.dueDate || item.startDate,
-          startTime: item.startTime || null,
-          endTime: item.endTime || null,
+          startTime: item.allDay ? null : (item.startTime || null),
+          endTime: item.allDay ? null : (item.endTime || null),
+          allDay: Boolean(item.allDay),
+          color: item.color || null,
           caseId: item.caseId || null,
           notes: item.description || null,
         })
       : await casyContext.calendar.createEvent({
           title: item.title,
           eventDate: item.dueDate || item.startDate,
-          startTime: item.startTime || null,
-          endTime: item.endTime || null,
+          startTime: item.allDay ? null : (item.startTime || null),
+          endTime: item.allDay ? null : (item.endTime || null),
+          allDay: Boolean(item.allDay),
+          color: item.color || null,
           caseId: item.caseId || null,
           notes: item.description || null,
         })
@@ -660,6 +717,14 @@ const forecast14Days = computed(() => {
 
     const hasCourt = dayEvs.some(e => e.type === 'court' || e.type === 'hearing')
     const hasDeadline = dayEvs.some(e => e.type?.startsWith('deadline') || e.type === 'appeal') || deadlineWarnings.value.some(w => w.dueDate === dateStr)
+    // 当日期限明细：供 DeadlineChip 展示真实剩余天数与分级（H8）
+    const dayDeadlines = deadlineWarnings.value.filter(w => w.dueDate === dateStr).map(w => ({
+      name: w.deadlineName || '期限',
+      caseName: w.caseName || '',
+      daysLeft: Number(w.daysLeft ?? 0),
+      level: Number(w.daysLeft ?? 0) <= 3 ? 'R1' : Number(w.daysLeft ?? 0) <= 14 ? 'R2' : 'R3',
+      review: w.level === 'review',
+    }))
 
     const available = isPlanningWorkday(d, holidaysOn(dateStr))
     let riskLevel = available ? 'free' : 'rest'
@@ -687,6 +752,7 @@ const forecast14Days = computed(() => {
       totalHours,
       riskLevel,
       riskTag,
+      deadlines: dayDeadlines,
     })
   }
 
@@ -850,7 +916,8 @@ async function loadCases() {
 }
 
 async function loadDeadlineWarnings() {
-  const result = await casyContext.calendar.deadlineWarnings()
+  // 带分级与剩余天数的版本：DeadlineChip 需要真实 daysLeft（H8）
+  const result = await casyContext.calendar.deadlineWarningsWithLevels()
   if (result.ok && Array.isArray(result.data)) {
     deadlineWarnings.value = result.data
     deadlineError.value = ''
@@ -1350,7 +1417,15 @@ async function scheduleTaskBlock(event, date, hour) {
               <div class="f-events-col ui-col">
                 <div class="f-risk-tag-row ui-row">
                   <DeadlineChip
-                    v-if="day.riskLevel === 'risk' || day.riskLevel === 'busy'"
+                    v-for="dl in day.deadlines"
+                    :key="dl.name + dl.caseName"
+                    :level="dl.level"
+                    :review="dl.review"
+                    :days-left="dl.daysLeft"
+                    :text="dl.name"
+                  />
+                  <DeadlineChip
+                    v-if="!day.deadlines.length && (day.riskLevel === 'risk' || day.riskLevel === 'busy')"
                     :level="day.riskLevel === 'risk' ? 'R1' : 'R2'"
                     :text="day.riskLevel === 'risk' ? '风险日' : '高密度'"
                   />
@@ -1592,6 +1667,13 @@ async function scheduleTaskBlock(event, date, hour) {
     </el-dialog>
 
     <!-- ═══ 5. 事项/任务详情编辑弹窗 (真实增删改) ═══ -->
+    <transition name="fade">
+      <div v-if="undoState" class="undo-bar" role="status">
+        <span>{{ undoState.message }}</span>
+        <el-button text type="primary" size="small" @click="runUndo">撤销</el-button>
+      </div>
+    </transition>
+
     <el-dialog
       v-model="showEditDialog"
       :title="editingItem.type === 'task' ? '编辑任务详情' : '编辑日程排期'"
@@ -1629,6 +1711,21 @@ async function scheduleTaskBlock(event, date, hour) {
           <div v-else class="edit-form-item">
             <label>结束时间</label>
             <input v-model="editingItem.endTime" type="time" class="edit-input" />
+          </div>
+        </div>
+
+        <div v-if="editingItem.type === 'event'" class="edit-form-row ui-row">
+          <div class="edit-form-item ui-row" style="align-items: center; gap: 8px">
+            <input :id="'all-day-' + (editingItem.id || 'new')" v-model="editingItem.allDay" type="checkbox" />
+            <label :for="'all-day-' + (editingItem.id || 'new')">全天</label>
+          </div>
+          <div class="edit-form-item ui-row" style="align-items: center; gap: 8px">
+            <label>颜色</label>
+            <input v-model="editingItem.color" type="color" class="edit-color" />
+          </div>
+          <div class="edit-form-item ui-row" style="align-items: center; gap: 6px">
+            <label>时长</label>
+            <button v-for="minutes in [30, 60, 120]" :key="minutes" type="button" class="btn-chip" @click="applyDuration(minutes)">{{ minutes >= 60 ? minutes / 60 + '小时' : minutes + '分钟' }}</button>
           </div>
         </div>
 
@@ -3043,6 +3140,12 @@ async function scheduleTaskBlock(event, date, hour) {
   gap: 6px;
   flex: 1;
 }
+.edit-color { width: 40px; height: 24px; padding: 0; border: 1px solid var(--c-border); border-radius: 4px; background: transparent; cursor: pointer; }
+.btn-chip { padding: 2px 8px; font-size: 12px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg-card); color: var(--c-text-regular); cursor: pointer; }
+.btn-chip:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.undo-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 3000; display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-radius: 6px; background: var(--c-bg-card); border: 1px solid var(--c-border-strong); box-shadow: 0 4px 16px rgba(0,0,0,.12); font-size: 13px; color: var(--c-text); }
+.fade-enter-active, .fade-leave-active { transition: opacity var(--motion-fast), transform var(--motion-fast); }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
 .edit-form-item label {
   font-size: 12px;
