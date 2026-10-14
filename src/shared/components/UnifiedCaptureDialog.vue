@@ -73,6 +73,8 @@ const selectedRecommendation = ref<Recommendation | null>(null)
 const judgeInfo = ref<{ strength: string; confidence: number; aiAnalyzed: boolean; aiAvailable: boolean } | null>(null)
 /** "以上都不对"时用户手选的动作 */
 const manualAction = ref<Exclude<CaptureAction, 'auto'> | ''>('')
+/** 已记录的拒绝反馈（推荐 → 原因），供后端学习 */
+const rejectedFeedback = ref<Array<{ action: string; reason: string }>>([])
 /** 选中的是"以上都不对"这一项 */
 const noneSelected = computed(() => selectedRecommendation.value === null && recommendations.value.length > 0)
 /** 当前生效的动作（推荐或手选） */
@@ -348,6 +350,29 @@ async function capture() {
   }
 }
 
+/**
+ * 记录"不采用"（A2）：后端 inbox_feedback 与 service 一直齐全，但 UI 从不调用，
+ * 推荐系统因此收不到任何拒绝信号。
+ */
+async function rejectRecommendation(recommendation: Recommendation) {
+  const inboxItemId = capturedIds.value[0]
+  if (!inboxItemId) return
+  let reason = '未说明'
+  try {
+    const { value } = await ElMessageBox.prompt('这条建议为什么不适用？你的选择会用于改进后续推荐（可留空）', '不采用该建议', {
+      confirmButtonText: '记录',
+      cancelButtonText: '取消',
+      inputType: 'textarea',
+      inputPlaceholder: '例如：这不是传票 / 开庭日期已经变了 / 应归入另一个案件',
+    })
+    reason = String(value || '').trim() || '未说明'
+  } catch { return }
+  const result = await casyContext.inbox.rejectRecommendation({ inboxItemId, action: recommendation.action, reason, intent: recommendation.intent ?? null })
+  if (!result.ok) { ElMessage.error(result.error || '记录失败'); return }
+  rejectedFeedback.value.push({ action: recommendation.action, reason })
+  ElMessage.success('已记录，后续推荐会参考这个判断')
+}
+
 async function confirmRecommendation() {
   // "以上都不对"时按用户手选的动作走显式推荐路径
   const recommendation = selectedRecommendation.value
@@ -481,7 +506,10 @@ function actionLabel(value: string) {
         <span v-if="judgeInfo.strength !== 'strong'" class="judge-hint">建议不确定，可改选其他处理方式，或手动指定</span>
       </div>
       <el-radio-group v-model="selectedRecommendationIndex" class="recommendations-list" aria-label="处理建议">
-        <el-radio v-for="(recommendation, index) in recommendations" :key="index" :value="index" :disabled="saving">{{ actionLabel(recommendation.action) }}</el-radio>
+        <div v-for="(recommendation, index) in recommendations" :key="index" class="recommendation-row">
+          <el-radio :value="index" :disabled="saving">{{ actionLabel(recommendation.action) }}</el-radio>
+          <el-button text size="small" :disabled="saving" @click="rejectRecommendation(recommendation)">不采用</el-button>
+        </div>
         <el-radio :value="recommendations.length" :disabled="saving">以上都不对，手动选择</el-radio>
       </el-radio-group>
       <div v-if="noneSelected" class="manual-action">
@@ -551,6 +579,8 @@ function actionLabel(value: string) {
 .manual-action > span { font-size: 12px; color: var(--c-text-secondary); }
 .manual-action .el-select { width: 200px; }
 .recommendations-list { margin-top: 12px; }
+.recommendation-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.recommendation-row .el-radio { flex: 1; min-width: 0; margin-right: 0; }
 .recommendation-reason { color: var(--c-text-secondary); font-size: 12px; line-height: 1.6; margin: 0 0 16px; }
 .review-time { margin: 0; }
 .review-form :deep(.el-date-editor), .review-form :deep(.el-select) { width: 100%; }
