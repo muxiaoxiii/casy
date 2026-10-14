@@ -183,6 +183,11 @@ export type EditorTask = { id: string; title: string; completed: boolean; missin
 export type EmbeddingSettings = { profileId: string; model: string; chunkChars: number }
 
 /**
+ * 单条变更记录
+ */
+export type EntityAuditEventDto = { id: string; aggregateType: string; aggregateId: string; eventType: string; payload: any | null; actor: string; createdAt: string }
+
+/**
  * 工作表探测与预览结果
  */
 export type ExcelInspectResult = { sheetName: string; totalRows: number; detectedHeaderRow: number; columns: ColumnMappingRecommendation[]; previewRows: { [key: string]: any }[] }

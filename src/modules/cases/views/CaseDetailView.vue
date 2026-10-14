@@ -278,6 +278,25 @@ async function loadCase() {
   }else {caseData.value=null;loadError.value=result.error || '案件不存在或无法读取'}
 }
 
+/** 开庭变更链（A1）：audit_events 里 hearing_updated 的 before/after/reason */
+const hearingAudits = ref([])
+const expandedAuditId = ref('')
+
+async function loadHearingAudits() {
+  const id = caseId.value; const request = detailLoad
+  const result = await casyContext.cases.entityAuditEvents(id, 'hearing_updated')
+  if (id !== caseId.value || request !== detailLoad) return
+  if (result.ok) hearingAudits.value = result.data || []
+}
+
+/** 某条开庭的变更链（按 hearingId 匹配 payload） */
+function auditChainOf(hearingId) {
+  return hearingAudits.value
+    .filter(item => item.payload?.hearingId === hearingId)
+    .slice()
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+}
+
 async function loadHearings() {
   const id = caseId.value; const request = detailLoad
   const result = await casyContext.cases.listHearings(id)
@@ -285,6 +304,7 @@ async function loadHearings() {
   if (result.ok) {
     hearings.value = result.data || []
   } else noteSectionError(result.error || '开庭排期读取失败')
+  await loadHearingAudits()
 }
 
 async function loadTasks() {
@@ -1000,6 +1020,24 @@ onUnmounted(() => {
                   <strong>{{ h.hearingName || h.hearingRecord || '开庭/口审' }}</strong>
                   <div v-if="h.caseLevel" class="text-xs text-text-muted">{{ h.caseLevel }}</div>
                   <small v-if="h.changeReason">变更依据：{{ h.changeReason }}</small>
+                  <div v-if="auditChainOf(h.id).length" class="hearing-audit">
+                    <button class="btn-sm" @click="expandedAuditId = expandedAuditId === h.id ? '' : h.id">
+                      {{ expandedAuditId === h.id ? '收起变更链' : `查看变更链 (${auditChainOf(h.id).length})` }}
+                    </button>
+                    <ol v-if="expandedAuditId === h.id" class="hearing-audit-list">
+                      <li v-for="item in auditChainOf(h.id)" :key="item.id">
+                        <span class="audit-time">{{ String(item.createdAt).replace('T', ' ').slice(0, 19) }}</span>
+                        <span class="audit-change">
+                          {{ item.payload?.before?.date || '—' }} → {{ item.payload?.after?.date || '—' }}
+                          <template v-if="item.payload?.after?.status">（{{ item.payload?.after?.status }}）</template>
+                        </span>
+                        <span v-if="item.payload?.before?.venue !== item.payload?.after?.venue" class="audit-venue">
+                          地点：{{ item.payload?.before?.venue || '—' }} → {{ item.payload?.after?.venue || '—' }}
+                        </span>
+                        <span v-if="item.payload?.reason" class="audit-reason">依据：{{ item.payload?.reason }}</span>
+                      </li>
+                    </ol>
+                  </div>
                 </td>
                 <td>
                   <div class="font-mono text-primary font-semibold">{{ h.hearingDate }}</div>
@@ -1760,6 +1798,13 @@ onUnmounted(() => {
 .tasks-table-wrap {
   overflow-x: auto;
 }
+.hearing-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+.form-warning { margin: 0 0 8px; font-size: 12px; color: var(--c-warning); line-height: 1.6; }
+.hearing-audit { margin-top: 4px; }
+.hearing-audit-list { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--c-text-regular); line-height: 1.8; }
+.hearing-audit-list .audit-time { color: var(--c-text-secondary); margin-right: 8px; font-variant-numeric: tabular-nums; }
+.hearing-audit-list .audit-change { font-weight: 600; }
+.hearing-audit-list .audit-venue, .hearing-audit-list .audit-reason { display: block; color: var(--c-text-secondary); }
 
 .data-table {
   width: 100%;

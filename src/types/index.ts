@@ -275,6 +275,17 @@ export interface InboxItem {
   processedAt: string | null
 }
 
+/** 案件变更留痕条目（开庭改期链 / 白板事实 / AI 工具执行） */
+export interface EntityAuditEvent {
+  id: string
+  aggregateType: string
+  aggregateId: string
+  eventType: string
+  payload: Record<string, unknown> | null
+  actor: string
+  createdAt: string
+}
+
 // ==================== 任务 ====================
 
 // 与 schema CHECK 严格一致（DB 不含 high/low，历史手写为幻影成员）

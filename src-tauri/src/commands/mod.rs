@@ -1,4 +1,5 @@
 mod rest_day_reminders;
+pub mod audit;
 pub mod editor_tasks;
 pub mod ai_routes;
 pub mod areas;
@@ -216,6 +217,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         search::global_search,
         search::reasoning_search,
         search::search_document_passages,
+        audit::list_entity_audit_events,
         cases::list_cases,
         cases::get_case,
         cases::create_case,

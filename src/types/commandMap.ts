@@ -13,6 +13,7 @@ import type {
   CasePersonDto,
   ContextRef,
   DeadlineRuleAuditDto,
+  EntityAuditEventDto,
   DeadlineRuleDto,
   FactNodeDto,
   FactHistoryDto,
@@ -560,6 +561,8 @@ export type CommandMap = {
   toggle_deadline_rule: Cmd<{ id: string; enabled: boolean }, void>
   delete_deadline_rule: Cmd<{ id: string }, void>
   list_deadline_rule_audit: Cmd<{ ruleId?: string | null }, DeadlineRuleAuditDto[]>
+  /** 案件变更留痕（开庭改期链 / 白板事实 / AI 工具执行） */
+  list_entity_audit_events: Cmd<{ caseId: string; eventType?: string | null; limit?: number | null }, EntityAuditEventDto[]>
   recalculate_deadlines_for_track: Cmd<{ track: string }, number>
   // W4 跨模块双链（Hookmark/Obsidian 式）
   create_link: Cmd<{ sourceType: string; sourceId: string; targetType: string; targetId: string; anchor?: string | null; label?: string | null }, LinkDto>
