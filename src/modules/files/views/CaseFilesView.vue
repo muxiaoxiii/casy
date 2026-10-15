@@ -15,6 +15,7 @@ import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
 import DocumentSourceViewer from '../components/DocumentSourceViewer.vue'
 import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
 import ListToolbar from '../../../shared/components/ListToolbar.vue'
+import ViewSchemePicker from '../../../shared/components/ViewSchemePicker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -255,6 +256,25 @@ function clearFileFilters() {
   categoryFilter.value = ''
   dirFilter.value = ''
   fileSearch.value = ''
+}
+
+/** C7：卷宗视图状态 */
+const fileViewState = computed(() => ({
+  query: fileSearch.value,
+  sort: fileSort.value,
+  category: categoryFilter.value,
+  dir: dirFilter.value,
+  activeCategory: activeCategory.value,
+  selectedDir: selectedDir.value,
+}))
+function applyFileViewScheme(state) {
+  const value = state || {}
+  fileSearch.value = String(value.query ?? '')
+  fileSort.value = String(value.sort ?? 'newest')
+  categoryFilter.value = String(value.category ?? '')
+  dirFilter.value = String(value.dir ?? '')
+  if (typeof value.activeCategory === 'string' && value.activeCategory) onCategoryChange(value.activeCategory)
+  if (typeof value.selectedDir === 'string' && value.selectedDir) selectedDir.value = value.selectedDir
 }
 
 async function saveFileAsKnowledge(file) {
@@ -702,6 +722,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
           @update:sort="fileSort = $event"
         >
           <template #actions>
+            <ViewSchemePicker module-key="files" :state="fileViewState" @apply="applyFileViewScheme" />
             <el-button :disabled="!caseId" @click="loadFiles" circle title="刷新文件" aria-label="刷新文件">
               <el-icon><Refresh /></el-icon>
             </el-button>

@@ -21,6 +21,7 @@ import AreasDialog from '../components/AreasDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 import ListToolbar from '../../../shared/components/ListToolbar.vue'
+import ViewSchemePicker from '../../../shared/components/ViewSchemePicker.vue'
 import SkeletonCard from '../../../shared/components/SkeletonCard.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
@@ -707,6 +708,23 @@ function clearTaskFilters() {
   searchQuery.value = ''
 }
 
+/** C7：任务视图状态（视图方案保存/恢复的最小集合） */
+const taskViewState = computed(() => ({
+  query: searchQuery.value,
+  sort: taskSort.value,
+  caseFilter: selectedCaseFilter.value,
+  areaFilter: areaFilter.value,
+  perspective: activePerspective.value,
+}))
+function applyTaskViewScheme(state) {
+  const value = state || {}
+  searchQuery.value = String(value.query ?? '')
+  taskSort.value = String(value.sort ?? 'smart')
+  selectedCaseFilter.value = String(value.caseFilter ?? 'all')
+  areaFilter.value = String(value.areaFilter ?? '')
+  if (typeof value.perspective === 'string' && value.perspective) switchPerspective(value.perspective)
+}
+
 function openScheduleGantt() {
   router.push({ path: '/calendar', query: { view: 'forecast', layout: 'gantt' } })
 }
@@ -856,6 +874,7 @@ function getCustomPerspectiveCount(perspectiveId) {
           @update:sort="taskSort = $event"
         >
           <template #actions>
+            <ViewSchemePicker module-key="tasks" :state="taskViewState" @apply="applyTaskViewScheme" />
             <button class="btn-action-ghost ui-row" @click="openScheduleGantt">
               <el-icon :size="14"><TrendCharts /></el-icon>
               <span>排期</span>
