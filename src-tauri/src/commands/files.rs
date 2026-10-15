@@ -17,6 +17,10 @@ pub struct CaseFile {
     pub category: String,
     pub sub_category: Option<String>,
     pub created_at: Option<String>,
+    /// O7：轻量元数据（备注 / 文档日期 / 关键词）
+    pub document_date: Option<String>,
+    pub knowledge_summary: Option<String>,
+    pub knowledge_keywords: Option<String>,
 }
 
 /// 列出案件的文件
@@ -28,10 +32,10 @@ pub async fn list_case_files(
     run_blocking(move || {
         let conn = db::open_db()?;
         let sql = if category.is_some() {
-            "SELECT id, case_id, file_name, file_path, file_size, file_type, category, sub_category, created_at
+            "SELECT id, case_id, file_name, file_path, file_size, file_type, category, sub_category, created_at, document_date, knowledge_summary, knowledge_keywords
              FROM case_files WHERE case_id = ?1 AND deleted_at IS NULL AND category = ?2 ORDER BY created_at DESC"
         } else {
-            "SELECT id, case_id, file_name, file_path, file_size, file_type, category, sub_category, created_at
+            "SELECT id, case_id, file_name, file_path, file_size, file_type, category, sub_category, created_at, document_date, knowledge_summary, knowledge_keywords
              FROM case_files WHERE case_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC"
         };
 
@@ -105,8 +109,8 @@ pub async fn delete_case_file(id: String) -> Result<(), String> {
 pub async fn list_removed_case_files(case_id: String) -> Result<Vec<CaseFile>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let mut stmt = conn.prepare("SELECT id,case_id,file_name,file_path,file_size,file_type,category,sub_category,created_at
-            FROM case_files WHERE case_id=?1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC")?;
+        let mut stmt = conn.prepare(&format!("SELECT {FILE_COLUMNS}
+            FROM case_files WHERE case_id=?1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC"))?;
         let rows = stmt.query_map([case_id], map_file_row)?.collect::<rusqlite::Result<_>>()?;
         Ok(rows)
     }).await
@@ -146,11 +150,15 @@ fn map_file_row(row: &rusqlite::Row) -> rusqlite::Result<CaseFile> {
         category: row.get(6)?,
         sub_category: row.get(7)?,
         created_at: row.get(8)?,
+        document_date: row.get(9)?,
+        knowledge_summary: row.get(10)?,
+        knowledge_keywords: row.get(11)?,
     })
 }
 
+// 与 map_file_row 的列序严格一致（document_date/knowledge_summary/knowledge_keywords 为 O7 新增）
 const FILE_COLUMNS: &str =
-    "id,case_id,file_name,file_path,file_size,file_type,category,sub_category,created_at";
+    "id,case_id,file_name,file_path,file_size,file_type,category,sub_category,created_at,document_date,knowledge_summary,knowledge_keywords";
 
 fn validate_category(category: &str) -> anyhow::Result<()> {
     if ![
@@ -1039,6 +1047,36 @@ pub async fn move_case_files(
         }).collect::<rusqlite::Result<Vec<_>>>()?;
         relocate_files(&case_id,&renames,Some(&target))
     }).await
+}
+
+/// O7：更新卷宗文件的轻量元数据（备注 / 文档日期 / 关键词）。
+/// 这三列一直在 `case_files` 里，此前没有任何命令能写——用户只能改分类。
+#[tauri::command]
+pub async fn update_case_file_meta(
+    id: String,
+    document_date: Option<String>,
+    summary: Option<String>,
+    keywords: Option<String>,
+) -> Result<(), String> {
+    run_blocking(move || {
+        if let Some(date) = document_date.as_deref() {
+            // 空串 = 清空；否则必须是 ISO 日期，避免把自由文本写进日期列
+            anyhow::ensure!(
+                date.is_empty() || chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok(),
+                "文档日期格式应为 YYYY-MM-DD"
+            );
+        }
+        let summary = summary.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        let keywords = keywords.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        let document_date = document_date.filter(|value| !value.is_empty());
+        let rows = db::open_db()?.execute(
+            "UPDATE case_files SET document_date=?1, knowledge_summary=?2, knowledge_keywords=?3, updated_at=datetime('now','localtime') WHERE id=?4 AND deleted_at IS NULL",
+            params![document_date, summary, keywords, id],
+        )?;
+        anyhow::ensure!(rows == 1, "文件不存在或已移除");
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]

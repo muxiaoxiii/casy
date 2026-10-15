@@ -46,6 +46,7 @@ const filesLoading = ref(false)
 const uploading = ref(false)
 const mutating = ref(false)
 const batchOcrBusy = ref(false)
+const knowledgeBusy = ref(false)
 const loadError = ref('')
 const caseError = ref('')
 const directories = ref([])
@@ -209,6 +210,40 @@ async function batchOcr() {
     { confirmButtonText: '知道了', type: 'warning', customClass: 'batch-result-dialog' },
   )
   selectedIds.value = []
+}
+
+/** K2：把卷宗文件沉淀为知识条目（带原件出处，而不是一段无主文字） */
+async function saveFileAsKnowledge(file) {
+  if (!file?.id) return
+  knowledgeBusy.value = true
+  try {
+    // 有 OCR 正文则摘录前 1500 字，否则只留出处说明
+    let excerpt = ''
+    const text = await tauriCallSafe('get_file_ocr_text', { fileId: file.id }, { silent: true })
+    if (text.ok && text.data) excerpt = String(text.data).replace(/\s+\n/g, '\n').trim().slice(0, 1500)
+    const citation = [
+      `> 出处：${file.fileName}`,
+      file.filePath ? `> 路径：${file.filePath}` : null,
+      `> 分类：${categoryLabel(file.category)}${file.createdAt ? ` · 登记于 ${formatDate(file.createdAt)}` : ''}`,
+      caseData.value?.caseName ? `> 案件：${caseData.value.caseName}${caseData.value?.caseNo ? `（${caseData.value.caseNo}）` : ''}` : null,
+    ].filter(Boolean).join('\n')
+    const body = [citation, '', excerpt ? `${excerpt}${excerpt.length >= 1500 ? '\n\n（正文较长，已截取前 1500 字；完整内容见原件）' : ''}` : '（该文件尚未识别正文，可先执行 OCR 后再补充）'].join('\n')
+    const result = await casyContext.knowledge.create({
+      title: file.fileName,
+      category: 'reference',
+      content: body,
+      tags: file.category,
+      sourceType: 'case_file',
+      sourceId: file.id,
+      linkedCaseId: file.caseId || caseId.value,
+      blockType: 'page',
+      status: 'current',
+    })
+    if (!result.ok) { ElMessage.error(result.error || '沉淀知识库失败'); return }
+    ElMessage.success('已沉淀到知识库，可在知识库中继续整理')
+  } finally {
+    knowledgeBusy.value = false
+  }
 }
 
 async function openSearchablePdf(file) {
@@ -421,6 +456,32 @@ async function createDirectory() {
   if (!result.ok) return ElMessage.error(result.error || '新建文件夹失败')
   await loadFiles()
   if (!disposed && target === caseId.value) selectedDir.value = [parent, value.trim()].filter(Boolean).join('/')
+}
+
+/** O7：文件轻量元数据（备注/文档日期/关键词） */
+const metaForm = ref({ documentDate: '', summary: '', keywords: '' })
+const metaSaving = ref(false)
+watch(selectedFile, (file) => {
+  if (!file) return
+  metaForm.value = {
+    documentDate: file.documentDate || '',
+    summary: file.knowledgeSummary || '',
+    keywords: file.knowledgeKeywords || '',
+  }
+}, { immediate: true })
+
+async function saveMeta() {
+  const file = selectedFile.value
+  if (!file || metaSaving.value) return
+  metaSaving.value = true
+  const result = await casyContext.files.setMeta(file.id, {
+    documentDate: metaForm.value.documentDate || null,
+    summary: metaForm.value.summary || null,
+    keywords: metaForm.value.keywords || null,
+  })
+  metaSaving.value = false
+  if (!result.ok) { ElMessage.error(result.error || '保存元数据失败'); return }
+  await loadFiles()
 }
 
 async function changeCategory(file, value) {
@@ -698,6 +759,9 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
               <div><dt>分类</dt><dd><el-select v-if="!showRemoved" :model-value="selectedFile.category" size="small" aria-label="文件分类" :disabled="mutating" @change="value => changeCategory(selectedFile, value)"><el-option v-for="item in categories.slice(1)" :key="item.key" :label="item.label" :value="item.key" /></el-select><span v-else>{{ categoryLabel(selectedFile.category) }}</span></dd></div>
               <div><dt>类型</dt><dd>{{ fileExtension(selectedFile) }}</dd></div>
               <div><dt>登记时间</dt><dd>{{ formatDate(selectedFile.createdAt) }}</dd></div>
+              <div><dt>文档日期</dt><dd><el-date-picker v-model="metaForm.documentDate" size="small" type="date" value-format="YYYY-MM-DD" clearable placeholder="未设置" aria-label="文档日期" :disabled="metaSaving" @change="saveMeta" /></dd></div>
+              <div><dt>备注</dt><dd><el-input v-model="metaForm.summary" size="small" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" placeholder="这份材料的关键内容或待办" aria-label="文件备注" :disabled="metaSaving" @blur="saveMeta" /></dd></div>
+              <div><dt>关键词</dt><dd><el-input v-model="metaForm.keywords" size="small" placeholder="逗号分隔，供检索" aria-label="文件关键词" :disabled="metaSaving" @blur="saveMeta" /></dd></div>
             </dl>
           </div>
 
@@ -746,6 +810,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
             <el-button type="primary" @click="openFile(selectedFile)">打开文件</el-button>
             <el-button :icon="EditPen" :disabled="mutating" @click="renameFile(selectedFile)">重命名</el-button>
             <el-button :icon="FolderOpened" :disabled="mutating" @click="openMove([selectedFile.id])">移动到文件夹</el-button>
+            <el-button :icon="Reading" :loading="knowledgeBusy" @click="saveFileAsKnowledge(selectedFile)">存为知识</el-button>
             <el-button
               v-if="isOcrCandidateFile(selectedFile)"
               :loading="!!ocrBusy[selectedFile.id]"

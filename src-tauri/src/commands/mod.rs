@@ -428,6 +428,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         files::list_removed_case_files,
         files::restore_case_file,
         files::move_case_files,
+        files::update_case_file_meta,
         files::set_case_file_category,
         files::list_case_dirs,
         files::create_case_subdir,

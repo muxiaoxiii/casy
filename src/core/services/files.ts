@@ -61,6 +61,11 @@ export class FilesService extends Service {
   async move(caseId: string, ids: string[], dirRel: string | null) { return this.mutation('file', tauriCallSafe('move_case_files', { caseId, ids, dirRel })) }
   async setCategory(id: string, category: string) { return this.mutation('file', tauriCallSafe('set_case_file_category', { id, category })) }
 
+  /** O7：轻量元数据（备注 / 文档日期 / 关键词） */
+  async setMeta(id: string, meta: { documentDate?: string | null; summary?: string | null; keywords?: string | null }) {
+    return this.mutation('file', tauriCallSafe('update_case_file_meta', { id, ...meta }))
+  }
+
   /** 扫描磁盘未登记文件（既有卷宗导入） */
   async scanUnregistered(caseId: string): Promise<{ ok: boolean; data?: UnregisteredCaseFile[]; error?: string }> {
     return tauriCallSafe('scan_unregistered_files', { caseId })

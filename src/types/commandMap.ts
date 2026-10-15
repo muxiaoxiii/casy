@@ -224,6 +224,7 @@ export type CommandMap = {
   list_removed_case_files: Cmd<{ caseId: string }, CommandMap['list_case_files']['result']>
   restore_case_file: Cmd<{ id: string }, void>
   move_case_files: Cmd<{ caseId: string; ids: string[]; dirRel: string | null }, CommandMap['apply_case_file_renames']['result']>
+  update_case_file_meta: Cmd<{ id: string; documentDate?: string | null; summary?: string | null; keywords?: string | null }, void>
   set_case_file_category: Cmd<{ id: string; category: string }, void>
 
   // ── 项目域（A1-1 绞杀式阶段一）──
