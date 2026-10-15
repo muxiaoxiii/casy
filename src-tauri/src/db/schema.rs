@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 47;
+pub const CURRENT_SCHEMA_VERSION: i64 = 48;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -724,6 +724,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("45", MIGRATION_V45_SQL),
     ("46", MIGRATION_V46_SQL),
     ("47", MIGRATION_V47_SQL),
+    ("48", MIGRATION_V48_SQL),
 ];
 
 
@@ -4839,6 +4840,18 @@ SELECT 1;
 const MIGRATION_V47_SQL: &str = r#"
 SELECT 1;
 "#;
+
+// T3：重复任务"跳过下一次"——按 (任务, 原定日期) 记录跳过，生成时命中即消耗。
+const MIGRATION_V48_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS task_recurrence_skips (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  occurrence_date TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (task_id, occurrence_date)
+);
+CREATE INDEX IF NOT EXISTS idx_task_recurrence_skips_date ON task_recurrence_skips(task_id, occurrence_date);
+"#;
+
 
 
 /// 同步推送重试计数：失败记录按 attempts 指数退避，达上限才写 push_failed。

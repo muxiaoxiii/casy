@@ -604,6 +604,23 @@ async function markTaskWaiting(task) {
   } else ElMessage.error(result.error || '操作失败')
 }
 
+/** T3：跳过下一次重复 */
+async function skipRecurrence(task) {
+  if (batchTaskBusy.value) return
+  const result = await casyContext.tasks.skipRecurrenceNext(task.id)
+  if (!result.ok) { ElMessage.error(result.error || '设置跳过失败'); return }
+  ElMessage.success(`已跳过 ${result.data} 的那一次重复；完成本任务时不会再生成它`)
+  await loadTasks()
+}
+
+/** T3：撤销跳过 */
+async function unskipRecurrence(task, date) {
+  const result = await casyContext.tasks.unskipRecurrence(task.id, date)
+  if (!result.ok) { ElMessage.error(result.error || '恢复失败'); return }
+  ElMessage.success(`已恢复 ${date} 的重复`)
+  await loadTasks()
+}
+
 async function snoozeTask(task, option) {
   if (task.planDefined) {
     ElMessage.info('此任务已有独立计划，请在甘特图中改期并确认')
@@ -1012,7 +1029,11 @@ function getCustomPerspectiveCount(perspectiveId) {
             @toggle-expand="toggleExpand"
             @defer="openDeferDialog"
             @snooze-custom="openPlanDateDialog"
+            @skip-recurrence="skipRecurrence"
+            @unskip-recurrence="unskipRecurrence"
             @snooze-custom="openPlanDateDialog"
+            @skip-recurrence="skipRecurrence"
+            @unskip-recurrence="unskipRecurrence"
             @undefer="undeferTask"
             @reviewed="markReviewed"
             @follow-up="openDrawer"
@@ -1077,6 +1098,8 @@ function getCustomPerspectiveCount(perspectiveId) {
             @toggle-expand="toggleExpand"
             @defer="openDeferDialog"
             @snooze-custom="openPlanDateDialog"
+            @skip-recurrence="skipRecurrence"
+            @unskip-recurrence="unskipRecurrence"
             @undefer="undeferTask"
             @reviewed="markReviewed"
             @follow-up="openDrawer"

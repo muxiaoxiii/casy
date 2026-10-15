@@ -108,6 +108,21 @@ export class TasksService extends Service {
   }
 
   /** 稍后提醒（写 snoozed 行为事件，支撑"懂你的节奏"学习） */
+  /** T3：跳过下一次重复（返回被跳过的日期） */
+  async skipRecurrenceNext(id: string): Promise<{ ok: boolean; data?: string; error?: string }> {
+    return this.mutation('task', tauriCallSafe('skip_recurrence_next', { taskId: id }))
+  }
+
+  /** 撤销跳过 */
+  async unskipRecurrence(id: string, occurrenceDate: string) {
+    return this.mutation('task', tauriCallSafe('unskip_recurrence', { taskId: id, occurrenceDate }))
+  }
+
+  /** 已记录的跳过日期 */
+  async recurrenceSkips(id: string): Promise<{ ok: boolean; data?: string[]; error?: string }> {
+    return tauriCallSafe('list_recurrence_skips', { taskId: id })
+  }
+
   async snooze(id: string, option: string, newDueDate?: string | null): Promise<{ ok: boolean; error?: string }> {
     return this.mutation('task', tauriCallSafe('snooze_task', { id, option, newDueDate: newDueDate ?? null }))
   }

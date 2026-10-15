@@ -427,6 +427,9 @@ export type CommandMap = {
   // create_task 后端实际仅返回 { id }（非完整 Task），勿误标为 Task；写类命令返回 null。
   create_task: Cmd<{ data: CreateTaskPayload }, { id: string }>
   update_task: Cmd<{ data: UpdateTaskPayload }, null>
+  skip_recurrence_next: Cmd<{ taskId: string }, string>
+  unskip_recurrence: Cmd<{ taskId: string; occurrenceDate: string }, void>
+  list_recurrence_skips: Cmd<{ taskId: string }, string[]>
   toggle_task: Cmd<{ id: string; actualMinutes?: number | null; origin?: string | null; proposalToken?: string | null }, null>
   delete_task: Cmd<{ id: string; origin?: string | null; proposalToken?: string | null }, null>
   snooze_task: Cmd<{ id: string; option?: string | null; newDueDate?: string | null }, void>

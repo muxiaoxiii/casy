@@ -10,7 +10,8 @@
  * - 完成动画（Things3 式填充→对勾→划线）随组件迁移，样式自包含
  * - 案件/领域名称解析由父级注入（视图持有主数据）
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { casyContext } from '../../../core/plugin/context'
 import { useLocalDay } from '../../../shared/useLocalDay'
 import { AlarmClock, ArrowRight, Calendar, Check, Clock, Collection, Delete, Edit, Folder, Hide, Lock, More, Refresh, RefreshLeft, Star, Timer } from '../../../shared/icons'
 import {
@@ -46,6 +47,8 @@ export interface RowTask {
   [key: string]: unknown
 }
 
+const recurrenceSkips = ref<string[]>([])
+
 const props = defineProps<{
   task: RowTask
   /** 当前透视 key：review 显示回顾操作，inbox 显示厘清入口 */
@@ -76,6 +79,10 @@ const emit = defineEmits<{
   (e: 'defer', task: RowTask): void
   /** 计划到指定日期（与"稍后"预设同一机制：snooze custom） */
   (e: 'snooze-custom', task: RowTask): void
+  /** T3：跳过下一次重复 */
+  (e: 'skip-recurrence', task: RowTask): void
+  /** T3：撤销跳过 */
+  (e: 'unskip-recurrence', task: RowTask, date: string): void
   /** W2：提前结束推迟 */
   (e: 'undefer', task: RowTask): void
 }>()
@@ -107,6 +114,14 @@ const waitingDays = computed(() =>
 const focused = computed(() => props.task.isFocus === 1)
 
 /** T3：重复规则的可读标签（与编辑表单的选项一致） */
+/** T3：已记录的跳过日期（仅重复任务有意义） */
+watch(() => props.task?.id, id => {
+  if (!id) { recurrenceSkips.value = []; return }
+  void casyContext.tasks.recurrenceSkips(id).then(result => {
+    if (result.ok && Array.isArray(result.data)) recurrenceSkips.value = result.data
+  })
+}, { immediate: true })
+
 const recurrenceLabel = computed(() => {
   const rule = String(props.task?.recurrenceRule || '')
   if (!rule) return ''
@@ -277,6 +292,23 @@ function areaName(id: string | null | undefined): string {
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item :icon="Edit" @click="emit('open', task)">编辑</el-dropdown-item>
+            <!-- T3：重复任务的"跳过下一次" -->
+            <el-dropdown-item
+              v-if="recurrenceLabel"
+              :icon="Refresh"
+              @click="emit('skip-recurrence', task)"
+            >
+              跳过下一次重复
+            </el-dropdown-item>
+            <el-dropdown-item
+              v-for="skipped in recurrenceSkips"
+              :key="skipped"
+              :icon="RefreshLeft"
+              divided
+              @click="emit('unskip-recurrence', task, skipped)"
+            >
+              恢复 {{ skipped }} 的重复
+            </el-dropdown-item>
             <el-dropdown-item
               v-if="perspective === 'inbox'"
               :icon="ArrowRight"

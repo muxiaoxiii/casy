@@ -1,3 +1,4 @@
+use super::run_blocking;
 use crate::db;
 use anyhow::{bail, Result};
 use chrono::{Datelike, Duration, Months, NaiveDate};
@@ -134,6 +135,17 @@ pub(super) fn completion_effects(
                 [id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
             let next = next_occurrence(&rule, &anchor)
                 .ok_or_else(|| anyhow::anyhow!("无法计算下一次重复日期"))?;
+            // T3：用户标记过"跳过下一次"且命中的就是这一天——消耗该记录且不生成后继。
+            let skipped = conn.execute(
+                "DELETE FROM task_recurrence_skips WHERE task_id=?1 AND occurrence_date=?2",
+                params![id, next],
+            )? > 0;
+            if skipped {
+                conn.execute("INSERT INTO task_events(id,task_id,event_type,occurred_at,payload,actor) VALUES(?1,?2,'created',?3,?4,'system')",
+                    params![db::new_id(), id, now, serde_json::json!({"recurrenceSkipped": next}).to_string()])?;
+                refresh_sequence(conn, id)?;
+                return Ok(cancelled);
+            }
             let shift = (NaiveDate::parse_from_str(&next, "%Y-%m-%d")?
                 - NaiveDate::parse_from_str(&anchor, "%Y-%m-%d")?)
             .num_days();
@@ -246,6 +258,63 @@ pub(super) fn soft_delete_recurrence_successors(
         source = successor;
     }
     Ok(cancelled)
+}
+
+/// T3：记录"跳过下一次重复"。
+///
+/// 按当前规则算出下一次原定日期并记下来；完成源任务时若命中的就是这一天，
+/// 则不生成后继并消耗该记录。未完成时记录保持有效。
+#[tauri::command]
+pub async fn skip_recurrence_next(task_id: String) -> Result<String, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let (rule, anchor): (Option<String>, String) = conn
+            .query_row(
+                "SELECT NULLIF(recurrence_rule,''), COALESCE(NULLIF(due_date,''),NULLIF(deadline,''),NULLIF(start_date,''),date('now','localtime')) FROM tasks WHERE id=?1 AND deleted_at IS NULL",
+                [&task_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| anyhow::anyhow!("任务不存在"))?;
+        let rule = rule.ok_or_else(|| anyhow::anyhow!("该任务不是重复任务"))?;
+        let next = next_occurrence(&rule, &anchor)
+            .ok_or_else(|| anyhow::anyhow!("无法计算下一次重复日期"))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO task_recurrence_skips(task_id, occurrence_date) VALUES(?1, ?2)",
+            params![task_id, next],
+        )?;
+        Ok(next)
+    })
+    .await
+}
+
+/// 撤销"跳过下一次"（恢复生成该次重复）。
+#[tauri::command]
+pub async fn unskip_recurrence(task_id: String, occurrence_date: String) -> Result<(), String> {
+    run_blocking(move || {
+        let rows = db::open_db()?.execute(
+            "DELETE FROM task_recurrence_skips WHERE task_id=?1 AND occurrence_date=?2",
+            params![task_id, occurrence_date],
+        )?;
+        anyhow::ensure!(rows > 0, "没有这条跳过记录");
+        Ok(())
+    })
+    .await
+}
+
+/// 列出某任务已记录的跳过日期（UI 展示"已跳过 N 次"与恢复入口）。
+#[tauri::command]
+pub async fn list_recurrence_skips(task_id: String) -> Result<Vec<String>, String> {
+    run_blocking(move || {
+        let conn = db::open_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT occurrence_date FROM task_recurrence_skips WHERE task_id=?1 ORDER BY occurrence_date",
+        )?;
+        let dates = stmt
+            .query_map(params![task_id], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(dates)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -363,5 +432,54 @@ mod tests {
         let cancelled = soft_delete_recurrence_successors(&conn, "t-e", "2026-08-30 09:00:00").unwrap();
         assert!(cancelled.is_empty(), "改动过的后继必须保留");
         assert!(!is_soft_deleted(&conn, &first));
+    }
+    #[test]
+    fn skipping_the_next_occurrence_suppresses_and_consumes_it() {
+        let conn = test_conn();
+        insert_recurring(&conn, "t-skip", "2026-08-28");
+        // 记录跳过 2026-08-29（daily 规则的下一次）
+        conn.execute(
+            "INSERT INTO task_recurrence_skips(task_id, occurrence_date) VALUES('t-skip','2026-08-29')",
+            [],
+        )
+        .unwrap();
+
+        completion_effects(&conn, "t-skip", 1).unwrap();
+
+        // 命中：不生成后继，且跳过记录被消耗
+        assert!(successor_of(&conn, "t-skip").is_none(), "跳过的日期不应生成后继");
+        let remaining: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_recurrence_skips WHERE task_id='t-skip'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0, "跳过记录应被消耗");
+        let skipped_events: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_events WHERE task_id='t-skip' AND payload LIKE '%recurrenceSkipped%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(skipped_events, 1, "应留下跳过留痕");
+
+        // 再次完成时恢复生成（下一次是 2026-08-30，未被跳过）
+        completion_effects(&conn, "t-skip", 1).unwrap();
+        assert!(successor_of(&conn, "t-skip").is_some(), "未跳过的日期应正常生成");
+    }
+
+    #[test]
+    fn a_skip_for_a_different_date_does_not_block_generation() {
+        let conn = test_conn();
+        insert_recurring(&conn, "t-other", "2026-08-28");
+        conn.execute(
+            "INSERT INTO task_recurrence_skips(task_id, occurrence_date) VALUES('t-other','2026-09-30')",
+            [],
+        )
+        .unwrap();
+        completion_effects(&conn, "t-other", 1).unwrap();
+        assert!(successor_of(&conn, "t-other").is_some(), "不相干的跳过不应生效");
     }
 }
