@@ -19,23 +19,24 @@ import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  AlarmClock,
   ArrowLeft,
   ArrowRight,
-  Plus,
-  Clock,
-  Location,
-  Search,
-  Close,
-  Rank,
-  Check,
-  Calendar as CalendarIcon,
-  Timer,
   Bell,
-  Edit,
+  Calendar as CalendarIcon,
+  Check,
+  Clock,
+  Close,
   Delete,
+  Edit,
+  Location,
+  Opportunity,
+  Plus,
+  Rank,
+  Search,
+  Timer,
   TrendCharts,
   Warning,
-  Opportunity,
 } from '../../../shared/icons'
 
 const { t, locale } = useI18n()
@@ -505,7 +506,7 @@ async function deleteEditingItem() {
 // ============================================================
 // 真实数据视图计算 (Zero Mock Data)
 // ============================================================
-const viewOptions = computed(() => ['day', 'week', 'month', 'year', 'timeline', 'forecast'].map(key => ({ key, label: t(`calendar.${key}`) })))
+const viewOptions = computed(() => ['day', 'agenda', 'week', 'month', 'year', 'timeline', 'forecast'].map(key => ({ key, label: key === 'agenda' ? '议程' : t(`calendar.${key}`) })))
 
 const weekDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const weekDaysCn = ['一', '二', '三', '四', '五', '六', '日']
@@ -676,6 +677,33 @@ const timelineStream = computed(() => {
 })
 
 // 月视图 7x6 矩阵生成
+/** H6 议程（Agenda）：从今天起 14 天，按天列出开庭/期限/任务/日程 */
+const agendaDays = computed(() => {
+  const days = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  for (let i = 0; i < 14; i += 1) {
+    const date = new Date(today)
+    date.setDate(today.getDate() + i)
+    const ds = formatDate(date)
+    const ids = new Set(tasksForDay(date).map((task) => task.id))
+    const dayTasks = tasksForDay(date)
+    const dayEvents = events.value.filter((event) => event.date === ds && !(event.type === 'task' && ids.has(event.id)))
+    const deadlines = deadlineWarnings.value.filter((warning) => warning.dueDate === ds)
+    days.push({
+      date,
+      dateStr: ds,
+      label: i === 0 ? '今天' : i === 1 ? '明天' : i === 2 ? '后天' : `${date.getMonth() + 1}月${date.getDate()}日`,
+      weekdayCn: `周${weekDaysCn[date.getDay() === 0 ? 6 : date.getDay() - 1]}`,
+      tasks: dayTasks,
+      events: dayEvents,
+      deadlines,
+      isToday: i === 0,
+    })
+  }
+  return days
+})
+
 const monthGridDays = computed(() => {
   const { year, month } = currentMonthInfo.value
   const firstDay = new Date(year, month, 1)
@@ -1121,6 +1149,7 @@ async function scheduleTaskBlock(event, date, hour) {
             :key="vo.key"
             class="switch-btn"
             :class="{ active: activeView === vo.key }"
+            :data-view="vo.key"
             @click="activeView = vo.key"
           >
             {{ vo.label }}
@@ -1138,6 +1167,39 @@ async function scheduleTaskBlock(event, date, hour) {
     </div>
 
     <!-- ═══ 2. 时间线视图 (Global Timeline · 真实数据库流) ═══ -->
+    <!-- H6 议程视图：按天罗列，开庭/期限/任务/日程四类同屏 -->
+    <div v-else-if="activeView === 'agenda'" class="agenda-layout ui-col">
+      <p class="agenda-hint">从今天起 14 天。开庭与法定期限为强时间锁定，任务与日程可拖拽调整。</p>
+      <section v-for="day in agendaDays" :key="day.dateStr" class="agenda-day" :class="{ today: day.isToday }">
+        <header class="agenda-day-head ui-row ui-row--between">
+          <div class="ui-row" style="gap: 8px">
+            <strong>{{ day.label }}</strong>
+            <span class="agenda-date">{{ day.dateStr }} · {{ day.weekdayCn }}</span>
+          </div>
+          <span class="agenda-count">{{ day.tasks.length + day.events.length + day.deadlines.length }} 项</span>
+        </header>
+        <p v-if="!day.tasks.length && !day.events.length && !day.deadlines.length" class="agenda-empty">无安排</p>
+        <ul v-else class="agenda-items">
+          <li v-for="deadline in day.deadlines" :key="`dl-${deadline.deadlineId}`" class="agenda-item is-deadline">
+            <span class="agenda-item-time">{{ deadline.level || '期限' }}</span>
+            <span class="agenda-item-title">{{ deadline.deadlineName }}</span>
+            <span class="agenda-item-case">{{ deadline.caseName }}</span>
+            <span class="agenda-item-meta">{{ Number(deadline.daysLeft) < 0 ? `已逾期 ${-Number(deadline.daysLeft)} 天` : Number(deadline.daysLeft) === 0 ? '今日届满' : `${deadline.daysLeft} 天` }}</span>
+          </li>
+          <li v-for="event in day.events" :key="`ev-${event.id}`" class="agenda-item" :class="event.type === 'hearing' || event.type === 'court' ? 'is-court' : ''" @dblclick="openEditDetail(event, 'event')">
+            <span class="agenda-item-time">{{ event.time || '全天' }}</span>
+            <span class="agenda-item-title">{{ event.title }}</span>
+            <span v-if="event.location" class="agenda-item-case">{{ event.location }}</span>
+          </li>
+          <li v-for="task in day.tasks" :key="`tk-${task.id}`" class="agenda-item is-task" @dblclick="openEditDetail(task, 'task')">
+            <span class="agenda-item-time">{{ task.dueTime || task.startTime || '待排' }}</span>
+            <span class="agenda-item-title" :class="{ struck: task.completed }">{{ task.taskName }}</span>
+            <span v-if="task.caseId" class="agenda-item-case">{{ getCaseName(task) }}</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
     <div v-if="activeView === 'timeline'" class="timeline-global-layout">
       <aside class="timeline-case-filter-aside">
         <h2 class="filter-headline-title">按案件筛选</h2>
@@ -3331,6 +3393,26 @@ async function scheduleTaskBlock(event, date, hour) {
   .m-stat-lbl { white-space: nowrap; font-size: 11px; }
   .month-matrix-day-cell { min-height: 76px; }
 }
+.agenda-layout { gap: 12px; }
+.agenda-hint { margin: 0; font-size: 12px; color: var(--c-text-secondary); }
+.agenda-day { border: 1px solid var(--c-border-light); border-radius: 8px; overflow: hidden; }
+.agenda-day.today { border-color: var(--c-primary); }
+.agenda-day-head { padding: 8px 12px; background: var(--c-bg-subtle); }
+.agenda-day.today .agenda-day-head { background: var(--c-primary-light); }
+.agenda-date { font-size: 12px; color: var(--c-text-secondary); }
+.agenda-count { font-size: 12px; color: var(--c-text-secondary); }
+.agenda-empty { margin: 0; padding: 12px; font-size: 12px; color: var(--c-text-secondary); }
+.agenda-items { list-style: none; margin: 0; padding: 0; }
+.agenda-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--c-border-light); font-size: 13px; cursor: default; }
+.agenda-item-time { flex-shrink: 0; width: 56px; font-size: 12px; color: var(--c-text-secondary); font-variant-numeric: tabular-nums; }
+.agenda-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda-item-title.struck { text-decoration: line-through; color: var(--c-text-secondary); }
+.agenda-item-case { font-size: 12px; color: var(--c-text-secondary); }
+.agenda-item-meta { font-size: 12px; font-weight: 600; }
+.agenda-item.is-deadline { background: var(--c-warning-light); }
+.agenda-item.is-deadline .agenda-item-meta { color: var(--c-warning); }
+.agenda-item.is-court { background: var(--c-danger-light); }
+.agenda-item.is-task:hover { background: var(--c-bg-subtle); cursor: pointer; }
 </style>
 
 <style scoped>

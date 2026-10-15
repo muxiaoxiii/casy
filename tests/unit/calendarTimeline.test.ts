@@ -11,6 +11,13 @@ const context = vi.hoisted(() => ({ on: () => () => {} } as Record<string, unkno
 vi.mock('../../src/core/plugin/context', () => ({ casyContext: context }))
 let wrapper: VueWrapper | undefined
 afterEach(() => wrapper?.unmount())
+/** 按视图 key 切换（新增视图时下标会移位；文案受 i18n 影响，故用 data-view） */
+async function switchView(wrapper: any, key: string) {
+  const button = wrapper.findAll('.switch-btn').find((node: any) => node.attributes('data-view') === key)
+  if (!button) throw new Error(`未找到视图按钮：${key}`)
+  await button.trigger('click')
+}
+
 async function setup(mode = 'mixed') {
   Object.assign(context, fixtureServices(mode))
   const router = createRouter({ history: createMemoryHistory(), routes: [
@@ -80,16 +87,16 @@ describe('calendar timeline interactions', () => {
   })
   it('propagates saved Gantt ranges into month and year views while retaining task deadlines', async () => {
     const { wrapper } = await setup('gantt')
-    await wrapper.findAll('.switch-btn')[5].trigger('click')
+    await switchView(wrapper, 'forecast')
     await wrapper.findAll('.forecast-mode-switch button')[1].trigger('click')
     await flushPromises()
     await wrapper.get('[aria-label="移动计划：核对证据目录"]').trigger('keydown', { key: 'ArrowRight' })
     await flushPromises();await wrapper.get('.plan-form').trigger('submit'); await flushPromises()
     expect(wrapper.get('.task-deadline').attributes('title')).toContain('2026-09-25')
-    await wrapper.findAll('.switch-btn')[2].trigger('click'); await flushPromises()
+    await switchView(wrapper, 'month'); await flushPromises()
     const ribbons=wrapper.findAll('[title]').filter(el=>el.attributes('title')?.includes('核对证据目录 (2026-09-26 ~ 2026-09-28)'))
     expect(ribbons).toHaveLength(3)
-    await wrapper.findAll('.switch-btn')[3].trigger('click'); await flushPromises()
+    await switchView(wrapper, 'year'); await flushPromises()
     expect(wrapper.get('[aria-label^="2026-09-28 ·"]').attributes('aria-label')).toContain('2 项任务')
   })
 
