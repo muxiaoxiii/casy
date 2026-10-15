@@ -319,8 +319,8 @@ export class CasesService extends Service {
   }
 
   /** 案件变更留痕（开庭改期链 / 白板事实 / AI 工具执行，倒序） */
-  async entityAuditEvents(caseId: string, eventType?: string): Promise<{ ok: boolean; data?: EntityAuditEvent[]; error?: string }> {
-    return tauriCallSafe('list_entity_audit_events', { caseId, eventType: eventType ?? null })
+  async entityAuditEvents(caseId?: string | null, eventType?: string): Promise<{ ok: boolean; data?: EntityAuditEvent[]; error?: string }> {
+    return tauriCallSafe('list_entity_audit_events', { caseId: caseId ?? null, eventType: eventType ?? null })
   }
 
   /** 获取案件所有庭审记录 */

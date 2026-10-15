@@ -187,6 +187,7 @@ const utilityModules = [
   { name: 'ai', label: 'AI 智伴', sublabel: 'Assistant', icon: Cpu },
   { name: 'reminder', label: '提醒', sublabel: 'Reminders', icon: Bell },
   { name: 'sync', label: '同步状态', sublabel: 'Sync', icon: Switch },
+  { name: 'audit', label: '操作记录', sublabel: 'Audit Trail', icon: Document },
   { name: 'dashboard', label: '数据看板', sublabel: 'Dashboard', icon: DataBoard },
 ]
 

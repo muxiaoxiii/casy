@@ -22,43 +22,44 @@ pub struct EntityAuditEventDto {
     pub created_at: String,
 }
 
-/// 按案件读取变更留痕（倒序，可在分页上限内取最近若干条）。
+/// 读取变更留痕（倒序）。
+///
+/// `case_id` 为空时跨全部案件读取（A3 操作记录视图用）；`event_type` 可按
+/// `hearing_updated` / `whiteboard_fact_*` / AI 工具执行等过滤。
 #[tauri::command]
 pub async fn list_entity_audit_events(
-    case_id: String,
+    case_id: Option<String>,
     event_type: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<EntityAuditEventDto>, String> {
     run_blocking(move || {
         let conn = db::open_db()?;
-        let limit = limit.unwrap_or(50).clamp(1, 200);
-        let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match event_type
+        let limit = limit.unwrap_or(50).clamp(1, 500);
+        let case_id = case_id.filter(|value| !value.trim().is_empty());
+        let kind = event_type
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-        {
-            Some(kind) => (
-                "SELECT id, aggregate_type, aggregate_id, event_type, payload, actor, created_at
-                 FROM audit_events WHERE aggregate_type = 'case' AND aggregate_id = ?1 AND event_type = ?2
-                 ORDER BY created_at DESC LIMIT ?3"
-                    .to_string(),
-                vec![
-                    Box::new(case_id) as Box<dyn rusqlite::types::ToSql>,
-                    Box::new(kind.to_string()),
-                    Box::new(limit),
-                ],
-            ),
-            None => (
-                "SELECT id, aggregate_type, aggregate_id, event_type, payload, actor, created_at
-                 FROM audit_events WHERE aggregate_type = 'case' AND aggregate_id = ?1
-                 ORDER BY created_at DESC LIMIT ?2"
-                    .to_string(),
-                vec![
-                    Box::new(case_id) as Box<dyn rusqlite::types::ToSql>,
-                    Box::new(limit),
-                ],
-            ),
-        };
+            .map(str::to_string);
+        let mut conditions = vec!["aggregate_type = 'case'".to_string()];
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(id) = case_id {
+            conditions.push(format!("aggregate_id = ?{}", params.len() + 1));
+            params.push(Box::new(id));
+        }
+        if let Some(kind) = kind {
+            conditions.push(format!("event_type = ?{}", params.len() + 1));
+            params.push(Box::new(kind));
+        }
+        conditions.push(format!("1 = ?{}", params.len() + 1));
+        params.push(Box::new(1));
+        let sql = format!(
+            "SELECT id, aggregate_type, aggregate_id, event_type, payload, actor, created_at
+             FROM audit_events WHERE {} ORDER BY created_at DESC LIMIT ?{}",
+            conditions.join(" AND "),
+            params.len() + 1
+        );
+        params.push(Box::new(limit));
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt

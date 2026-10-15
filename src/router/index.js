@@ -108,6 +108,12 @@ const routes = [
     meta: { title: '事实白板' },
   },
   {
+    path: '/audit',
+    name: 'audit',
+    component: () => import('../modules/cases/views/AuditTrailView.vue'),
+    meta: { title: '操作记录' },
+  },
+  {
     path: '/persons',
     name: 'persons',
     component: () => import('../modules/persons/views/PersonsView.vue'),
