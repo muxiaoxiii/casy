@@ -308,10 +308,26 @@ AI 部分不新增能力面，只把**现有 harness** 做到**可见、可观�
 | `44b3f22` | H6 日历议程视图：未来 14 天按天罗列开庭/法定期限/任务/日程四类；视图切换按钮加 `data-view`，日历测试改用 key 而非下标切换（插入议程会使下标全部移位，且测试 i18n 无 messages 使按钮显示 raw key） |
 | `dd8ff0b` | K2 卷宗文件"存为知识"：笔记带出处引用块（文件名/路径/分类/登记日/案件）+ OCR 正文前 1500 字 + 回链文件与案件。O7 文件轻量元数据：新增 `update_case_file_meta`（日期校验 ISO），详情面板可编辑备注/文档日期/关键词；`FILE_COLUMNS` 收敉为行映射唯一来源（此前两处手写 SELECT 与它漂移，导致 `Invalid column index: 9`） |
 
+**第 3 批已完成（2026-10-13，7 个提交）**：
+
+| 提交 | 内容 |
+|---|---|
+| `c3a0377` | A3 操作记录页：`list_entity_audit_events` 改为 caseId 可选（同一命令服务开庭变更链与全局视图），新增可按 actor / 变更类型 / 关键词筛选的记录页，payload 含 before/after 时渲染差异 |
+| `4645042` | O5 OCR 校订版本链可回退：`document_processing_jobs.pinned`（迁移 v47，补列放在 `apply_conditional_segments` 条件段——无条件 ALTER 会在"旧版本号+新结构"的测试库上报 duplicate column），所有"取最新完成版本"改为 `pinned DESC, rowid DESC`；文件面板展示版本链并可切换，切换后重建检索索引 |
+| `81c2da3` | C2 案件详情 Tab 按 概览/进程/资料/关系 分组 + 计数徽章 + 记住上次 tab |
+| `4859ff8` | C5 卷宗目录用途说明：`list_case_dirs` 返回每个目录用途（模板 `description` 优先，内置目录既定用途兜底），选择器与当前目录下方展示 |
+| `5a835c7` | X7 新增根目录 `CHANGELOG.md`（Keep a Changelog），把本轮全部修复逐条记录（症状+根因+修法），DEVELOPMENT.md 增加"变更记录纪律"节 |
+| `b705ce1` | X2 空态规范：EmptyState docblock 写明四要素与三种空态成因（首次使用/筛选无结果/能力未开启），明确读取失败必须走错误态不得用空态掩盖 |
+
 **仍未完成**：
-- T3 的"仅跳过本次"：需后端 recurrence skip 机制（当前只有行内显示重复规则）
+- T3"仅跳过本次"：需后端 recurrence skip 机制（当前只有行内显示重复规则）
 - 编辑器侧"插入文书引用"（K2 只做了 卷宗→知识 方向）
-- 第 3 批：C2 案件详情 Tab 分组、C5 卷宗文件夹标签、C7 视图方案、O5 校订版本链可回退、O6 进度推送替代轮询、K1 法律字段并入 Notebook、X1 列表三件套标准化、X2 空态规范、X5 卷宗两套 UI 合并、X6 配置即时预览、X7 版本迭代文档化、操作记录视图
+- X1 共享列表工具栏组件：需先定组件 API 再在任务/卷宗落地，改动面较大
+- C7 视图方案（把 cases 的 saved_filters 推广为通用机制 + 导入导出）
+- O6 进度推送替代轮询（需事件通道）
+- K1 法律字段并入 Notebook（`lawName/articleNo/effectiveDate` 在旧 KnowledgeView 有、新 UI 无入口）
+- X5 卷宗两套 UI 合并（`CaseFilesView` 三栏 vs `CaseFilesPanel`，能力集不一致）
+- X6 配置即时预览（期限规则/文件夹模板保存后才生效）
 - 第 3 批：C2 案件详情 Tab 分组、C5 卷宗文件夹标签、C7 视图方案、O5 校订版本链可回退、O6 进度推送替代轮询、K1 法律字段并入 Notebook、X1 列表三件套标准化、X2 空态规范、X5 卷宗两套 UI 合并、X6 配置即时预览、X7 版本迭代文档化、操作记录视图
 
 ## 5. 批次建议（原始规划）
