@@ -48,7 +48,8 @@ const knowledge = ref([])
 const files = ref([])
 const relatedCases = ref([])
 const validTabs = ['overview','hearings','tasks','tracks','files','persons','whiteboard','timeline','fields']
-const activeTab = ref(validTabs.includes(route.query.tab) ? route.query.tab : 'overview') // overview | hearings | tasks | tracks | files | timeline | fields
+// overview | hearings | tasks | tracks | files | persons | whiteboard | timeline | fields
+const activeTab = ref(validTabs.includes(route.query.tab) ? route.query.tab : (localStorage.getItem('casy_case_detail_last_tab') || 'overview'))
 
 // 编辑状态
 const editingGoal = ref(false)
@@ -628,6 +629,29 @@ function formatDate(dateStr) {
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
+/** C2：Tab 分组（概览 / 进程 / 资料 / 关系）——9 个平铺 tab 无分组时认知负担高 */
+const tabGroups = computed(() => [
+  { label: '概览', tabs: [{ key: 'overview', label: '项目总览' }] },
+  {
+    label: '进程',
+    tabs: [
+      { key: 'hearings', label: '开庭口审', count: hearings.value.length },
+      { key: 'tasks', label: '任务待办', count: tasks.value.length },
+      { key: 'tracks', label: '程序事项' },
+      { key: 'timeline', label: '动态轨迹', count: timeline.value.length },
+    ],
+  },
+  {
+    label: '资料',
+    tabs: [
+      { key: 'files', label: '案卷', count: files.value.length },
+      { key: 'whiteboard', label: '事实白板' },
+      { key: 'fields', label: '全量属性' },
+    ],
+  },
+  { label: '关系', tabs: [{ key: 'persons', label: '实体对象' }] },
+])
+
 let unsubscribeUpdated = null
 onMounted(() => {
   loadCaseData()
@@ -645,7 +669,11 @@ watch(caseId, () => {
   showHearingDialog.value = false; showAddRelationDialog.value = false; showRelatedWizard.value = false; editingGoal.value = false
   loadCaseData()
 })
-watch(() => route.query.tab, tab => { activeTab.value = validTabs.includes(tab) ? tab : 'overview' })
+/** C2：记住上次使用的 tab（无 URL 参数时恢复，避免每次进案件都回到总览） */
+const LAST_TAB_KEY = 'casy_case_detail_last_tab'
+const rememberedTab = validTabs.includes(localStorage.getItem(LAST_TAB_KEY) || '') ? localStorage.getItem(LAST_TAB_KEY) : ''
+watch(activeTab, tab => { try { localStorage.setItem(LAST_TAB_KEY, tab) } catch { /* 隐私模式下忽略 */ } })
+watch(() => route.query.tab, tab => { activeTab.value = validTabs.includes(tab) ? tab : (rememberedTab || 'overview') })
 watch(activeTab, tab => {if(route.query.tab!==tab)router.replace({query:{...route.query,tab}});if(tab==='timeline')void loadTimeline()})
 
 onUnmounted(() => {
@@ -714,71 +742,21 @@ onUnmounted(() => {
       <button class="btn-sm" @click="toggleTaskComplete(nextAction)">完成</button>
     </div>
 
-    <!-- ═══ 详情 Tab 切换栏 ═══ -->
+    <!-- ═══ 详情 Tab 切换栏（C2：按 概览 / 进程 / 资料 / 关系 分组）═══ -->
     <div class="ui-row detail-tabs" style="gap:6px">
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'overview' }"
-        @click="activeTab = 'overview'"
-      >
-        项目总览
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'hearings' }"
-        @click="activeTab = 'hearings'"
-      >
-        开庭口审 · {{ hearings.length }}
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'tasks' }"
-        @click="activeTab = 'tasks'"
-      >
-        任务待办 · {{ tasks.length }}
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'tracks' }"
-        @click="activeTab = 'tracks'"
-      >
-        程序事项 · 收转文与期限
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'files' }"
-        @click="activeTab = 'files'"
-      >
-        案卷 · {{ files.length }}
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'persons' }"
-        @click="activeTab = 'persons'"
-      >
-        实体对象
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'whiteboard' }"
-        @click="activeTab = 'whiteboard'"
-      >
-        事实白板
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'timeline' }"
-        @click="activeTab = 'timeline'"
-      >
-        动态轨迹 · {{ timeline.length }}
-      </button>
-      <button type="button"
-        class="dtab"
-        :class="{ active: activeTab === 'fields' }"
-        @click="activeTab = 'fields'"
-      >
-        全量属性与字段
-      </button>
+      <template v-for="group in tabGroups" :key="group.label">
+        <span class="tab-group-label">{{ group.label }}</span>
+        <button
+          v-for="tab in group.tabs"
+          :key="tab.key"
+          type="button"
+          class="dtab"
+          :class="{ active: activeTab === tab.key }"
+          @click="activeTab = tab.key"
+        >
+          {{ tab.label }}<template v-if="tab.count != null"> · {{ tab.count }}</template>
+        </button>
+      </template>
     </div>
 
     <!-- ═══ Tab 1: 项目总览 ═══ -->
@@ -1943,4 +1921,6 @@ onUnmounted(() => {
   padding: 4px 0;
   min-height: 24px;
 }
+.tab-group-label { align-self: center; padding: 0 4px; font-size: 11px; color: var(--c-text-secondary); }
+.detail-tabs { flex-wrap: wrap; row-gap: 6px; }
 </style>
