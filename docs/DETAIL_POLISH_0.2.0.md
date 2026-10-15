@@ -332,11 +332,18 @@ AI 部分不新增能力面，只把**现有 harness** 做到**可见、可观�
 |---|---|
 | `5fa27d6` | C7 新增共享 `ViewSchemePicker`（基于既有 `saved_filters` 后端：保存/切换/删除/JSON 导出导入，组件不持有视图状态），在任务列表与卷宗落地。cases 的 `CaseFilterBar` 未迁接——它比通用实现更丰富（CSV 导出 + 逐字段应用筛选），迁移会丢行为而非共享；两者现已共用同一张后端表 |
 
+**第 6 批已完成（2026-10-13，1 个提交）**：
+
+| 提交 | 内容 |
+|---|---|
+| `54b13d8` | K1 法律字段回归修复：`KnowledgeItemDto` 此前连读取都不返回 `lawName/articleNo/effectiveDate`（schema、create、patch、search DTO 全都支持，只有新 Notebook 丢了——属于彻底的功能回归）。现在 DTO 返回三列、属性区可编辑、保存时提交（空串归一为 null）、列表卡片显示法律引用。版本历史面板在新 UI 信息栏"历史"tab 已存在，无需迁移 |
+
 **仍未完成**：
 - T3"仅跳过本次"：需后端 recurrence skip 机制（当前只有行内显示重复规则）
 - 编辑器侧"插入文书引用"（K2 只做了 卷宗→知识 方向）
 - O6 进度推送替代轮询（需事件通道）
-- K1 法律字段并入 Notebook（`lawName/articleNo/effectiveDate` 旧 UI 有、新 UI 无入口）
+- X5 卷宗两套 UI 合并（`CaseFilesView` 三栏 vs `CaseFilesPanel`，能力集不一致，清单里最大的一项）
+- X6 配置即时预览（期限规则/文件夹模板保存后才生效）
 - X5 卷宗两套 UI 合并（`CaseFilesView` 三栏 vs `CaseFilesPanel`，能力集不一致，清单里最大的一项）
 - X6 配置即时预览（期限规则/文件夹模板保存后才生效）
 - O6 进度推送替代轮询（需事件通道）
