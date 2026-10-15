@@ -44,6 +44,14 @@ const visibleFiles = computed(() =>
   }),
 )
 
+/** X5：面板内文件搜索（完整工作台有，案件详情此前没有） */
+const panelQuery = ref('')
+const filteredPanelFiles = computed(() => {
+  const q = panelQuery.value.trim().toLowerCase()
+  if (!q) return visibleFiles.value
+  return visibleFiles.value.filter(f => String(f.fileName || '').toLowerCase().includes(q))
+})
+
 /** 磁盘上未入库文件（针对当前目录） */
 const unregistered = ref<any[]>([])
 const renameMode = ref(false)
@@ -246,6 +254,11 @@ onUnmounted(() => {
           <el-tooltip content="在 Finder 中显示">
             <el-button size="small" text :icon="FolderOpened" @click="openRoot" />
           </el-tooltip>
+          <!-- X5：完整能力集（搜索/排序/批量识别/元数据/校订版本链）在卷宗工作台，
+               这里给一个明确入口，避免两处能力不一致造成认知断裂 -->
+          <el-tooltip content="打开完整卷宗工作台（搜索、排序、批量识别、文件元数据）">
+            <el-button size="small" type="primary" plain @click="$router.push(`/files/${caseId}`)">完整工作台</el-button>
+          </el-tooltip>
           <span class="ft-hint">
             <span class="circle-dot" />监听中 · 新文件自动捕获
           </span>
@@ -272,7 +285,11 @@ onUnmounted(() => {
           </span>
         </div>
 
-        <div v-if="visibleFiles.length" class="ui-col--tight fg-body">
+        <div v-if="visibleFiles.length || panelQuery" class="panel-filter">
+          <el-input v-model="panelQuery" size="small" clearable placeholder="搜索本案件文件" style="width: 220px" aria-label="搜索本案件文件" />
+          <span v-if="panelQuery" class="panel-filter-count">{{ filteredPanelFiles.length }} / {{ visibleFiles.length }}</span>
+        </div>
+        <div v-if="filteredPanelFiles.length" class="ui-col--tight fg-body">
           <div v-for="f in visibleFiles" :key="f.id" class="ui-row file-card" style="gap:12px">
             <div class="ui-row f-ico" :class="fileIconType(f.fileName, f.fileType)">
               <el-icon><Document /></el-icon>
@@ -295,7 +312,7 @@ onUnmounted(() => {
         </div>
 
         <EmptyState
-          v-if="!loading && !visibleFiles.length && !dragging"
+          v-if="!loading && !filteredPanelFiles.length && !dragging"
           type="custom"
           icon="📄"
           title="此目录暂无已登记文件"
@@ -421,4 +438,5 @@ onUnmounted(() => {
   border-radius: var(--c-radius-lg);
   pointer-events: none;
 }
+.panel-filter{display:flex;align-items:center;gap:8px;margin-bottom:10px}.panel-filter-count{font-size:11px;color:var(--c-text-secondary)}
 </style>
