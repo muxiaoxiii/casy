@@ -359,6 +359,59 @@ pub struct CaseDirEntry {
     pub file_count: u64,
     /// ok=有文件 · empty=空目录（warn 预留给"阶段应备未备"规则）
     pub state: String,
+    /// C5：目录用途说明（来自文件夹模板的 description，或内置目录的既定用途）
+    pub purpose: Option<String>,
+}
+
+/// C5：内置卷宗目录的既定用途（模板未提供 description 时的兜底说明）。
+fn builtin_dir_purpose(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "委托材料" => "委托合同、授权委托书、所函等委托关系文件",
+        "案件分析" => "律师内部的事实梳理、争议焦点与策略分析",
+        "法律研究" => "类案检索、法条与观点整理",
+        "客户提供" => "客户交付的原始材料与证据",
+        "证据材料" => "本案证据及证据目录",
+        "法律文书" => "起诉状、答辩状、代理词等我方起草文书",
+        "对方提交" => "对方当事人提交的材料",
+        "法院文书" => "传票、判决、裁定等法院来文",
+        "庭审材料" => "庭审提纲、笔录、质证意见",
+        "综合报告" => "结案报告与办案小结",
+        "其他" => "暂不归类或跨类材料",
+        _ => return None,
+    })
+}
+
+/// C5：从案件对应的文件夹模板里取目录说明（用户自建模板可写 description）。
+fn template_dir_purposes(case_id: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let Ok(conn) = db::open_db() else { return map };
+    let template_id: Option<String> = conn
+        .query_row(
+            "SELECT COALESCE(folder_template_id, '') FROM cases WHERE id = ?1",
+            [case_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .filter(|value: &String| !value.is_empty());
+    let Some(template_id) = template_id else { return map };
+    let json: String = match conn.query_row(
+        "SELECT directories_json FROM case_folder_templates WHERE id = ?1",
+        [&template_id],
+        |row| row.get(0),
+    ) {
+        Ok(value) => value,
+        Err(_) => return map,
+    };
+    if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&json) {
+        for entry in entries {
+            let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+            let description = entry.get("description").and_then(|v| v.as_str()).unwrap_or_default();
+            if !name.is_empty() && !description.is_empty() {
+                map.insert(name.to_string(), description.to_string());
+            }
+        }
+    }
+    map
 }
 
 /// 列出案件卷宗的子目录与统计（确保目录树已按模板创建）
@@ -367,11 +420,13 @@ pub async fn list_case_dirs(case_id: String) -> Result<Vec<CaseDirEntry>, String
     run_blocking(move || {
         let (root, _case) = case_root(&case_id)?;
         let mut out = Vec::new();
+        #[allow(clippy::too_many_arguments)]
         fn walk(
             root: &Path,
             sub: &Path,
             depth: usize,
             out: &mut Vec<CaseDirEntry>,
+            purposes: &std::collections::HashMap<String, String>,
         ) -> anyhow::Result<()> {
             if depth > 20 || out.len() >= 2000 {
                 anyhow::bail!("卷宗目录过深或超过 2,000 个目录");
@@ -392,6 +447,12 @@ pub async fn list_case_dirs(case_id: String) -> Result<Vec<CaseDirEntry>, String
                 }
             }
             let relative = sub.strip_prefix(root)?.to_string_lossy().replace('\\', "/");
+            let leaf = relative.rsplit('/').next().unwrap_or(&relative);
+            let leaf_name = leaf.split_once('_').map(|(_, name)| name).unwrap_or(leaf);
+            let purpose = purposes
+                .get(leaf_name)
+                .cloned()
+                .or_else(|| builtin_dir_purpose(leaf_name).map(str::to_string));
             out.push(CaseDirEntry {
                 name: if relative.is_empty() {
                     "卷宗根目录".into()
@@ -406,14 +467,16 @@ pub async fn list_case_dirs(case_id: String) -> Result<Vec<CaseDirEntry>, String
                 } else {
                     "empty".into()
                 },
+                purpose,
             });
             children.sort();
             for child in children {
-                walk(root, &child, depth + 1, out)?;
+                walk(root, &child, depth + 1, out, purposes)?;
             }
             Ok(())
         }
-        walk(&root, &root, 0, &mut out)?;
+        let purposes = template_dir_purposes(&case_id);
+        walk(&root, &root, 0, &mut out, &purposes)?;
         Ok(out)
     })
     .await

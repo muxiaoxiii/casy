@@ -485,6 +485,12 @@ async function createDirectory() {
 }
 
 /** O7：文件轻量元数据（备注/文档日期/关键词） */
+/** C5：当前所选目录的用途说明 */
+const currentDirPurpose = computed(() => {
+  if (selectedDir.value === '__all__') return ''
+  return directories.value.find((dir) => dir.relPath === selectedDir.value)?.purpose || ''
+})
+
 const metaForm = ref({ documentDate: '', summary: '', keywords: '' })
 const metaSaving = ref(false)
 watch(selectedFile, (file) => {
@@ -692,10 +698,17 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
         <div class="directory-picker">
           <el-select v-model="selectedDir" aria-label="卷宗文件夹" :disabled="!caseId || showRemoved" filterable>
             <el-option label="所有文件夹" value="__all__" />
-            <el-option v-for="dir in directories" :key="dir.relPath" :label="dir.name" :value="dir.relPath" />
+            <el-option v-for="dir in directories" :key="dir.relPath" :label="dir.name" :value="dir.relPath">
+              <span class="dir-option">
+                <span>{{ dir.name }}</span>
+                <small v-if="dir.purpose">{{ dir.purpose }}</small>
+              </span>
+            </el-option>
           </el-select>
           <el-button :icon="FolderAdd" :disabled="!caseId || mutating || showRemoved" title="新建文件夹" aria-label="新建文件夹" @click="createDirectory" />
         </div>
+        <!-- C5：当前目录的用途说明（内置目录有既定用途；自建模板可写 description） -->
+        <p v-if="currentDirPurpose" class="dir-purpose">{{ currentDirPurpose }}</p>
 
         <nav class="folder-list" aria-label="文件分类">
           <button
@@ -1094,4 +1107,7 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
 .version-engine { font-weight: 600; }
 .version-time { color: var(--c-text-secondary); font-variant-numeric: tabular-nums; }
 .version-note { margin: 6px 0 0; font-size: 11px; color: var(--c-text-secondary); line-height: 1.6; }
+.dir-option { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.dir-option small { font-size: 11px; color: var(--c-text-secondary); line-height: 1.4; }
+.dir-purpose { margin: 6px 0 0; font-size: 11px; color: var(--c-text-secondary); line-height: 1.6; }
 </style>
