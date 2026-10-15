@@ -285,6 +285,55 @@ async function onWikiLinkClick({ title }) {
   else ElMessage.info(`未找到标题为「${title}」的笔记`)
 }
 
+/** 插入文书引用（K2 反向）：从卷宗选一份文件，插入带出处的引用块 */
+const showCiteDialog = ref(false)
+const citeCaseId = ref('')
+const citeCases = ref([])
+const citeFiles = ref([])
+const citeLoading = ref(false)
+const citeFileId = ref('')
+
+async function openCiteDialog() {
+  showCiteDialog.value = true
+  citeFileId.value = ''
+  // 默认用笔记已关联的案件
+  citeCaseId.value = draft.value.linkedCaseId || ''
+  const caseRes = await casyContext.cases.listAll()
+  if (caseRes.ok && Array.isArray(caseRes.data)) citeCases.value = caseRes.data
+  if (!citeCaseId.value && citeCases.value.length) citeCaseId.value = citeCases.value[0].id
+  await loadCiteFiles()
+}
+
+async function loadCiteFiles() {
+  if (!citeCaseId.value) { citeFiles.value = []; return }
+  citeLoading.value = true
+  const result = await casyContext.files.list(citeCaseId.value)
+  citeLoading.value = false
+  citeFiles.value = result.ok && Array.isArray(result.data) ? result.data : []
+}
+
+/** 生成引用块：出处四要素 + 正文位置提示（与卷宗页"存为知识"的引用块同格式） */
+function citeBlock(file) {
+  const lines = [
+    `> **${file.fileName}**`,
+    file.filePath ? `> 路径：${file.filePath}` : null,
+    `> 分类：${categories.find(c => c.value === file.category)?.label || file.category || '未分类'}${file.createdAt ? ` · 登记于 ${displayTime(file.createdAt)}` : ''}`,
+    '> （引用段落：在此写下你的分析，必要时注明页码）',
+  ].filter(Boolean)
+  return lines.join('\n')
+}
+
+async function insertCitation() {
+  const file = citeFiles.value.find((item) => item.id === citeFileId.value)
+  if (!file) { ElMessage.warning('请选择要引用的文件'); return }
+  syncEditorContent()
+  const block = citeBlock(file)
+  draft.value.content = draft.value.content.trim() ? `${draft.value.content.replace(/\s+$/, '')}\n\n${block}\n` : `${block}\n`
+  persistence.changed()
+  showCiteDialog.value = false
+  ElMessage.success('已插入引用，可继续在下方撰写分析')
+}
+
 /** 从当前富文本编辑器取回权威 Markdown；必须在替换 draft/selectedId 前执行。 */
 function syncEditorContent(commitSources = true) {
   const value = editorRef.value?.flushAndGetMarkdown?.(commitSources)
@@ -595,7 +644,9 @@ async function openSearchHit(id) {
       <template v-else-if="selectedNote">
         <header class="editor-toolbar">
           <div class="save-state" role="status"><span :class="{ dirty }" />{{ saving ? '保存中…' : saveError ? '保存失败' : dirty ? '等待自动保存' : '已保存' }}</div>
-          <button type="button" class="writing-focus-button" :aria-pressed="writingFocus" @click="writingFocus = !writingFocus">{{ writingFocus ? '退出专注' : '专注书写' }}</button><div class="mode-switch"><button title="富文本" :class="{ active: mode === 'rich' }" @click="changeMode('rich')"><MagicStick /> 富文本</button><button title="源码" :class="{ active: mode === 'edit' }" @click="changeMode('edit')"><EditPen /> 源码</button><button title="分栏" :class="{ active: mode === 'split' }" @click="changeMode('split')"><Tickets /> 分栏</button><button title="预览" :class="{ active: mode === 'preview' }" @click="changeMode('preview')"><View /> 预览</button></div>
+          <button type="button" class="writing-focus-button" :aria-pressed="writingFocus" @click="writingFocus = !writingFocus">{{ writingFocus ? '退出专注' : '专注书写' }}</button>
+          <!-- 编辑器侧"插入文书引用"（与卷宗页"存为知识"双向） -->
+          <button type="button" class="cite-button" @click="openCiteDialog">插入文书引用</button><div class="mode-switch"><button title="富文本" :class="{ active: mode === 'rich' }" @click="changeMode('rich')"><MagicStick /> 富文本</button><button title="源码" :class="{ active: mode === 'edit' }" @click="changeMode('edit')"><EditPen /> 源码</button><button title="分栏" :class="{ active: mode === 'split' }" @click="changeMode('split')"><Tickets /> 分栏</button><button title="预览" :class="{ active: mode === 'preview' }" @click="changeMode('preview')"><View /> 预览</button></div>
           <el-dropdown trigger="click" :disabled="exporting" @command="handleExportCommand">
             <button class="export-button" :disabled="exporting"><Download />{{ exporting ? '导出中…' : '导出' }}</button>
             <template #dropdown>
@@ -657,6 +708,28 @@ async function openSearchHit(id) {
       <KnowledgeImportPanel v-else @navigate="id => selectNote(notes.find(item => item.id === id))" @imported="id => loadAll(id)" />
     </aside>
   </div>
+  <!-- 插入文书引用 -->
+  <el-dialog v-model="showCiteDialog" title="插入文书引用" width="min(520px, calc(100vw - 32px))" destroy-on-close>
+    <div class="cite-dialog ui-col">
+      <label class="cite-field">案件
+        <select v-model="citeCaseId" @change="loadCiteFiles">
+          <option v-for="c in citeCases" :key="c.id" :value="c.id">{{ c.caseName || c.caseNo }}</option>
+        </select>
+      </label>
+      <label class="cite-field">卷宗文件
+        <select v-model="citeFileId" :disabled="!citeFiles.length">
+          <option v-for="f in citeFiles" :key="f.id" :value="f.id">{{ f.fileName }}</option>
+        </select>
+      </label>
+      <p v-if="citeLoading" class="cite-hint">正在读取卷宗…</p>
+      <p v-else-if="!citeFiles.length" class="cite-hint">该案件下还没有登记文件。</p>
+      <p v-else class="cite-hint">引用块会附在笔记末尾，含文件出处（路径 / 分类 / 登记日）；分析写在引用块下方。</p>
+    </div>
+    <template #footer>
+      <el-button @click="showCiteDialog = false">取消</el-button>
+      <el-button type="primary" :disabled="!citeFileId" @click="insertCitation">插入</el-button>
+    </template>
+  </el-dialog>
   <ContextMenu v-bind="objectMenu" @close="objectMenu.open = false" />
 </template>
 
@@ -743,6 +816,8 @@ async function openSearchHit(id) {
   .editor-toolbar { height: auto; min-height: 56px; flex-wrap: wrap; padding: 8px; }
   .mode-switch { order: 2; flex-basis: 100%; justify-content: space-between; }
 }
+.cite-button{border:1px solid var(--c-border);border-radius:7px;padding:6px 10px;background:var(--c-bg-card);color:var(--c-text-regular);font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}.cite-button:hover{border-color:var(--c-primary);color:var(--c-primary)}
+.cite-dialog{gap:14px}.cite-field{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--c-text-secondary)}.cite-field select{border:1px solid var(--c-border);border-radius:7px;background:var(--c-bg-page);color:var(--c-text);padding:8px}.cite-hint{margin:0;font-size:11px;color:var(--c-text-secondary);line-height:1.6}
 </style>
 
 <style scoped>
