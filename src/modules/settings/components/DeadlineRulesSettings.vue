@@ -5,21 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Delete, Edit, Plus, RefreshRight } from '../../../shared/icons'
 import { tauriCall, tauriCallSafe } from '../../../core/tauriBridge'
 import DeadlineRuleAuditDrawer from './DeadlineRuleAuditDrawer.vue'
-import {
-  CALC_METHOD_LABELS,
-  CALC_METHOD_OPTIONS,
-  DEADLINE_SOURCE_LABELS,
-  DEADLINE_SOURCE_OPTIONS,
-  OFFSET_UNIT_OPTIONS,
-  TRACK_LABELS,
-  TRACK_TAG_TYPES,
-  TRIGGER_FIELD_OPTIONS,
-  formatOffset,
-  formatProcedureTypes,
-  trackLabel,
-  triggerFieldLabel,
-  type DeadlineRuleDto,
-} from './deadlineRuleMeta'
+import { CALC_METHOD_LABELS, CALC_METHOD_OPTIONS, DEADLINE_SOURCE_LABELS, DEADLINE_SOURCE_OPTIONS, OFFSET_UNIT_LABELS, OFFSET_UNIT_OPTIONS, TRACK_LABELS, TRACK_TAG_TYPES, TRIGGER_FIELD_OPTIONS, formatOffset, formatProcedureTypes, trackLabel, triggerFieldLabel, type DeadlineRuleDto } from './deadlineRuleMeta'
 import EmptyState from '../../../shared/components/EmptyState.vue'
 
 // ── 列表数据 ─────────────────────────────────────────────────
@@ -104,6 +90,30 @@ interface RuleForm {
 }
 
 const dialogVisible = ref(false)
+// X6：即时预览用的示例触发日（固定值，保证同一规则每次预览结果一致）
+const PREVIEW_SAMPLE_DATE = '2026-10-13'
+/** X6：不保存也能看到这条规则会算出什么日子。
+ *  与后端 add_days_* / add_months_* 同口径：自然日直接相加、日历月取同一天、
+ *  诉讼法算法把落在周末的结果顺延到下一个工作日。 */
+const previewDueDate = computed(() => {
+  const value = Number(form.offsetValue)
+  if (!Number.isFinite(value) || value <= 0) return '—'
+  const base = new Date(`${PREVIEW_SAMPLE_DATE}T00:00:00`)
+  if (Number.isNaN(base.getTime())) return '—'
+  let result: Date
+  if (form.offsetUnit === 'calendar_month') {
+    result = new Date(base)
+    result.setMonth(result.getMonth() + Math.floor(value))
+  } else {
+    result = new Date(base.getTime() + Math.floor(value) * 86400000)
+  }
+  if (form.calcMethod === 'civil') {
+    while (result.getDay() === 0 || result.getDay() === 6) result.setDate(result.getDate() + 1)
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${result.getFullYear()}-${pad(result.getMonth() + 1)}-${pad(result.getDate())}`
+})
+
 const saving = ref(false)
 const editingRule = ref<DeadlineRuleDto | null>(null)
 const form = reactive<RuleForm>({
@@ -390,6 +400,16 @@ onMounted(loadRules)
           </div>
           <p class="field-hint">仅支持触发日之后：自然日 1–3650，日历月 1–120</p>
         </el-form-item>
+        <!-- X6：即时预览——不保存也能看到这条规则会算出什么日子（对标 OA 流水号规则的右侧实时预览） -->
+        <div class="rule-preview">
+          <span class="preview-label">预览</span>
+          <span class="preview-body">
+            以 <strong>{{ PREVIEW_SAMPLE_DATE }}</strong>（示例{{ triggerFieldLabel(form.triggerField) }}）为触发日，
+            按 <strong>{{ form.offsetValue }} {{ OFFSET_UNIT_LABELS[form.offsetUnit] || form.offsetUnit }}</strong>
+            ＋ <strong>{{ CALC_METHOD_LABELS[form.calcMethod] || form.calcMethod }}</strong> 计算：
+            <strong class="preview-result">{{ previewDueDate }}</strong>
+          </span>
+        </div>
         <el-form-item label="计算算法">
           <el-select v-model="form.calcMethod" style="width: 100%">
             <el-option v-for="o in CALC_METHOD_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
@@ -471,4 +491,8 @@ onMounted(loadRules)
   color: var(--c-text-placeholder);
   line-height: 1.4;
 }
+.rule-preview { display: flex; gap: 8px; margin: 0 0 12px; padding: 8px 10px; border-radius: 6px; background: var(--c-bg-subtle); font-size: 12px; line-height: 1.7; }
+.rule-preview .preview-label { flex-shrink: 0; color: var(--c-text-secondary); }
+.rule-preview .preview-body { color: var(--c-text-regular); }
+.rule-preview .preview-result { color: var(--c-primary); font-variant-numeric: tabular-nums; }
 </style>
