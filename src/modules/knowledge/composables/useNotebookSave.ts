@@ -8,6 +8,10 @@ export interface NotebookDraft {
   tags: string
   linkedCaseId: string
   parentId: string
+  /** K1：法律字段（法条笔记） */
+  lawName?: string
+  articleNo?: string
+  effectiveDate?: string
 }
 
 export function useNotebookSave(options: {
@@ -101,6 +105,10 @@ export function useNotebookSave(options: {
             title: draft.title.trim() || '无标题笔记', content: draft.content,
             category: draft.category, tags: draft.tags || null,
             linkedCaseId: draft.linkedCaseId || null, parentId: draft.parentId || null,
+            // K1：法律字段一并提交（空串归一为 null，避免把空字符串写进日期列）
+            lawName: draft.lawName?.trim() || null,
+            articleNo: draft.articleNo?.trim() || null,
+            effectiveDate: draft.effectiveDate?.trim() || null,
             status: 'current',
           }
           saving.value = true

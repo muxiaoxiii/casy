@@ -326,7 +326,7 @@ export type KnowledgeGraphDto = { nodes: GraphNodeDto[]; edges: GraphEdgeDto[] }
 /**
  * 知识条目主体
  */
-export type KnowledgeItemDto = { id: string; title: string; category: string; content: string; tags: string | null; sourceType: string | null; linkedCaseId: string | null; parentId: string | null; blockType: string | null; createdAt: string | null; updatedAt: string | null }
+export type KnowledgeItemDto = { id: string; title: string; category: string; content: string; tags: string | null; sourceType: string | null; linkedCaseId: string | null; parentId: string | null; blockType: string | null; createdAt: string | null; updatedAt: string | null; lawName: string | null; articleNo: string | null; effectiveDate: string | null }
 
 /**
  * 统计（byCategory 保持原 [分类,计数] 元组数组形状）

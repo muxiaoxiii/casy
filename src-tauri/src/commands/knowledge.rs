@@ -125,7 +125,8 @@ pub async fn get_knowledge_with_blocks(id: String) -> Result<KnowledgeWithBlocks
         let item = conn
             .query_row(
                 "SELECT id, title, category, content, tags, source_type, linked_case_id,
-                        parent_id, block_type, created_at, updated_at
+                        parent_id, block_type, created_at, updated_at,
+                        law_name, article_no, effective_date
                  FROM knowledge_items WHERE id = ?1",
                 rusqlite::params![id],
                 |row| {
@@ -141,6 +142,9 @@ pub async fn get_knowledge_with_blocks(id: String) -> Result<KnowledgeWithBlocks
                         block_type: row.get::<_, Option<String>>(8)?,
                         created_at: row.get::<_, Option<String>>(9)?,
                         updated_at: row.get::<_, Option<String>>(10)?,
+                        law_name: row.get::<_, Option<String>>(11)?,
+                        article_no: row.get::<_, Option<String>>(12)?,
+                        effective_date: row.get::<_, Option<String>>(13)?,
                     })
                 },
             )
@@ -1126,6 +1130,10 @@ pub struct KnowledgeItemDto {
     pub block_type: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    /// K1：法律字段（旧 UI 有、新 Notebook 无入口——DB 列与 patch 一直都在）
+    pub law_name: Option<String>,
+    pub article_no: Option<String>,
+    pub effective_date: Option<String>,
 }
 
 /// 条目 + 块树

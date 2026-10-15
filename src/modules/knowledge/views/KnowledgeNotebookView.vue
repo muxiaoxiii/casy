@@ -16,7 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { observeChanges } from '../../../core/observeChanges'
 import { casyContext } from '../../../core/plugin/context'
 import {
-  Collection, Delete, Folder, Link, Plus, Search,
+  Collection, Delete, Document, Folder, Link, Plus, Search,
   Tickets, View, EditPen, Clock, Connection, Download, MagicStick, List,
 } from '../../../shared/icons'
 import MarkdownCodeMirror from '../components/MarkdownCodeMirror.vue'
@@ -159,7 +159,7 @@ const categories = [
 ]
 
 function emptyDraft() {
-  return { id: '', title: '', content: '', category: 'reference', tags: '', linkedCaseId: '', parentId: '' }
+  return { id: '', title: '', content: '', category: 'reference', tags: '', linkedCaseId: '', parentId: '', lawName: '', articleNo: '', effectiveDate: '' }
 }
 
 function normalizeList(data) {
@@ -351,6 +351,9 @@ async function selectNote(note) {
       tags: current.tags || '',
       linkedCaseId: current.linkedCaseId || '',
       parentId: current.parentId || '',
+      lawName: current.lawName || '',
+      articleNo: current.articleNo || '',
+      effectiveDate: current.effectiveDate || '',
     })
     outlineItems.value = []
     mobilePane.value = 'editor'
@@ -375,6 +378,7 @@ async function createNote(parentId = '') {
   const result = await casyContext.knowledge.create({
     title: '无标题笔记', content: '', category: 'reference',
     tags: '', linkedCaseId: null, parentId: parentId || null, sourceType: 'notebook', status: 'current', blockType: 'page',
+    lawName: null, articleNo: null, effectiveDate: null,
   })
   if (!result.ok) return ElMessage.error(result.error || '新建失败')
   await loadAll(result.data)
@@ -568,7 +572,7 @@ async function openSearchHit(id) {
         <button v-for="note in visibleNotes" :key="note.id" class="note-card" :disabled="documentBusy" :class="{ active: !selectedSource && note.id === selectedId }" :style="{ '--tree-depth': note.depth }" @click="selectNote(note)" @contextmenu="showObjectMenu($event, note.title, [{ label: '打开笔记', disabled: documentBusy, run: () => selectNote(note) }, { label: '新建子笔记', disabled: documentBusy, run: () => createNote(note.id) }])">
           <div class="note-card-top ui-row"><strong>{{ note.title || '无标题笔记' }}</strong><span class="note-category">{{ categories.find(c => c.value === note.category)?.label || '其他' }}</span></div>
           <p>{{ noteSummary(note) }}</p>
-          <div class="note-meta ui-row ui-row--wrap"><span class="ui-row"><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId" class="ui-row"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span></div>
+          <div class="note-meta ui-row ui-row--wrap"><span class="ui-row"><Clock /> {{ displayTime(note.updatedAt) }}</span><span v-if="note.linkedCaseId" class="ui-row"><Folder /> {{ cases.find(c => c.id === note.linkedCaseId)?.caseName || '关联案件' }}</span><span v-if="note.lawName" class="ui-row"><Document /> {{ note.lawName }}<template v-if="note.articleNo"> {{ note.articleNo }}</template></span></div>
         </button>
         <EmptyState v-if="!loading && !loadError && !filteredNotes.length && !visibleSources.length"
           :type="search || category !== 'all' ? 'search' : 'custom'" compact
@@ -614,6 +618,10 @@ async function openSearchHit(id) {
             <label>关联案件<select v-model="draft.linkedCaseId"><option value="">未关联案件</option><option v-for="c in cases" :key="c.id" :value="c.id">{{ c.caseName || c.displayName || c.caseNo }}</option></select></label>
             <label>上级笔记<select v-model="draft.parentId"><option value="">知识库根目录</option><option v-for="item in notes.filter(n => n.id !== draft.id && n.blockType !== 'block')" :key="item.id" :value="item.id">{{ item.title || '无标题笔记' }}</option></select></label>
             <label class="tags-field">标签<input v-model="draft.tags" placeholder="用逗号分隔" /></label>
+            <!-- K1：法律字段（法条笔记用；旧 UI 有、新 Notebook 曾丢失） -->
+            <label>法律名称<input v-model="draft.lawName" placeholder="如：民法典" /></label>
+            <label>条款号<input v-model="draft.articleNo" placeholder="如：第 580 条" /></label>
+            <label>生效日期<input v-model="draft.effectiveDate" type="date" /></label>
           </div>
           </details>
           <div v-if="selectedCaseName" class="case-chip"><Folder /> 已关联：{{ selectedCaseName }}</div>
