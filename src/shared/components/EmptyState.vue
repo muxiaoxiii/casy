@@ -1,3 +1,20 @@
+<!--
+  空态规范（X2）
+
+  四要素，按此顺序呈现：
+    1. 图标：`type` 预设（cases/tasks/docs/knowledge/calendar/inbox/files/search），
+       非预设场景用 `icon` 传自定义图标；不要用 emoji 兜底。
+    2. 标题：说清"这里现在没有什么"，不道歉、不问句。例："此目录暂无已登记文件"。
+    3. 说明：一句话告诉用户**下一步做什么**，以及为什么现在是空的（首次使用 vs
+       筛选无结果 vs 权限/能力未开启——这三者的文案不同）。
+    4. 行动：只要"用户此刻能做的下一件事"存在，就必须给 `actionText` + `@action`；
+       只有纯粹的状态展示（如筛选无结果、能力未开启需先设置）才用 `hideAction`。
+
+  反模式（本次打磨中实际见到的）：
+    - 有 actionText 但没接 @action，按钮点了没反应；
+    - 同一个模块两处视图，一处给行动一处不给，用户切换时认知断裂；
+    - 把错误态当空态：读取失败应走错误态（UiDataState / el-alert），不是空态。
+-->
 <script setup>
 import { computed } from 'vue'
 import {

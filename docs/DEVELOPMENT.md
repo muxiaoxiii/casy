@@ -119,3 +119,10 @@ echo '<ProcessRequest JSON>' | CASY_BENCH_RUNS=3 ./tools/casy-doc-engine/target/
 分组口径：`新增` / `改进` / `修复` / `移除` / `安全` / `文档`。写 bug 条目时写清**症状 + 根因 + 修法**，例如"Windows 主线程默认栈 1MB（macOS 8MB），OCR/ONNX 调用链超出 → 引擎改到显式 64MB 栈的工作线程运行"，而不是"修复 Windows 崩溃"。
 
 这套纪律参照律智荟 OA 说明书：它的更新日志把每个版本的新增/优化/修复逐条列出，连"Utc 时间导致计时错误""计时器与 web 端不同步"这类 bug 都写清楚。详见 `docs/DETAIL_POLISH_0.2.0.md` §1.8。
+
+## 空态规范
+
+`src/shared/components/EmptyState.vue` 的 docblock 即规范本体，要点：
+
+- 四要素依序呈现：图标（`type` 预设优先，不要 emoji 兜底）→ 标题（说清"没有什么"，不道歉不问句）→ 说明（告诉用户下一步做什么，并区分"首次使用 / 筛选无结果 / 能力未开启"三种成因，文案不同）→ 行动（只要用户此刻有能做的下一件事，就必须给 `actionText` + `@action`；只有纯状态展示才 `hideAction`）。
+- 读取失败走错误态（`UiDataState` / `el-alert`），**不要用空态掩盖错误**——本项目多处测试正是断言"失败不得渲染成暂无数据"。
