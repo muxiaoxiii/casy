@@ -218,8 +218,75 @@ const filteredTasks = computed(() => applyTaskCardFilters(
 
 // Preserve independently actionable children when their parent is outside this perspective/filter.
 const taskListEl = ref<HTMLElement | null>(null)
+/** T1b：任务多选批量（完成 / 改案件） */
+const checkedTaskIds = ref([])
+const batchTaskBusy = ref(false)
+const allChecked = computed(() => gtdTasks.value.length > 0 && gtdTasks.value.every((task) => checkedTaskIds.value.includes(task.id)))
+
+function toggleTaskCheck(task) {
+  checkedTaskIds.value = checkedTaskIds.value.includes(task.id)
+    ? checkedTaskIds.value.filter((id) => id !== task.id)
+    : [...checkedTaskIds.value, task.id]
+}
+function toggleAllTasks() {
+  checkedTaskIds.value = allChecked.value ? [] : gtdTasks.value.map((task) => task.id)
+}
+
+/** 批量完成（X3：逐项成败） */
+async function batchCompleteTasks() {
+  const ids = checkedTaskIds.value
+  if (!ids.length || batchTaskBusy.value) return
+  batchTaskBusy.value = true
+  const succeeded = []
+  const failed = []
+  for (const id of ids) {
+    const task = tasks.value.find((item) => item.id === id)
+    if (!task) continue
+    if (task.completed) { succeeded.push(task.taskName); continue }
+    const ok = await completeTaskOptimistic(task)
+    if (ok) succeeded.push(task.taskName)
+    else failed.push({ name: task.taskName, error: '完成失败' })
+  }
+  batchTaskBusy.value = false
+  checkedTaskIds.value = []
+  await loadTasks()
+  if (!failed.length) { ElMessage.success(`已完成 ${succeeded.length} 项任务`); return }
+  ElMessageBox.alert(
+    `成功 ${succeeded.length} 项，失败 ${failed.length} 项：\n${failed.map((item) => `· ${item.name}`).join('\n')}`,
+    '批量完成结果',
+    { confirmButtonText: '知道了', type: 'warning', customClass: 'batch-result-dialog' },
+  )
+}
+
+/** 批量改案件 */
+async function batchMoveTasksToCase() {
+  const ids = checkedTaskIds.value
+  if (!ids.length || batchTaskBusy.value) return
+  if (!batchCaseId.value) { ElMessage.warning('请先选择目标案件'); return }
+  batchTaskBusy.value = true
+  const succeeded = []
+  const failed = []
+  for (const id of ids) {
+    const task = tasks.value.find((item) => item.id === id)
+    if (!task) continue
+    const result = await casyContext.tasks.update({ id, caseId: batchCaseId.value })
+    if (result.ok) succeeded.push(task.taskName)
+    else failed.push({ name: task.taskName, error: result.error || '改案件失败' })
+  }
+  batchTaskBusy.value = false
+  checkedTaskIds.value = []
+  await loadTasks()
+  if (!failed.length) { ElMessage.success(`已移动 ${succeeded.length} 项任务`); return }
+  ElMessageBox.alert(
+    `成功 ${succeeded.length} 项，失败 ${failed.length} 项：\n${failed.map((item) => `· ${item.name}：${item.error}`).join('\n')}`,
+    '批量改案件结果',
+    { confirmButtonText: '知道了', type: 'warning', customClass: 'batch-result-dialog' },
+  )
+}
+
 // T1：列表排序（此前列表序即后端序，无法按期限/优先级重排）
 const taskSort = ref('smart')
+const batchCaseId = ref('')
 const SORT_LABELS = { smart: '智能排序', due: '按截止日', priority: '按优先级', case: '按案件', created: '按创建时间' }
 const PRIORITY_RANK = { urgent_important: 0, important: 1, urgent: 2, normal: 3 }
 function sortTasks(list) {
@@ -911,6 +978,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             @reviewed="markReviewed"
             @follow-up="openDrawer"
           />
+          </div>
           <TaskQuickEditor ref="quickEditors" v-if="inspectedTaskId === task.id" :key="'edit-' + task.id" :task="task" :cases="cases" @close="inspectedTaskId = ''" @saved="loadTasks" @advanced="advancedTask(task)" />
           </template>
         </div>
@@ -931,12 +999,25 @@ function getCustomPerspectiveCount(perspectiveId) {
           </h2>
           <span class="lsh-sub">{{ perspectives.find(p => p.key === activePerspective)?.desc || '' }}</span>
         </div>
-        <span class="lsh-badge">{{ gtdTasks.length }} 项</span>
+        <div class="lsh-batch ui-row" v-if="gtdTasks.length">
+          <el-checkbox :model-value="allChecked" :indeterminate="checkedTaskIds.length > 0 && !allChecked" size="small" aria-label="全选本页任务" @change="toggleAllTasks" />
+          <span class="lsh-badge">{{ gtdTasks.length }} 项</span>
+          <template v-if="checkedTaskIds.length">
+            <el-button size="small" type="primary" plain :loading="batchTaskBusy" @click="batchCompleteTasks">完成 {{ checkedTaskIds.length }}</el-button>
+            <el-select v-model="batchCaseId" size="small" clearable filterable placeholder="移到案件" style="width: 160px" aria-label="批量移动到案件">
+              <el-option v-for="c in cases" :key="c.id" :value="c.id" :label="c.caseNo ? `${c.caseName} · ${c.caseNo}` : c.caseName" />
+            </el-select>
+            <el-button size="small" :loading="batchTaskBusy" :disabled="!batchCaseId" @click="batchMoveTasksToCase">移动</el-button>
+            <el-button size="small" text @click="checkedTaskIds = []">取消选择</el-button>
+          </template>
+        </div>
       </div>
 
       <div ref="taskListEl" class="task-rows-stack ui-col" tabindex="0" @keydown="taskNav.onKeydown">
         <template v-for="task in gtdTasks" :key="task.id">
-          <TaskRow
+          <div class="task-row-with-check ui-row">
+            <el-checkbox :model-value="checkedTaskIds.includes(task.id)" size="small" aria-label="`选择 ${task.taskName}`" @click.stop @change="toggleTaskCheck(task)" />
+            <TaskRow
             :task="task"
             :data-nav-id="task.id"
             :class="{ 'nav-cursor': taskNav.cursorId.value === task.id }"
@@ -1798,6 +1879,10 @@ function getCustomPerspectiveCount(perspectiveId) {
   .task-search-box { flex: 1; min-width: 140px; width: auto; }
   .filter-toolbar-row { flex-wrap: wrap; }
 }
+.task-row-with-check { align-items: flex-start; gap: 8px; }
+.task-row-with-check > .el-checkbox { margin-top: 12px; flex-shrink: 0; }
+.lsh-batch { gap: 8px; flex-wrap: wrap; }
+:deep(.batch-result-dialog) { white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
 </style>
 
 <style scoped>
