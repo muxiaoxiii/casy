@@ -264,7 +264,11 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
           <div class="dir-editor">
             <div class="dir-header">
               <span>目录列表</span>
-              <el-button size="small" @click="addDirectory">添加目录</el-button>
+              <div class="ui-row" style="gap:8px">
+                <!-- X6：即时预览（对标 OA 流水号规则的实时预览）——不保存就能看到新案件的卷宗长什么样 -->
+                <span v-if="editingTemplate.directories.length" class="dir-count">{{ editingTemplate.directories.length }} 个目录</span>
+                <el-button size="small" @click="addDirectory">添加目录</el-button>
+              </div>
             </div>
             <div
               v-for="(dir, index) in editingTemplate.directories"
@@ -296,6 +300,19 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
                 </el-button>
               </div>
             </div>
+          </div>
+
+          <!-- X6：卷宗结构即时预览（随编辑实时更新，无需保存） -->
+          <div class="dir-preview">
+            <span class="preview-label">新案件卷宗预览</span>
+            <ol v-if="editingTemplate.directories.length" class="preview-tree">
+              <li v-for="(dir, index) in editingTemplate.directories" :key="index">
+                <span class="preview-dir">{{ dir.id }}_{{ dir.name || '未命名' }}</span>
+                <span v-if="dir.desc" class="preview-desc">{{ dir.desc }}</span>
+              </li>
+            </ol>
+            <p v-else class="preview-empty">还没有目录，新建案件时只会建卷宗根目录。</p>
+            <p class="preview-note">目录描述会显示在卷宗的文件夹选择器里（见卷宗页的目录用途说明）。</p>
           </div>
         </div>
 
@@ -518,4 +535,13 @@ const customTemplates = computed(() => templates.value.filter(t => !t.isBuiltin)
 .naming-form {
   max-width: 500px;
 }
+.dir-count { font-size: 12px; color: var(--c-text-secondary); }
+.dir-preview { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--c-border-light); border-radius: 6px; background: var(--c-bg-subtle); }
+.dir-preview .preview-label { display: block; margin-bottom: 6px; font-size: 11px; color: var(--c-text-secondary); }
+.preview-tree { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.preview-tree li { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.preview-tree .preview-dir { font-family: var(--font-mono, monospace); color: var(--c-text); }
+.preview-tree .preview-desc { font-size: 11px; color: var(--c-text-secondary); }
+.preview-empty, .preview-note { margin: 0; font-size: 11px; color: var(--c-text-secondary); line-height: 1.6; }
+.preview-note { margin-top: 6px; }
 </style>
