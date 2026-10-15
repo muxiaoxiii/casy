@@ -20,6 +20,7 @@ import TaskRow from '../components/TaskRow.vue'
 import AreasDialog from '../components/AreasDialog.vue'
 import StateFeedback from '../../../shared/components/StateFeedback.vue'
 import EmptyState from '../../../shared/components/EmptyState.vue'
+import ListToolbar from '../../../shared/components/ListToolbar.vue'
 import SkeletonCard from '../../../shared/components/SkeletonCard.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { formatDate } from '../utils/taskDisplay'
@@ -210,6 +211,7 @@ const filteredTasks = computed(() => applyTaskCardFilters(
     searchQuery: searchQuery.value,
     contextFilter: selectedContextFilter.value,
     caseFilter: selectedCaseFilter.value,
+    areaFilter: areaFilter.value,
     resolveCaseName: getCaseName,
     metric: route.query.metric,
     todayStr: todayStr.value,
@@ -287,6 +289,8 @@ async function batchMoveTasksToCase() {
 // T1：列表排序（此前列表序即后端序，无法按期限/优先级重排）
 const taskSort = ref('smart')
 const batchCaseId = ref('')
+/** X1：高级筛选——按领域过滤 */
+const areaFilter = ref('')
 const SORT_LABELS = { smart: '智能排序', due: '按截止日', priority: '按优先级', case: '按案件', created: '按创建时间' }
 const PRIORITY_RANK = { urgent_important: 0, important: 1, urgent: 2, normal: 3 }
 function sortTasks(list) {
@@ -696,6 +700,13 @@ async function confirmPlanDate() {
 }
 
 /** T4：跳转到日历的横向甘特图（任务的独立计划在那里调整） */
+/** X1：重置任务筛选 */
+function clearTaskFilters() {
+  selectedCaseFilter.value = 'all'
+  areaFilter.value = ''
+  searchQuery.value = ''
+}
+
 function openScheduleGantt() {
   router.push({ path: '/calendar', query: { view: 'forecast', layout: 'gantt' } })
 }
@@ -833,33 +844,42 @@ function getCustomPerspectiveCount(perspectiveId) {
 
       <div class="header-actions ui-row">
         <el-button :icon="RefreshLeft" :disabled="!undoAvailable || undoBusy" aria-label="撤销任务操作" title="撤销任务操作" @click="undoTaskAction" />
-        <!-- 快速搜索 -->
-        <div class="task-search-box">
-          <el-icon class="search-icon" :size="14"><Search /></el-icon>
-          <input v-model="searchQuery" placeholder="搜索任务名称、案件、备注..." class="search-real-input" />
-          <el-icon v-if="searchQuery" class="clear-icon" :size="12" @click="searchQuery = ''"><Close /></el-icon>
-        </div>
-
-        <button class="btn-action-ghost ui-row" @click="showAreasDialog = true">
-          <el-icon :size="14"><Folder /></el-icon>
-          <span>领域</span>
-        </button>
-
-        <!-- T1：排序 -->
-        <div class="task-sort-box">
-          <el-icon :size="14"><Sort /></el-icon>
-          <select v-model="taskSort" class="sort-select" aria-label="任务排序方式">
-            <option v-for="(label, key) in SORT_LABELS" :key="key" :value="key">{{ label }}</option>
-          </select>
-        </div>
-
-        <!-- T4：排期甘特入口（此前只藏在 日历 → 预测 → 横向甘特图） -->
-        <button class="btn-action-ghost ui-row" @click="openScheduleGantt">
-          <el-icon :size="14"><TrendCharts /></el-icon>
-          <span>排期</span>
-        </button>
-
-        <button class="btn-action-primary ui-row" @click="openNewTask">
+        <!-- X1：共享列表工具栏（搜索 + 排序 + 可展开筛选），模块特有操作走 actions 插槽 -->
+        <ListToolbar
+          :query="searchQuery"
+          :sort="taskSort"
+          :sort-options="SORT_LABELS"
+          search-placeholder="搜索任务名称、案件、备注..."
+          advanced-key="tasks"
+          :total-label="`${gtdTasks.length} 项`"
+          @update:query="searchQuery = $event"
+          @update:sort="taskSort = $event"
+        >
+          <template #actions>
+            <button class="btn-action-ghost ui-row" @click="openScheduleGantt">
+              <el-icon :size="14"><TrendCharts /></el-icon>
+              <span>排期</span>
+            </button>
+            <button class="btn-action-ghost ui-row" @click="showAreasDialog = true">
+              <el-icon :size="14"><Folder /></el-icon>
+              <span>领域</span>
+            </button>
+            <button class="btn-action-primary ui-row" @click="openNewTask">
+              <el-icon :size="14"><Plus /></el-icon>
+              <span>新建任务</span>
+            </button>
+          </template>
+          <template #advanced>
+            <el-select v-model="selectedCaseFilter" size="small" clearable filterable placeholder="关联案件" style="width: 200px" aria-label="按关联案件筛选">
+              <el-option label="全部案件" value="all" />
+              <el-option v-for="c in cases" :key="c.id" :value="c.id" :label="c.caseName || c.caseNo" />
+            </el-select>
+            <el-select v-model="areaFilter" size="small" clearable placeholder="领域" style="width: 160px" aria-label="按领域筛选">
+              <el-option v-for="area in areas" :key="area.id" :value="area.id" :label="area.name" />
+            </el-select>
+            <el-button size="small" text @click="clearTaskFilters">重置筛选</el-button>
+          </template>
+        </ListToolbar>
           <el-icon :size="14"><Plus /></el-icon>
           <span>新建任务</span>
         </button>
@@ -1316,11 +1336,7 @@ function getCustomPerspectiveCount(perspectiveId) {
   display: block;
 }
 
-.task-search-box {
-  position: relative;
-  width: 260px;
-}
-.task-sort-box { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 32px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-bg-card); color: var(--c-text-secondary); }
+
 .sort-select { border: 0; outline: 0; background: transparent; color: var(--c-text-regular); font-size: 12px; }
 
 .search-icon {
@@ -1876,7 +1892,7 @@ function getCustomPerspectiveCount(perspectiveId) {
 
 @container (max-width: 700px) {
   .header-actions { flex-wrap: wrap; width: 100%; gap: 8px; }
-  .task-search-box { flex: 1; min-width: 140px; width: auto; }
+  .header-actions :deep(.toolbar-search) { flex: 1; min-width: 140px; }
   .filter-toolbar-row { flex-wrap: wrap; }
 }
 .task-row-with-check { align-items: flex-start; gap: 8px; }
@@ -1914,7 +1930,6 @@ function getCustomPerspectiveCount(perspectiveId) {
 .task-page-description { font-size: 12px; color: var(--c-text-secondary); margin: 12px 0 0; }
 .header-actions { gap: 8px; margin-left: auto; flex-wrap: wrap; }
 .header-actions > .btn-action-ghost { display: none; }
-.task-search-box { width: 160px; }
 .capture-bar-wrapper { padding: 0 0 18px; margin: 0; }
 .capture-real-box { background: var(--c-bg); border: 1px solid var(--c-border); box-shadow: none; border-radius: 8px; min-height: 48px; }
 .cap-input { font-size: 13px; }

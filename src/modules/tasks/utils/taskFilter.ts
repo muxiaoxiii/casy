@@ -152,6 +152,7 @@ export interface TaskCardFilterOpts {
   caseFilter?: string
   /** 案件名解析回调（默认空串，避免依赖视图的 cases 列表） */
   resolveCaseName?: (caseId: string | null) => string
+  areaFilter?: string
 }
 
 /** 在透视结果之上叠加关键字/上下文/案件过滤（顺序与原 gtdTasks 一致） */
@@ -164,6 +165,11 @@ export function applyTaskCardFilters(list: Task[], opts: TaskCardFilterOpts = {}
     result = result.filter(t => !t.completed && (t.dueDate === opts.todayStr || t.deadline === opts.todayStr))
   } else if (opts.metric === 'waitingOverdue') {
     result = result.filter(t => !t.completed && (t.taskType === 'waiting' || !!t.waitingFor) && t.followUpDate && t.followUpDate < (opts.todayStr || ''))
+  }
+
+  // 按领域过滤（X1 高级筛选）
+  if (opts.areaFilter) {
+    result = result.filter(t => t.areaId === opts.areaFilter)
   }
 
   // 关键字搜索：名称/备注/案件名任一命中
