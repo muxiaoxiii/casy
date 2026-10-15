@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 46;
+pub const CURRENT_SCHEMA_VERSION: i64 = 47;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -723,6 +723,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("44", MIGRATION_V44_SQL),
     ("45", MIGRATION_V45_SQL),
     ("46", MIGRATION_V46_SQL),
+    ("47", MIGRATION_V47_SQL),
 ];
 
 
@@ -3603,6 +3604,19 @@ fn apply_conditional_segments(conn: &Connection) -> Result<(), anyhow::Error> {
         tx.execute_batch("ALTER TABLE cases ADD COLUMN raw_track TEXT;")?;
     }
 
+    // 条件补列 + 索引：document_processing_jobs.pinned（O5 校订版本链）
+    let job_columns: Vec<String> = tx
+        .prepare("PRAGMA table_info(document_processing_jobs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !job_columns.iter().any(|col| col == "pinned") {
+        tx.execute_batch(
+            "ALTER TABLE document_processing_jobs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+        )?;
+        log::info!("Added pinned column to document_processing_jobs (OCR revision pinning)");
+    }
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS idx_document_jobs_pinned ON document_processing_jobs(file_id, pinned);")?;
+
     // 条件补列 + 索引：knowledge_items.law_name（旧 DB 可能缺少该列）
     let has_law_name: bool = tx
         .prepare("PRAGMA table_info(knowledge_items)")?
@@ -4818,6 +4832,14 @@ pub const MIGRATION_V46_SQL: &str = r#"
 -- document_pages.orientation_degrees 由 apply_conditional_segments 幂等补列
 SELECT 1;
 "#;
+
+// O5：document_processing_jobs.pinned 的补列在 apply_conditional_segments 中条件执行
+// （SQLite 无 ADD COLUMN IF NOT EXISTS；无条件执行会在"旧版本号 + 新结构"的测试库上
+// 报 duplicate column）。
+const MIGRATION_V47_SQL: &str = r#"
+SELECT 1;
+"#;
+
 
 /// 同步推送重试计数：失败记录按 attempts 指数退避，达上限才写 push_failed。
 /// 幂等补列在 apply_conditional_segments 中完成（ALTER TABLE 无 IF NOT EXISTS，

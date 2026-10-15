@@ -144,6 +144,32 @@ function ocrBadge(file) {
   return OCR_BADGES[state?.status || 'pending']
 }
 
+/** O5：校订版本链——该文件全部 OCR 版本（含校订版），新的在前 */
+const jobVersions = ref([])
+const versionBusy = ref(false)
+
+async function loadJobVersions(fileId) {
+  const jobs = await tauriCall('list_case_document_jobs', { caseId: caseId.value }, { silent: true })
+  if (!Array.isArray(jobs)) { jobVersions.value = []; return }
+  jobVersions.value = jobs
+    .filter((job) => job.fileId === fileId)
+    .slice()
+    .sort((a, b) => Number(b.pinned ? 1 : 0) - Number(a.pinned ? 1 : 0) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+}
+
+async function pinVersion(job) {
+  const file = selectedFile.value
+  if (!file || versionBusy.value) return
+  versionBusy.value = true
+  const result = await casyContext.files.pinDocumentJob(file.id, job.id)
+  versionBusy.value = false
+  if (!result.ok) { ElMessage.error(result.error || '切换版本失败'); return }
+  ElMessage.success(job.pinned ? '已回到该版本' : '已切换到该版本，检索索引将随之更新')
+  await loadJobVersions(file.id)
+  await loadDocumentJobs()
+  await loadOcrStates()
+}
+
 async function loadDocumentJobs() {
   const target = caseId.value
   const jobs = await tauriCall('list_case_document_jobs', { caseId: target }, { silent: true })
@@ -468,6 +494,7 @@ watch(selectedFile, (file) => {
     summary: file.knowledgeSummary || '',
     keywords: file.knowledgeKeywords || '',
   }
+  if (file) void loadJobVersions(file.id)
 }, { immediate: true })
 
 async function saveMeta() {
@@ -797,6 +824,19 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
             <p v-if="documentJobs[selectedFile.id]?.errorMessage" class="ocr-engine-error">
               {{ documentJobs[selectedFile.id].errorMessage }}
             </p>
+            <!-- O5：校订版本链 -->
+            <div v-if="jobVersions.length > 1" class="version-chain">
+              <span class="panel-kicker">识别版本（{{ jobVersions.length }}）</span>
+              <ol class="version-list">
+                <li v-for="job in jobVersions" :key="job.id" :class="{ active: job.pinned }">
+                  <span class="version-engine">{{ job.engine === 'paddle-onnx-corrected' ? '校订版' : '原始 OCR' }}</span>
+                  <span class="version-time">{{ formatDate(job.createdAt) }}</span>
+                  <el-button v-if="!job.pinned" text size="small" :loading="versionBusy" @click="pinVersion(job)">回退到此版</el-button>
+                  <el-tag v-else size="small" type="success">当前生效</el-tag>
+                </li>
+              </ol>
+              <p class="version-note">回退只是切换读取哪个版本，不会删除任何版本；切换后全文检索索引会重建。</p>
+            </div>
           </div>
 
           <!-- W4: 跨模块双链反链（谁引用了这份文件） -->
@@ -1047,4 +1087,11 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
   .inspector-preview { min-height: 110px; padding: 16px; }
 }
 
+.version-chain { margin-top: 10px; }
+.version-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.version-list li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: 12px; background: var(--c-bg-subtle); }
+.version-list li.active { background: var(--c-success-light); }
+.version-engine { font-weight: 600; }
+.version-time { color: var(--c-text-secondary); font-variant-numeric: tabular-nums; }
+.version-note { margin: 6px 0 0; font-size: 11px; color: var(--c-text-secondary); line-height: 1.6; }
 </style>

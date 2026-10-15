@@ -80,7 +80,7 @@ pub fn search(
     let sql = r#"
       WITH latest AS (
         SELECT j.id FROM case_files f JOIN document_processing_jobs j ON j.id=(
-          SELECT id FROM document_processing_jobs WHERE file_id=f.id AND status='completed' ORDER BY rowid DESC LIMIT 1
+          SELECT id FROM document_processing_jobs WHERE file_id=f.id AND status='completed' ORDER BY pinned DESC, rowid DESC LIMIT 1
         ) WHERE f.deleted_at IS NULL AND f.id IN (SELECT value FROM json_each(?1))
       ), hits AS (
         SELECT p.rowid FROM document_pages_fts ft JOIN document_pages p ON p.rowid=ft.rowid
@@ -139,7 +139,7 @@ pub fn search(
         SELECT f.id,j.id,f.file_name,f.file_path,j.engine,p.page_number,p.width,p.height,
                CASE WHEN p.plain_text='' THEN p.markdown ELSE p.plain_text END,p.regions_json
         FROM case_files f JOIN document_processing_jobs j ON j.id=(
-            SELECT id FROM document_processing_jobs WHERE file_id=f.id AND status='completed' ORDER BY rowid DESC LIMIT 1)
+            SELECT id FROM document_processing_jobs WHERE file_id=f.id AND status='completed' ORDER BY pinned DESC, rowid DESC LIMIT 1)
         JOIN document_pages p ON p.job_id=j.id
         WHERE f.deleted_at IS NULL AND f.id IN (SELECT value FROM json_each(?1))
         ORDER BY f.id,p.page_number

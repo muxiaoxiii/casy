@@ -154,6 +154,7 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         processing::cancel_conversion,
         document_intelligence::get_document_engine_status,
         document_intelligence::get_document_page,
+        document_intelligence::pin_document_job,
         document_intelligence::correct_document_region,
         document_intelligence::queue_document_processing,
         document_intelligence::list_document_jobs,

@@ -64,8 +64,8 @@ pub async fn list_workspace_sources(
     crate::commands::run_blocking(move || {
         let conn = db::open_db()?;
         let mut stmt = conn.prepare("SELECT f.id,f.case_id,f.file_name,f.file_path,j.id,j.status,j.total_pages,j.error_message,s.missing,
-            (SELECT status FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1),
-            (SELECT error_message FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1)
+            (SELECT status FROM document_processing_jobs WHERE file_id=f.id ORDER BY pinned DESC, rowid DESC LIMIT 1),
+            (SELECT error_message FROM document_processing_jobs WHERE file_id=f.id ORDER BY pinned DESC, rowid DESC LIMIT 1)
             FROM case_files f
             LEFT JOIN document_processing_jobs j ON j.id=(SELECT id FROM document_processing_jobs WHERE file_id=f.id ORDER BY (status='completed') DESC,rowid DESC LIMIT 1)
             LEFT JOIN workspace_file_state s ON s.file_id=f.id
@@ -87,8 +87,8 @@ pub async fn get_workspace_document(file_id: String) -> Result<serde_json::Value
     crate::commands::run_blocking(move || {
         let conn = db::open_db()?;
         let (job,path,hash,markdown_path,latest_status,latest_error):(String,String,String,String,Option<String>,Option<String>)=conn.query_row("SELECT j.id,f.file_path,j.source_sha256,j.markdown_path,
-            (SELECT status FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1),
-            (SELECT error_message FROM document_processing_jobs WHERE file_id=f.id ORDER BY rowid DESC LIMIT 1)
+            (SELECT status FROM document_processing_jobs WHERE file_id=f.id ORDER BY pinned DESC, rowid DESC LIMIT 1),
+            (SELECT error_message FROM document_processing_jobs WHERE file_id=f.id ORDER BY pinned DESC, rowid DESC LIMIT 1)
             FROM case_files f JOIN document_processing_jobs j ON j.id=(SELECT id FROM document_processing_jobs WHERE file_id=f.id ORDER BY (status='completed') DESC,rowid DESC LIMIT 1) WHERE f.id=?1 AND f.deleted_at IS NULL AND j.status='completed'",[&file_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
         if document_pipeline::sha256_file(Path::new(&path))? != hash { bail!("原文件已变化，等待重新提取正文"); }
         if std::fs::metadata(&markdown_path)?.len() > 16 * 1024 * 1024 { bail!("正文超过 16 MiB，请使用分页对照查看"); }
@@ -447,7 +447,7 @@ impl Reconciler {
                 [&id],
             )?;
         }
-        let job:Option<(String,String,String)> = conn.query_row("SELECT id,status,source_sha256 FROM document_processing_jobs WHERE file_id=?1 ORDER BY rowid DESC LIMIT 1",[&id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+        let job:Option<(String,String,String)> = conn.query_row("SELECT id,status,source_sha256 FROM document_processing_jobs WHERE file_id=?1 ORDER BY pinned DESC, rowid DESC LIMIT 1",[&id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
         if opts.ocr
             && document_pipeline::supports_path(path)
             && job.as_ref().is_none_or(|(_, state, sha)| {

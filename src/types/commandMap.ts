@@ -307,6 +307,7 @@ export type CommandMap = {
   import_full_backup: Cmd<{ source: string; password: string }, boolean>
   save_editor_recovery: Cmd<{ sessionId: string; draft: Record<string, unknown> | null }, void>
   recover_editor_drafts: Cmd<{}, number>
+  pin_document_job: Cmd<{ fileId: string; jobId: string }, void>
   correct_document_region: Cmd<{ fileId: string; jobId: string; pageNumber: number; regionIndex: number; expectedText: string; text: string }, string>
 
   // ── 同步域 ──

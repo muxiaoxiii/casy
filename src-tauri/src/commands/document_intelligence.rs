@@ -26,6 +26,9 @@ pub struct DocumentJobDto {
     pub error_message: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// O5：是否为当前生效版本（校订链回退后为 1）
+    #[serde(default)]
+    pub pinned: bool,
 }
 fn map_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentJobDto> {
     Ok(DocumentJobDto {
@@ -49,6 +52,7 @@ fn map_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentJobDto> {
         error_message: row.get(17)?,
         created_at: row.get(18)?,
         updated_at: row.get(19)?,
+        pinned: row.get::<_, i64>(20)? != 0,
     })
 }
 /// R-06：重试结果。reused=true 表示同一文件同一哈希已有完成结果，直接复用而未重跑。
@@ -59,7 +63,7 @@ pub struct RetryJobOutcome {
     pub job_id: String,
 }
 
-const JOB_COLUMNS:&str="id,file_id,source_sha256,status,engine,model_version,current_page,total_pages,progress,phase,elapsed_ms/1000.0,remaining_ms/1000.0,timing_json,searchable_pdf_path,page_ir_path,markdown_path,error_code,error_message,created_at,updated_at";
+const JOB_COLUMNS:&str="id,file_id,source_sha256,status,engine,model_version,current_page,total_pages,progress,phase,elapsed_ms/1000.0,remaining_ms/1000.0,timing_json,searchable_pdf_path,page_ir_path,markdown_path,error_code,error_message,created_at,updated_at,pinned";
 
 #[tauri::command]
 pub async fn get_document_engine_status() -> Result<document_pipeline::DocumentEngineStatus, String>
@@ -92,7 +96,7 @@ pub(crate) fn queue_file(
         anyhow::bail!("文件已移动或移除，请刷新后重试");
     }
     let active = tx.query_row(
-        &format!("SELECT {JOB_COLUMNS} FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running') ORDER BY rowid DESC LIMIT 1"),
+        &format!("SELECT {JOB_COLUMNS} FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running') ORDER BY pinned DESC, rowid DESC LIMIT 1"),
         [file_id], map_job,
     ).optional()?;
     if let Some(job) = active {
@@ -102,7 +106,7 @@ pub(crate) fn queue_file(
         return Ok(job);
     }
     let completed = tx.query_row(
-        &format!("SELECT {JOB_COLUMNS} FROM document_processing_jobs WHERE file_id=?1 ORDER BY rowid DESC LIMIT 1"),
+        &format!("SELECT {JOB_COLUMNS} FROM document_processing_jobs WHERE file_id=?1 ORDER BY pinned DESC, rowid DESC LIMIT 1"),
         [file_id], map_job,
     ).optional()?;
     if let Some(job) = completed {
@@ -327,6 +331,44 @@ fn copy_verified_assets(
     document_pipeline::assets::save(destination, manifest)
 }
 
+/// O5：把某个已完成版本设为当前生效版本（校订版本链回退）。
+///
+/// 不删除任何版本：只是把"读哪个版本的产物"的指针移过去。原始 OCR 版本仍在，
+/// 可随时再 pin 回去。
+#[tauri::command]
+pub async fn pin_document_job(file_id: String, job_id: String) -> Result<(), String> {
+    let file = file_id.clone();
+    let job = job_id.clone();
+    run_blocking(move || {
+        let mut conn = db::open_db()?;
+        let tx = conn.transaction()?;
+        let status: String = tx
+            .query_row(
+                "SELECT status FROM document_processing_jobs WHERE id=?1 AND file_id=?2",
+                rusqlite::params![job, file],
+                |r| r.get(0),
+            )
+            .map_err(|_| anyhow::anyhow!("版本不存在或不属于该文件"))?;
+        anyhow::ensure!(status == "completed", "只能回退到已完成的版本（当前：{status}）");
+        tx.execute(
+            "UPDATE document_processing_jobs SET pinned=0 WHERE file_id=?1",
+            [&file],
+        )?;
+        tx.execute(
+            "UPDATE document_processing_jobs SET pinned=1 WHERE id=?1 AND file_id=?2",
+            rusqlite::params![job, file],
+        )?;
+        // 索引同样指向新生效版本：检索结果必须与用户看到的正文一致
+        tx.execute(
+            "UPDATE case_files SET index_status='pending' WHERE id=?1",
+            [&file],
+        )?;
+        tx.commit()?;
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn correct_document_region(file_id: String, job_id: String, page_number: u32, region_index: usize, expected_text: String, text: String) -> Result<String, String> {
     let (job, request, pages) = run_blocking(move || {
@@ -335,7 +377,7 @@ pub async fn correct_document_region(file_id: String, job_id: String, page_numbe
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let (source, hash, engine): (String,String,String) = tx.query_row("SELECT f.file_path,j.source_sha256,j.engine FROM case_files f JOIN document_processing_jobs j ON j.file_id=f.id WHERE f.id=?1 AND j.id=?2 AND j.status='completed' AND f.deleted_at IS NULL", rusqlite::params![file_id,job_id], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
         anyhow::ensure!(engine.starts_with("paddle-onnx-"), "此文档没有可校订的 OCR 区域");
-        let newest:String = tx.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY rowid DESC LIMIT 1",[&file_id],|r|r.get(0))?;
+        let newest:String = tx.query_row("SELECT id FROM document_processing_jobs WHERE file_id=?1 AND status='completed' ORDER BY pinned DESC, rowid DESC LIMIT 1",[&file_id],|r|r.get(0))?;
         anyhow::ensure!(newest == job_id, "OCR_VERSION_CHANGED: 已有更新版本，请重新打开后校订");
         let running:bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM document_processing_jobs WHERE file_id=?1 AND status IN ('queued','running'))",[&file_id],|r|r.get(0))?;
         anyhow::ensure!(!running, "此文档正在处理，请完成后校订");

@@ -61,6 +61,9 @@ export class FilesService extends Service {
   async move(caseId: string, ids: string[], dirRel: string | null) { return this.mutation('file', tauriCallSafe('move_case_files', { caseId, ids, dirRel })) }
   async setCategory(id: string, category: string) { return this.mutation('file', tauriCallSafe('set_case_file_category', { id, category })) }
 
+  /** O5：把某个已完成 OCR 版本设为当前生效版本（校订链回退，不删除任何版本） */
+  async pinDocumentJob(fileId: string, jobId: string) { return this.mutation('file', tauriCallSafe('pin_document_job', { fileId, jobId })) }
+
   /** O7：轻量元数据（备注 / 文档日期 / 关键词） */
   async setMeta(id: string, meta: { documentDate?: string | null; summary?: string | null; keywords?: string | null }) {
     return this.mutation('file', tauriCallSafe('update_case_file_meta', { id, ...meta }))
