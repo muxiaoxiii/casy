@@ -326,10 +326,19 @@ AI 部分不新增能力面，只把**现有 harness** 做到**可见、可观�
 | `7efba44` | X1 新增共享 `ListToolbar`（对标 OA"列表三件套"：快捷搜索 200ms 防抖 + 可收起高级筛选 + 列显隐；高级面板展开状态按模块记 localStorage；列状态归调用方所有；模块特有操作走 `#actions`/`#advanced` 插槽），任务列表落地——替换手写搜索框与排序选择，并把原先只能从左侧导航筛的案件/领域也放进高级面板（`applyTaskCardFilters` 增加领域过滤） |
 | `0030380` | 卷宗落地 ListToolbar，并补上原本不存在的排序（最新/最早/名称/大小——此前列表序即后端序）；高级面板暴露分类与目录筛选，与左侧导航的分类/目录筛选并存而非取代 |
 
+**第 5 批已完成（2026-10-13，1 个提交）**：
+
+| 提交 | 内容 |
+|---|---|
+| `5fa27d6` | C7 新增共享 `ViewSchemePicker`（基于既有 `saved_filters` 后端：保存/切换/删除/JSON 导出导入，组件不持有视图状态），在任务列表与卷宗落地。cases 的 `CaseFilterBar` 未迁接——它比通用实现更丰富（CSV 导出 + 逐字段应用筛选），迁移会丢行为而非共享；两者现已共用同一张后端表 |
+
 **仍未完成**：
 - T3"仅跳过本次"：需后端 recurrence skip 机制（当前只有行内显示重复规则）
 - 编辑器侧"插入文书引用"（K2 只做了 卷宗→知识 方向）
-- C7 视图方案：把 cases 的 `saved_filters` 推广为通用机制 + 导入导出（ListToolbar 已留出 `columns`/`advancedKey` 挂点）
+- O6 进度推送替代轮询（需事件通道）
+- K1 法律字段并入 Notebook（`lawName/articleNo/effectiveDate` 旧 UI 有、新 UI 无入口）
+- X5 卷宗两套 UI 合并（`CaseFilesView` 三栏 vs `CaseFilesPanel`，能力集不一致，清单里最大的一项）
+- X6 配置即时预览（期限规则/文件夹模板保存后才生效）
 - O6 进度推送替代轮询（需事件通道）
 - K1 法律字段并入 Notebook（`lawName/articleNo/effectiveDate` 旧 UI 有、新 UI 无入口）
 - X5 卷宗两套 UI 合并（`CaseFilesView` 三栏 vs `CaseFilesPanel`，能力集不一致，清单里最大的一项）
