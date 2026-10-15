@@ -14,6 +14,7 @@ import {
 import ReasoningSearchPanel from '../components/ReasoningSearchPanel.vue'
 import DocumentSourceViewer from '../components/DocumentSourceViewer.vue'
 import BacklinksPanel from '../../knowledge/components/BacklinksPanel.vue'
+import ListToolbar from '../../../shared/components/ListToolbar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +40,16 @@ const caseData = ref(null)
 const loading = ref(false)
 const activeCategory = ref('all')
 const fileSearch = ref('')
+/** X1：共享工具栏——排序与高级筛选 */
+const fileSort = ref('newest')
+const FILE_SORT_OPTIONS = [
+  { key: 'newest', label: '最新登记' },
+  { key: 'oldest', label: '最早登记' },
+  { key: 'name', label: '按名称' },
+  { key: 'size', label: '按大小' },
+]
+const categoryFilter = ref('')
+const dirFilter = ref('')
 const selectedFile = ref(null)
 const fileInspector = ref(null)
 const files = ref([])
@@ -239,6 +250,13 @@ async function batchOcr() {
 }
 
 /** K2：把卷宗文件沉淀为知识条目（带原件出处，而不是一段无主文字） */
+/** X1：重置卷宗筛选 */
+function clearFileFilters() {
+  categoryFilter.value = ''
+  dirFilter.value = ''
+  fileSearch.value = ''
+}
+
 async function saveFileAsKnowledge(file) {
   if (!file?.id) return
   knowledgeBusy.value = true
@@ -583,13 +601,23 @@ const categoryCounts = computed(() => {
 const filteredFiles = computed(() => {
   const query = fileSearch.value.trim().toLowerCase()
   const directory = directories.value.find(dir => dir.relPath === selectedDir.value)?.absolutePath?.replaceAll('\\', '/')
-  return (showRemoved.value ? removedFiles.value : files.value).filter(file => {
+  const list = (showRemoved.value ? removedFiles.value : files.value).filter(file => {
     const matchesCategory = showRemoved.value || activeCategory.value === 'all' || file.category === activeCategory.value
     const normalized = file.filePath.replaceAll('\\', '/')
     const matchesDir = showRemoved.value || selectedDir.value === '__all__' || normalized.slice(0, normalized.lastIndexOf('/')) === directory
+    // X1：高级筛选里的分类与目录（与左侧导航的分类/目录筛选是"或"关系，任一命中即可）
+    const matchesAdvCategory = !categoryFilter.value || file.category === categoryFilter.value
+    const matchesAdvDir = !dirFilter.value || normalized.slice(0, normalized.lastIndexOf('/')) === directories.value.find(dir => dir.relPath === dirFilter.value)?.absolutePath?.replaceAll('\\', '/')
     const matchesSearch = !query || file.fileName?.toLowerCase().includes(query)
-    return matchesCategory && matchesSearch && matchesDir
+    return matchesCategory && matchesDir && matchesAdvCategory && matchesAdvDir && matchesSearch
   })
+  // X1：排序（原先列表序即后端序）
+  const sorted = list.slice()
+  if (fileSort.value === 'oldest') sorted.sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
+  else if (fileSort.value === 'name') sorted.sort((a, b) => String(a.fileName || '').localeCompare(String(b.fileName || ''), 'zh-CN'))
+  else if (fileSort.value === 'size') sorted.sort((a, b) => Number(b.fileSize || 0) - Number(a.fileSize || 0))
+  else sorted.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+  return sorted
 })
 
 function categoryLabel(key) {
@@ -662,25 +690,41 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
       </div>
 
       <div class="workspace-actions">
-        <el-input
-          v-model="fileSearch"
-          class="file-search"
-          :prefix-icon="Search"
-          clearable
-          placeholder="搜索当前卷宗"
-        />
-        <el-button :disabled="!caseId" @click="loadFiles" circle title="刷新文件" aria-label="刷新文件">
-          <el-icon><Refresh /></el-icon>
-        </el-button>
-        
-        <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn" :disabled="!caseId || showRemoved">
-          <el-icon><Search /></el-icon> 卷宗检索
-        </el-button>
-
-        <el-button type="primary" @click="uploadFile" :loading="uploading" :disabled="!caseId || mutating || showRemoved">
-          <el-icon><Upload /></el-icon>
-          上传文件
-        </el-button>
+        <!-- X1：共享列表工具栏；卷宗特有的目录选择与上传等走 actions 插槽 -->
+        <ListToolbar
+          :query="fileSearch"
+          :sort="fileSort"
+          :sort-options="FILE_SORT_OPTIONS"
+          search-placeholder="搜索当前卷宗"
+          advanced-key="files"
+          :total-label="`${filteredFiles.length} 项`"
+          @update:query="fileSearch = $event"
+          @update:sort="fileSort = $event"
+        >
+          <template #actions>
+            <el-button :disabled="!caseId" @click="loadFiles" circle title="刷新文件" aria-label="刷新文件">
+              <el-icon><Refresh /></el-icon>
+            </el-button>
+            <el-button type="primary" plain @click="showReasoningPanel = true" class="deep-search-btn" :disabled="!caseId || showRemoved">
+              <el-icon><Search /></el-icon> 卷宗检索
+            </el-button>
+            <el-button type="primary" @click="uploadFile" :loading="uploading" :disabled="!caseId || mutating || showRemoved">
+              <el-icon><Upload /></el-icon>
+              上传文件
+            </el-button>
+          </template>
+          <template #advanced>
+            <span class="advanced-label">分类</span>
+            <el-select v-model="categoryFilter" size="small" clearable placeholder="全部分类" style="width: 150px" aria-label="按分类筛选">
+              <el-option v-for="item in categories.slice(1)" :key="item.key" :value="item.key" :label="item.label" />
+            </el-select>
+            <span class="advanced-label">目录</span>
+            <el-select v-model="dirFilter" size="small" clearable filterable placeholder="所有文件夹" style="width: 180px" aria-label="按目录筛选">
+              <el-option v-for="dir in directories" :key="dir.relPath" :value="dir.relPath" :label="dir.name" />
+            </el-select>
+            <el-button size="small" text @click="clearFileFilters">重置筛选</el-button>
+          </template>
+        </ListToolbar>
       </div>
     </header>
     <el-alert v-if="loadError || caseError" :title="[loadError, caseError].filter(Boolean).join('；')" type="error" :closable="false" class="files-load-error"><el-button text @click="loadCase(); loadFiles()">重试</el-button></el-alert>
@@ -972,7 +1016,6 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
 }
 .back-button:hover { border-color: var(--c-primary); color: var(--c-primary); }
 .workspace-actions { flex-shrink: 0; gap: 8px; }
-.file-search { width: 230px; }
 .deep-search-btn { font-weight: 600; }
 .deep-search-btn .el-icon { margin-right: 4px; font-size: 16px; }
 
@@ -1110,4 +1153,5 @@ onUnmounted(() => { disposed = true; ++loadRevision; if (documentPollTimer) wind
 .dir-option { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .dir-option small { font-size: 11px; color: var(--c-text-secondary); line-height: 1.4; }
 .dir-purpose { margin: 6px 0 0; font-size: 11px; color: var(--c-text-secondary); line-height: 1.6; }
+.advanced-label { font-size: 11px; color: var(--c-text-secondary); }
 </style>
