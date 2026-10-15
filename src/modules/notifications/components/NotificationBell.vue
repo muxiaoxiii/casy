@@ -10,7 +10,7 @@
  */
 import { casyContext } from '../../../core/plugin/context'
 import { observeChanges } from '../../../core/observeChanges'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Bell, AlarmClock, InfoFilled, Check, Delete, CircleCheck } from '../../../shared/icons'
@@ -39,12 +39,17 @@ const router = useRouter()
 
 const unreadCount = ref(0)
 const notifications = ref<AppNotification[]>([])
+// R2：待处理 / 已处理两个视图（read_at 一直有，此前只展示未读，"处理掉"后无从回看）
+const activeTab = ref('pending')
+/** 稍后提醒的定时器：id -> timer（应用退出即失效，UI 已明确标注） */
+const snoozeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const panelOpen = ref(false)
 const listLoading = ref(false)
 const listError = ref('')
 const countError = ref('')
 const bellRef = ref<HTMLElement | null>(null)
 
+onUnmounted(() => { for (const timer of snoozeTimers.values()) clearTimeout(timer); snoozeTimers.clear() })
 onUnmounted(observeChanges(casyContext, ['task','calendar','holiday'], async () => { await refreshUnread(); if (panelOpen.value) await loadList() }))
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -72,9 +77,41 @@ async function loadList() {
   listLoading.value = false
 }
 
+const pendingList = computed(() => notifications.value.filter((n) => !n.readAt))
+const handledList = computed(() => notifications.value.filter((n) => !!n.readAt))
+const visibleList = computed(() => activeTab.value === 'handled' ? handledList.value : pendingList.value)
+
+/** R2：稍后提醒——现在收起，1 小时后按原内容重新写入（应用需保持运行） */
+async function snoozeOne(n: AppNotification) {
+  const res = await tauriCallSafe('dismiss_notification', { id: n.id })
+  if (!res.ok) { ElMessage.error('稍后提醒设置失败，请重试'); return }
+  const idx = notifications.value.findIndex((x) => x.id === n.id)
+  if (idx >= 0) notifications.value.splice(idx, 1)
+  if (!n.readAt) unreadCount.value = Math.max(0, unreadCount.value - 1)
+  const existing = snoozeTimers.get(n.id)
+  if (existing) clearTimeout(existing)
+  const timer = setTimeout(async () => {
+    snoozeTimers.delete(n.id)
+    const created = await tauriCallSafe('create_notification', {
+      kind: n.type,
+      title: n.title,
+      body: n.body,
+      payloadJson: n.payloadJson,
+    })
+    if (created.ok) { await loadList(); await refreshUnread() }
+  }, 60 * 60 * 1000)
+  snoozeTimers.set(n.id, timer)
+  ElMessage.success('已稍后提醒：1 小时后重新出现（应用需保持运行）')
+}
+
 async function togglePanel() {
   panelOpen.value = !panelOpen.value
   if (panelOpen.value) await loadList()
+}
+
+function onItemCommand(command: string, n: AppNotification) {
+  if (command === 'snooze') void snoozeOne(n)
+  else void dismissOne(n)
 }
 
 async function dismissOne(n: AppNotification) {
@@ -210,6 +247,12 @@ onUnmounted(() => {
           </button>
         </div>
 
+        <!-- R2：待处理 / 已处理 -->
+        <div class="nc-tabs" role="tablist">
+          <button role="tab" :aria-selected="activeTab === 'pending'" :class="{ active: activeTab === 'pending' }" @click="activeTab = 'pending'">待处理 {{ pendingList.length }}</button>
+          <button role="tab" :aria-selected="activeTab === 'handled'" :class="{ active: activeTab === 'handled' }" @click="activeTab = 'handled'">已处理 {{ handledList.length }}</button>
+        </div>
+
         <div v-if="listLoading" class="nc-empty">加载中…</div>
 
         <div v-else-if="listError" class="nc-empty nc-error" role="alert">
@@ -221,9 +264,13 @@ onUnmounted(() => {
           <EmptyState type="custom" compact hide-action title="一切就绪，暂无待处理通知" />
         </div>
 
+        <div v-else-if="!visibleList.length" class="nc-empty">
+          <EmptyState type="custom" compact hide-action :title="activeTab === 'pending' ? '暂无待处理通知' : '暂无已处理通知'" />
+        </div>
+
         <div v-else class="nc-list">
           <div
-            v-for="n in notifications"
+            v-for="n in visibleList"
             :key="n.id"
             class="nc-item"
             :class="{ unread: !n.readAt, clickable: hasTarget(n) }"
@@ -239,13 +286,17 @@ onUnmounted(() => {
               </div>
               <p v-if="n.body" class="nc-item-text">{{ n.body }}</p>
             </div>
-            <button
-              class="nc-item-dismiss"
-              title="处理掉"
-              @click.stop="dismissOne(n)"
-            >
-              <el-icon :size="13"><Check /></el-icon>
-            </button>
+            <el-dropdown trigger="click" @command="(command: string) => onItemCommand(command, n)" @click.stop>
+              <button class="nc-item-dismiss" title="处理掉" @click.stop>
+                <el-icon :size="13"><Check /></el-icon>
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="dismiss">处理掉</el-dropdown-item>
+                  <el-dropdown-item command="snooze">1 小时后再次提醒</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
         </div>
       </div>
@@ -507,4 +558,7 @@ onUnmounted(() => {
     transition: none;
   }
 }
+.nc-tabs { display: flex; gap: 4px; padding: 8px 12px 4px; border-bottom: 1px solid var(--c-border-light); }
+.nc-tabs button { padding: 4px 10px; font-size: 12px; border: 0; border-radius: 4px; background: transparent; color: var(--c-text-secondary); cursor: pointer; }
+.nc-tabs button.active { background: var(--c-bg-subtle); color: var(--c-text); font-weight: 600; }
 </style>
