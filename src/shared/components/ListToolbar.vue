@@ -125,7 +125,7 @@ function resetColumns() {
           <el-dropdown-item v-for="column in columns" :key="column.key" @click.prevent="toggleColumn(column.key)">
             <span :class="{ 'column-off': !column.visible }">{{ column.visible ? '✓' : '○' }} {{ column.label }}</span>
           </el-dropdown-item>
-          <el-dropdown-item divided @click.prevent="resetColumns">全部显示</el-dropdown>
+          <el-dropdown-item divided @click.prevent="resetColumns">全部显示</el-dropdown-item>
         </el-dropdown-menu>
       </template>
     </el-dropdown>

@@ -12,7 +12,7 @@ import { useVoiceNote } from '../composables/useVoiceNote'
 import { useCapture } from '../composables/useCapture'
 import { isTauriRuntime } from '../../../core/mockData'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import CaseWizard from '../components/CaseWizard.vue'
+import CaseWizard from '../../cases/components/CaseWizard.vue'
 import {
   Folder,
   Finished,

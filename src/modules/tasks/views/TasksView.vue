@@ -12,7 +12,7 @@ import { casyContext } from '../../../core/plugin/context'
 import { deleteTaskOptimistic, completeTaskOptimistic, restoreTaskOptimistic, snoozeTaskWithUndo, canUndo, undoLast } from '../../../core/taskActions'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFiltersStore } from '../../../stores/filters'
-import { AlarmClock, ArrowRight, Box, Calendar, Check, CircleCheck, Clock, Close, Collection, Delete, Edit, Files, Folder, Grid, List, Location, Menu, More, Opportunity, Plus, RefreshLeft, RefreshRight, Search, Select, Sort, Star, Timer, TrendCharts, Warning } from '../../shared/icons'
+import { AlarmClock, ArrowRight, Box, Calendar, Check, CircleCheck, Clock, Close, Collection, Delete, Edit, Files, Folder, Grid, List, Location, Menu, More, Opportunity, Plus, RefreshLeft, RefreshRight, Search, Select, Rank, Star, Timer, TrendCharts, Warning } from '../../../shared/icons'
 import { useTasksStore } from '../../../stores/tasks'
 import PerspectiveManager from '../components/PerspectiveManager.vue'
 import TaskQuickEditor from '../components/TaskQuickEditor.vue'
@@ -916,9 +916,6 @@ function getCustomPerspectiveCount(perspectiveId) {
             <el-button size="small" text @click="clearTaskFilters">重置筛选</el-button>
           </template>
         </ListToolbar>
-          <el-icon :size="14"><Plus /></el-icon>
-          <span>新建任务</span>
-        </button>
       </div>
     </div>
 
@@ -1031,14 +1028,10 @@ function getCustomPerspectiveCount(perspectiveId) {
             @snooze-custom="openPlanDateDialog"
             @skip-recurrence="skipRecurrence"
             @unskip-recurrence="unskipRecurrence"
-            @snooze-custom="openPlanDateDialog"
-            @skip-recurrence="skipRecurrence"
-            @unskip-recurrence="unskipRecurrence"
             @undefer="undeferTask"
             @reviewed="markReviewed"
             @follow-up="openDrawer"
           />
-          </div>
           <TaskQuickEditor ref="quickEditors" v-if="inspectedTaskId === task.id" :key="'edit-' + task.id" :task="task" :cases="cases" @close="inspectedTaskId = ''" @saved="loadTasks" @advanced="advancedTask(task)" />
           </template>
         </div>
@@ -1104,6 +1097,7 @@ function getCustomPerspectiveCount(perspectiveId) {
             @reviewed="markReviewed"
             @follow-up="openDrawer"
           />
+          </div>
           <TaskQuickEditor ref="quickEditors" v-if="inspectedTaskId === task.id" :key="'edit-' + task.id" :task="task" :cases="cases" @close="inspectedTaskId = ''" @saved="loadTasks" @advanced="advancedTask(task)" />
 
           <!-- 展开子任务 -->

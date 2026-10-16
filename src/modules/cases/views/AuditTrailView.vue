@@ -11,9 +11,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { casyContext } from '../../core/plugin/context'
-import { Refresh } from '../../shared/icons'
-import EmptyState from '../../shared/components/EmptyState.vue'
+import { casyContext } from '../../../core/plugin/context'
+import { Refresh } from '../../../shared/icons'
+import EmptyState from '../../../shared/components/EmptyState.vue'
 
 const router = useRouter()
 

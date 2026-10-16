@@ -9,7 +9,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { tauriCallSafe } from '../../../core/tauriBridge'
-import { Refresh, WarningFilled } from '../../../shared/icons'
+import { Refresh, Warning } from '../../../shared/icons'
 
 const status = ref(null)
 const loading = ref(false)
@@ -81,7 +81,7 @@ onMounted(load)
 
     <template v-else-if="status">
       <div class="engine-overall" :class="overall()">
-        <el-icon :size="18"><WarningFilled v-if="overall() === 'broken'" /><component :is="overall() === 'ready' ? 'CircleCheck' : 'QuestionFilled'" v-else /></el-icon>
+        <el-icon :size="18"><Warning v-if="overall() === 'broken'" /><component :is="overall() === 'ready' ? 'CircleCheck' : 'QuestionFilled'" v-else /></el-icon>
         <div>
           <strong>{{ overall() === 'ready' ? '引擎就绪' : '引擎未就绪' }}</strong>
           <span v-if="status.version"> · 版本 {{ status.version }}</span>
