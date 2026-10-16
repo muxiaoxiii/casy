@@ -998,7 +998,7 @@ pub async fn list_case_hearings(case_id: String) -> Result<Vec<HearingDto>, Stri
     }).await
 }
 
-fn validate_hearing_date(value: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_hearing_date(value: &str) -> anyhow::Result<()> {
     if chrono::NaiveDateTime::parse_from_str(value,"%Y-%m-%d %H:%M:%S").is_err()
         && chrono::NaiveDateTime::parse_from_str(value,"%Y-%m-%d %H:%M").is_err()
         && chrono::NaiveDate::parse_from_str(value,"%Y-%m-%d").is_err() {anyhow::bail!("开庭日期格式无效");}

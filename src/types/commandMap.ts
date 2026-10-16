@@ -14,6 +14,9 @@ import type {
   ContextRef,
   DeadlineRuleAuditDto,
   DocumentFacts,
+  ConflictCase,
+  ConflictOption,
+  IntakeProposal,
   EntityAuditEventDto,
   HearingReminderJobDto,
   DeadlineRuleDto,
@@ -309,6 +312,10 @@ export type CommandMap = {
   save_editor_recovery: Cmd<{ sessionId: string; draft: Record<string, unknown> | null }, void>
   recover_editor_drafts: Cmd<{}, number>
   pin_document_job: Cmd<{ fileId: string; jobId: string }, void>
+  generate_intake_proposals: Cmd<{ refType: string; refId: string }, IntakeProposal[]>
+  list_intake_proposals: Cmd<{ status?: string | null }, IntakeProposal[]>
+  confirm_intake_proposal: Cmd<{ id: string; resolution: any }, IntakeProposal>
+  reject_intake_proposal: Cmd<{ id: string; reason?: string | null }, void>
   extract_document_facts: Cmd<{ refType: string; refId: string }, DocumentFacts>
   get_document_facts: Cmd<{ refType: string; refId: string }, DocumentFacts>
   correct_document_region: Cmd<{ fileId: string; jobId: string; pageNumber: number; regionIndex: number; expectedText: string; text: string }, string>

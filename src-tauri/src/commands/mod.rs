@@ -19,6 +19,7 @@ pub mod demo;
 pub mod docs;
 pub mod document_intelligence;
 pub mod document_facts;
+pub mod intake_proposals;
 pub mod document_assets;
 pub mod conversion;
 mod markdown_export;
@@ -157,6 +158,10 @@ pub fn build_handler() -> impl Fn(tauri::ipc::Invoke) -> bool {
         document_intelligence::get_document_page,
         document_intelligence::pin_document_job,
         document_intelligence::correct_document_region,
+        intake_proposals::generate_intake_proposals,
+        intake_proposals::list_intake_proposals,
+        intake_proposals::confirm_intake_proposal,
+        intake_proposals::reject_intake_proposal,
         document_facts::extract_document_facts,
         document_facts::get_document_facts,
         document_intelligence::queue_document_processing,

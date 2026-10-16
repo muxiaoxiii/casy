@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 49;
+pub const CURRENT_SCHEMA_VERSION: i64 = 50;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -726,6 +726,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("47", MIGRATION_V47_SQL),
     ("48", MIGRATION_V48_SQL),
     ("49", MIGRATION_V49_SQL),
+    ("50", MIGRATION_V50_SQL),
 ];
 
 
@@ -4874,6 +4875,43 @@ CREATE TABLE IF NOT EXISTS document_facts (
 CREATE INDEX IF NOT EXISTS idx_document_facts_ref ON document_facts(ref_type, ref_id);
 CREATE INDEX IF NOT EXISTS idx_document_facts_case ON document_facts(case_no);
 "#;
+
+// UPDATE_PLAN 0.2.0 Phase 1：待确认建议 + 日程/期限变更留痕。
+// 铁律：低于置信度阈值只进待确认，绝不自动建日程；任何确认/改判都留痕。
+const MIGRATION_V50_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS intake_proposals (
+  id TEXT PRIMARY KEY,
+  ref_type TEXT NOT NULL,
+  ref_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  evidence_json TEXT,
+  confidence REAL NOT NULL DEFAULT 0,
+  conflict_json TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  resolution_json TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_intake_proposals_status ON intake_proposals(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intake_proposals_ref ON intake_proposals(ref_type, ref_id);
+
+CREATE TABLE IF NOT EXISTS schedule_change_log (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  change_kind TEXT NOT NULL,
+  old_value_json TEXT,
+  new_value_json TEXT,
+  reason TEXT,
+  evidence_ref_type TEXT,
+  evidence_ref_id TEXT,
+  proposal_id TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_schedule_change_log_entity ON schedule_change_log(entity_type, entity_id, created_at DESC);
+"#;
+
 
 
 

@@ -108,6 +108,13 @@ export type ColumnMappingRecommendation = { columnIndex: number; excelHeader: st
 export type CommandRoute = { commandName: string; routeType: string; description: string; requiresConfirmation: boolean; minConfirmLevel: string }
 
 /**
+ * 冲突用例。`kind` 决定前端渲染哪些选项。
+ */
+export type ConflictCase = { kind: string; existing: any[]; proposed: any; options: ConflictOption[] }
+
+export type ConflictOption = { value: string; label: string; writes: boolean }
+
+/**
  * 前端传入的引用（kind ∈ file / knowledge / task / case）
  */
 export type ContextRef = { kind: string; id: string }
@@ -313,6 +320,8 @@ export type InboxProgress = { total: number; processed: number; pending: number 
 export type IndexJob = { id: string; itemId: string; title: string; model: string; status: string; completedChunks: number; totalChunks: number; error: string | null }
 
 export type IndexStatus = { configured: boolean; total: number; indexed: number; queued: number; running: number; failed: number; jobs: IndexJob[] }
+
+export type IntakeProposal = { id: string; refType: string; refId: string; kind: string; payload: any; evidence: any[]; confidence: number; conflict: ConflictCase | null; status: string; resolution: any | null; createdAt: string; resolvedAt: string | null }
 
 /**
  * 知识块（列表视图，8 字段）

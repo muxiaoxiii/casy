@@ -1,7 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { TauriResult } from '../../types'
-import type { DocumentFacts } from '../../types/bindings'
+import type { DocumentFacts, IntakeProposal } from '../../types/bindings'
 import type { CommandMap } from '../../types/commandMap'
 
 type CaseFile = CommandMap['list_case_files']['result'][number]
@@ -78,6 +78,28 @@ export class FilesService extends Service {
   /** 读取已抽取的事实（未抽取则报错，由调用方决定是否触发抽取） */
   async facts(refType: string, refId: string): Promise<TauriResult<DocumentFacts>> {
     return tauriCallSafe('get_document_facts', { refType, refId })
+  }
+
+  /** UPDATE_PLAN Phase 1：从已抽取事实生成待确认建议（开庭日期带页码出处）。
+   *  命中 C1 冲突（同案已有开庭且日期不同）时建议带三选一冲突，由用户裁决。 */
+  async generateProposals(refType: string, refId: string): Promise<TauriResult<IntakeProposal[]>> {
+    return this.mutation('file', tauriCallSafe('generate_intake_proposals', { refType, refId }))
+  }
+
+  /** 列出建议（status 为空 = 全部，新的在前） */
+  async proposals(status?: string): Promise<TauriResult<IntakeProposal[]>> {
+    return tauriCallSafe('list_intake_proposals', { status: status ?? null })
+  }
+
+  /** 确认一条建议。resolution 至少含 option；C1 选 reschedule 时需
+   *  supersedeHearingId 与 reason；无案件时需 caseId。 */
+  async confirmProposal(id: string, resolution: Record<string, unknown>): Promise<TauriResult<IntakeProposal>> {
+    return this.mutation('file', tauriCallSafe('confirm_intake_proposal', { id, resolution }))
+  }
+
+  /** 拒绝一条建议（记录原因，供学习信号） */
+  async rejectProposal(id: string, reason?: string): Promise<TauriResult<void>> {
+    return this.mutation('file', tauriCallSafe('reject_intake_proposal', { id, reason: reason ?? null }))
   }
 
   /** 扫描磁盘未登记文件（既有卷宗导入） */

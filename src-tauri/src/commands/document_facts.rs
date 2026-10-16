@@ -347,7 +347,7 @@ fn upsert_facts(
     Ok(())
 }
 
-fn read_facts_row(conn: &rusqlite::Connection, ref_type: &str, ref_id: &str) -> anyhow::Result<DocumentFacts> {
+pub(crate) fn read_facts_row(conn: &rusqlite::Connection, ref_type: &str, ref_id: &str) -> anyhow::Result<DocumentFacts> {
     let row = conn.query_row(
         "SELECT doc_type, court, case_no, parties_json, hearings_json, deadlines_json, overall_confidence
          FROM document_facts WHERE ref_type=?1 AND ref_id=?2",
@@ -357,20 +357,29 @@ fn read_facts_row(conn: &rusqlite::Connection, ref_type: &str, ref_id: &str) -> 
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
+                // 三列 JSON 均可空（旧数据/部分写入）：空串而非报错
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(5)?.unwrap_or_default(),
                 row.get::<_, f64>(6)?,
             ))
         },
     )?;
+    // 三列 JSON 均可空/空串（旧数据或部分写入）：空串按空数组处理，
+    // 不能让 serde_json::from_str("") 的 EOF 错误冒出去掩盖真正的问题。
+    let parse_list = |text: &str| -> anyhow::Result<Vec<serde_json::Value>> {
+        if text.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(serde_json::from_str(text)?)
+    };
     Ok(DocumentFacts {
         doc_type: row.0,
         court: row.1,
         case_no: row.2,
-        parties: serde_json::from_str(&row.3)?,
-        hearings: serde_json::from_str(&row.4)?,
-        deadlines: serde_json::from_str(&row.5)?,
+        parties: serde_json::from_value(serde_json::Value::Array(parse_list(&row.3)?))?,
+        hearings: serde_json::from_value(serde_json::Value::Array(parse_list(&row.4)?))?,
+        deadlines: serde_json::from_value(serde_json::Value::Array(parse_list(&row.5)?))?,
         overall_confidence: row.6,
     })
 }
