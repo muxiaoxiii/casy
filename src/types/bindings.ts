@@ -132,6 +132,11 @@ export type CreateKnowledgeInput = { blockType: string; title: string; category:
  */
 export type DashboardStats = { activeCount: number; totalCount: number; closedCount: number; deadlineWarnings: DeadlineResult[]; recentActivities: RecentActivity[]; byTrack: ([string, number])[] }
 
+/**
+ * 单条法定期限事实（举证期限 / 上诉期 / 答辩期）。
+ */
+export type DeadlineFact = { name: string; dueDate: string | null; legalBasis: string | null; page: number | null }
+
 export type DeadlineResult = { ruleId: string | null; ruleName: string; dueDate: string; daysLeft: number; urgency: string; deadlineSource: string; legalBasis: string | null; caseId: string; caseName: string }
 
 export type DeadlineRuleAuditDto = { id: string; ruleId: string; action: string; beforeJson: string | null; afterJson: string | null; actor: string; createdAt: string | null }
@@ -154,6 +159,11 @@ export type DiffLineDto = { type: string; line: number; text: string }
 export type DocsyTemplate = { id: string; name: string; path: string; category: string; field_count: number; fields: TemplateField[]; description: string }
 
 export type DocumentEngineStatus = { provider?: string; providerEndpoint?: string | null; available: boolean; executable: string | null; version: string | null; rendererAvailable: boolean; coordinateModelAvailable: boolean; koreanModelAvailable?: boolean; layoutModelAvailable: boolean; ovisModelAvailable: boolean; searchablePdfAvailable: boolean; missing: string[]; error: string | null }
+
+/**
+ * 一份文书抽取出的全部事实。
+ */
+export type DocumentFacts = { docType: string; court: string | null; caseNo: string | null; parties: PartyFact[]; hearings: HearingFact[]; deadlines: DeadlineFact[]; overallConfidence: number }
 
 export type DocumentJobDto = { id: string; fileId: string; sourceSha256: string; status: string; engine: string; modelVersion: string | null; currentPage: number; totalPages: number; progress: number; phase: string; elapsedSeconds: number; remainingSeconds: number | null; pageTiming: DocumentPageTiming | null; searchablePdfPath: string | null; pageIrPath: string | null; markdownPath: string | null; errorCode: string | null; errorMessage: string | null; createdAt: string; updatedAt: string; pinned?: boolean }
 
@@ -263,6 +273,11 @@ export type GraphNodeDto = { id: string; name: string; type: string; category: s
 export type HearingDto = { lifecycleStatus: string; changeReason: string; id: string; caseId: string; hearingRecord: string; hearingName: string | null; hearingDate: string; venue: string | null; attendees: string | null; judges: string | null; court: string | null; caseLevel: string | null; contactInfo: string | null; actualStatus: string | null; createdAt: string | null }
 
 /**
+ * 单条开庭事实。`page` 为 1-based 页码；无法定位时为 None。
+ */
+export type HearingFact = { date: string; venue: string | null; page: number | null; confidence: number }
+
+/**
  * 某次开庭的一条提醒作业（H3：让用户看到"T-7 已发 / T-1 已发 / 已取消"）
  */
 export type HearingReminderJobDto = { id: string; hearingId: string; channel: string; scheduledAt: string; offsetSnapshot: string | null; status: string; lastError: string | null; supersedesId: string | null }
@@ -365,6 +380,8 @@ export type MonthTrendPoint = { month: string; created: number; completed: numbe
 export type NameCount = { label: string; value: number }
 
 export type PageIndexImportResultDto = { knowledgeId: string; childCount: number; reused: boolean }
+
+export type PartyFact = { name: string; role: string }
 
 /**
  * 三态 PATCH 字段：

@@ -13,6 +13,7 @@ import type {
   CasePersonDto,
   ContextRef,
   DeadlineRuleAuditDto,
+  DocumentFacts,
   EntityAuditEventDto,
   HearingReminderJobDto,
   DeadlineRuleDto,
@@ -308,6 +309,8 @@ export type CommandMap = {
   save_editor_recovery: Cmd<{ sessionId: string; draft: Record<string, unknown> | null }, void>
   recover_editor_drafts: Cmd<{}, number>
   pin_document_job: Cmd<{ fileId: string; jobId: string }, void>
+  extract_document_facts: Cmd<{ refType: string; refId: string }, DocumentFacts>
+  get_document_facts: Cmd<{ refType: string; refId: string }, DocumentFacts>
   correct_document_region: Cmd<{ fileId: string; jobId: string; pageNumber: number; regionIndex: number; expectedText: string; text: string }, string>
 
   // ── 同步域 ──

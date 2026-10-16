@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 /// 当前 Schema 版本号
 #[allow(dead_code)]
-pub const CURRENT_SCHEMA_VERSION: i64 = 48;
+pub const CURRENT_SCHEMA_VERSION: i64 = 49;
 
 /// 完整数据库 Schema（含所有 CHECK 约束、索引、触发器、FTS 表）
 pub const SCHEMA_SQL: &str = r#"
@@ -725,6 +725,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("46", MIGRATION_V46_SQL),
     ("47", MIGRATION_V47_SQL),
     ("48", MIGRATION_V48_SQL),
+    ("49", MIGRATION_V49_SQL),
 ];
 
 
@@ -4851,6 +4852,29 @@ CREATE TABLE IF NOT EXISTS task_recurrence_skips (
 );
 CREATE INDEX IF NOT EXISTS idx_task_recurrence_skips_date ON task_recurrence_skips(task_id, occurrence_date);
 "#;
+
+// UPDATE_PLAN 0.2.0 Phase 1：文书语义抽取结果（含每条开庭事实的页码出处）。
+// ref_type = 'case_file' | 'inbox_item'；UNIQUE(ref_type, ref_id) 保证幂等重跑覆盖。
+const MIGRATION_V49_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS document_facts (
+  id TEXT PRIMARY KEY,
+  ref_type TEXT NOT NULL,
+  ref_id TEXT NOT NULL,
+  doc_type TEXT NOT NULL,
+  court TEXT,
+  case_no TEXT,
+  parties_json TEXT,
+  hearings_json TEXT,
+  deadlines_json TEXT,
+  overall_confidence REAL NOT NULL DEFAULT 0,
+  extractor_version TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(ref_type, ref_id)
+);
+CREATE INDEX IF NOT EXISTS idx_document_facts_ref ON document_facts(ref_type, ref_id);
+CREATE INDEX IF NOT EXISTS idx_document_facts_case ON document_facts(case_no);
+"#;
+
 
 
 

@@ -1,6 +1,7 @@
 import { Service } from '../plugin/types'
 import { tauriCallSafe } from '../tauriBridge'
 import type { TauriResult } from '../../types'
+import type { DocumentFacts } from '../../types/bindings'
 import type { CommandMap } from '../../types/commandMap'
 
 type CaseFile = CommandMap['list_case_files']['result'][number]
@@ -63,10 +64,20 @@ export class FilesService extends Service {
 
   /** O5：把某个已完成 OCR 版本设为当前生效版本（校订链回退，不删除任何版本） */
   async pinDocumentJob(fileId: string, jobId: string) { return this.mutation('file', tauriCallSafe('pin_document_job', { fileId, jobId })) }
-
   /** O7：轻量元数据（备注 / 文档日期 / 关键词） */
   async setMeta(id: string, meta: { documentDate?: string | null; summary?: string | null; keywords?: string | null }) {
     return this.mutation('file', tauriCallSafe('update_case_file_meta', { id, ...meta }))
+  }
+
+  /** UPDATE_PLAN Phase 1：抽取（或重跑）一份文书的语义事实（开庭日期带页码出处）。
+   *  OCR 未完成时后端明确报错，不返回空事实。 */
+  async extractFacts(refType: string, refId: string): Promise<TauriResult<DocumentFacts>> {
+    return this.mutation('file', tauriCallSafe('extract_document_facts', { refType, refId }))
+  }
+
+  /** 读取已抽取的事实（未抽取则报错，由调用方决定是否触发抽取） */
+  async facts(refType: string, refId: string): Promise<TauriResult<DocumentFacts>> {
+    return tauriCallSafe('get_document_facts', { refType, refId })
   }
 
   /** 扫描磁盘未登记文件（既有卷宗导入） */
