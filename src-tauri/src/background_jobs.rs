@@ -99,7 +99,33 @@ pub(crate) fn persist_success(
         ],
     )?;
     tx.commit()?;
+    // UPDATE_PLAN 0.2.0 Phase 1：OCR 完成即抽取语义事实并生成待确认建议。
+    // 失败不阻断 OCR 任务——文件已解析成功，用户可在卷宗页手动重抽。
+    spawn_intake_proposals(&conn, &job.file_id, &result.markdown_path);
     Ok(())
+}
+
+/// OCR 完成后抽取事实并生成建议（复用同一连接，失败仅告警不抛出）。
+fn spawn_intake_proposals(conn: &rusqlite::Connection, file_id: &str, markdown_path: &str) {
+    let text = match std::fs::read_to_string(markdown_path) {
+        Ok(text) => text,
+        Err(error) => {
+            log::warn!("读取 OCR 产物失败，跳过事实抽取 ({file_id}): {error}");
+            return;
+        }
+    };
+    let facts = crate::commands::document_facts::extract_facts(&text);
+    if let Err(error) = crate::commands::document_facts::upsert_facts(conn, "case_file", file_id, &facts) {
+        log::warn!("写入文书事实失败 ({file_id}): {error}");
+        return;
+    }
+    // 只有真的抽出开庭事实才生成建议；空事实不产生噪音
+    if facts.hearings.is_empty() {
+        return;
+    }
+    if let Err(error) = crate::commands::intake_proposals::generate_proposals(conn, "case_file", file_id) {
+        log::warn!("生成待确认建议失败 ({file_id}): {error}");
+    }
 }
 
 pub(crate) fn persist_failure(job: &ClaimedJob, error: &anyhow::Error) {

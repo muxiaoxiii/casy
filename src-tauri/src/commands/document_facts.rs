@@ -309,7 +309,7 @@ fn load_source_text(
 }
 
 /// 把事实写库（UNIQUE(ref_type, ref_id) → 幂等重跑覆盖）。
-fn upsert_facts(
+pub(crate) fn upsert_facts(
     conn: &rusqlite::Connection,
     ref_type: &str,
     ref_id: &str,
