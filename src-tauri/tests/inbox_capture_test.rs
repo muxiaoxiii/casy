@@ -90,6 +90,14 @@ async fn reviewed_capture_is_atomic_retryable_and_preserves_sources() {
     }
     inbox::file_inbox_item("file-a".into(),"capture-case".into(),"02_证据".into()).await.unwrap();
     inbox::file_inbox_item("file-a".into(),"capture-case".into(),"evidence".into()).await.unwrap();
+    // UPDATE_PLAN 0.2.0 Phase 1：归卷即解析。此前从收件箱归卷只写 case_files 行、
+    // 从不入队 OCR，送达文书于是永远是卷宗里未解析的死文件。queue_file 在后台 worker
+    // 真正处理前就落 job 行，所以该断言只验证入队、不依赖引擎可用。
+    let queued_jobs: i64 = conn.query_row(
+        "SELECT count(*) FROM document_processing_jobs WHERE file_id IN (SELECT id FROM case_files)",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert!(queued_jobs >= 1, "归卷后应自动入队 OCR，实际入队 {queued_jobs} 个任务");
     let first_path: String = conn.query_row("SELECT file_path FROM case_files",[],|r|r.get(0)).unwrap();
     conn.execute_batch("CREATE TRIGGER qa_fail_filed BEFORE UPDATE OF status ON inbox_items WHEN NEW.id='file-b' BEGIN SELECT RAISE(ABORT,'file status failure'); END;").unwrap();
     assert!(inbox::file_inbox_item("file-b".into(),"capture-case".into(),"evidence".into()).await.is_err());

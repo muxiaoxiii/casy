@@ -1157,9 +1157,12 @@ pub async fn file_inbox_item(
             None
         };
 
+        // 归卷成功后要自动入队 OCR 的文件 id。queue_file 需要独立连接（它自己开库并
+        // 起事务），不能在归卷事务内调用，所以先存下来、commit 之后再入队。
+        let mut ocr_file_id: Option<String> = None;
         let write_result = (|| -> anyhow::Result<()> {
         if let Some(path) = &filed_path {
-            register_inbox_case_file(&tx, &case_id, path, category, &item_id)?;
+            ocr_file_id = Some(register_inbox_case_file(&tx, &case_id, path, category, &item_id)?);
         }
 
         tx.execute(
@@ -1183,7 +1186,19 @@ pub async fn file_inbox_item(
         if write_result.is_err() {
             if let Some(path) = &filed_path { let _ = std::fs::remove_file(path); }
         }
-        write_result
+        write_result?;
+        // UPDATE_PLAN 0.2.0 Phase 1：归卷即解析。此前从收件箱归卷的文件只写
+        // case_files 行、从不入队 OCR，于是送达文书躺在卷宗里永远是"未解析的死文件"。
+        // 入队失败不阻断归卷——文件已归档成功，用户可在卷宗页手动重试。
+        if let Some(file_id) = ocr_file_id {
+            if let Err(error) = crate::commands::document_intelligence::queue_file(
+                &mut *db::open_db()?,
+                &file_id,
+            ) {
+                log::warn!("归卷后自动入队 OCR 失败 ({file_id}): {error}");
+            }
+        }
+        Ok(())
     })
     .await
 }
