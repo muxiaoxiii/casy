@@ -129,6 +129,8 @@
 
 - **知识库法律字段回归**：`KnowledgeItemDto` 此前连读取都不返回 `lawName/articleNo/effectiveDate`（schema、create、patch、search 的 DTO 全都支持，只有新 Notebook 丢了），法条笔记退化成无引用元数据的普通笔记。现已恢复读取、编辑、保存与列表展示。
 
+- **生产构建修复**：前四批引入的四类缺陷（vue-tsc 与 vitest 均放行、Rolldown 生产构建报错）——工具栏替换遗留的孤立闭合标签、同一 TaskRow 上重复插入的事件绑定、勾选包裹层的 `</div>` 落错段落、`<el-dropdown-item>` 用 `</el-dropdown>` 闭合、以及错误的相对导入深度和两个不存在的图标导出名（`Sort`/`WarningFilled`）。`npm run build` 现为模板改动的必跑本地门禁。
+
 ### 文档
 
 - `docs/UPDATE_PLAN_0.2.0.md`：0.2.0 架构与分期（取文→解析→建议→冲突确认→

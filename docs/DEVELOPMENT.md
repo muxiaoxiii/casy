@@ -126,3 +126,9 @@ echo '<ProcessRequest JSON>' | CASY_BENCH_RUNS=3 ./tools/casy-doc-engine/target/
 
 - 四要素依序呈现：图标（`type` 预设优先，不要 emoji 兜底）→ 标题（说清"没有什么"，不道歉不问句）→ 说明（告诉用户下一步做什么，并区分"首次使用 / 筛选无结果 / 能力未开启"三种成因，文案不同）→ 行动（只要用户此刻有能做的下一件事，就必须给 `actionText` + `@action`；只有纯状态展示才 `hideAction`）。
 - 读取失败走错误态（`UiDataState` / `el-alert`），**不要用空态掩盖错误**——本项目多处测试正是断言"失败不得渲染成暂无数据"。
+
+## 模板改动的本地门禁
+
+`npm run typecheck`（vue-tsc）和 vitest 的编译器**都不等于生产构建**。本轮有四类缺陷两者都能过、`npm run build`（Rolldown）却报错：孤立/错配的闭合标签、重复属性、错误的相对导入深度、图标模块里不存在的导出名。
+
+**任何改动 `.vue` 模板的提交，本地必须跑 `npm run build`**，不能只跑 typecheck + vitest。本轮 beta 打包就是在 `npm run build` 挂的，而本地四项门禁全绿——等于带着坏构建推了上去。
