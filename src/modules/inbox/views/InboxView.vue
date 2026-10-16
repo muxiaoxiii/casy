@@ -13,6 +13,7 @@ import { useCapture } from '../composables/useCapture'
 import { isTauriRuntime } from '../../../core/mockData'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CaseWizard from '../../cases/components/CaseWizard.vue'
+import IntakeProposalPanel from '../components/IntakeProposalPanel.vue'
 import {
   Folder,
   Finished,
@@ -514,6 +515,7 @@ async function dismissItem(item) {
       <el-button :icon="Paperclip" text circle :disabled="!nativeFiles || processing" :title="nativeFiles ? '导入文件' : '请在桌面应用中导入文件'" aria-label="导入文件" @click="importFile" />
       <el-button :icon="ArrowRight" type="primary" native-type="submit" :disabled="!quickCaptureInputText.trim()" :loading="processing" aria-label="存入收件箱" title="存入收件箱" />
     </form>
+    <IntakeProposalPanel />
     <div class="inbox-layout">
       <section class="inbox-list">
         <div class="list-controls">
